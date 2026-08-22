@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write deepseek-harness-plugin/dsh-workspace-explorer-layout/packages/client/ui-workspace-explorer-layout/README.md
-README.md: 5f033a55d9d0a3f6da0b89a2de3771f94f1ad3d4
-README.zh.md: 14b856078db46d68b692380abb863e65f940472d
+README.md: f91faeb666707db8f88420b169e5c072dbcf5f46
+README.en.md: 1b23aae1914e3b714e328fb5293f6091a5290152

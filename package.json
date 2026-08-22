@@ -25,7 +25,7 @@
     "packages/client/ui-workspace-explorer-layout/lib/**/*.js",
     "packages/client/ui-workspace-explorer-layout/package.json",
     "packages/client/ui-workspace-explorer-layout/README.md",
-    "packages/client/ui-workspace-explorer-layout/README.zh.md",
+    "packages/client/ui-workspace-explorer-layout/README.en.md",
     "packages/client/ui-workspace-explorer-layout/LICENSE",
     "packages/client/ui-workspace-explorer-layout/THIRD_PARTY_NOTICES.md"
   ],

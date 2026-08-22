@@ -1,7 +1,8 @@
 import { Buffer } from 'node:buffer'
 import { execFile, spawn } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
-import { copyFile, lstat, mkdir, open, readFile, readdir, realpath, rename, rm, stat, unlink, writeFile } from 'node:fs/promises'
+import { constants as fsConstants } from 'node:fs'
+import { chmod, copyFile, lstat, mkdir, open, readFile, readdir, realpath, rename, rm, rmdir, stat, unlink, utimes, writeFile } from 'node:fs/promises'
 import { homedir, release as osRelease } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
@@ -514,18 +515,44 @@ function decodeBytes(bytes, encodingId, mayEndMidCharacter) {
   return undefined
 }
 
+/* Code-point -> byte maps for the single-byte encodings, built from the same
+ * WHATWG TextDecoder instances decodeBytes uses. Round-tripping through
+ * iconv-lite is lossy in the 0x80..0x9F range (its code points differ from the
+ * TextDecoder mapping), which silently corrupted those bytes on save; encoding
+ * through the inverse decoder map keeps save-as identical to the preview. */
+const SINGLE_BYTE_ENCODE_MAPS = (() => {
+  const maps = new Map()
+  for (const id of ['ascii', 'iso-8859-1', 'windows-1252', 'windows-1251']) {
+    const spec = encodingById(id)
+    const decoder = new TextDecoder(spec.decodeLabel)
+    const map = new Map()
+    for (let byte = 0; byte < 256; byte += 1) {
+      const decoded = decoder.decode(Uint8Array.of(byte))
+      if (decoded.length === 1) map.set(decoded.codePointAt(0), byte)
+    }
+    maps.set(id, map)
+  }
+  return maps
+})()
+
 /**
- * Encode text into bytes for `encodingId`. ASCII replaces non-ASCII characters
- * with '?' (lenient), matching iconv-lite's replacement behaviour for
- * unmappable characters in the other legacy encodings.
+ * Encode text into bytes for `encodingId`. ASCII and the other single-byte
+ * encodings replace unmappable characters with '?' (lenient), preserving every
+ * byte the decoder itself can produce. UTF-16 encodings add their BOM here.
  */
 function encodeText(text, encodingId) {
   if (encodingId === 'utf-8') return Buffer.from(text, 'utf8')
   if (encodingId === 'utf-8-bom') {
     return Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(text, 'utf8')])
   }
-  if (encodingId === 'ascii') {
-    return Buffer.from(text.replace(/[^\x00-\x7f]/g, '?'), 'latin1')
+  const singleByteMap = SINGLE_BYTE_ENCODE_MAPS.get(encodingId)
+  if (singleByteMap !== undefined) {
+    const bytes = Buffer.allocUnsafe(text.length)
+    for (let index = 0; index < text.length; index += 1) {
+      const byte = singleByteMap.get(text.codePointAt(index))
+      bytes[index] = byte === undefined ? 0x3f : byte
+    }
+    return bytes
   }
   const spec = encodingById(encodingId)
   let body = iconv.encode(text, spec.encode)
@@ -707,6 +734,15 @@ async function serializeWrite(queues, key, operation) {
   }
 }
 
+/** Serialize every source-workspace mutation through one queue. A workspace-wide
+ * lock is deliberately coarse: save/create/rename/copy/move/delete can affect
+ * overlapping source paths and target names that are not known until canonical
+ * checks run. Keeping those checks inside this lock makes plugin-originated
+ * mutations deterministic and lets destination allocation cover every suffix. */
+function serializeWorkspaceMutation(queues, workspace, operation) {
+  return serializeWrite(queues, `workspace:${String(workspace.id)}`, operation)
+}
+
 async function saveFile(workspace, relativePath, config, queues, req, encodingId = 'utf-8') {
   if (!config.enableEditing) throw new HttpError(403, 'editing-disabled', '当前未启用文件编辑')
   if (relativePath === '') throw new HttpError(400, 'not-a-file', '请选择要保存的文件')
@@ -745,12 +781,13 @@ async function saveFile(workspace, relativePath, config, queues, req, encodingId
   const outBytes = encodeText(text, encodingId)
 
   // This in-process route provides application-level containment for trusted local UI actions.
-  // Fresh canonical checks narrow path replacement races; kernel isolation of hostile concurrent
-  // code remains the Harness sandbox's responsibility.
-  const root = await realpath(workspace.path)
-  const candidate = resolve(root, ...relativePath.split('/'))
-  if (!isInside(root, candidate)) throw new HttpError(403, 'path-outside-workspace', '拒绝写入工作区之外的路径')
-  return serializeWrite(queues, candidate, async () => {
+  // Canonical checks run inside the workspace mutation queue so every plugin-originated rename,
+  // delete, or save observes one serial history. Kernel isolation of hostile local code remains
+  // the Harness sandbox's responsibility.
+  return serializeWorkspaceMutation(queues, workspace, async () => {
+    const root = await realpath(workspace.path)
+    const candidate = resolve(root, ...relativePath.split('/'))
+    if (!isInside(root, candidate)) throw new HttpError(403, 'path-outside-workspace', '拒绝写入工作区之外的路径')
     if (await hasSymlinkComponent(root, relativePath)) throw new HttpError(403, 'symlink-write-denied', '拒绝通过符号链接写入文件')
     const target = await realpath(candidate)
     if (!isInside(root, target)) throw new HttpError(403, 'path-outside-workspace', '拒绝写入工作区之外的路径')
@@ -854,16 +891,15 @@ async function createEntry(workspace, relativePath, config, queues, req) {
   const kind = payload.kind
   if (kind !== 'file' && kind !== 'directory') throw new HttpError(400, 'invalid-kind', '只能新建文件或文件夹')
   const name = normalizeEntryName(payload.name, config.maxEntryNameBytes)
-  const root = await realpath(workspace.path)
-  const directory = await resolveWorkspacePath(root, relativePath)
-  if (await hasSymlinkComponent(root, relativePath)) throw new HttpError(403, 'symlink-write-denied', '拒绝通过符号链接修改目录')
-  const directoryStat = await lstat(directory)
-  if (!directoryStat.isDirectory()) throw new HttpError(400, 'not-a-directory', '所选路径不是目录')
-  const targetPath = entryPath(relativePath, name)
-  const target = resolve(directory, name)
-  if (!isInside(root, target)) throw new HttpError(403, 'path-outside-workspace', '拒绝写入工作区之外的路径')
-  return serializeWrite(queues, target, async () => {
+  return serializeWorkspaceMutation(queues, workspace, async () => {
+    const root = await realpath(workspace.path)
+    const directory = await resolveWorkspacePath(root, relativePath)
     if (await hasSymlinkComponent(root, relativePath)) throw new HttpError(403, 'symlink-write-denied', '拒绝通过符号链接修改目录')
+    const directoryStat = await lstat(directory)
+    if (!directoryStat.isDirectory()) throw new HttpError(400, 'not-a-directory', '所选路径不是目录')
+    const targetPath = entryPath(relativePath, name)
+    const target = resolve(directory, name)
+    if (!isInside(root, target)) throw new HttpError(403, 'path-outside-workspace', '拒绝写入工作区之外的路径')
     try {
       if (kind === 'directory') {
         await mkdir(target)
@@ -888,27 +924,24 @@ async function renameEntry(workspace, relativePath, config, queues, req) {
   if (relativePath === '') throw new HttpError(400, 'invalid-path', '不能重命名工作区根目录')
   const payload = await readJsonObject(req, config)
   const name = normalizeEntryName(payload.name, config.maxEntryNameBytes)
-  const currentName = relativePath.slice(relativePath.lastIndexOf('/') + 1)
-  const sourceParentPath = parentPath(relativePath)
-  const targetPath = entryPath(sourceParentPath, name)
-  const root = await realpath(workspace.path)
-  const source = await resolveWorkspacePath(root, relativePath)
-  if (await hasSymlinkComponent(root, relativePath)) throw new HttpError(403, 'symlink-write-denied', '拒绝重命名符号链接路径')
-  const sourceStat = await lstat(source)
-  const kind = sourceStat.isDirectory() ? 'directory' : sourceStat.isFile() ? 'file' : undefined
-  if (kind === undefined) throw new HttpError(400, 'invalid-entry-kind', '只能重命名文件或文件夹')
-  if (name === currentName) return describeCreatedEntry(workspace, relativePath, kind)
-  const parent = dirname(source)
-  const realParent = await realpath(parent)
-  if (!isInside(root, realParent) || await hasSymlinkComponent(root, sourceParentPath)) {
-    throw new HttpError(403, 'symlink-write-denied', '拒绝通过符号链接修改目录')
-  }
-  const target = resolve(parent, name)
-  if (!isInside(root, target)) throw new HttpError(403, 'path-outside-workspace', '拒绝写入工作区之外的路径')
-  return serializeWrite(queues, target, async () => {
-    if (await hasSymlinkComponent(root, relativePath) || await hasSymlinkComponent(root, sourceParentPath)) {
-      throw new HttpError(403, 'symlink-write-denied', '拒绝重命名符号链接路径')
+  return serializeWorkspaceMutation(queues, workspace, async () => {
+    const root = await realpath(workspace.path)
+    const source = await resolveWorkspacePath(root, relativePath)
+    if (await hasSymlinkComponent(root, relativePath)) throw new HttpError(403, 'symlink-write-denied', '拒绝重命名符号链接路径')
+    const sourceStat = await lstat(source)
+    const kind = sourceStat.isDirectory() ? 'directory' : sourceStat.isFile() ? 'file' : undefined
+    if (kind === undefined) throw new HttpError(400, 'invalid-entry-kind', '只能重命名文件或文件夹')
+    const currentName = relativePath.slice(relativePath.lastIndexOf('/') + 1)
+    if (name === currentName) return describeCreatedEntry(workspace, relativePath, kind)
+    const sourceParentPath = parentPath(relativePath)
+    const targetPath = entryPath(sourceParentPath, name)
+    const parent = dirname(source)
+    const realParent = await realpath(parent)
+    if (!isInside(root, realParent) || await hasSymlinkComponent(root, sourceParentPath)) {
+      throw new HttpError(403, 'symlink-write-denied', '拒绝通过符号链接修改目录')
     }
+    const target = resolve(parent, name)
+    if (!isInside(root, target)) throw new HttpError(403, 'path-outside-workspace', '拒绝写入工作区之外的路径')
     try {
       await lstat(target)
       throw new HttpError(409, 'entry-exists', '同名文件或文件夹已存在')
@@ -916,7 +949,22 @@ async function renameEntry(workspace, relativePath, config, queues, req) {
       if (error instanceof HttpError) throw error
       if (error?.code !== 'ENOENT') throw error
     }
-    await rename(source, target)
+    const copied = await copyTreeExclusive(source, target, sourceStat, false, false)
+    if (copied === false) throw new HttpError(409, 'entry-exists', '同名文件或文件夹已存在')
+    try {
+      await verifyTreeSnapshot(copied.sourceSnapshot)
+      const settledTarget = await realpath(target)
+      if (!isInside(root, settledTarget) || await hasSymlinkComponent(root, targetPath)) {
+        throw new HttpError(403, 'symlink-write-denied', '目标路径在重命名期间发生变化，源条目未删除')
+      }
+    } catch (error) {
+      await cleanupCreatedTargets(copied.createdTargets, error)
+    }
+    try {
+      await removeEntryTreeChecked(source, sourceStat, copied.sourceSnapshot)
+    } catch (error) {
+      throw new HttpError(409, 'file-conflict', '源条目删除失败，完整目标副本已保留，请人工确认源和目标')
+    }
     return {
       workspaceId: String(workspace.id),
       fromPath: relativePath,
@@ -932,28 +980,174 @@ function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
-/**
- * Recursively copy a file or directory tree. Symlinks are skipped: copying
- * them verbatim could smuggle out-of-workspace targets into the destination
- * tree, and the caller already rejected symlink components on the source path.
- */
-async function copyTree(source, target) {
-  const sourceStat = await lstat(source)
-  if (sourceStat.isDirectory()) {
-    await mkdir(target)
-    const raw = await readdir(source, { withFileTypes: true })
-    for (const dirent of raw) {
-      if (dirent.isSymbolicLink()) continue
-      await copyTree(resolve(source, dirent.name), resolve(target, dirent.name))
-    }
-  } else {
-    await copyFile(source, target)
+/** Stable-enough identity for the application boundary. Node exposes dev/ino
+ * on Unix; Windows builds can report ino=0, where birth time is the best
+ * cross-platform replacement signal available without native openat handles. */
+function sameEntryIdentity(expected, current) {
+  if (expected.isDirectory() !== current.isDirectory() || expected.isFile() !== current.isFile()) return false
+  if (expected.ino !== 0 || current.ino !== 0) return expected.dev === current.dev && expected.ino === current.ino
+  return expected.birthtimeMs === current.birthtimeMs && expected.mode === current.mode
+}
+
+function sameEntrySnapshot(expected, current) {
+  return sameEntryIdentity(expected, current)
+    && expected.size === current.size
+    && expected.mtimeMs === current.mtimeMs
+    && expected.ctimeMs === current.ctimeMs
+}
+
+function assertEntrySnapshot(expected, current) {
+  if (!sameEntrySnapshot(expected, current)) {
+    throw new HttpError(409, 'file-conflict', '源条目在文件操作期间发生变化，请刷新后重试')
   }
 }
 
-/** Delete a file or an entire directory tree without following symlinks. */
-async function removeEntryTree(target, targetStat) {
-  if (targetStat.isDirectory()) await rm(target, { recursive: true })
+function directoryFingerprint(entries) {
+  const rows = entries.map((entry) => [
+    entry.name,
+    entry.isDirectory() ? 'directory' : entry.isFile() ? 'file' : entry.isSymbolicLink() ? 'symlink' : 'other',
+  ])
+  rows.sort((left, right) => left[0].localeCompare(right[0], 'en'))
+  return JSON.stringify(rows)
+}
+
+async function cleanupCreatedTargets(createdTargets, primaryError) {
+  const failures = []
+  for (let index = createdTargets.length - 1; index >= 0; index -= 1) {
+    const created = createdTargets[index]
+    try {
+      const current = await lstat(created.path)
+      if (!sameEntryIdentity(created.stat, current)) {
+        failures.push(new Error(`refusing to clean replaced copy target ${created.path}`))
+        continue
+      }
+      if (created.directory) await rmdir(created.path)
+      else await unlink(created.path)
+    } catch (error) {
+      if (error?.code !== 'ENOENT') failures.push(error)
+    }
+  }
+  if (failures.length > 0) {
+    throw new AggregateError([primaryError, ...failures], 'failed to clean one or more incomplete copy entries')
+  }
+  throw primaryError
+}
+
+/**
+ * Copy one file or directory tree into a path that must not exist. Every file
+ * uses COPYFILE_EXCL and every directory uses exclusive mkdir, so an external
+ * creator cannot be overwritten between an existence probe and the commit.
+ * Symlink children are omitted only for copy. Move/rename reject a tree that
+ * contains one, because deleting the source after omission would lose entries.
+ * The root call returns a complete source snapshot used again immediately
+ * before destructive removal. Cleanup removes only identities this call made,
+ * in reverse order, and never recursively erases an externally-added child.
+ */
+async function copyTreeExclusive(
+  source,
+  target,
+  expectedSource,
+  allowCollision,
+  skipSymlinks,
+  sourceSnapshot = [],
+  createdTargets = [],
+) {
+  const rootCall = expectedSource !== undefined
+  try {
+    const sourceStat = await lstat(source)
+    if (sourceStat.isSymbolicLink()) throw new HttpError(403, 'symlink-write-denied', '拒绝复制符号链接路径')
+    if (!sourceStat.isDirectory() && !sourceStat.isFile()) {
+      throw new HttpError(400, 'invalid-entry-kind', '只能复制文件或文件夹')
+    }
+    if (expectedSource !== undefined) assertEntrySnapshot(expectedSource, sourceStat)
+
+    if (sourceStat.isFile()) {
+      try {
+        await copyFile(source, target, fsConstants.COPYFILE_EXCL)
+      } catch (error) {
+        if (error?.code === 'EEXIST' && allowCollision) return false
+        if (error?.code === 'EEXIST') throw new HttpError(409, 'entry-exists', '同名文件或文件夹已存在')
+        try {
+          const partial = await lstat(target)
+          createdTargets.push({ path: target, stat: partial, directory: partial.isDirectory() })
+        } catch {}
+        throw error
+      }
+      const targetStat = await lstat(target)
+      createdTargets.push({ path: target, stat: targetStat, directory: false })
+      await chmod(target, sourceStat.mode & 0o777)
+      await utimes(target, sourceStat.atime, sourceStat.mtime)
+      assertEntrySnapshot(sourceStat, await lstat(source))
+      sourceSnapshot.push({ path: source, stat: sourceStat, directory: false })
+      return rootCall ? { sourceSnapshot, createdTargets } : true
+    }
+
+    try {
+      await mkdir(target, { mode: sourceStat.mode & 0o777 })
+    } catch (error) {
+      if (error?.code === 'EEXIST' && allowCollision) return false
+      if (error?.code === 'EEXIST') throw new HttpError(409, 'entry-exists', '同名文件或文件夹已存在')
+      throw error
+    }
+    const targetStat = await lstat(target)
+    createdTargets.push({ path: target, stat: targetStat, directory: true })
+    const before = await readdir(source, { withFileTypes: true })
+    const fingerprint = directoryFingerprint(before)
+    for (const dirent of before) {
+      if (dirent.isSymbolicLink()) {
+        if (skipSymlinks) continue
+        throw new HttpError(403, 'symlink-write-denied', '目录包含符号链接，不能安全移动或重命名')
+      }
+      await copyTreeExclusive(
+        resolve(source, dirent.name),
+        resolve(target, dirent.name),
+        undefined,
+        false,
+        skipSymlinks,
+        sourceSnapshot,
+        createdTargets,
+      )
+    }
+    const after = await readdir(source, { withFileTypes: true })
+    if (fingerprint !== directoryFingerprint(after)) {
+      throw new HttpError(409, 'file-conflict', '源目录在复制期间发生变化，请刷新后重试')
+    }
+    assertEntrySnapshot(sourceStat, await lstat(source))
+    await chmod(target, sourceStat.mode & 0o777)
+    await utimes(target, sourceStat.atime, sourceStat.mtime)
+    sourceSnapshot.push({ path: source, stat: sourceStat, directory: true, fingerprint })
+    return rootCall ? { sourceSnapshot, createdTargets } : true
+  } catch (error) {
+    if (rootCall && createdTargets.length > 0) await cleanupCreatedTargets(createdTargets, error)
+    throw error
+  }
+}
+
+async function verifyTreeSnapshot(sourceSnapshot) {
+  for (const entry of sourceSnapshot) {
+    let current
+    try {
+      current = await lstat(entry.path)
+      assertEntrySnapshot(entry.stat, current)
+      if (entry.directory) {
+        const children = await readdir(entry.path, { withFileTypes: true })
+        if (directoryFingerprint(children) !== entry.fingerprint) {
+          throw new HttpError(409, 'file-conflict', '源目录内容在文件操作期间发生变化，请刷新后重试')
+        }
+      }
+    } catch (error) {
+      if (error instanceof HttpError) throw error
+      throw new HttpError(409, 'file-conflict', '源条目在文件操作期间发生变化，请刷新后重试')
+    }
+  }
+}
+
+/** Recheck the complete copied source tree immediately before removal. */
+async function removeEntryTreeChecked(target, expectedStat, sourceSnapshot) {
+  if (sourceSnapshot !== undefined) await verifyTreeSnapshot(sourceSnapshot)
+  const current = await lstat(target)
+  assertEntrySnapshot(expectedStat, current)
+  if (current.isDirectory()) await rm(target, { recursive: true })
   else await unlink(target)
 }
 
@@ -966,67 +1160,87 @@ function dedupeName(name, index) {
 }
 
 /**
- * Copy or move (cut+paste) one workspace-confined entry. Move prefers rename
- * and falls back to copy+delete across devices (EXDEV). A colliding target
- * name is auto-deduplicated (a.txt -> a-1.txt -> a-2.txt ...) so a paste never
- * fails on an existing entry.
+ * Copy or move (cut+paste) one workspace-confined entry. Both operations use
+ * exclusive copy primitives; move is intentionally copy-then-delete rather
+ * than ordinary rename, because POSIX rename replaces an existing target.
+ * Destination allocation and all canonical checks run under the workspace lock.
  */
 async function copyEntry(workspace, sourcePath, targetPath, config, queues, cut) {
   if (!config.enableEditing) throw new HttpError(403, 'editing-disabled', '当前未启用文件编辑')
   if (sourcePath === '') throw new HttpError(400, 'invalid-path', '不能复制工作区根目录')
   if (targetPath === '') throw new HttpError(400, 'invalid-path', '目标不能是工作区根目录')
-  if (targetPath.startsWith(`${sourcePath}/`)) {
-    throw new HttpError(400, 'invalid-target', '不能复制到自身或其子目录')
-  }
-  if (cut && targetPath === sourcePath) {
-    throw new HttpError(400, 'invalid-target', '不能移动到自身')
-  }
-  const root = await realpath(workspace.path)
-  const source = await resolveWorkspacePath(root, sourcePath)
-  if (await hasSymlinkComponent(root, sourcePath)) throw new HttpError(403, 'symlink-write-denied', '拒绝复制符号链接路径')
-  const sourceStat = await lstat(source)
-  if (!sourceStat.isDirectory() && !sourceStat.isFile()) throw new HttpError(400, 'invalid-entry-kind', '只能复制文件或文件夹')
-  const targetParentPath = parentPath(targetPath)
-  const targetParent = await resolveWorkspacePath(root, targetParentPath)
-  const targetParentStat = await lstat(targetParent)
-  if (!targetParentStat.isDirectory()) throw new HttpError(400, 'not-a-directory', '目标位置不是目录')
-  const targetName = targetPath.slice(targetPath.lastIndexOf('/') + 1)
-  const target = resolve(targetParent, targetName)
-  if (!isInside(root, target)) throw new HttpError(403, 'path-outside-workspace', '拒绝写入工作区之外的路径')
-  return serializeWrite(queues, `${sourcePath}->${targetPath}`, async () => {
-    if (await hasSymlinkComponent(root, sourcePath) || await hasSymlinkComponent(root, targetParentPath)) {
+  return serializeWorkspaceMutation(queues, workspace, async () => {
+    if (targetPath.startsWith(`${sourcePath}/`)) {
+      throw new HttpError(400, 'invalid-target', '不能复制到自身或其子目录')
+    }
+    if (cut && targetPath === sourcePath) {
+      throw new HttpError(400, 'invalid-target', '不能移动到自身')
+    }
+    const root = await realpath(workspace.path)
+    const source = await resolveWorkspacePath(root, sourcePath)
+    if (await hasSymlinkComponent(root, sourcePath)) throw new HttpError(403, 'symlink-write-denied', '拒绝复制符号链接路径')
+    const sourceStat = await lstat(source)
+    if (!sourceStat.isDirectory() && !sourceStat.isFile()) throw new HttpError(400, 'invalid-entry-kind', '只能复制文件或文件夹')
+    const targetParentPath = parentPath(targetPath)
+    const targetParent = await resolveWorkspacePath(root, targetParentPath)
+    if (await hasSymlinkComponent(root, targetParentPath)) {
       throw new HttpError(403, 'symlink-write-denied', '拒绝通过符号链接复制文件')
     }
-    // Auto-deduplicate the target name inside the write queue so the choice is
-    // atomic against concurrent mutations: a.txt -> a-1.txt -> a-2.txt ...
-    let chosen = target
-    let chosenPath = targetPath
-    let chosenName = targetName
-    let index = 1
-    for (;;) {
+    const targetParentStat = await lstat(targetParent)
+    if (!targetParentStat.isDirectory()) throw new HttpError(400, 'not-a-directory', '目标位置不是目录')
+    if (sourceStat.isDirectory() && isInside(source, targetParent)) {
+      throw new HttpError(400, 'invalid-target', '不能复制到自身或其子目录')
+    }
+    const targetName = targetPath.slice(targetPath.lastIndexOf('/') + 1)
+    const target = resolve(targetParent, targetName)
+    if (!isInside(root, target)) throw new HttpError(403, 'path-outside-workspace', '拒绝写入工作区之外的路径')
+
+    let chosen
+    let chosenPath
+    let chosenName
+    let chosenSnapshot
+    let chosenCreatedTargets
+    for (let index = 0; index <= 10000; index += 1) {
+      const candidateName = index === 0 ? targetName : dedupeName(targetName, index)
+      const candidate = resolve(targetParent, candidateName)
+      const copied = await copyTreeExclusive(source, candidate, sourceStat, true, !cut)
+      if (copied === false) continue
       try {
-        await lstat(chosen)
+        await verifyTreeSnapshot(copied.sourceSnapshot)
+        const settledTarget = await realpath(candidate)
+        const candidatePath = entryPath(targetParentPath, candidateName)
+        if (!isInside(root, settledTarget) || await hasSymlinkComponent(root, candidatePath)) {
+          throw new HttpError(403, 'symlink-write-denied', '目标路径在复制期间发生变化，源条目未删除')
+        }
       } catch (error) {
-        if (error?.code !== 'ENOENT') throw error
-        break
+        await cleanupCreatedTargets(copied.createdTargets, error)
       }
-      if (index > 10000) throw new HttpError(409, 'entry-exists', '同名条目过多，无法自动命名')
-      const candidateName = dedupeName(targetName, index)
+      chosen = candidate
       chosenName = candidateName
       chosenPath = entryPath(targetParentPath, candidateName)
-      chosen = resolve(targetParent, candidateName)
-      index += 1
+      chosenSnapshot = copied.sourceSnapshot
+      chosenCreatedTargets = copied.createdTargets
+      break
     }
+    if (chosen === undefined) throw new HttpError(409, 'entry-exists', '同名条目过多，无法自动命名')
+    try {
+      const settledTarget = await realpath(chosen)
+      if (!isInside(root, settledTarget) || await hasSymlinkComponent(root, chosenPath)) {
+        throw new HttpError(403, 'symlink-write-denied', '目标路径在复制期间发生变化，源条目未删除')
+      }
+    } catch (error) {
+      await cleanupCreatedTargets(chosenCreatedTargets, error)
+    }
+
     if (cut) {
       try {
-        await rename(source, chosen)
+        await removeEntryTreeChecked(source, sourceStat, chosenSnapshot)
       } catch (error) {
-        if (error?.code !== 'EXDEV') throw error
-        await copyTree(source, chosen)
-        await removeEntryTree(source, sourceStat)
+        // Keep the completed destination as a recoverable copy. Removing it
+        // here could destroy the only intact copy if source deletion partially
+        // succeeded or an external process changed the tree.
+        throw new HttpError(409, 'file-conflict', '源条目删除失败，完整目标副本已保留，请人工确认源和目标')
       }
-    } else {
-      await copyTree(source, chosen)
     }
     return {
       workspaceId: String(workspace.id),
@@ -1044,16 +1258,15 @@ async function copyEntry(workspace, sourcePath, targetPath, config, queues, cut)
 async function deleteEntry(workspace, relativePath, config, queues) {
   if (!config.enableEditing) throw new HttpError(403, 'editing-disabled', '当前未启用文件编辑')
   if (relativePath === '') throw new HttpError(400, 'invalid-path', '不能删除工作区根目录')
-  const root = await realpath(workspace.path)
-  const source = await resolveWorkspacePath(root, relativePath)
-  if (await hasSymlinkComponent(root, relativePath)) throw new HttpError(403, 'symlink-write-denied', '拒绝删除符号链接路径')
-  const sourceStat = await lstat(source)
-  if (!sourceStat.isDirectory() && !sourceStat.isFile()) throw new HttpError(400, 'invalid-entry-kind', '只能删除文件或文件夹')
-  return serializeWrite(queues, `delete:${relativePath}`, async () => {
+  return serializeWorkspaceMutation(queues, workspace, async () => {
+    const root = await realpath(workspace.path)
+    const source = await resolveWorkspacePath(root, relativePath)
     if (await hasSymlinkComponent(root, relativePath)) throw new HttpError(403, 'symlink-write-denied', '拒绝删除符号链接路径')
+    const sourceStat = await lstat(source)
+    if (!sourceStat.isDirectory() && !sourceStat.isFile()) throw new HttpError(400, 'invalid-entry-kind', '只能删除文件或文件夹')
     const current = await realpath(source)
     if (!isInside(root, current)) throw new HttpError(403, 'path-outside-workspace', '拒绝删除工作区之外的路径')
-    await removeEntryTree(source, sourceStat)
+    await removeEntryTreeChecked(source, sourceStat)
     return { workspaceId: String(workspace.id), path: relativePath, kind: sourceStat.isDirectory() ? 'directory' : 'file' }
   })
 }
@@ -1104,12 +1317,44 @@ function draftFileName(relativePath) {
   return `${createHash('sha256').update(relativePath).digest('hex')}.json`
 }
 
-function draftFilePath(workspaceId, relativePath) {
-  return join(draftRoot(), String(workspaceId), draftFileName(relativePath))
+function draftWorkspacePart(workspaceId) {
+  const value = String(workspaceId)
+  // Existing workspace ids are UUIDs. Hash unusual ids rather than allowing a
+  // future registry implementation to turn the draft root into a path join.
+  return /^[A-Za-z0-9._-]+$/u.test(value)
+    ? value
+    : createHash('sha256').update(value).digest('hex')
 }
 
-async function readDraftFile(workspaceId, relativePath) {
-  const target = draftFilePath(workspaceId, relativePath)
+function validateDraftOwner(value) {
+  if (value === undefined || value === null || value === '') return undefined
+  if (typeof value !== 'string' || value.length > 256 || /\u0000|[\u0001-\u001f\u007f\u2028\u2029]/u.test(value)) {
+    throw new HttpError(400, 'invalid-draft', '暂存 owner 无效')
+  }
+  return value
+}
+
+function draftOwnerPart(owner) {
+  return `owner-${createHash('sha256').update(owner).digest('hex')}`
+}
+
+function draftWorkspaceDir(workspaceId) {
+  return join(draftRoot(), draftWorkspacePart(workspaceId))
+}
+
+function draftOwnerDir(workspaceId, owner) {
+  return owner === undefined ? draftWorkspaceDir(workspaceId) : join(draftWorkspaceDir(workspaceId), draftOwnerPart(owner))
+}
+
+function draftFilePath(workspaceId, relativePath, owner) {
+  return join(draftOwnerDir(workspaceId, owner), draftFileName(relativePath))
+}
+
+function draftGenerationPath(workspaceId, owner) {
+  return join(draftOwnerDir(workspaceId, owner), '.generation.json')
+}
+
+async function readJsonFileOrNull(target) {
   let raw
   try {
     raw = await readFile(target, 'utf8')
@@ -1117,22 +1362,96 @@ async function readDraftFile(workspaceId, relativePath) {
     if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return null
     throw error
   }
-  let value
   try {
-    value = JSON.parse(raw)
+    const value = JSON.parse(raw)
+    return isPlainObject(value) ? value : null
   } catch {
     // A corrupt draft is treated as absent so the editor never surfaces a
     // half-written file; the next auto-save recreates it.
     return null
   }
-  if (!isPlainObject(value) || value.path !== relativePath) return null
+}
+
+async function readOwnerGenerationState(workspaceId, owner) {
+  if (owner === undefined) return { generation: -1, operation: undefined }
+  const value = await readJsonFileOrNull(draftGenerationPath(workspaceId, owner))
+  return {
+    generation: Number.isSafeInteger(value?.generation) && value.generation >= 0 ? value.generation : -1,
+    operation: typeof value?.operation === 'string' ? value.operation : undefined,
+  }
+}
+
+async function readOwnerGeneration(workspaceId, owner) {
+  return (await readOwnerGenerationState(workspaceId, owner)).generation
+}
+
+async function readDraftAtPath(workspaceId, relativePath, owner) {
+  const value = await readJsonFileOrNull(draftFilePath(workspaceId, relativePath, owner))
+  if (value === null || value.path !== relativePath) return null
+  if (owner !== undefined && value.owner !== undefined && value.owner !== owner) return null
   return value
 }
 
-function validateDraftPayload(payload, config) {
+async function readDraftFile(workspaceId, relativePath, owner) {
+  const owned = await readDraftAtPath(workspaceId, relativePath, owner)
+  if (owner === undefined) {
+    if (owned === null || owned.deleted === true) return null
+    return { ...owned, exists: true }
+  }
+  const ownerGeneration = await readOwnerGeneration(workspaceId, owner)
+  if (owned !== null) {
+    if (owned.deleted === true) {
+      return { exists: false, owner, generation: owned.generation ?? ownerGeneration, ownerGeneration }
+    }
+    return { ...owned, exists: true, owner, generation: owned.generation ?? ownerGeneration, ownerGeneration }
+  }
+  // New owner-aware clients can restore drafts written by older clients. The
+  // legacy file is never deleted implicitly, so an old client remains able to
+  // see it while the new client has an isolated copy after its first PUT.
+  const legacy = await readDraftAtPath(workspaceId, relativePath, undefined)
+  if (legacy !== null && legacy.deleted !== true) {
+    return { ...legacy, exists: true, legacy: true, owner, generation: ownerGeneration, ownerGeneration }
+  }
+  return { exists: false, owner, generation: ownerGeneration, ownerGeneration }
+}
+
+function parseDraftGeneration(value, required = false) {
+  if (value === undefined || value === null || value === '') {
+    if (required) throw new HttpError(400, 'invalid-draft', '暂存请求必须提供 generation')
+    return undefined
+  }
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new HttpError(400, 'invalid-draft', 'generation 无效')
+  }
+  return value
+}
+
+function parseDraftGenerationQuery(value) {
+  if (value === null) return undefined
+  if (!/^(?:0|[1-9]\d*)$/u.test(value)) throw new HttpError(400, 'invalid-draft', 'generation 无效')
+  return parseDraftGeneration(Number(value))
+}
+
+function validateDraftPayload(payload, config, queryPath, queryOwner, queryGeneration) {
   if (!isPlainObject(payload)) throw new HttpError(400, 'invalid-draft', '暂存请求必须是 JSON 对象')
   const relativePath = normalizeRelativePath(payload.path ?? '')
   if (relativePath === '') throw new HttpError(400, 'invalid-path', '暂存必须指定文件路径')
+  if (queryPath !== undefined && queryPath !== '' && relativePath !== queryPath) {
+    throw new HttpError(400, 'invalid-draft', '查询路径与暂存 payload 路径不一致')
+  }
+  const payloadOwner = validateDraftOwner(payload.owner ?? payload.sessionId)
+  if (queryOwner !== undefined && payloadOwner !== undefined && queryOwner !== payloadOwner) {
+    throw new HttpError(400, 'invalid-draft', '查询 owner 与暂存 payload owner 不一致')
+  }
+  const owner = queryOwner ?? payloadOwner
+  const payloadGeneration = parseDraftGeneration(payload.generation)
+  if (queryGeneration !== undefined && payloadGeneration !== undefined && queryGeneration !== payloadGeneration) {
+    throw new HttpError(400, 'invalid-draft', '查询 generation 与暂存 payload generation 不一致')
+  }
+  const generation = payloadGeneration ?? queryGeneration
+  if (owner !== undefined && generation === undefined) {
+    throw new HttpError(400, 'invalid-draft', 'owner 暂存写入必须提供 generation')
+  }
   const text = (value, name) => {
     if (typeof value !== 'string' || value.includes('\0')) throw new HttpError(400, 'invalid-draft', `${name} 无效`)
     if (Buffer.byteLength(value, 'utf8') > config.maxEditableBytes) {
@@ -1158,36 +1477,302 @@ function validateDraftPayload(payload, config) {
     baseText,
     baseRevision,
     draft,
+    ...(owner === undefined ? {} : { owner }),
+    ...(generation === undefined ? {} : { generation }),
   }
 }
 
-/** Persist one file's draft JSON (atomic temp+rename, serialized per path). */
-async function saveDraftFile(workspaceId, payload, config, queues) {
-  if (!config.enableEditing) throw new HttpError(403, 'editing-disabled', '当前未启用文件编辑')
-  const target = draftFilePath(workspaceId, payload.path)
-  const body = `${JSON.stringify(payload)}\n`
-  return serializeWrite(queues, `draft:${workspaceId}:${payload.path}`, async () => {
-    await mkdir(dirname(target), { recursive: true })
-    const temp = join(dirname(target), `.${randomBytes(16).toString('hex')}.tmp`)
-    try {
-      await writeFile(temp, body, 'utf8')
-      await rename(temp, target)
-    } catch (error) {
-      await unlink(temp).catch(() => {})
-      throw error
-    }
-    return { workspaceId: String(workspaceId), path: payload.path, saved: true }
+function draftQueueKey(workspaceId, owner) {
+  return owner === undefined
+    ? `draft-legacy:${String(workspaceId)}`
+    : `draft-owner:${String(workspaceId)}:${draftOwnerPart(owner)}`
+}
+
+async function writeJsonAtomic(target, value) {
+  await mkdir(dirname(target), { recursive: true })
+  const temp = join(dirname(target), `.${randomBytes(16).toString('hex')}.tmp`)
+  try {
+    await writeFile(temp, `${JSON.stringify(value)}\n`, 'utf8')
+    await rename(temp, target)
+  } catch (error) {
+    await unlink(temp).catch(() => {})
+    throw error
+  }
+}
+
+async function writeOwnerGeneration(workspaceId, owner, generation, operation) {
+  if (owner === undefined) return
+  await writeJsonAtomic(draftGenerationPath(workspaceId, owner), {
+    version: 2,
+    owner,
+    generation,
+    operation,
   })
 }
 
-async function deleteDraftFile(workspaceId, relativePath, config, queues) {
+function draftOperationToken(action, value) {
+  const digest = createHash('sha256').update(JSON.stringify(value)).digest('hex')
+  return `${action}:${digest}`
+}
+
+function draftPayloadEqual(left, right) {
+  return left?.path === right?.path
+    && left?.encoding === right?.encoding
+    && left?.lineEnding === right?.lineEnding
+    && Boolean(left?.bom) === Boolean(right?.bom)
+    && left?.baseText === right?.baseText
+    && left?.baseRevision === right?.baseRevision
+    && left?.draft === right?.draft
+}
+
+async function ownerCurrentGeneration(workspaceId, owner, relativePath) {
+  const ownerState = await readOwnerGenerationState(workspaceId, owner)
+  const existing = await readDraftAtPath(workspaceId, relativePath, owner)
+  const recordGeneration = Number.isSafeInteger(existing?.generation) ? existing.generation : -1
+  return { current: Math.max(ownerState.generation, recordGeneration), existing, ownerState }
+}
+
+/** Persist one draft. Owner-aware writes are serialized per owner and guarded by
+ * a durable owner generation. Legacy requests retain the original workspace/path
+ * file and last-write-wins behavior for old clients. */
+async function saveDraftFile(workspaceId, payload, config, queues) {
   if (!config.enableEditing) throw new HttpError(403, 'editing-disabled', '当前未启用文件编辑')
-  const target = draftFilePath(workspaceId, relativePath)
-  return serializeWrite(queues, `draft:${workspaceId}:${relativePath}`, async () => {
-    await unlink(target).catch((error) => {
-      if (error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR') throw error
+  const owner = payload.owner
+  const generation = payload.generation
+  return serializeWrite(queues, draftQueueKey(workspaceId, owner), async () => {
+    let current = -1
+    let existing = null
+    let state
+    if (owner !== undefined && generation !== undefined) {
+      const operation = draftOperationToken('put', payload)
+      const snapshot = await ownerCurrentGeneration(workspaceId, owner, payload.path)
+      current = snapshot.current
+      existing = snapshot.existing
+      state = snapshot.ownerState
+      if (generation < current) throw new HttpError(409, 'draft-generation-conflict', '暂存写入已过期，请重新读取草稿')
+      if (generation === current && current >= 0 && state.operation !== undefined && state.operation !== operation) {
+        throw new HttpError(409, 'draft-generation-conflict', '暂存 generation 已被其他操作占用')
+      }
+      if (generation === current && existing !== null) {
+        if (!existing.deleted && draftPayloadEqual(existing, payload)) {
+          return { workspaceId: String(workspaceId), path: payload.path, owner, generation, saved: true, idempotent: true }
+        }
+        throw new HttpError(409, 'draft-generation-conflict', '暂存 generation 已被其他操作占用')
+      }
+      if (generation > current) await writeOwnerGeneration(workspaceId, owner, generation, operation)
+    }
+    const stored = owner === undefined && generation === undefined
+      ? payload
+      : { version: 2, ...payload }
+    await writeJsonAtomic(draftFilePath(workspaceId, payload.path, owner), stored)
+    return {
+      workspaceId: String(workspaceId),
+      path: payload.path,
+      ...(owner === undefined ? {} : { owner }),
+      ...(generation === undefined ? {} : { generation }),
+      saved: true,
+    }
+  })
+}
+
+/** Delete one draft. Owner-aware deletion writes a tombstone rather than
+ * unlinking, so a late PUT for a path that did not yet have a draft is still
+ * rejected by the owner generation fence. */
+async function deleteDraftFile(workspaceId, relativePath, config, queues, owner, generation) {
+  if (!config.enableEditing) throw new HttpError(403, 'editing-disabled', '当前未启用文件编辑')
+  return serializeWrite(queues, draftQueueKey(workspaceId, owner), async () => {
+    const target = draftFilePath(workspaceId, relativePath, owner)
+    if (owner === undefined || generation === undefined) {
+      await unlink(target).catch((error) => {
+        if (error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR') throw error
+      })
+      return { workspaceId: String(workspaceId), path: relativePath, ...(owner === undefined ? {} : { owner }), deleted: true }
+    }
+    const state = await ownerCurrentGeneration(workspaceId, owner, relativePath)
+    const operation = draftOperationToken('delete', { path: relativePath })
+    if (generation < state.current) throw new HttpError(409, 'draft-generation-conflict', '暂存删除已过期，请重新读取草稿')
+    if (generation === state.current && state.current >= 0
+      && state.ownerState.operation !== undefined && state.ownerState.operation !== operation) {
+      throw new HttpError(409, 'draft-generation-conflict', '暂存 generation 已被其他操作占用')
+    }
+    if (generation === state.current && state.existing?.deleted === true) {
+      return { workspaceId: String(workspaceId), path: relativePath, owner, generation, deleted: true, idempotent: true }
+    }
+    if (generation === state.current && state.existing !== null) {
+      throw new HttpError(409, 'draft-generation-conflict', '暂存 generation 已被其他操作占用')
+    }
+    if (generation > state.current) await writeOwnerGeneration(workspaceId, owner, generation, operation)
+    await writeJsonAtomic(target, { version: 2, owner, path: relativePath, generation, deleted: true })
+    return { workspaceId: String(workspaceId), path: relativePath, owner, generation, deleted: true }
+  })
+}
+
+function draftPathMatches(path, prefix) {
+  return prefix === '' || path === prefix || path.startsWith(`${prefix}/`)
+}
+
+function rewriteDraftPath(path, from, to) {
+  if (path === from) return to
+  if (from === '') return to === '' ? path : `${to}/${path}`
+  return path.startsWith(`${from}/`) ? `${to}${path.slice(from.length)}` : path
+}
+
+async function listDraftRecords(workspaceId, owner) {
+  const directory = draftOwnerDir(workspaceId, owner)
+  let entries
+  try {
+    entries = await readdir(directory, { withFileTypes: true })
+  } catch (error) {
+    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return []
+    throw error
+  }
+  const records = []
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.json') || entry.name === '.generation.json') continue
+    const file = join(directory, entry.name)
+    const value = await readJsonFileOrNull(file)
+    if (value === null || typeof value.path !== 'string') continue
+    if (owner !== undefined && value.owner !== owner) continue
+    try {
+      normalizeRelativePath(value.path)
+    } catch {
+      continue
+    }
+    records.push({ file, value, owner })
+  }
+  return records
+}
+
+/* Owner-aware deletes write a tombstone instead of unlinking. The durable
+ * generation fence lives in .generation.json (every write/delete/tree op
+ * advances it), so a tombstone's only remaining jobs are suppressing restore
+ * of a discarded draft and idempotent duplicate deletes — neither needs the
+ * file to live forever. Reclaim tombstones older than the retention window
+ * whenever a tree operation already holds the full record list, keeping the
+ * draft directory bounded without ever touching the fence. */
+const DRAFT_TOMBSTONE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
+async function pruneDraftTombstones(records, owner) {
+  if (owner === undefined) return
+  const now = Date.now()
+  for (const record of records) {
+    if (record.value?.deleted !== true || record.value.owner !== owner) continue
+    try {
+      const fileStat = await stat(record.file)
+      if (now - fileStat.mtimeMs <= DRAFT_TOMBSTONE_RETENTION_MS) continue
+      await unlink(record.file)
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error
+    }
+  }
+}
+
+/** Move or delete every staged draft below a relative path. Owner-aware calls
+ * require a generation and leave tombstones for old paths; this makes a late
+ * autosave fail even when that path had no draft at the instant of the tree
+ * operation. Legacy calls operate on the old flat files for compatibility. */
+async function draftTreeOperation(workspaceId, payload, config, queues) {
+  if (!config.enableEditing) throw new HttpError(403, 'editing-disabled', '当前未启用文件编辑')
+  if (!isPlainObject(payload)) throw new HttpError(400, 'invalid-draft', '暂存树请求必须是 JSON 对象')
+  const action = payload.action
+  if (action !== 'move' && action !== 'delete') throw new HttpError(400, 'invalid-draft', '暂存树操作无效')
+  const owner = validateDraftOwner(payload.owner ?? payload.sessionId)
+  const generation = parseDraftGeneration(payload.generation, owner !== undefined)
+  const fromPath = normalizeRelativePath(payload.fromPath ?? payload.path ?? '')
+  const toPath = action === 'move' ? normalizeRelativePath(payload.toPath ?? '') : undefined
+  if (action === 'move') {
+    if (fromPath === '' || toPath === '') throw new HttpError(400, 'invalid-path', '暂存移动必须指定源和目标目录')
+    if (toPath === fromPath || toPath.startsWith(`${fromPath}/`)) {
+      throw new HttpError(400, 'invalid-target', '暂存不能移动到自身或其子目录')
+    }
+  }
+  return serializeWrite(queues, draftQueueKey(workspaceId, owner), async () => {
+    let state
+    let operation
+    if (owner !== undefined) {
+      state = await readOwnerGenerationState(workspaceId, owner)
+      operation = draftOperationToken(`tree-${action}`, { fromPath, toPath, owner })
+      if (generation < state.generation) throw new HttpError(409, 'draft-generation-conflict', '暂存树操作已过期，请重新读取草稿')
+      if (generation === state.generation && state.generation >= 0
+        && state.operation !== undefined && state.operation !== operation) {
+        throw new HttpError(409, 'draft-generation-conflict', '暂存 generation 已被其他操作占用')
+      }
+      if (generation > state.generation) await writeOwnerGeneration(workspaceId, owner, generation, operation)
+    }
+    let records = await listDraftRecords(workspaceId, owner)
+    if (owner !== undefined) {
+      // Claim legacy records lazily when an owner performs a tree operation.
+      // An owner tombstone wins over the legacy fallback at the same path.
+      const ownedPaths = new Set(records.map(record => record.value.path))
+      const legacy = await listDraftRecords(workspaceId, undefined)
+      records = [...records, ...legacy.filter(record => !ownedPaths.has(record.value.path))]
+    }
+    const selected = records.filter(record => record.value.deleted !== true && draftPathMatches(record.value.path, fromPath))
+    if (action === 'delete') {
+      for (const record of selected) {
+        if (record.owner === undefined) await unlink(record.file).catch((error) => {
+          if (error?.code !== 'ENOENT') throw error
+        })
+        if (owner !== undefined) await writeJsonAtomic(draftFilePath(workspaceId, record.value.path, owner), {
+          version: 2, owner, path: record.value.path, generation, deleted: true,
+        })
+      }
+      await pruneDraftTombstones(records, owner)
+      return {
+        workspaceId: String(workspaceId),
+        ...(owner === undefined ? {} : { owner, generation }),
+        action,
+        path: fromPath,
+        count: selected.length,
+      }
+    }
+
+    const sourcePaths = new Set(selected.map(record => record.value.path))
+    const destinations = selected.map(record => {
+      const path = rewriteDraftPath(record.value.path, fromPath, toPath)
+      return {
+        record,
+        path,
+        next: {
+          ...record.value,
+          path,
+          ...(owner === undefined ? {} : { version: 2, owner, generation }),
+        },
+        complete: false,
+      }
     })
-    return { workspaceId: String(workspaceId), path: relativePath, deleted: true }
+    for (const destination of destinations) {
+      const collision = records.find(record => record.value.path === destination.path && !sourcePaths.has(record.value.path) && record.value.deleted !== true)
+      if (collision === undefined) continue
+      if (draftPayloadEqual(collision.value, destination.next)
+        && (owner === undefined || collision.value.generation === generation)) {
+        destination.complete = true
+        continue
+      }
+      throw new HttpError(409, 'entry-exists', `目标暂存已存在：${destination.path}`)
+    }
+    for (const destination of destinations) {
+      if (!destination.complete) await writeJsonAtomic(draftFilePath(workspaceId, destination.path, owner), destination.next)
+    }
+    for (const record of selected) {
+      if (owner === undefined) {
+        await unlink(record.file).catch((error) => {
+          if (error?.code !== 'ENOENT') throw error
+        })
+      } else {
+        await writeJsonAtomic(draftFilePath(workspaceId, record.value.path, owner), {
+          version: 2, owner, path: record.value.path, generation, deleted: true,
+        })
+      }
+    }
+    await pruneDraftTombstones(records, owner)
+    return {
+      workspaceId: String(workspaceId),
+      ...(owner === undefined ? {} : { owner, generation }),
+      action,
+      fromPath,
+      toPath,
+      count: selected.length,
+    }
   })
 }
 
@@ -1470,6 +2055,7 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
     const searchEndpoint = url.pathname === `${API_PREFIX}/search`
     const revealEndpoint = url.pathname === `${API_PREFIX}/reveal`
     const draftEndpoint = url.pathname === `${API_PREFIX}/draft`
+    const draftTreeEndpoint = url.pathname === `${API_PREFIX}/draft-tree`
     const allowed = contextEndpoint
       ? 'POST'
       : encodingsEndpoint
@@ -1488,14 +2074,16 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
                     ? 'GET, HEAD'
                     : revealEndpoint
                       ? 'POST'
-                      : draftEndpoint
-                        ? 'GET, HEAD, PUT, DELETE'
-                        : undefined
+                      : draftTreeEndpoint
+                        ? 'POST'
+                        : draftEndpoint
+                          ? 'GET, HEAD, PUT, DELETE'
+                          : undefined
     if (allowed !== undefined && !allowed.split(', ').includes(req.method ?? '')) {
       sendError(req, res, 405, 'method-not-allowed', `该接口只允许 ${allowed} 请求`, { allow: allowed })
       return
     }
-    if (!contextEndpoint && !encodingsEndpoint && !entryEndpoint && !externalFileEndpoint && !fileEndpoint && !fsEndpoint && !treeEndpoint && !searchEndpoint && !revealEndpoint && !draftEndpoint) {
+    if (!contextEndpoint && !encodingsEndpoint && !entryEndpoint && !externalFileEndpoint && !fileEndpoint && !fsEndpoint && !treeEndpoint && !searchEndpoint && !revealEndpoint && !draftEndpoint && !draftTreeEndpoint) {
       sendError(req, res, 404, 'endpoint-not-found', '接口不存在')
       return
     }
@@ -1513,6 +2101,11 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
     }
     const workspaceId = requiredQuery(url, 'workspaceId')
     const workspace = workspaceFor(ctx, workspaceId)
+    if (draftTreeEndpoint) {
+      const payload = await readJsonObject(req, config)
+      sendJson(req, res, 200, await draftTreeOperation(workspaceId, payload, config, writeQueues))
+      return
+    }
     if (searchEndpoint) {
       const query = requiredQuery(url, 'q')
       if (query.includes('\n') || query.includes('\r')
@@ -1529,18 +2122,24 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
     const relativePath = normalizeRelativePath(url.searchParams.get('path') ?? '')
     const encodingId = url.searchParams.get('encoding') ?? 'utf-8'
     if (draftEndpoint) {
+      const owner = validateDraftOwner(url.searchParams.get('owner') ?? url.searchParams.get('sessionId') ?? undefined)
+      const generation = parseDraftGenerationQuery(url.searchParams.get('generation'))
       if (req.method === 'GET' || req.method === 'HEAD') {
         if (relativePath === '') throw new HttpError(400, 'invalid-path', '暂存读取必须指定文件路径')
-        const value = await readDraftFile(workspaceId, relativePath)
+        const value = await readDraftFile(workspaceId, relativePath, owner)
         sendJson(req, res, 200, value ?? { exists: false })
         return
       }
       if (req.method === 'DELETE') {
         if (relativePath === '') throw new HttpError(400, 'invalid-path', '暂存删除必须指定文件路径')
-        sendJson(req, res, 200, await deleteDraftFile(workspaceId, relativePath, config, writeQueues))
+        if (owner !== undefined && generation === undefined) throw new HttpError(400, 'invalid-draft', 'owner 暂存删除必须提供 generation')
+        sendJson(req, res, 200, await deleteDraftFile(workspaceId, relativePath, config, writeQueues, owner, generation))
         return
       }
-      const payload = validateDraftPayload(await readJsonObject(req, config, config.maxEditableBytes * 2 + 64 * 1024), config)
+      if (relativePath === '') throw new HttpError(400, 'invalid-path', '暂存写入必须指定文件路径')
+      const maximum = Math.min(64 * 1024 * 1024, config.maxEditableBytes * 2 + 64 * 1024)
+      const body = await readJsonObject(req, config, maximum)
+      const payload = validateDraftPayload(body, config, relativePath, owner, generation)
       sendJson(req, res, 200, await saveDraftFile(workspaceId, payload, config, writeQueues))
       return
     }
