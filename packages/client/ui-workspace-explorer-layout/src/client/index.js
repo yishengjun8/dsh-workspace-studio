@@ -261,7 +261,7 @@ const zh = {
   'editor.saveConflict': '保存冲突：文件已在磁盘上被其他工具修改。草稿已保留，请重新读取或选择保留版本。',
   'editor.saveFailed': '保存失败：{message}。草稿已保留。',
   'editor.saveAsFailed': '无法另存为编码：{reason}',
-  'editor.cancelRestored': '已取消编辑，内容已恢复到最近保存的版本。',
+  'editor.cancelRestored': '已取消编辑，已从磁盘重新读取源文件。',
   'editor.autosaveFailed': '自动保存失败：{message}。草稿已保留。',
   'editor.saveCancelled': '已取消保存，仍可继续编辑。',
   'dialog.saveConflictTitle': '保存冲突',
@@ -582,7 +582,7 @@ const en = {
   'editor.saveConflict': 'Save conflict: the file was changed on disk by another tool. Your draft was kept; reload or pick which version to keep.',
   'editor.saveFailed': 'Save failed: {message}. Your draft was kept.',
   'editor.saveAsFailed': 'Cannot save as encoding: {reason}',
-  'editor.cancelRestored': 'Edit canceled; content restored to the last saved version.',
+  'editor.cancelRestored': 'Edit canceled; reloaded the source file from disk.',
   'editor.autosaveFailed': 'Auto-save failed: {message}. Your draft was kept.',
   'editor.saveCancelled': 'Save canceled; you can keep editing.',
   'dialog.saveConflictTitle': 'Save Conflict',
@@ -3413,6 +3413,10 @@ function WorkspaceExplorer({
   // Set by the preview-header 刷新 action; the file-read effect consumes it at
   // the start of its next pass and surfaces a "reloaded" status on success.
   const refreshPendingRef = useRef(false)
+  // Set by the preview-header 取消 action; like refreshPendingRef but surfaces
+  // the cancel-specific "reloaded from disk" status once the discard re-read
+  // completes.
+  const cancelRestoreRef = useRef(false)
   const previewTabsRef = useRef(null)
   const previewSectionRef = useRef(null)
   const previewHeaderRef = useRef(null)
@@ -3877,6 +3881,8 @@ function WorkspaceExplorer({
     // flag can never decorate a later ordinary open with the reloaded status.
     const refreshPending = refreshPendingRef.current
     refreshPendingRef.current = false
+    const cancelRestore = cancelRestoreRef.current
+    cancelRestoreRef.current = false
     if (activePath === null) {
       publishEditorContext(undefined)
       setPreview({ state: 'idle' })
@@ -4030,7 +4036,8 @@ function WorkspaceExplorer({
           setStatus(notRestorableStatus)
           if (storedDraft?.path === activePath) clearDraft()
         }
-        if (refreshPending) setStatus({ text: translate('editor.refreshed') })
+        if (cancelRestore) setStatus({ text: translate('editor.cancelRestored') })
+        else if (refreshPending) setStatus({ text: translate('editor.refreshed') })
         setReadEpoch(epoch => epoch + 1)
         updateTab(activePath, {
           baseText: restored.baseText,
@@ -4045,7 +4052,7 @@ function WorkspaceExplorer({
           saving: false,
           scrollTop: tab?.scrollTop ?? 0,
           size: Number.isFinite(result.size) ? result.size : null,
-          status: refreshPending ? { text: translate('editor.refreshed') } : (canRestore ? restoredStatus : ((hasDiskDraft || hasStoredContent) ? notRestorableStatus : tab?.status)),
+          status: cancelRestore ? { text: translate('editor.cancelRestored') } : (refreshPending ? { text: translate('editor.refreshed') } : (canRestore ? restoredStatus : ((hasDiskDraft || hasStoredContent) ? notRestorableStatus : tab?.status))),
           symlink: Boolean(selection.symlink),
         })
       })
@@ -4349,23 +4356,24 @@ function WorkspaceExplorer({
     if (preview.state !== 'ready' || saving || activeTab === undefined) return
     if (!dirty) return
     const path = activeTab.path
-    // Discard the working edits: restore the editor to the source as last read
-    // (the source was never polluted by the draft) and remove the staging
-    // draft file. The source file itself is not written.
-    const restored = diskBaseRef.current
-    const state = editorRef.current?.state
-    editorRef.current?.dispatch({ changes: { from: 0, to: state?.doc.length ?? 0, insert: restored } })
-    baseText.current = restored
-    setDraft(restored)
-    setDirty(false)
+    // Discard the working edits: clear the staging draft and drop the snapshot,
+    // then re-read the source file from disk so the editor reflects the actual
+    // current file — never a stale in-memory snapshot. The source file itself
+    // is never written by cancel.
     latestDraft.current = undefined
     clearDraft()
-    lastWriteRef.current.set(path, { revision: null, content: restored })
-    const nextStatus = { text: translate('editor.cancelRestored') }
-    setStatus(nextStatus)
-    updateTab(path, { dirty: false, draft: restored, editing: true, status: nextStatus, revision: preview.revision ?? null })
-    await clearDraftFile(path, restored, preview.encoding ?? 'utf-8', preview.lineEnding ?? 'none', Boolean(preview.bom), preview.revision ?? null)
-  }, [activeTab, baseText, clearDraft, clearDraftFile, dirty, preview, saving, updateTab])
+    lastWriteRef.current.set(path, { revision: null, content: '' })
+    // Mark the tab clean synchronously so the pending read pass cannot
+    // resurrect the discarded edits from the tab/draft state.
+    updateTab(path, { dirty: false, draft: '', editing: true })
+    setDraft('')
+    setDirty(false)
+    await clearDraftFile(path, diskBaseRef.current, preview.encoding ?? 'utf-8', preview.lineEnding ?? 'none', Boolean(preview.bom), preview.revision ?? null)
+    // Re-read the source from disk (the authoritative restore) and surface a
+    // cancel-specific status when the read completes.
+    cancelRestoreRef.current = true
+    setReloadToken(token => token + 1)
+  }, [activeTab, clearDraft, clearDraftFile, dirty, preview, saving, updateTab])
   const refresh=useCallback(()=>{if(hasDirtyTabs){setStatus({error:true,text:translate('editor.refreshBlocked')});return}abortDirectoryRequests();setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);composingRef.current=false;setDirectories(new Map());setExpanded(new Set(['']));setStatus(undefined);void loadDirectory('')},[abortDirectoryRequests,hasDirtyTabs,loadDirectory])
   const toggleDirectory=useCallback(entry=>{const path=entry.path;const opening=!expanded.has(path);setExpanded(cur=>{const next=new Set(cur);opening?next.add(path):next.delete(path);return next});if(opening){if(directories.get(path)?.state!=='ready')void loadDirectory(path);chooseDirectory(entry)}else setSelected(entry)},[chooseDirectory,directories,expanded,loadDirectory])
   const openContextMenu=useCallback((event,entry)=>{event.preventDefault();setSelected(entry);setContextMenu({entry,x:event.clientX,y:event.clientY})},[])
