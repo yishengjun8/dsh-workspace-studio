@@ -319,6 +319,7 @@ const zh = {
   'status.revealFailed': '打开失败：{message}',
   'status.revealNoWorkspace': '未找到该会话的工作区。',
   'status.archivedSession': '已归档会话。',
+  'status.archivedSessions': '已归档 {n} 个会话。',
   'status.archiveFailed': '归档失败：{message}',
   'status.draftRestored': '已恢复此工作区中未保存的草稿。',
   'status.draftRestoredConflict': '磁盘文件已在草稿保存后更改。草稿已恢复；保存时将自动合并或提示选择。',
@@ -675,6 +676,7 @@ const en = {
   'status.revealFailed': 'Open failed: {message}',
   'status.revealNoWorkspace': 'No workspace found for this session.',
   'status.archivedSession': 'Session archived.',
+  'status.archivedSessions': 'Archived {n} sessions.',
   'status.archiveFailed': 'Archive failed: {message}',
   'status.draftRestored': 'Restored unsaved drafts for this workspace.',
   'status.draftRestoredConflict': 'The file changed on disk after your draft was saved. The draft was restored; saving will merge or ask you to choose.',
@@ -7415,13 +7417,29 @@ function AppFrame(props) {
     if (menu === undefined) return
     setSessionContextMenu(undefined)
     setSessionInlineRename(undefined)
-    props.archiveSession(String(menu.sessionId)).then(() => {
-      if (mountedRef.current) showSessionNotice(translate('status.archivedSession'))
+    // A fork root archives its whole derived branch tree (same rule as the
+    // mind map's branch archive); standalone sessions archive just themselves.
+    const snapshot = props.getSessionList()
+    const parentOf = new Map()
+    for (const id of snapshot.ids) {
+      const summary = snapshot.byId[id]
+      if (summary === undefined || summary.origin === 'subagent' || summary.blank) continue
+      const parent = summary.parentId
+      if (parent !== undefined) parentOf.set(id, String(parent))
+    }
+    const ids = [...new Set([String(menu.sessionId), ...mindmapDescendantsOf(parentOf, String(menu.sessionId))])]
+    const run = async () => {
+      for (const id of ids) await props.archiveSession(id)
+    }
+    run().then(() => {
+      if (!mountedRef.current) return
+      const count = ids.length
+      showSessionNotice(count > 1 ? translate('status.archivedSessions', { n: count }) : translate('status.archivedSession'))
     }).catch(error => {
       if (!mountedRef.current) return
       showSessionNotice(translate('status.archiveFailed', { message: error instanceof Error ? error.message : String(error) }), true)
     })
-  }, [props.archiveSession, sessionContextMenu, showSessionNotice])
+  }, [props.archiveSession, props.getSessionList, sessionContextMenu, showSessionNotice])
   const revealSessionFromMenu = useCallback(() => {
     const menu = sessionContextMenu
     if (menu === undefined) return
