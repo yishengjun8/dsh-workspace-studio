@@ -168,6 +168,10 @@ const zh = {
   'context.copyRelative.title': '复制相对工作区根目录的路径',
   'context.reveal': '在资源管理器中打开',
   'context.reveal.title': '在操作系统的文件管理器中打开此文件或文件夹',
+  'context.rename': '重命名',
+  'context.rename.title': '在当前位置重命名此文件或文件夹',
+  'context.renameSession': '重命名',
+  'context.archiveSession': '归档此会话',
   'context.copy': '复制',
   'context.copy.title': '复制此文件或文件夹',
   'context.paste': '粘贴',
@@ -293,6 +297,9 @@ const zh = {
   'status.copyFailed': '复制失败。',
   'status.revealed': '已在资源管理器中打开。',
   'status.revealFailed': '打开失败：{message}',
+  'status.revealNoWorkspace': '未找到该会话的工作区。',
+  'status.archivedSession': '已归档会话。',
+  'status.archiveFailed': '归档失败：{message}',
   'status.draftRestored': '已恢复此工作区中未保存的草稿。',
   'status.draftRestoredConflict': '磁盘文件已在草稿保存后更改。草稿已恢复；保存时将自动合并或提示选择。',
   'status.draftNotRestorable': '检测到未保存草稿，但文件当前不可编辑。草稿内容已展示；关闭标签或刷新后将丢弃，无法保存。',
@@ -491,6 +498,10 @@ const en = {
   'context.copyRelative.title': 'Copy the path relative to the workspace root',
   'context.reveal': 'Reveal in Explorer',
   'context.reveal.title': 'Open this file or folder in the operating system\'s file manager',
+  'context.rename': 'Rename',
+  'context.rename.title': 'Rename this file or folder in place',
+  'context.renameSession': 'Rename',
+  'context.archiveSession': 'Archive This Session',
   'context.copy': 'Copy',
   'context.copy.title': 'Copy this file or folder',
   'context.paste': 'Paste',
@@ -616,6 +627,9 @@ const en = {
   'status.copyFailed': 'Copy failed.',
   'status.revealed': 'Revealed in Explorer.',
   'status.revealFailed': 'Open failed: {message}',
+  'status.revealNoWorkspace': 'No workspace found for this session.',
+  'status.archivedSession': 'Session archived.',
+  'status.archiveFailed': 'Archive failed: {message}',
   'status.draftRestored': 'Restored unsaved drafts for this workspace.',
   'status.draftRestoredConflict': 'The file changed on disk after your draft was saved. The draft was restored; saving will merge or ask you to choose.',
   'status.draftNotRestorable': 'Unsaved draft detected, but the file is not editable right now. The draft is shown; it will be discarded on tab close or refresh and cannot be saved.',
@@ -895,7 +909,7 @@ function highlightPresetLabel(id) {
 }
 
 const styles = `
-.dsh-wel-viewport{height:100%;min-width:0;overflow:auto;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary)}
+.dsh-wel-viewport{position:relative;height:100%;min-width:0;overflow:auto;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary)}
 .dsh-wel-frame{--dsh-wel-sidebar:280px;--dsh-wel-preview:420px;position:relative;display:grid;grid-template-columns:var(--dsh-wel-sidebar) var(--dsh-wel-preview) minmax(0,1fr);grid-template-rows:100%;width:100%;min-width:0;height:100%;overflow:hidden;background:var(--dsw-alias-bg-base);transition:grid-template-columns var(--ds-transition-duration-slow) var(--ds-ease-in-out)}
 .dsh-wel-frame[data-resizing]{transition:none;user-select:none}.dsh-wel-sidebar,.dsh-wel-tree,.dsh-wel-preview,.dsh-wel-chat{min-width:0;height:100%;overflow:hidden}.dsh-wel-sidebar{background:var(--dsw-specific-sidebar-fill);border-right:1px solid var(--dsw-alias-border-l1)}
 .dsh-wel-tree,.dsh-wel-preview{display:flex;flex-direction:column;position:relative;background:var(--dsw-alias-bg-layer-1);border-right:1px solid var(--dsw-alias-border-l2)}.dsh-wel-frame[data-explorer-closed] .dsh-wel-tree,.dsh-wel-frame[data-explorer-closed] .dsh-wel-preview{visibility:hidden;pointer-events:none;border-right:0}.dsh-wel-chat{display:flex;flex-direction:column;position:relative;background:var(--dsw-alias-bg-base)}
@@ -1140,6 +1154,16 @@ html.dsh-wel-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal
 html.dsh-wel-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal="true"]:has(> nav) > nav > div:first-child{position:absolute;top:0;left:0;z-index:1;display:flex;align-items:center;height:54px;padding:0 16px;box-sizing:border-box;white-space:nowrap}
 html.dsh-wel-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal="true"]:has(> nav) > div{flex:1;min-height:0;display:flex;flex-direction:column}
 html.dsh-wel-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal="true"]:has(> nav) > div > div:first-child{height:auto;min-height:54px;align-items:center;padding:12px 16px}
+.dsh-wel-tree-rename{box-sizing:border-box;width:100%;padding:0 7px 0 calc(7px + var(--dsh-wel-depth,0) * 15px)}
+.dsh-wel-tree-rename-row{display:flex;align-items:center;gap:5px;width:100%;height:var(--dsh-wel-row-height,28px);box-sizing:border-box}
+.dsh-wel-tree-rename-input{flex:1;min-width:0;height:22px;padding:0 6px;border:1px solid var(--dsw-alias-state-business-primary);border-radius:4px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:18px;box-sizing:border-box}
+.dsh-wel-tree-rename-input:focus{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}
+.dsh-wel-tree-rename-error{padding:2px 0 4px;color:var(--dsw-alias-state-error-primary);font-size:11px;line-height:15px}
+.dsh-wel-session-rename-overlay{position:fixed;z-index:45;box-sizing:border-box;padding:0}
+.dsh-wel-session-rename-input{width:100%;height:100%;box-sizing:border-box;padding:0 4px;border:1px solid var(--dsw-alias-state-business-primary);border-radius:4px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;outline:none}
+.dsh-wel-session-rename-input:disabled{opacity:.7;cursor:not-allowed}
+.dsh-wel-session-rename-error{position:fixed;z-index:45;max-width:280px;padding:2px 6px;border:1px solid var(--dsw-alias-border-l2);border-radius:4px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-state-error-primary);font-size:11px;line-height:16px;box-shadow:var(--dsw-shadow-elevated,0 4px 12px rgba(0,0,0,.18))}
+.dsh-wel-copy-notice[data-error]{color:var(--dsw-alias-state-error-primary)}
 `
 
 const tokenHighlight = HighlightStyle.define([
@@ -3105,11 +3129,24 @@ function PanelHeader({title,subtitle,action,actionLabel,actions=[],onContextMenu
    row's own props only change on selection/expansion/directory data, so
    scrolling and typing skip most row reconciliation entirely. */
 const TreeRow = memo(function TreeRow({entry,depth,expanded,selected,cut,onContextMenu,onDirectory,onFile,onRename}){useLocaleText();const directory=entry.kind==='directory',blocked=entry.kind==='blocked'||entry.kind==='other',label=directory?'dir':fileLabel(entry.name);return h('button',{'aria-expanded':directory?expanded:undefined,className:'dsh-wel-tree-row','data-cut':cut||undefined,'data-selected':selected||undefined,disabled:blocked,onClick:directory?()=>onDirectory(entry):()=>onFile(entry),onContextMenu:e=>onContextMenu(e,entry),onKeyDown:e=>{if(e.key==='F2'){e.preventDefault();onRename(entry)}},style:{'--dsh-wel-depth':depth},title:`${entry.path}${entry.symlink?translate('tree.symlink'):''}`,type:'button'},h('span',{className:'dsh-wel-chevron'},directory?(expanded?'▼':'▶'):''),h('span',{className:'dsh-wel-file-mark','data-kind':entry.kind,'data-group':colorGroupOf(entry)},label.slice(0,3)),h('span',{className:'dsh-wel-row-name'},entry.name),entry.symlink?h('span',{className:'dsh-wel-symlink'},'↗'):null)})
+/* In-place rename of a tree row: the normal TreeRow is swapped for an input
+   that mirrors the row layout (same depth indent, chevron and file mark), so
+   the edit happens exactly where the name sits — no modal dialog. Enter
+   confirms (IME-safe); Escape or blur cancels and restores the original name.
+   An unchanged name closes quietly (no-op); invalid/duplicate input keeps the
+   editor open and shows an inline error below the row. */
+function TreeRenameRow({busy,depth,entry,expanded,error,onCancel,onConfirm,onDraft,value}){const composingRef=useRef(false),inputRef=useRef(null);const directory=entry.kind==='directory',label=directory?'dir':fileLabel(entry.name);useEffect(()=>{const input=inputRef.current;if(input!==null){input.focus();input.select()}},[]);return h('div',{className:'dsh-wel-tree-rename',style:{'--dsh-wel-depth':depth}},h('div',{className:'dsh-wel-tree-rename-row'},h('span',{className:'dsh-wel-chevron'},directory?(expanded?'▼':'▶'):''),h('span',{className:'dsh-wel-file-mark','data-kind':entry.kind,'data-group':colorGroupOf(entry)},label.slice(0,3)),h('input',{'aria-label':translate('dialog.name'),autoFocus:true,className:'dsh-wel-tree-rename-input',disabled:busy,onBlur:()=>{if(!busy)onCancel()},onChange:event=>onDraft(event.target.value),onCompositionEnd:()=>{composingRef.current=false},onCompositionStart:()=>{composingRef.current=true},onKeyDown:event=>{if(event.key==='Escape'){event.preventDefault();if(!busy)onCancel()}else if(event.key==='Enter'&&!composingRef.current){event.preventDefault();if(value.trim()===entry.name){onCancel();return}onConfirm()}},ref:inputRef,value})),error?h('div',{className:'dsh-wel-tree-rename-error',role:'alert'},error):null)}
 const TreeStatus=({children,error})=>h('div',{className:'dsh-wel-tree-status','data-error':error||undefined},children)
-function TreeContextMenu({entry,menuRef,onCopyName,onCopyPath,onReveal,onCopy,onPaste,onCut,onDelete,pasteDisabled,pasteTitle,x,y}){const left=Math.max(4,Math.min(x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top=Math.max(4,Math.min(y,window.innerHeight-CONTEXT_MENU_HEIGHT-4));return h('div',{'aria-label':entry.path,className:'dsh-wel-context-menu',ref:menuRef,role:'menu',style:{left,top}},h('button',{className:'dsh-wel-context-item',onClick:()=>onCopyName(entry),role:'menuitem',title:translate('context.copyName.title'),type:'button'},translate('context.copyName')),h('button',{className:'dsh-wel-context-item',onClick:()=>onCopyPath(entry,false),role:'menuitem',title:translate('context.copyPath.title'),type:'button'},translate('context.copyPath')),h('button',{className:'dsh-wel-context-item',onClick:()=>onCopyPath(entry,true),role:'menuitem',title:translate('context.copyRelative.title'),type:'button'},translate('context.copyRelative')),h('div',{className:'dsh-wel-context-separator',role:'separator'}),h('button',{className:'dsh-wel-context-item',onClick:()=>onReveal(entry),role:'menuitem',title:translate('context.reveal.title'),type:'button'},translate('context.reveal')),h('div',{className:'dsh-wel-context-separator',role:'separator'}),h('button',{className:'dsh-wel-context-item',onClick:()=>onCopy(entry),role:'menuitem',title:translate('context.copy.title'),type:'button'},translate('context.copy')),h('button',{className:'dsh-wel-context-item',disabled:pasteDisabled,onClick:()=>onPaste(entry),role:'menuitem',title:pasteDisabled?pasteTitle:translate('context.paste.title'),type:'button'},translate('context.paste')),h('button',{className:'dsh-wel-context-item',onClick:()=>onCut(entry),role:'menuitem',title:translate('context.cut.title'),type:'button'},translate('context.cut')),h('button',{className:'dsh-wel-context-item',onClick:()=>onDelete(entry),role:'menuitem',title:translate('context.delete.title'),type:'button'},translate('context.delete')))}
+function TreeContextMenu({entry,menuRef,onRename,onCopyName,onCopyPath,onReveal,onCopy,onPaste,onCut,onDelete,pasteDisabled,pasteTitle,x,y}){const left=Math.max(4,Math.min(x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top=Math.max(4,Math.min(y,window.innerHeight-CONTEXT_MENU_HEIGHT-4));return h('div',{'aria-label':entry.path,className:'dsh-wel-context-menu',ref:menuRef,role:'menu',style:{left,top}},h('button',{className:'dsh-wel-context-item',onClick:()=>onRename(entry),role:'menuitem',title:translate('context.rename.title'),type:'button'},translate('context.rename')),h('button',{className:'dsh-wel-context-item',onClick:()=>onCopyName(entry),role:'menuitem',title:translate('context.copyName.title'),type:'button'},translate('context.copyName')),h('button',{className:'dsh-wel-context-item',onClick:()=>onCopyPath(entry,false),role:'menuitem',title:translate('context.copyPath.title'),type:'button'},translate('context.copyPath')),h('button',{className:'dsh-wel-context-item',onClick:()=>onCopyPath(entry,true),role:'menuitem',title:translate('context.copyRelative.title'),type:'button'},translate('context.copyRelative')),h('div',{className:'dsh-wel-context-separator',role:'separator'}),h('button',{className:'dsh-wel-context-item',onClick:()=>onReveal(entry),role:'menuitem',title:translate('context.reveal.title'),type:'button'},translate('context.reveal')),h('div',{className:'dsh-wel-context-separator',role:'separator'}),h('button',{className:'dsh-wel-context-item',onClick:()=>onCopy(entry),role:'menuitem',title:translate('context.copy.title'),type:'button'},translate('context.copy')),h('button',{className:'dsh-wel-context-item',disabled:pasteDisabled,onClick:()=>onPaste(entry),role:'menuitem',title:pasteDisabled?pasteTitle:translate('context.paste.title'),type:'button'},translate('context.paste')),h('button',{className:'dsh-wel-context-item',onClick:()=>onCut(entry),role:'menuitem',title:translate('context.cut.title'),type:'button'},translate('context.cut')),h('button',{className:'dsh-wel-context-item',onClick:()=>onDelete(entry),role:'menuitem',title:translate('context.delete.title'),type:'button'},translate('context.delete')))}
 function TabContextMenu({menuRef,onCloseOthers,onTogglePin,pinned,x,y}){const left=Math.max(4,Math.min(x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top=Math.max(4,Math.min(y,window.innerHeight-CONTEXT_MENU_HEIGHT-4));return h('div',{className:'dsh-wel-context-menu',ref:menuRef,role:'menu',style:{left,top}},h('button',{className:'dsh-wel-context-item',onClick:onTogglePin,role:'menuitem',title:pinned?translate('tab.unpin.title'):translate('tab.pin.title'),type:'button'},pinned?translate('tab.unpin'):translate('tab.pin')),h('button',{className:'dsh-wel-context-item',onClick:onCloseOthers,role:'menuitem',title:translate('tab.closeOthers.title'),type:'button'},translate('tab.closeOthers')))}
 function EntryDialog({dialog,draft,error,busy,blocked,composingRef,onCancel,onConfirm,onDraft}){if(!dialog)return null;const title=entryDialogTitle(dialog),action=entryDialogAction(dialog);return h('div',{className:'dsh-wel-dialog-backdrop',onMouseDown:e=>{if(e.target===e.currentTarget)onCancel()}},h('div',{'aria-modal':true,className:'dsh-wel-dialog',role:'dialog'},h('div',{className:'dsh-wel-dialog-header'},h('div',{className:'dsh-wel-dialog-title'},title),h('button',{'aria-label':translate('dialog.close'),className:'dsh-wel-icon-button',disabled:busy,onClick:onCancel,title:translate('dialog.close'),type:'button'},'×')),h('div',{className:'dsh-wel-dialog-body'},h('input',{'aria-label':translate('dialog.name'),autoFocus:true,className:'dsh-wel-dialog-input',disabled:busy,onChange:e=>onDraft(e.target.value),onCompositionEnd:()=>{composingRef.current=false},onCompositionStart:()=>{composingRef.current=true},onFocus:e=>e.target.select(),onKeyDown:e=>{if(e.key==='Escape'){e.preventDefault();onCancel()}else if(e.key==='Enter'&&!composingRef.current){e.preventDefault();onConfirm()}},value:draft}),error?h('div',{className:'dsh-wel-dialog-error',role:'alert'},error):null),h('div',{className:'dsh-wel-dialog-footer'},h('button',{className:'dsh-wel-text-button',disabled:busy,onClick:onCancel,type:'button'},translate('dialog.cancel')),h('button',{className:'dsh-wel-text-button',disabled:blocked,onClick:onConfirm,type:'button'},busy?translate('dialog.processing'):action))))}
 function EncodingMenu({menuRef,onOpen,onSave,canOpen,canSave,x,y}){const left=Math.max(4,Math.min(x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top=Math.max(4,Math.min(y,window.innerHeight-CONTEXT_MENU_HEIGHT-4));return h('div',{className:'dsh-wel-context-menu',ref:menuRef,role:'menu',style:{left,top}},h('button',{className:'dsh-wel-context-item',disabled:!canOpen,onClick:onOpen,role:'menuitem',title:canOpen?translate('encoding.open.title'):translate('encoding.open.titleDirty'),type:'button'},translate('encoding.open')),h('button',{className:'dsh-wel-context-item',disabled:!canSave,onClick:onSave,role:'menuitem',title:canSave?translate('encoding.save.title'):translate('encoding.save.titleReadonly'),type:'button'},translate('encoding.save')))}
+/* In-place session rename: an input overlaid exactly on the harness session
+   row's title span. The row itself is harness-rendered, so the plugin never
+   mutates its DOM; the overlay is fixed-positioned at the span's rect. Enter
+   confirms (IME-safe), Escape/blur cancels; a row that detaches (session
+   removed, list rebuilt) cancels too. */
+function SessionInlineRename({busy,error,onCancel,onConfirm,row,title}){const composingRef=useRef(false),inputRef=useRef(null);const[draft,setDraft]=useState(title);useEffect(()=>{if(row===null||!row.isConnected){onCancel();return}const input=inputRef.current;if(input!==null){input.focus();input.select()}},[/* mount-only */]);useEffect(()=>{if(row!==null&&row.isConnected)return undefined;onCancel();return undefined},[onCancel,row]);const span=row===null?null:row.querySelector('span[class*="title"]');const rect=span===null?null:span.getBoundingClientRect();const overlayStyle=rect===null||rect.width===0?undefined:{left:rect.left,top:rect.top,width:Math.max(rect.width,140),height:rect.height};return h(Fragment,null,h('div',{className:'dsh-wel-session-rename-overlay',style:overlayStyle},h('input',{'aria-label':translate('dialog.sessionName'),autoFocus:true,className:'dsh-wel-session-rename-input',disabled:busy,onBlur:()=>{if(!busy)onCancel()},onChange:event=>{setDraft(event.target.value)},onCompositionEnd:()=>{composingRef.current=false},onCompositionStart:()=>{composingRef.current=true},onKeyDown:event=>{if(event.key==='Escape'){event.preventDefault();if(!busy)onCancel()}else if(event.key==='Enter'&&!composingRef.current){event.preventDefault();onConfirm(draft)}},ref:inputRef,value:draft})),error?h('div',{className:'dsh-wel-session-rename-error',role:'alert',style:rect===null?undefined:{left:rect.left,top:rect.bottom+4}},error):null)}
 /* Transient banner mirroring the harness conversation Toast look: same
    contrast fill, hold-then-fade timing and warning icon, so a failed
    external-file open reads exactly like the composer's image-intake
@@ -3681,6 +3718,12 @@ function WorkspaceExplorer({
   // only when it is actually serialized.
   const scrollTopRef = useRef(new Map())
   const sessionEstablishedRef = useRef(false)
+  // Paths already confirmed missing in the current workspace while restoring
+  // the persisted expansion. Every later restore pass (in particular the
+  // late-arriving stored session) skips them until the cleaned snapshot has
+  // been persisted, so a pruned path cannot be re-seeded and 404 again within
+  // one mount.
+  const prunedPathsRef = useRef(new Set())
   const previewTabsBootstrapped = useRef(Boolean(initialPreviewSession.tabs.length > 0 || initialPreviewSession.activePath !== null))
   const selectedDirectoryPath = selectedLevelPath(selected)
   const activatePath = useCallback((path) => {
@@ -3836,7 +3879,40 @@ function WorkspaceExplorer({
     window.addEventListener('beforeunload', warn)
     return () => window.removeEventListener('beforeunload', warn)
   }, [hasDirtyTabs])
-  const loadDirectory = useCallback(async (path) => {
+  // Restore-time self-heal: a persisted expansion path that no longer exists
+  // in the current workspace (server 404 path-not-found) is dropped from the
+  // expanded set — including every descendant, which cannot exist under a
+  // missing parent — along with its per-directory state, and the cleaned
+  // snapshot is persisted so the stale paths stop 404-ing on later loads.
+  // Only restore-time loads pass pruneOnMissing; a user clicking a directory
+  // that turns out missing keeps the visible error row instead of vanishing.
+  const pruneExpandedPath = useCallback((path) => {
+    prunedPathsRef.current.add(path)
+    const prefix = `${path}/`
+    const expandedAffected = [...expandedRef.current].filter(p => p === path || p.startsWith(prefix))
+    if (expandedAffected.length > 0) {
+      for (const p of expandedAffected) expandedRef.current.delete(p)
+      setExpanded(cur => {
+        const next = new Set(cur)
+        for (const p of expandedAffected) next.delete(p)
+        return next
+      })
+    }
+    setDirectories(cur => {
+      const keys = [...cur.keys()].filter(key => key === path || key.startsWith(prefix))
+      if (keys.length === 0) return cur
+      const next = new Map(cur)
+      for (const key of keys) next.delete(key)
+      return next
+    })
+    // Persist the cleaned expansion so the stale paths do not 404 again on the
+    // next load. Mark the session established so a tabs-empty snapshot still
+    // writes through — this is exactly the self-heal the bare-mount guard must
+    // not suppress, and the snapshot comes from this restore.
+    sessionEstablishedRef.current = true
+    schedulePersist()
+  }, [schedulePersist])
+  const loadDirectory = useCallback(async (path, options) => {
     requests.current.get(path)?.abort()
     const controller = new AbortController()
     requests.current.set(path, controller)
@@ -3865,18 +3941,23 @@ function WorkspaceExplorer({
           })
           return next
         })
+        if (options?.pruneOnMissing && error instanceof WorkspaceApiError && error.code === 'path-not-found') {
+          pruneExpandedPath(path)
+        }
       }
     } finally {
       if (requests.current.get(path) === controller) requests.current.delete(path)
     }
-  }, [listDirectory, workspace.workspaceId])
+  }, [listDirectory, pruneExpandedPath, workspace.workspaceId])
   useEffect(() => { void loadDirectory('') }, [loadDirectory])
   // Restore the persisted expansion: fetch the listing of every restored
   // directory so the tree can render its children. Mount-only; the persisted
   // set already includes every ancestor, so nested folders appear in place.
   useEffect(() => {
     for (const path of initialPreviewSession.expanded ?? []) {
-      if (path !== '' && path !== undefined) void loadDirectory(path)
+      if (path === '' || path === undefined) continue
+      if (prunedPathsRef.current.has(path)) continue
+      void loadDirectory(path, { pruneOnMissing: true })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -3914,7 +3995,7 @@ function WorkspaceExplorer({
   // hasAll guard keeps this idempotent across store updates.
   useLayoutEffect(() => {
     const stored = previewSessionWithDraft(storedPreviewSession, storedDraft)
-    const paths = stored.expanded ?? []
+    const paths = (stored.expanded ?? []).filter(path => !prunedPathsRef.current.has(path))
     if (paths.length === 0) return
     if (paths.every(path => expandedRef.current.has(path))) return
     setExpanded(cur => {
@@ -3923,7 +4004,7 @@ function WorkspaceExplorer({
       return merged
     })
     for (const path of paths) {
-      if (path !== '' && path !== undefined) void loadDirectory(path)
+      if (path !== '' && path !== undefined) void loadDirectory(path, { pruneOnMissing: true })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storedDraft, storedPreviewSession])
@@ -4143,7 +4224,7 @@ function WorkspaceExplorer({
     draftGenerationsRef.current = rewritePathMap(draftGenerationsRef.current, from, to)
     scrollTopRef.current = rewritePathMap(scrollTopRef.current, from, to)
   }, [])
-  const submitEntryDialog=useCallback(()=>{if(entryBusy||entryDialog===undefined)return;const trimmed=entryDraft.trim();const message=entryNameError(entryDraft);if(message!==undefined){setEntryError(message);return}const parentPathValue=entryDialog.mode==='create'?entryDialog.parentPath:parentPath(entryDialog.entry.path);const siblings=directories.get(parentPathValue)?.entries??[];if(entryDialog.mode==='create'){if(siblings.some(entry=>entry.name===trimmed)){setEntryError(translate('entry.duplicate'));return}}else if(trimmed===entryDialog.entry.name||siblings.some(entry=>entry.name===trimmed&&entry.path!==entryDialog.entry.path)){setEntryError(trimmed===entryDialog.entry.name?translate('entry.nameUnchanged'):translate('entry.duplicate'));return}const controller=new AbortController();mutationController.current=controller;setEntryBusy(true);setEntryError(undefined);const mutationSeq=mutationSeqRef.current+=1;let draftMoveGeneration;const request=(async()=>{if(entryDialog.mode==='rename'){draftMoveGeneration=nextDraftGeneration('__tree__');await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:draftMoveGeneration,fromPath:entryDialog.entry.path,toPath:entryPath(parentPath(entryDialog.entry.path),trimmed)},controller.signal)}return entryDialog.mode==='create'?createEntry(workspace.workspaceId,entryDialog.parentPath,entryDialog.kind,trimmed,controller.signal):renameEntry(workspace.workspaceId,entryDialog.entry.path,trimmed,controller.signal)})();request.then(result=>{if(!mounted.current||mutationSeq!==mutationSeqRef.current)return;const mode=entryDialog.mode;const sourcePath=mode==='create'?entryDialog.parentPath:entryDialog.entry.path;const nextStatus=mode==='create'?result.kind==='directory'?translate('status.createdFolder'):translate('status.createdFile'):result.kind==='directory'?translate('status.renamedFolder'):translate('status.renamedFile');composingRef.current=false;setEntryBusy(false);setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);setStatus({text:nextStatus});if(mode==='create'){setExpanded(cur=>{const next=new Set(cur);next.add(sourcePath);if(result.kind==='directory')next.add(result.path);return next});if(result.kind==='file'){previewTabsBootstrapped.current = true;setTabs(cur=>cur.some(tab=>tab.path===result.path)?cur:[...cur,{baseText:'',dirty:false,draft:'',editing:false,name:result.name,path:result.path,pinned:false,saving:false,scrollTop:0,size:null,status:undefined,symlink:Boolean(result.symlink),bom:false,lineEnding:'none',revision:null}]);activatePath(result.path)}setSelected(result);void loadDirectory(sourcePath);if(result.kind==='directory')void loadDirectory(result.path)}else{setDirectories(cur=>rewriteDirectoryMap(cur,sourcePath,result.path,result));setExpanded(cur=>rewritePathSet(cur,sourcePath,result.path));setTabs(cur=>rewritePreviewTabs(cur,sourcePath,result.path,result));rewriteRuntimePaths(sourcePath,result.path);clearAutosaveTimer(sourcePath);void rewriteEmergencyDraftPath(workspace.workspaceId,draftScopeId,sourcePath,result.path).catch(error=>{if(mounted.current)setStatus({error:true,text:translate('editor.autosaveFailed',{message:error instanceof Error?error.message:String(error)})})});{const nextActivePath=activePathRef.current===null?null:rewriteRelativePath(activePathRef.current,sourcePath,result.path);if(nextActivePath!==activePathRef.current)setActivePath(nextActivePath)}setSelected(result);void loadDirectory(parentPath(sourcePath))}}).catch(error=>{if(error?.name==='AbortError'||!mounted.current||mutationSeq!==mutationSeqRef.current){return}if(entryDialog?.mode==='rename'&&draftMoveGeneration!==undefined){void rollbackDraftTree(entryDialog.entry.path,entryPath(parentPath(entryDialog.entry.path),trimmed))}setEntryBusy(false);setEntryError(error instanceof Error?error.message:String(error))}).finally(()=>{if(mutationController.current===controller)mutationController.current=undefined;if(mounted.current)setEntryBusy(false)})},[createEntry,directories,draftScopeId,entryBusy,entryDialog,entryDraft,loadDirectory,renameEntry,rewriteRuntimePaths,workspace.workspaceId])
+  const submitEntryDialog=useCallback(()=>{if(entryBusy||entryDialog===undefined)return;const trimmed=entryDraft.trim();const message=entryNameError(entryDraft);if(message!==undefined){setEntryError(message);return}const parentPathValue=entryDialog.mode==='create'?entryDialog.parentPath:parentPath(entryDialog.entry.path);const siblings=directories.get(parentPathValue)?.entries??[];if(entryDialog.mode==='create'){if(siblings.some(entry=>entry.name===trimmed)){setEntryError(translate('entry.duplicate'));return}}else if(trimmed===entryDialog.entry.name||siblings.some(entry=>entry.name===trimmed&&entry.path!==entryDialog.entry.path)){setEntryError(trimmed===entryDialog.entry.name?translate('entry.nameUnchanged'):translate('entry.duplicate'));return}const controller=new AbortController();mutationController.current=controller;setEntryBusy(true);setEntryError(undefined);const mutationSeq=mutationSeqRef.current+=1;let draftMoveGeneration;const request=(async()=>{if(entryDialog.mode==='rename'){draftMoveGeneration=nextDraftGeneration('__tree__');await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:draftMoveGeneration,fromPath:entryDialog.entry.path,toPath:entryPath(parentPath(entryDialog.entry.path),trimmed)},controller.signal)}return entryDialog.mode==='create'?createEntry(workspace.workspaceId,entryDialog.parentPath,entryDialog.kind,trimmed,controller.signal):renameEntry(workspace.workspaceId,entryDialog.entry.path,trimmed,controller.signal)})();request.then(result=>{if(!mounted.current||mutationSeq!==mutationSeqRef.current)return;const mode=entryDialog.mode;const sourcePath=mode==='create'?entryDialog.parentPath:entryDialog.entry.path;const nextStatus=mode==='create'?result.kind==='directory'?translate('status.createdFolder'):translate('status.createdFile'):result.kind==='directory'?translate('status.renamedFolder'):translate('status.renamedFile');composingRef.current=false;setEntryBusy(false);setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);setStatus({text:nextStatus});if(mode==='create'){setExpanded(cur=>{const next=new Set(cur);next.add(sourcePath);if(result.kind==='directory')next.add(result.path);return next});if(result.kind==='file'){previewTabsBootstrapped.current = true;setTabs(cur=>cur.some(tab=>tab.path===result.path)?cur:[...cur,{baseText:'',dirty:false,draft:'',editing:false,name:result.name,path:result.path,pinned:false,saving:false,scrollTop:0,size:null,status:undefined,symlink:Boolean(result.symlink),bom:false,lineEnding:'none',revision:null}]);activatePath(result.path)}setSelected(result);void loadDirectory(sourcePath);if(result.kind==='directory')void loadDirectory(result.path)}else{setDirectories(cur=>rewriteDirectoryMap(cur,sourcePath,result.path,result));setExpanded(cur=>rewritePathSet(cur,sourcePath,result.path));setTabs(cur=>rewritePreviewTabs(cur,sourcePath,result.path,result));rewriteRuntimePaths(sourcePath,result.path);migratePendingAutosavesRef.current?.(sourcePath,result.path);void rewriteEmergencyDraftPath(workspace.workspaceId,draftScopeId,sourcePath,result.path).catch(error=>{if(mounted.current)setStatus({error:true,text:translate('editor.autosaveFailed',{message:error instanceof Error?error.message:String(error)})})});{const nextActivePath=activePathRef.current===null?null:rewriteRelativePath(activePathRef.current,sourcePath,result.path);if(nextActivePath!==activePathRef.current)setActivePath(nextActivePath)}setSelected(result);void loadDirectory(parentPath(sourcePath))}}).catch(error=>{if(error?.name==='AbortError'||!mounted.current||mutationSeq!==mutationSeqRef.current){return}if(entryDialog?.mode==='rename'&&draftMoveGeneration!==undefined){void rollbackDraftTree(entryDialog.entry.path,entryPath(parentPath(entryDialog.entry.path),trimmed))}setEntryBusy(false);setEntryError(error instanceof Error?error.message:String(error))}).finally(()=>{if(mutationController.current===controller)mutationController.current=undefined;if(mounted.current)setEntryBusy(false)})},[createEntry,directories,draftScopeId,entryBusy,entryDialog,entryDraft,loadDirectory,renameEntry,rewriteRuntimePaths,workspace.workspaceId])
   useLayoutEffect(() => {
     // A user-requested file refresh (preview header 刷新 action) is tracked
     // through this flag: consumed at the start of every read pass so a stale
@@ -4418,6 +4499,19 @@ function WorkspaceExplorer({
     }
   }, [draftScopeId, draftTree, nextDraftGeneration, workspace.workspaceId])
 
+  /* Drop the per-path runtime bookkeeping when a tab is closed, so reopening
+     the same path later starts from a clean slate: no stale scroll position
+     resurrected from the previous session, no stale last-write dedup that could
+     skip the first auto-save of a repeat edit, no orphan draft generation. The
+     tab is guaranteed clean here (dirty/saving tabs cannot be closed), so
+     nothing unsaved is dropped. */
+  const forgetPathRefs = useCallback((path) => {
+    clearAutosaveTimer(path)
+    lastWriteRef.current.delete(path)
+    draftGenerationsRef.current.delete(path)
+    scrollTopRef.current.delete(path)
+  }, [clearAutosaveTimer])
+
   /* After committing `content` to the source file, remove the staging draft so
      a later refresh does not resurrect it. If the removal fails (rare), leave a
      CLEAN draft (baseText === draft === content, fresh revision) so the next
@@ -4573,6 +4667,46 @@ function WorkspaceExplorer({
     }
   }, [performAutosave])
 
+  /* When a directory holding a dirty tab is moved or renamed, the tab's
+     pending auto-save (debounced, not yet flushed to the Host) must follow the
+     path. Re-keying the pending map alone is not enough: the old timer
+     callback still captures the old path, and the tree operation has advanced
+     the owner generation fence, so the old generation would be rejected. So
+     cancel the old timers, drop the stale entries, and flush each snapshot at
+     the new path with a fresh generation. Without this the newest edits would
+     survive only in the IndexedDB mirror, which the restore discards because
+     its generation is older than the moved Host draft's (the tree op bumped
+     the shared counter past the pending auto-save's). */
+  const migratePendingAutosaves = useCallback((from, to) => {
+    const pending = pendingAutosavesRef.current
+    const timers = autosaveTimers.current
+    const affected = []
+    for (const [path, entry] of pending) {
+      if (path === from || (from !== '' && path.startsWith(`${from}/`))) {
+        affected.push({ path, snapshot: entry.snapshot })
+      }
+    }
+    for (const { path } of affected) {
+      const timer = timers.get(path)
+      if (timer !== undefined) clearTimeout(timer)
+      timers.delete(path)
+      pending.delete(path)
+    }
+    for (const { path, snapshot } of affected) {
+      const nextPath = rewriteRelativePath(path, from, to)
+      const generation = nextDraftGeneration(nextPath)
+      // Keep the re-keyed entry pending so an unload between now and the
+      // flush still persists it (flushAutosaves covers the map); the timer
+      // fires on the next tick.
+      pending.set(nextPath, { generation, snapshot })
+      const timer = setTimeout(() => {
+        timers.delete(nextPath)
+        void performAutosave(nextPath, snapshot, generation)
+      }, 0)
+      timers.set(nextPath, timer)
+    }
+  }, [nextDraftGeneration, performAutosave])
+
   // The unmount cleanup must run exactly once per real unmount. flushAutosaves
   // depends on performAutosave, which depends on `preview`, so its identity
   // changes on every preview transition; listing it in the deps would re-run
@@ -4587,6 +4721,11 @@ function WorkspaceExplorer({
   publishEditorContextRef.current = publishEditorContext
   const abortRequestsRef = useRef(abortRequests)
   abortRequestsRef.current = abortRequests
+  // migratePendingAutosaves depends on callbacks declared later than the
+  // create/rename handlers that call it, so it rides a ref bridge (body
+  // references are lazy and TDZ-safe; the ref identity is stable).
+  const migratePendingAutosavesRef = useRef(migratePendingAutosaves)
+  migratePendingAutosavesRef.current = migratePendingAutosaves
   useEffect(() => {
     mounted.current = true
     return () => {
@@ -4790,7 +4929,7 @@ function WorkspaceExplorer({
   const copyEntryName=useCallback((entry)=>{void copyText(entry.name).then(ok=>{if(!mounted.current)return;setContextMenu(undefined);setCopyNotice(ok?translate('status.copiedName'):translate('status.copyFailed'));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},1600)})},[])
   const openInExplorer=useCallback((entry)=>{setContextMenu(undefined);const controller=new AbortController();revealInExplorer(workspace.workspaceId,entry.path,controller.signal).then(()=>{if(!mounted.current)return;setCopyNotice(translate('status.revealed'));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},1600)}).catch(error=>{if(!mounted.current||error?.name==='AbortError')return;setCopyNotice(translate('status.revealFailed',{message:error instanceof Error?error.message:String(error)}));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},3000)})},[workspace.workspaceId])
   const copyEntryToClipboard=useCallback((entry,cut)=>{setContextMenu(undefined);setClipboard({workspaceId:workspace.workspaceId,path:entry.path,name:entry.name,kind:entry.kind,cut});setCopyNotice(cut?translate('status.cut'):translate('status.copied'));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},1600)},[workspace.workspaceId])
-  const pasteEntry=useCallback((targetEntry)=>{if(clipboard===undefined||clipboard.workspaceId!==workspace.workspaceId)return;const targetDir=targetEntry.kind==='directory'?targetEntry.path:parentPath(targetEntry.path);const targetPath=entryPath(targetDir,pathBaseName(clipboard.path));if(clipboard.cut&&clipboard.path===targetPath)return;const wasCut=clipboard.cut;const affectedPrefix=clipboard.path===''?'':`${clipboard.path}/`;if(wasCut&&tabsRef.current.some(tab=>{if(!tab.dirty&&!tab.saving)return false;return tab.path===clipboard.path||(affectedPrefix!==''&&tab.path.startsWith(affectedPrefix))})){setStatus({error:true,text:translate('editor.unsavedBlocked')});return}const controller=new AbortController();mutationController.current=controller;const mutationSeq=mutationSeqRef.current+=1;let draftMoveGeneration;let draftMoveFailed=false;const request=(async()=>{const result=await requestFsOperation(workspace.workspaceId,{action:wasCut?'move':'copy',source:clipboard.path,target:targetPath},controller.signal);if(wasCut){draftMoveGeneration=nextDraftGeneration('__tree__');await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:draftMoveGeneration,fromPath:clipboard.path,toPath:result.path},controller.signal).catch(async error=>{if(!mounted.current)return;draftMoveFailed=true;console.warn('workspace-explorer-layout: draft move after fs move failed:',error);setStatus({error:true,text:translate('status.movedDraftWarning')});try{await draftTree(workspace.workspaceId,{action:'delete',owner:draftScopeId,generation:nextDraftGeneration('__tree__'),path:clipboard.path},controller.signal)}catch(cleanupError){if(mounted.current)console.warn('workspace-explorer-layout: draft cleanup after failed move also failed:',cleanupError)}})}return result})();request.then(result=>{if(!mounted.current||mutationSeq!==mutationSeqRef.current)return;setContextMenu(undefined);setStatus(draftMoveFailed?{error:true,text:translate('status.movedDraftWarning')}:{text:wasCut?translate('status.moved'):translate('status.pasted')});if(wasCut){const source=clipboard.path;setClipboard(undefined);setSelected(result);setDirectories(cur=>rewriteDirectoryMap(cur,source,result.path,result));setExpanded(cur=>rewritePathSet(cur,source,result.path));setTabs(cur=>rewritePreviewTabs(cur,source,result.path,result));rewriteRuntimePaths(source,result.path);clearAutosaveTimer(source);void rewriteEmergencyDraftPath(workspace.workspaceId,draftScopeId,source,result.path).catch(error=>{if(mounted.current)setStatus({error:true,text:translate('editor.autosaveFailed',{message:error instanceof Error?error.message:String(error)})})});const nextActivePath=activePathRef.current===null?null:rewriteRelativePath(activePathRef.current,source,result.path);if(nextActivePath!==activePathRef.current)setActivePath(nextActivePath);void loadDirectory(parentPath(source));void loadDirectory(targetDir)}else{void loadDirectory(targetDir)}}).catch(error=>{if(error?.name==='AbortError'||!mounted.current||mutationSeq!==mutationSeqRef.current)return;setCopyNotice(translate(wasCut?'status.cutFailed':'status.pasteFailed',{message:error instanceof Error?error.message:String(error)}));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},3000)}).finally(()=>{if(mutationController.current===controller)mutationController.current=undefined})},[clearAutosaveTimer,clipboard,draftScopeId,draftTree,loadDirectory,nextDraftGeneration,rewriteRuntimePaths,workspace.workspaceId])
+  const pasteEntry=useCallback((targetEntry)=>{if(clipboard===undefined||clipboard.workspaceId!==workspace.workspaceId)return;const targetDir=targetEntry.kind==='directory'?targetEntry.path:parentPath(targetEntry.path);const targetPath=entryPath(targetDir,pathBaseName(clipboard.path));if(clipboard.cut&&clipboard.path===targetPath)return;const wasCut=clipboard.cut;const affectedPrefix=clipboard.path===''?'':`${clipboard.path}/`;if(wasCut&&tabsRef.current.some(tab=>{if(!tab.dirty&&!tab.saving)return false;return tab.path===clipboard.path||(affectedPrefix!==''&&tab.path.startsWith(affectedPrefix))})){setStatus({error:true,text:translate('editor.unsavedBlocked')});return}const controller=new AbortController();mutationController.current=controller;const mutationSeq=mutationSeqRef.current+=1;let draftMoveGeneration;let draftMoveFailed=false;const request=(async()=>{const result=await requestFsOperation(workspace.workspaceId,{action:wasCut?'move':'copy',source:clipboard.path,target:targetPath},controller.signal);if(wasCut){draftMoveGeneration=nextDraftGeneration('__tree__');await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:draftMoveGeneration,fromPath:clipboard.path,toPath:result.path},controller.signal).catch(async error=>{if(!mounted.current)return;draftMoveFailed=true;console.warn('workspace-explorer-layout: draft move after fs move failed:',error);setStatus({error:true,text:translate('status.movedDraftWarning')});try{await draftTree(workspace.workspaceId,{action:'delete',owner:draftScopeId,generation:nextDraftGeneration('__tree__'),path:clipboard.path},controller.signal)}catch(cleanupError){if(mounted.current)console.warn('workspace-explorer-layout: draft cleanup after failed move also failed:',cleanupError)}})}return result})();request.then(result=>{if(!mounted.current||mutationSeq!==mutationSeqRef.current)return;setContextMenu(undefined);setStatus(draftMoveFailed?{error:true,text:translate('status.movedDraftWarning')}:{text:wasCut?translate('status.moved'):translate('status.pasted')});if(wasCut){const source=clipboard.path;setClipboard(undefined);setSelected(result);setDirectories(cur=>rewriteDirectoryMap(cur,source,result.path,result));setExpanded(cur=>rewritePathSet(cur,source,result.path));setTabs(cur=>rewritePreviewTabs(cur,source,result.path,result));rewriteRuntimePaths(source,result.path);migratePendingAutosavesRef.current?.(source,result.path);void rewriteEmergencyDraftPath(workspace.workspaceId,draftScopeId,source,result.path).catch(error=>{if(mounted.current)setStatus({error:true,text:translate('editor.autosaveFailed',{message:error instanceof Error?error.message:String(error)})})});const nextActivePath=activePathRef.current===null?null:rewriteRelativePath(activePathRef.current,source,result.path);if(nextActivePath!==activePathRef.current)setActivePath(nextActivePath);void loadDirectory(parentPath(source));void loadDirectory(targetDir)}else{void loadDirectory(targetDir)}}).catch(error=>{if(error?.name==='AbortError'||!mounted.current||mutationSeq!==mutationSeqRef.current)return;setCopyNotice(translate(wasCut?'status.cutFailed':'status.pasteFailed',{message:error instanceof Error?error.message:String(error)}));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},3000)}).finally(()=>{if(mutationController.current===controller)mutationController.current=undefined})},[clipboard,draftScopeId,draftTree,loadDirectory,nextDraftGeneration,rewriteRuntimePaths,workspace.workspaceId])
   const openDeleteConfirm=useCallback(entry=>{setContextMenu(undefined);setDeleteDialog(entry);setDeleteBusy(false)},[])
   const closeDeleteDialog=useCallback(()=>{if(deleteBusy)return;setDeleteDialog(undefined)},[deleteBusy])
   const confirmDelete = useCallback(async () => {
@@ -4799,7 +4938,16 @@ function WorkspaceExplorer({
     const prefix = entry.path === '' ? '' : `${entry.path}/`
     const affected = tabsRef.current
       .filter(tab => tab.path === entry.path || (prefix !== '' && tab.path.startsWith(prefix)))
-      .map(tab => ({ path: tab.path, draft: tab.draft, dirty: tab.dirty || tab.saving }))
+      .map(tab => ({ path: tab.path, draft: tab.draft, dirty: tab.dirty || tab.saving, saving: tab.saving }))
+    // Deleting under an in-flight save would race it: the save's PUT then hits
+    // a 404 and its failure toast lands on a tab that no longer exists. Refuse
+    // and close the dialog instead (the warning row now also mentions saving
+    // tabs, so the reason is visible before confirming).
+    if (affected.some(item => item.saving)) {
+      setDeleteDialog(undefined)
+      setStatus({ error: true, text: translate('editor.unsavedBlocked') })
+      return
+    }
     setDeleteBusy(true)
     const controller = new AbortController()
     mutationController.current = controller
@@ -4954,7 +5102,7 @@ function WorkspaceExplorer({
     window.addEventListener('scroll', close, true)
     return () => { window.removeEventListener('pointerdown', onPointerDown); window.removeEventListener('contextmenu', onContextMenu, true); window.removeEventListener('keydown', onKeyDown); window.removeEventListener('resize', close); window.removeEventListener('scroll', close, true) }
   }, [encodingMenu])
-  const renderDirectory=(path,depth)=>{const dir=directories.get(path);if(!dir||dir.state==='loading')return h(TreeStatus,{key:`${path}:loading`},translate('tree.loading'));if(dir.state==='error')return h(TreeStatus,{error:true,key:`${path}:error`},dir.message);const rows=dir.entries.map(entry=>{const open=expanded.has(entry.path);return h(Fragment,{key:entry.path},h(TreeRow,{cut:clipboard?.cut&&clipboard?.path===entry.path,depth,entry,expanded:open,onContextMenu:openContextMenu,onDirectory:toggleDirectory,onFile:chooseFile,onRename:beginRename,selected:selected?.path===entry.path}),entry.kind==='directory'&&open?renderDirectory(entry.path,depth+1):null)});if(dir.truncated)rows.push(h(TreeStatus,{key:`${path}:truncated`},translate('tree.truncated')));if(!rows.length)rows.push(h(TreeStatus,{key:`${path}:empty`},translate('tree.empty')));return rows}
+  const renderDirectory=(path,depth)=>{const dir=directories.get(path);if(!dir||dir.state==='loading')return h(TreeStatus,{key:`${path}:loading`},translate('tree.loading'));if(dir.state==='error')return h(TreeStatus,{error:true,key:`${path}:error`},dir.message);const rows=dir.entries.map(entry=>{const open=expanded.has(entry.path);const renaming=entryDialog?.mode==='rename'&&entryDialog.entry.path===entry.path;return h(Fragment,{key:entry.path},renaming?h(TreeRenameRow,{busy:entryBusy,depth,entry,error:entryDraft.trim()===entry.name?undefined:entryDialogError,expanded:open,onCancel:closeEntryDialog,onConfirm:submitEntryDialog,onDraft:value=>{setEntryDraft(value);setEntryError(undefined)},value:entryDraft}):h(TreeRow,{cut:clipboard?.cut&&clipboard?.path===entry.path,depth,entry,expanded:open,onContextMenu:openContextMenu,onDirectory:toggleDirectory,onFile:chooseFile,onRename:beginRename,selected:selected?.path===entry.path}),entry.kind==='directory'&&open?renderDirectory(entry.path,depth+1):null)});if(dir.truncated)rows.push(h(TreeStatus,{key:`${path}:truncated`},translate('tree.truncated')));if(!rows.length)rows.push(h(TreeStatus,{key:`${path}:empty`},translate('tree.empty')));return rows}
   const closeTab = useCallback((path) => {
     const current = tabsRef.current
     const index = current.findIndex(tab => tab.path === path)
@@ -4971,6 +5119,7 @@ function WorkspaceExplorer({
       ? (nextTabs[index]?.path ?? nextTabs[index - 1]?.path ?? null)
       : activePathRef.current
     setTabs(nextTabs)
+    forgetPathRefs(path)
     activatePath(nextActivePath)
     if (nextActivePath === null) {
       setSelected(undefined)
@@ -4989,7 +5138,7 @@ function WorkspaceExplorer({
       setSelected(entry)
       revealPath(entry)
     }
-  }, [publishEditorContext, revealPath, updateTab])
+  }, [forgetPathRefs, publishEditorContext, revealPath, updateTab])
   const closeOtherTabs = useCallback((keepPath) => {
     const current = tabsRef.current
     const keep = current.find(tab => tab.path === keepPath)
@@ -5003,11 +5152,12 @@ function WorkspaceExplorer({
       return
     }
     setTabs(current.filter(tab => tab.pinned || tab.path === keepPath))
+    for (const tab of closing) forgetPathRefs(tab.path)
     activatePath(keep.path)
     const entry = entryFromPreviewTab(keep)
     setSelected(entry)
     revealPath(entry)
-  }, [activatePath, revealPath, updateTab])
+  }, [activatePath, forgetPathRefs, revealPath, updateTab])
   const scrollTabIntoView = useCallback((path) => {
     tabScrollPathRef.current = path
     setPinScrollToken(value => value + 1)
@@ -5108,7 +5258,7 @@ function WorkspaceExplorer({
     }
     strip.addEventListener('wheel', onWheel, { passive: false })
     return () => { strip.removeEventListener('wheel', onWheel) }
-  }, [tabs.length > 0])
+  }, [tabs.length])
   let body
   if (preview.state === 'idle') {
     body = h('div', { className: 'dsh-wel-empty' }, translate('panel.previewHint'))
@@ -5330,13 +5480,13 @@ function WorkspaceExplorer({
             title: sessionTitle ?? translate('panel.workspaceFiles'),
           }),
           h('div', { className: 'dsh-wel-tree-scroll' }, renderDirectory('', 0)),
-          contextMenu ? h(TreeContextMenu, { entry: contextMenu.entry, menuRef, onCopyName: copyEntryName, onCopyPath: copyEntryPath, onReveal: openInExplorer, onCopy: entry => copyEntryToClipboard(entry, false), onPaste: pasteEntry, onCut: entry => copyEntryToClipboard(entry, true), onDelete: openDeleteConfirm, pasteDisabled: clipboard === undefined || clipboard.workspaceId !== workspace.workspaceId, pasteTitle: clipboard === undefined ? translate('context.paste.titleEmpty') : clipboard.workspaceId !== workspace.workspaceId ? translate('context.paste.titleForeign') : translate('context.paste.title'), x: contextMenu.x, y: contextMenu.y }) : null,
+          contextMenu ? h(TreeContextMenu, { entry: contextMenu.entry, menuRef, onRename: entry => { setContextMenu(undefined); beginRename(entry) }, onCopyName: copyEntryName, onCopyPath: copyEntryPath, onReveal: openInExplorer, onCopy: entry => copyEntryToClipboard(entry, false), onPaste: pasteEntry, onCut: entry => copyEntryToClipboard(entry, true), onDelete: openDeleteConfirm, pasteDisabled: clipboard === undefined || clipboard.workspaceId !== workspace.workspaceId, pasteTitle: clipboard === undefined ? translate('context.paste.titleEmpty') : clipboard.workspaceId !== workspace.workspaceId ? translate('context.paste.titleForeign') : translate('context.paste.title'), x: contextMenu.x, y: contextMenu.y }) : null,
           titleContextMenu ? h('div', { className: 'dsh-wel-context-menu', ref: titleMenuRef, role: 'menu', style: { left: Math.max(4, Math.min(titleContextMenu.x, window.innerWidth - CONTEXT_MENU_WIDTH - 4)), top: Math.max(4, Math.min(titleContextMenu.y, window.innerHeight - 52)) } }, h('button', { className: 'dsh-wel-context-item', onClick: openSessionRename, role: 'menuitem', title: translate('dialog.renameSession'), type: 'button' }, translate('dialog.renameSession'))) : null,
           copyNotice ? h('div', { className: 'dsh-wel-copy-notice', role: 'status' }, copyNotice) : null,
         ),
   )
   return h(Fragment, null,
-    entryDialog ? h(EntryDialog, {
+    entryDialog && entryDialog.mode !== 'rename' ? h(EntryDialog, {
       blocked: entryDialogBlocked,
       busy: entryBusy,
       composingRef,
@@ -5349,7 +5499,7 @@ function WorkspaceExplorer({
     }) : null,
     encodingMenu ? h(EncodingMenu, { canOpen: !dirty, canSave: preview.state === 'ready' && preview.editable !== false && !preview.readOnlyReason, menuRef: encodingMenuRef, onOpen: () => openEncodingDialog('open'), onSave: () => openEncodingDialog('save'), x: encodingMenu.x, y: encodingMenu.y }) : null,
     encodingDialog ? h(EncodingDialog, { busy: encodingDialog.mode === 'save' && saving, dialog: encodingDialog, onCancel: closeEncodingDialog, onConfirm: confirmEncodingDialog, onPick: setEncodingPick, options: encodingOptions, value: encodingPick }) : null,
-    deleteDialog ? h(DeleteDialog, { busy: deleteBusy, dirtyWarning: tabs.some(tab => tab.dirty && (tab.path === deleteDialog.path || tab.path.startsWith(`${deleteDialog.path}/`))), entry: deleteDialog, onCancel: closeDeleteDialog, onConfirm: confirmDelete }) : null,
+    deleteDialog ? h(DeleteDialog, { busy: deleteBusy, dirtyWarning: tabs.some(tab => (tab.dirty || tab.saving) && (tab.path === deleteDialog.path || tab.path.startsWith(`${deleteDialog.path}/`))), entry: deleteDialog, onCancel: closeDeleteDialog, onConfirm: confirmDelete }) : null,
     conflictDialog ? h(SaveConflictDialog, { conflict: conflictDialog, fontSize: clamp(settings.conflictFontSize ?? CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MIN, CONFLICT_FONT_SIZE_MAX), onResolve: resolveConflict }) : null,
     sessionRenameOpen ? h(SessionRenameDialog, {
       busy: sessionRenameBusy,
@@ -5861,6 +6011,19 @@ function AppFrame(props) {
     && state.byId[state.current]?.blank === false)
   const workspaces = props.useWorkspaces(state => state.items)
   const recent = props.useWorkspaces(state => state.recentWorkspaceId)
+  // Right-click session-list menu (harness-rendered sidebar rows), the in-place
+  // rename overlay, and archive/reveal feedback are owned here because the
+  // target rows live in the harness sidebar slot this component renders.
+  const [sessionContextMenu, setSessionContextMenu] = useState()
+  const sessionContextRowRef = useRef(null)
+  const sessionMenuRef = useRef(null)
+  const [sessionInlineRename, setSessionInlineRename] = useState()
+  const [sessionInlineRenameBusy, setSessionInlineRenameBusy] = useState(false)
+  const [sessionInlineRenameError, setSessionInlineRenameError] = useState()
+  const [sessionNotice, setSessionNotice] = useState()
+  const sessionNoticeTimerRef = useRef()
+  const mountedRef = useRef(true)
+  useEffect(() => () => { mountedRef.current = false }, [])
   const [resizing, setResizing] = useState(false)
   const [chatDropActive, setChatDropActive] = useState(false)
   // Migration: entries persisted before clean-tab drafts were slimmed carry
@@ -6200,9 +6363,139 @@ function AppFrame(props) {
   const preview = filesActive || panes.explorerOpen ? clamp(panes.preview ?? PREVIEW_DEFAULT, PREVIEW_MIN, previewMax) : 0
   const previewBoundary = sidebar + preview
   const treePortalTarget = sidebarChrome?.files ?? null
-  return h('div',{ref:viewportRef,className:'dsh-wel-viewport'},h('main',{className:'dsh-wel-frame','data-explorer-closed':!panes.explorerOpen&&!filesActive||undefined,'data-sidebar-collapsed':collapsed||undefined,'data-sidebar-files':filesActive||undefined,'data-resizing':resizing||undefined,style:{'--dsh-wel-preview':`${preview}px`,'--dsh-wel-sidebar':`${sidebar}px`,'--dsh-wel-row-height':`${clamp(settings.rowHeight ?? ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MIN, ROW_HEIGHT_MAX)}px`,'--dsh-wel-chat-font-scale':String(chatFontScale),'--dsh-wel-mobile-header-h':`${mobileHeaderHeight}px`,...fileColorVars}},h('aside',{className:'dsh-wel-sidebar',ref:asideRef},props.renderSlot('sidebar',{collapsed,width:sidebar}),sidebarChrome?.top?createPortal(h(SidebarTopActions,{collapsed,view,width:sidebar,onSelectSessions:()=>{props.actions.setView('sessions')},onSelectFiles:()=>{if(collapsed)props.toggleSidebar();props.actions.setView('files')}}),sidebarChrome.top):null),workspace?h(WorkspaceExplorer,{key:`${workspace.workspaceId}:${sessionId ?? 'workspace'}`,clearDraft:clearWorkspaceDraft,createEntry:props.createEntry,listDirectory:props.listDirectory,persistDraft:persistWorkspaceDraft,persistPreviewSession,publishEditorContext,readFile:props.readFile,renameEntry:props.renameEntry,saveFile:props.saveFile,loadDraft:props.loadDraft,persistDraftFile:props.persistDraftFile,removeDraftFile:props.removeDraftFile,draftTree:props.draftTree,settingsStore:props.settingsStore,storedDraft:panels.drafts[String(workspace.workspaceId)],storedPreviewSession,sessionTitle,sessionId,renameSession:props.renameSession,treePortalTarget,workspace}):h(EmptyWorkspaceExplorer,{sessionTitle,treePortalTarget}),h('section',{className:'dsh-wel-chat',ref:chatSectionRef},props.renderSlot('conversation',{}),chatDropActive?h('div',{className:'dsh-wel-chat-drop-mask',role:'presentation'},h('button',{'aria-label':translate('drop.closeAria'),className:'dsh-wel-chat-drop-close',onClick:()=>{chatDropSuppressed.current=true;setChatDropActive(false)},title:translate('drop.closeTitle'),type:'button'},'×'),h('div',{className:'dsh-wel-chat-drop-card'},translate('drop.releaseImages'))):null),!collapsed?h(ResizeHandle,{label:translate('resize.sidebar'),left:sidebar,max:sidebarMax,min:SIDEBAR_MIN,onDragging:setResizing,onResize:width=>props.actions.setSidebar(width,sidebarMax),value:sidebar}):null,(panes.explorerOpen||filesActive)?h(ResizeHandle,{label:translate('resize.preview'),left:previewBoundary,max:previewMax,min:PREVIEW_MIN,onDragging:setResizing,onResize:width=>props.explorerPaneStore.actions.setPreview(width,previewMax),value:preview}):null,h('aside',{className:'dsh-wel-details','data-closed':!panels.detailsOpen||!detailsCapable||undefined},props.renderSlot('details',{})),mobile.on&&mobile.drawerOpen?h('div',{className:'dsh-wel-mobile-scrim',onClick:()=>setDrawerOpen(false)}):null,h('div',{className:'dsh-wel-overlay','data-shell-overlay':true},props.renderSlot('shell.overlay',{}))))}
+  const showSessionNotice = useCallback((text, error = false) => {
+    setSessionNotice({ error, text })
+    clearTimeout(sessionNoticeTimerRef.current)
+    sessionNoticeTimerRef.current = setTimeout(() => {
+      if (mountedRef.current) setSessionNotice(undefined)
+    }, error ? 3000 : 1600)
+  }, [])
+  // Right-click detection on harness session rows. Session rows are
+  // `[role="treeitem"]` without `aria-expanded` (workspace group headers carry
+  // it); the row carries no session id, so its display title is matched against
+  // the sessions snapshot — preferring the current session on duplicate titles.
+  // Blank (never-started) sessions get no menu.
+  useEffect(() => {
+    const onContextMenu = (event) => {
+      if (event.defaultPrevented) return
+      const target = event.target
+      if (!(target instanceof Element)) return
+      const row = target.closest('[role="treeitem"]')
+      if (row === null) return
+      if (row.hasAttribute('aria-expanded')) return
+      if (row.closest('[data-slot="sidebar.workspaces"]') === null) return
+      const titleSpan = row.querySelector('span[class*="title"]')
+      const title = titleSpan?.textContent?.trim() ?? ''
+      if (title === '') return
+      const snapshot = props.getSessionList()
+      const candidates = snapshot.ids.filter(id => snapshot.byId[id]?.displayTitle === title)
+      if (candidates.length === 0) return
+      let sessionId = candidates[0]
+      if (snapshot.current !== undefined && candidates.includes(snapshot.current)) sessionId = snapshot.current
+      const summary = snapshot.byId[sessionId]
+      if (summary === undefined || summary.blank) return
+      event.preventDefault()
+      sessionContextRowRef.current = row
+      setSessionContextMenu({ sessionId, title, x: event.clientX, y: event.clientY })
+    }
+    document.addEventListener('contextmenu', onContextMenu, true)
+    return () => document.removeEventListener('contextmenu', onContextMenu, true)
+  }, [props.getSessionList])
+  // Close the session menu on outside pointer/context/scroll, Escape and resize
+  // (same contract as the other plugin context menus).
+  useEffect(() => {
+    if (sessionContextMenu === undefined) return undefined
+    const inside = event => { const node = sessionMenuRef.current; return node !== null && event.target instanceof Node && node.contains(event.target) }
+    const close = () => setSessionContextMenu(undefined)
+    const onPointerDown = event => { if (!inside(event)) close() }
+    const onContextMenu = event => { if (!inside(event)) close() }
+    const onKeyDown = event => { if (event.key === 'Escape') close() }
+    window.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('contextmenu', onContextMenu, true)
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('resize', close)
+    window.addEventListener('scroll', close, true)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('contextmenu', onContextMenu, true)
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('resize', close)
+      window.removeEventListener('scroll', close, true)
+    }
+  }, [sessionContextMenu])
+  const beginSessionInlineRename = useCallback(() => {
+    const menu = sessionContextMenu
+    if (menu === undefined) return
+    setSessionContextMenu(undefined)
+    setSessionInlineRenameError(undefined)
+    setSessionInlineRename({ sessionId: menu.sessionId, title: menu.title, row: sessionContextRowRef.current })
+  }, [sessionContextMenu])
+  const cancelSessionInlineRename = useCallback(() => {
+    if (sessionInlineRenameBusy) return
+    setSessionInlineRename(undefined)
+    setSessionInlineRenameError(undefined)
+  }, [sessionInlineRenameBusy])
+  const confirmSessionInlineRename = useCallback((draft) => {
+    const target = sessionInlineRename
+    if (target === undefined || sessionInlineRenameBusy) return
+    const trimmed = draft.trim()
+    if (trimmed === '') return
+    if (trimmed === target.title) { setSessionInlineRename(undefined); return }
+    setSessionInlineRenameBusy(true)
+    setSessionInlineRenameError(undefined)
+    props.renameSession(String(target.sessionId), trimmed).then(() => {
+      if (!mountedRef.current) return
+      setSessionInlineRenameBusy(false)
+      setSessionInlineRename(undefined)
+    }).catch(error => {
+      if (!mountedRef.current) return
+      setSessionInlineRenameBusy(false)
+      setSessionInlineRenameError(error instanceof Error ? error.message : String(error))
+    })
+  }, [props.renameSession, sessionInlineRename, sessionInlineRenameBusy])
+  const archiveSessionFromMenu = useCallback(() => {
+    const menu = sessionContextMenu
+    if (menu === undefined) return
+    setSessionContextMenu(undefined)
+    setSessionInlineRename(undefined)
+    props.archiveSession(String(menu.sessionId)).then(() => {
+      if (mountedRef.current) showSessionNotice(translate('status.archivedSession'))
+    }).catch(error => {
+      if (!mountedRef.current) return
+      showSessionNotice(translate('status.archiveFailed', { message: error instanceof Error ? error.message : String(error) }), true)
+    })
+  }, [props.archiveSession, sessionContextMenu, showSessionNotice])
+  const revealSessionFromMenu = useCallback(() => {
+    const menu = sessionContextMenu
+    if (menu === undefined) return
+    setSessionContextMenu(undefined)
+    setSessionInlineRename(undefined)
+    let workspace
+    try {
+      const snapshot = props.getSessionList()
+      const row = snapshot.byId[String(menu.sessionId)]
+      const items = props.getWorkspaceItems()
+      workspace = (row !== undefined && items.find(item => item.sessionIds.includes(String(menu.sessionId))))
+        || (row?.cwd !== undefined && items.find(item => item.path === row.cwd))
+    } catch (error) {
+      showSessionNotice(translate('status.revealFailed', { message: error instanceof Error ? error.message : String(error) }), true)
+      return
+    }
+    if (workspace === undefined) {
+      showSessionNotice(translate('status.revealNoWorkspace'), true)
+      return
+    }
+    const controller = new AbortController()
+    revealInExplorer(String(workspace.workspaceId), '', controller.signal).then(() => {
+      if (mountedRef.current) showSessionNotice(translate('status.revealed'))
+    }).catch(error => {
+      if (!mountedRef.current || error?.name === 'AbortError') return
+      showSessionNotice(translate('status.revealFailed', { message: error instanceof Error ? error.message : String(error) }), true)
+    })
+  }, [props.getSessionList, props.getWorkspaceItems, sessionContextMenu, showSessionNotice])
+  return h('div',{ref:viewportRef,className:'dsh-wel-viewport'},h('main',{className:'dsh-wel-frame','data-explorer-closed':!panes.explorerOpen&&!filesActive||undefined,'data-sidebar-collapsed':collapsed||undefined,'data-sidebar-files':filesActive||undefined,'data-resizing':resizing||undefined,style:{'--dsh-wel-preview':`${preview}px`,'--dsh-wel-sidebar':`${sidebar}px`,'--dsh-wel-row-height':`${clamp(settings.rowHeight ?? ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MIN, ROW_HEIGHT_MAX)}px`,'--dsh-wel-chat-font-scale':String(chatFontScale),'--dsh-wel-mobile-header-h':`${mobileHeaderHeight}px`,...fileColorVars}},h('aside',{className:'dsh-wel-sidebar',ref:asideRef},props.renderSlot('sidebar',{collapsed,width:sidebar}),sidebarChrome?.top?createPortal(h(SidebarTopActions,{collapsed,view,width:sidebar,onSelectSessions:()=>{props.actions.setView('sessions')},onSelectFiles:()=>{if(collapsed)props.toggleSidebar();props.actions.setView('files')}}),sidebarChrome.top):null),workspace?h(WorkspaceExplorer,{key:`${workspace.workspaceId}:${sessionId ?? 'workspace'}`,clearDraft:clearWorkspaceDraft,createEntry:props.createEntry,listDirectory:props.listDirectory,persistDraft:persistWorkspaceDraft,persistPreviewSession,publishEditorContext,readFile:props.readFile,renameEntry:props.renameEntry,saveFile:props.saveFile,loadDraft:props.loadDraft,persistDraftFile:props.persistDraftFile,removeDraftFile:props.removeDraftFile,draftTree:props.draftTree,settingsStore:props.settingsStore,storedDraft:panels.drafts[String(workspace.workspaceId)],storedPreviewSession,sessionTitle,sessionId,renameSession:props.renameSession,treePortalTarget,workspace}):h(EmptyWorkspaceExplorer,{sessionTitle,treePortalTarget}),h('section',{className:'dsh-wel-chat',ref:chatSectionRef},props.renderSlot('conversation',{}),chatDropActive?h('div',{className:'dsh-wel-chat-drop-mask',role:'presentation'},h('button',{'aria-label':translate('drop.closeAria'),className:'dsh-wel-chat-drop-close',onClick:()=>{chatDropSuppressed.current=true;setChatDropActive(false)},title:translate('drop.closeTitle'),type:'button'},'×'),h('div',{className:'dsh-wel-chat-drop-card'},translate('drop.releaseImages'))):null),!collapsed?h(ResizeHandle,{label:translate('resize.sidebar'),left:sidebar,max:sidebarMax,min:SIDEBAR_MIN,onDragging:setResizing,onResize:width=>props.actions.setSidebar(width,sidebarMax),value:sidebar}):null,(panes.explorerOpen||filesActive)?h(ResizeHandle,{label:translate('resize.preview'),left:previewBoundary,max:previewMax,min:PREVIEW_MIN,onDragging:setResizing,onResize:width=>props.explorerPaneStore.actions.setPreview(width,previewMax),value:preview}):null,h('aside',{className:'dsh-wel-details','data-closed':!panels.detailsOpen||!detailsCapable||undefined},props.renderSlot('details',{})),mobile.on&&mobile.drawerOpen?h('div',{className:'dsh-wel-mobile-scrim',onClick:()=>setDrawerOpen(false)}):null,h('div',{className:'dsh-wel-overlay','data-shell-overlay':true},props.renderSlot('shell.overlay',{})),sessionContextMenu?h('div',{className:'dsh-wel-context-menu',ref:sessionMenuRef,role:'menu',style:{left:Math.max(4,Math.min(sessionContextMenu.x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top:Math.max(4,Math.min(sessionContextMenu.y,window.innerHeight-52))}},h('button',{className:'dsh-wel-context-item',onClick:beginSessionInlineRename,role:'menuitem',type:'button'},translate('context.renameSession')),h('button',{className:'dsh-wel-context-item',onClick:archiveSessionFromMenu,role:'menuitem',type:'button'},translate('context.archiveSession')),h('div',{className:'dsh-wel-context-separator',role:'separator'}),h('button',{className:'dsh-wel-context-item',onClick:revealSessionFromMenu,role:'menuitem',type:'button'},translate('context.reveal'))):null,sessionInlineRename?h(SessionInlineRename,{busy:sessionInlineRenameBusy,error:sessionInlineRenameError,onCancel:cancelSessionInlineRename,onConfirm:confirmSessionInlineRename,row:sessionInlineRename.row,title:sessionInlineRename.title}):null,sessionNotice?h('div',{className:'dsh-wel-copy-notice','data-error':sessionNotice.error||undefined,role:'status'},sessionNotice.text):null))}
 
-export const inject = ['slots', 'theme', 'sessions']
+export const inject = ['slots', 'theme', 'sessions', 'workspaces']
 export function apply(ctx) {
   const layout = new LayoutController()
   const layoutStore = createLayoutStore()
@@ -6295,6 +6588,13 @@ export function apply(ctx) {
             const result = await session.rename(title)
             if (!result.ok) throw new Error(result.error.message)
           },
+          // Right-click session-list actions: archive through the harness
+          // workspaces service and imperatively read the sessions/workspaces
+          // snapshots (the AppFrame context-menu listener must not subscribe
+          // through hooks to decide whether to open the menu).
+          archiveSession: sessionId => ctx.workspaces.archiveSession(sessionId),
+          getSessionList: () => ctx.sessions.list.getSnapshot(),
+          getWorkspaceItems: () => ctx.workspaces.list.getSnapshot().items,
         }
       },
     }, AppFrame)
