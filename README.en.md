@@ -86,7 +86,7 @@ This bundle replaces the DeepSeek Harness Web root layout with four panes: **ses
 - The UI language follows the Harness setting (Settings → General → Language; Chinese / English) and switches live, with no restart or reload.
 - The assistant's Think disclosure opens automatically while its reasoning streams and collapses after a configurable delay (0–10 s in 0.1 s steps, default 3 s; manual interaction during the window cancels the collapse), deferring to manual user interaction; the Explorer settings page can disable this and adjust the delay.
 - The `/init` command (Claude Code style) generates or updates `AGENTS.md` at the current session's workspace root; when the file already exists a dialog offers **Update** or **Cancel**, and the current agent analyzes the workspace and generates it.
-- Drop external files into the preview pane to preview them as read-only tabs (session-only; nothing is written to the workspace).
+- Drop external files into the preview pane to preview them as read-only tabs (session-only; nothing is written to the workspace). Only text files are accepted: images, folders, and other non-text content show a “cannot preview as text” notice (images belong to the chat composer — intentional).
 
 ### Appearance & Settings
 

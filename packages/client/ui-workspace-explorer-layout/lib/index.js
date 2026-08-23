@@ -1964,19 +1964,17 @@ async function verifyCleanSelection(file, context, maximum) {
     const label = encodingById(encodingId).label
     throw new HttpError(415, 'invalid-encoding', `上下文文件不是有效的 ${label} 编码文本`)
   }
-  const metadata = textMetadata(bytes, content, encodingId)
   const logical = normalizeNewlines(content)
   const { selection } = context
   if (selection.to > logical.length) {
     throw new HttpError(409, 'context-coordinate-mismatch', '选区超出当前文件范围')
   }
   const logicalSlice = logical.slice(selection.from, selection.to)
-  const expected = metadata.lineEnding === 'crlf'
-    ? logicalSlice.replace(/\n/g, '\r\n')
-    : metadata.lineEnding === 'cr'
-      ? logicalSlice.replace(/\n/g, '\r')
-      : logicalSlice
-  if (expected !== selection.text) {
+  // The client maps the editor offsets and the selection text into
+  // LF-normalized space before sending (see publishContextState in
+  // src/client/index.js), so the slice is compared directly without re-adding
+  // the file's original line endings.
+  if (logicalSlice !== selection.text) {
     throw new HttpError(409, 'context-content-mismatch', '选中文本与当前文件内容不一致')
   }
   const start = promptContextPosition(logical, selection.from)

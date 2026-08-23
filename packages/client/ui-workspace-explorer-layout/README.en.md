@@ -26,7 +26,7 @@ Both faces ship inside one bundle so the outer package can guard file access and
 - Provides the compatible `ctx.layout` service, occupies the root Slot, and keeps declaring `sidebar`, `conversation`, `details`, and `shell.overlay`.
 - Adds the file tree and the CodeMirror 6 browser/editor to the root layout; the opened Explorer may expand up to 80% of the visible layout while the chat column keeps shrinking.
 - Opens files in per-Session preview tabs with drag reorder, close `X`, tree reveal, and per-tab scroll restore.
-- Adds file/folder creation and `F2` rename actions in the tree, and registers an Explorer toggle directly above Settings in `sidebar.footer.action`.
+- Adds file/folder creation and `F2` rename actions in the tree, and registers the mobile-mode toggle in `sidebar.footer.action`.
 - Tints each tree row's leading type badge by file-type color group (directory, TypeScript, JavaScript, JSON, markup, styles, Markdown, log, Python, C#, shell, config, C-family, other, blocked).
 
 ### Editor-context row

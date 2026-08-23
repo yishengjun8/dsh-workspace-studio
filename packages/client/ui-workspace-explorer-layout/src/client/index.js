@@ -90,8 +90,8 @@ const MOBILE_HEADER_FALLBACK_H = 52
 const FISH = 'M22.9168 1.43018C22.6713 1.31018 22.5658 1.53918 22.4223 1.65519C22.3733 1.69269 22.3318 1.74169 22.2903 1.78669C21.9317 2.1697 21.5127 2.42121 20.9657 2.39121C20.1657 2.34621 19.4827 2.59771 18.8787 3.20973C18.7502 2.45521 18.3236 2.0047 17.6746 1.71569C17.3351 1.56568 16.9916 1.41518 16.7536 1.08867C16.5876 0.856163 16.5421 0.597155 16.4591 0.341647C16.4061 0.187643 16.3536 0.0301382 16.1761 0.00363739C15.9836 -0.0263635 15.9081 0.135141 15.8326 0.270145C15.5306 0.822162 15.4136 1.43018 15.4251 2.0462C15.4516 3.43174 16.0366 4.53527 17.1991 5.3203C17.3311 5.4103 17.3651 5.5003 17.3236 5.63181C17.2441 5.90231 17.1501 6.16482 17.0671 6.43533C17.0141 6.60784 16.9351 6.64584 16.7501 6.57033C16.1121 6.30383 15.5611 5.90931 15.074 5.4328C14.2475 4.63328 13.5 3.75075 12.568 3.05973C12.349 2.89822 12.13 2.74822 11.9034 2.60522C10.9524 1.68169 12.028 0.923165 12.277 0.833162C12.5375 0.739159 12.3675 0.41615 11.5259 0.42015C10.6844 0.42365 9.91439 0.705658 8.93286 1.08117C8.78935 1.13767 8.63835 1.17867 8.48384 1.21267C7.59332 1.04367 6.66829 1.00617 5.70226 1.11517C3.88321 1.31768 2.43016 2.1777 1.36213 3.64575C0.0790928 5.4103 -0.222916 7.41536 0.146595 9.50642C0.535106 11.7105 1.66014 13.535 3.38869 14.9616C5.18125 16.4406 7.24581 17.1657 9.60138 17.0266C11.0319 16.9441 12.6245 16.7526 14.421 15.2321C14.874 15.4576 15.3496 15.5476 16.1381 15.6151C16.7456 15.6716 17.3306 15.5851 17.7836 15.4911C18.4931 15.3411 18.4441 14.6841 18.1876 14.5636C16.1081 13.595 16.5646 13.9891 16.1496 13.67C17.2061 12.42 18.8202 10.1979 19.3182 7.17235C19.3672 6.83834 19.4297 6.36783 19.4222 6.09732C19.4182 5.93231 19.4562 5.86831 19.6447 5.84931C20.1657 5.78931 20.6712 5.64681 21.1357 5.3913C22.4833 4.65528 23.0268 3.44624 23.1548 1.9972C23.1738 1.77569 23.1508 1.54668 22.9168 1.43018ZM11.1749 14.4736C9.15936 12.889 8.18184 12.3675 7.77832 12.39C7.40081 12.4125 7.46881 12.8445 7.55182 13.126C7.63882 13.404 7.75182 13.5955 7.91033 13.8396C8.01983 14.0011 8.09533 14.2411 7.80083 14.4216C7.15181 14.8231 6.02327 14.2866 5.97027 14.2601C4.65673 13.4865 3.5587 12.4655 2.78467 11.069C2.03715 9.72493 1.60314 8.28289 1.53164 6.74384C1.51264 6.37233 1.62214 6.24082 1.99215 6.17332C2.47916 6.08332 2.98118 6.06432 3.46769 6.13582C5.52476 6.43633 7.27581 7.35586 8.74385 8.8129C9.58188 9.64243 10.2159 10.634 10.8689 11.6025C11.5634 12.631 12.3105 13.611 13.262 14.4146C13.598 14.6961 13.866 14.9101 14.1225 15.0681C13.349 15.1546 12.058 15.1731 11.1749 14.4746L11.1749 14.4736ZM12.141 8.25988C12.141 8.09488 12.273 7.96338 12.439 7.96338C12.4765 7.96338 12.5105 7.97088 12.541 7.98188C12.5825 7.99688 12.6205 8.01938 12.6505 8.05338C12.7035 8.10588 12.7335 8.18088 12.7335 8.25988C12.7335 8.42489 12.6015 8.55639 12.4355 8.55639C12.2695 8.55639 12.141 8.42489 12.141 8.25988ZM15.1415 9.79893C14.949 9.87793 14.7565 9.94544 14.5715 9.95294C14.2845 9.96794 13.9715 9.85143 13.8015 9.70893C13.5375 9.48742 13.3485 9.36342 13.2695 8.97691C13.2355 8.8119 13.2545 8.55639 13.2845 8.40989C13.3525 8.09438 13.277 7.89187 13.0545 7.70787C12.8735 7.55786 12.643 7.51636 12.39 7.51636C12.2955 7.51636 12.209 7.47486 12.1445 7.44136C12.039 7.38886 11.9519 7.25735 12.035 7.09585C12.0615 7.04335 12.19 6.91584 12.22 6.89334C12.5635 6.69784 12.9595 6.76184 13.326 6.90834C13.6655 7.04735 13.9225 7.30236 14.292 7.66287C14.6695 8.09838 14.7375 8.21838 14.9525 8.54539C15.1225 8.8009 15.277 9.06341 15.3831 9.36392C15.4471 9.55142 15.3641 9.70493 15.1415 9.79893Z'
 
 /* File encodings offered by the right-click encoding actions. The server owns
- * the authoritative list (/api/encodings); this fallback mirrors it so the
- * menu and badge work even before (or without) the fetch succeeding. */
+ * the authoritative list (<API_PREFIX>/encodings); this fallback mirrors it so
+ * the menu and badge work even before (or without) the fetch succeeding. */
 const ENCODING_FALLBACK = Object.freeze([
   { id: 'utf-8', label: 'UTF-8' },
   { id: 'utf-8-bom', label: 'UTF-8（带 BOM）' },
@@ -283,7 +283,7 @@ const zh = {
   'editor.unsavedTabsClose': '存在有未保存内容的标签，请先保存或取消编辑。',
   'editor.unsavedBlocked': '当前文件有未保存的更改，请先保存或取消编辑。',
   'editor.dirtyEncodingSwitch': '有未保存的更改，请先保存或取消后再切换编码打开。',
-  'editor.refreshBlocked': '存在未保存的更改，已阻止刷新文件树。请先保存或取消编辑。',
+  'tree.refreshBlocked': '存在未保存的更改，已阻止刷新文件树。请先保存或取消编辑。',
   'editor.previewTruncated': '文件较大，当前仅显示开头部分，不能编辑。',
   'editor.notLoaded': '文件尚未加载',
   'editor.loading': '正在读取文件…',
@@ -308,6 +308,7 @@ const zh = {
   'status.cut': '已剪切。',
   'status.pasted': '已粘贴。',
   'status.moved': '已移动。',
+  'status.movedDraftWarning': '文件已移动，但暂存盘草稿迁移失败，已尝试清理旧路径草稿。',
   'status.deleted': '已删除。',
   'status.cutFailed': '剪切失败：{message}',
   'status.pasteFailed': '粘贴失败：{message}',
@@ -605,7 +606,7 @@ const en = {
   'editor.unsavedTabsClose': 'Some tabs have unsaved content; save or cancel editing first.',
   'editor.unsavedBlocked': 'The current file has unsaved changes; save or cancel editing first.',
   'editor.dirtyEncodingSwitch': 'You have unsaved changes; save or cancel before switching the encoding.',
-  'editor.refreshBlocked': 'Unsaved changes block the refresh. Save or cancel editing first.',
+  'tree.refreshBlocked': 'Unsaved changes block the file-tree refresh; save or cancel editing first.',
   'editor.previewTruncated': 'The file is large; only the beginning is shown and it cannot be edited.',
   'editor.notLoaded': 'File not yet loaded',
   'editor.loading': 'Loading file…',
@@ -630,6 +631,7 @@ const en = {
   'status.cut': 'Cut.',
   'status.pasted': 'Pasted.',
   'status.moved': 'Moved.',
+  'status.movedDraftWarning': 'Files moved, but the staging-draft migration failed; old-path drafts were cleaned up best-effort.',
   'status.deleted': 'Deleted.',
   'status.cutFailed': 'Cut failed: {message}',
   'status.pasteFailed': 'Paste failed: {message}',
@@ -1753,9 +1755,12 @@ function diffSideLines(baseLines, sideLines) {
   return rows
 }
 
-// The preview pane only responds to "normal" (non-image) file drags; images
-// belong to the chat composer. Empty MIME types are treated as normal files —
-// the server decides text-likeness and a failure is silently ignored.
+// Whether a dropped File is an image. Images belong to the chat composer, not
+// the preview pane: the drag highlight is withheld for them, but an actual
+// drop still reaches the upload endpoint and the server rejects it as binary,
+// so the user gets an explicit "cannot preview as text" toast instead of a
+// silent no-op — intentional, see development-notes §17. Empty MIME types are
+// treated as normal files and the server decides text-likeness.
 function isImageFile(file) {
   const type = typeof file?.type === 'string' ? file.type : ''
   return type.startsWith('image/')
@@ -1773,9 +1778,11 @@ function hasDraggedFiles(event) {
     return false
   }
 }
-// Whether the drag carries at least one non-image file. During dragover the
-// File objects may not be inspectable yet; then any file drag counts as
-// "normal" (the drop itself still filters images and ignores them silently).
+// Whether the drag carries at least one non-image file. This only controls the
+// drop HIGHLIGHT: during dragover the File objects may not be inspectable yet,
+// so any file drag counts as "normal". The drop itself does NOT filter images
+// (see isImageFile / handlePreviewDrop) — they are uploaded and rejected by
+// the server with an explicit toast, by design (development-notes §17).
 function hasNormalFile(event) {
   if (!hasDraggedFiles(event)) return false
   const files = event.dataTransfer?.files
@@ -3632,6 +3639,12 @@ function WorkspaceExplorer({
   const readController = useRef()
   const saveController = useRef()
   const mutationController = useRef()
+  // Monotonic sequence for tree mutations (create/rename/paste/delete). Each
+  // operation captures its own sequence and only applies its UI result when it
+  // is still the latest: overlapping operations no longer abort one another's
+  // in-flight request (the Host serializes writes anyway), so a stranded
+  // server-side operation can never corrupt the tree with a stale result.
+  const mutationSeqRef = useRef(0)
   const editorRef = useRef()
   const searchPanelContainerRef = useRef(null)
   const composingRef = useRef(false)
@@ -3645,22 +3658,16 @@ function WorkspaceExplorer({
   // because a pending auto-save can outlive the active tab.
   const lastWriteRef = useRef(new Map())
   const autosaveTimers = useRef(new Map())
-  // Draft mutations are serialized per path. A monotonically increasing
-  // generation invalidates queued work, while the promise tail guarantees that
-  // an already-arrived stale PUT finishes before the newer PUT/DELETE. This is
-  // the correctness mechanism; AbortController alone cannot retract a request
-  // the Host has already started.
-  // Single monotonic generation source for this owner (session scope). The
-  // Host fences every draft write, delete, and tree op behind ONE owner-level
-  // generation (lib/index.js ownerCurrentGeneration), so the client must never
-  // issue equal generations from independent counters: the per-path counters
-  // and the separate '__tree__' counter collided with that fence (409
-  // draft-generation-conflict) whenever a second operation reused a generation
-  // the Host had already consumed (edit-then-rename, rename-then-edit, or two
-  // files' first auto-saves). Every operation now takes the next value of this
-  // one counter; the per-path entries in draftGenerationsRef keep tracking
-  // which generation a queued op belongs to (staleness check in
-  // enqueueDraftOperation).
+  // Draft mutations are serialized per path with a monotonically increasing
+  // generation: the promise tail lets an already-arrived stale PUT finish
+  // before a newer PUT/DELETE (AbortController cannot retract a request the
+  // Host has already started). The Host fences every write/delete/tree op
+  // behind ONE owner-level generation (lib/index.js ownerCurrentGeneration),
+  // so all operations share this single counter — separate per-path and
+  // '__tree__' counters collided with that fence (409 draft-generation-
+  // conflict) when a second op reused a generation the Host had consumed.
+  // draftGenerationsRef keeps the per-path generation for the staleness check
+  // in enqueueDraftOperation.
   const draftGenerationCounterRef = useRef(0)
   const draftGenerationsRef = useRef(new Map())
   const draftTailsRef = useRef(new Map())
@@ -3722,13 +3729,11 @@ function WorkspaceExplorer({
     })
     persistPreviewSession(serializePreviewSession(activePathRef.current, snapshotTabs, expandedRef.current))
   }, [persistPreviewSession])
-  // Persist on a microtask after commit (still before paint) so a pin and an
-  // immediate refresh cannot race the localStorage write; the microtask
-  // coalesces burst updates (typing, tab drags) into one write per event-loop
-  // tick instead of one full 3-key store serialization per keystroke. Critical
-  // moments (unmount, pagehide/beforeunload) still flush synchronously below.
-  // Declared after the tabsRef sync effect so it always serializes the
-  // freshest tabs.
+  // Persist on a microtask after commit (still before paint) so a pin + an
+  // immediate refresh cannot race the localStorage write, and bursts (typing,
+  // tab drags) coalesce into one write per event-loop tick. Unmount and
+  // pagehide/beforeunload still flush synchronously below. Declared after the
+  // tabsRef sync effect so it always serializes the freshest tabs.
   const persistPendingRef = useRef(false)
   const schedulePersist = useCallback(() => {
     if (persistPendingRef.current) return
@@ -3752,14 +3757,29 @@ function WorkspaceExplorer({
       : (() => {
           const start = state.doc.lineAt(main.from)
           const end = state.doc.lineAt(main.to)
+          // The editor doc keeps the file's raw line endings (CRLF on Windows
+          // files), but the server verifies editor-context selections in
+          // LF-normalized space (validateDirtySelection / verifyCleanSelection
+          // in lib/index.js): normalize the selection text and map the offsets
+          // to that same space. Columns are line-local, so they are unaffected;
+          // only the absolute offsets shift by one per preceding CRLF.
+          const crlfBefore = (pos) => {
+            let count = 0
+            for (let i = 0; i + 1 < pos; i += 1) {
+              if (text.charCodeAt(i) === 13 && text.charCodeAt(i + 1) === 10) count += 1
+            }
+            return count
+          }
+          const from = main.from - crlfBefore(main.from)
+          const to = main.to - crlfBefore(main.to)
           return {
-            from: main.from,
-            to: main.to,
+            from,
+            to,
             startLine: start.number,
             startColumn: main.from - start.from + 1,
             endLine: end.number,
             endColumn: main.to - end.from + 1,
-            text: state.sliceDoc(main.from, main.to),
+            text: state.sliceDoc(main.from, main.to).replace(/\r\n/g, '\n').replace(/\r/g, '\n'),
           }
         })()
     // Dirty means "differs from the committed snapshot". The source file is
@@ -3789,11 +3809,10 @@ function WorkspaceExplorer({
     if (view !== undefined) publishContextState(view.state)
   }, [preview, publishContextState])
 
-  // The workspace-draft (layout-store) fallback is retired: the staging draft
-  // file is now the authoritative draft store, and writing the layout store's
-  // drafts on every unmount re-rendered AppFrame (panels.drafts changed),
-  // which remounted WorkspaceExplorer and aborted every in-flight request in
-  // an endless loop. Keep the ref (other paths still clear it) but never
+  // The layout-store draft fallback is retired (the draft file is now the
+  // authoritative store): writing panels.drafts on unmount re-rendered
+  // AppFrame, remounting WorkspaceExplorer and aborting every in-flight
+  // request in a loop. Keep the ref (other paths still clear it) but never
   // populate it.
   latestDraft.current = undefined
 
@@ -4028,10 +4047,13 @@ function WorkspaceExplorer({
   // section: CodeMirror's own drop handler reads dataTransfer.files and would
   // otherwise insert the file's text into the editor before this handler runs.
   // Internal tab reorders carry no files, so they pass through untouched. The
-  // highlight only appears for normal (non-image) file drags — images are the
-  // chat composer's domain and are silently ignored here. Enter/leave use a
-  // depth counter because dragleave's relatedTarget is null in Chrome. Closing
-  // the hint suppresses it for the current drag until the drop or drag end.
+  // highlight only appears for normal (non-image) file drags. Images (the chat
+  // composer's domain) get no highlight, but if actually dropped they are still
+  // processed and rejected with an explicit "cannot preview" toast — never
+  // silently ignored (see isImageFile / handlePreviewDrop, development-notes
+  // §17). Enter/leave use a depth counter because dragleave's relatedTarget is
+  // null in Chrome. Closing the hint suppresses it for the current drag until
+  // the drop or drag end.
   useEffect(() => {
     const section = previewSectionRef.current
     if (section === null) return undefined
@@ -4121,7 +4143,7 @@ function WorkspaceExplorer({
     draftGenerationsRef.current = rewritePathMap(draftGenerationsRef.current, from, to)
     scrollTopRef.current = rewritePathMap(scrollTopRef.current, from, to)
   }, [])
-  const submitEntryDialog=useCallback(()=>{if(entryBusy||entryDialog===undefined)return;const trimmed=entryDraft.trim();const message=entryNameError(entryDraft);if(message!==undefined){setEntryError(message);return}const parentPathValue=entryDialog.mode==='create'?entryDialog.parentPath:parentPath(entryDialog.entry.path);const siblings=directories.get(parentPathValue)?.entries??[];if(entryDialog.mode==='create'){if(siblings.some(entry=>entry.name===trimmed)){setEntryError(translate('entry.duplicate'));return}}else if(trimmed===entryDialog.entry.name||siblings.some(entry=>entry.name===trimmed&&entry.path!==entryDialog.entry.path)){setEntryError(trimmed===entryDialog.entry.name?translate('entry.nameUnchanged'):translate('entry.duplicate'));return}const controller=new AbortController();mutationController.current?.abort();mutationController.current=controller;setEntryBusy(true);setEntryError(undefined);let draftMoveGeneration;const request=(async()=>{if(entryDialog.mode==='rename'){draftMoveGeneration=nextDraftGeneration('__tree__');await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:draftMoveGeneration,fromPath:entryDialog.entry.path,toPath:entryPath(parentPath(entryDialog.entry.path),trimmed)},controller.signal)}return entryDialog.mode==='create'?createEntry(workspace.workspaceId,entryDialog.parentPath,entryDialog.kind,trimmed,controller.signal):renameEntry(workspace.workspaceId,entryDialog.entry.path,trimmed,controller.signal)})();request.then(result=>{if(!mounted.current)return;const mode=entryDialog.mode;const sourcePath=mode==='create'?entryDialog.parentPath:entryDialog.entry.path;const nextStatus=mode==='create'?result.kind==='directory'?translate('status.createdFolder'):translate('status.createdFile'):result.kind==='directory'?translate('status.renamedFolder'):translate('status.renamedFile');composingRef.current=false;setEntryBusy(false);setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);setStatus({text:nextStatus});if(mode==='create'){setExpanded(cur=>{const next=new Set(cur);next.add(sourcePath);if(result.kind==='directory')next.add(result.path);return next});if(result.kind==='file'){previewTabsBootstrapped.current = true;setTabs(cur=>cur.some(tab=>tab.path===result.path)?cur:[...cur,{baseText:'',dirty:false,draft:'',editing:false,name:result.name,path:result.path,pinned:false,saving:false,scrollTop:0,size:null,status:undefined,symlink:Boolean(result.symlink),bom:false,lineEnding:'none',revision:null}]);activatePath(result.path)}setSelected(result);void loadDirectory(sourcePath);if(result.kind==='directory')void loadDirectory(result.path)}else{setDirectories(cur=>rewriteDirectoryMap(cur,sourcePath,result.path,result));setExpanded(cur=>rewritePathSet(cur,sourcePath,result.path));setTabs(cur=>rewritePreviewTabs(cur,sourcePath,result.path,result));rewriteRuntimePaths(sourcePath,result.path);clearAutosaveTimer(sourcePath);void rewriteEmergencyDraftPath(workspace.workspaceId,draftScopeId,sourcePath,result.path).catch(error=>{if(mounted.current)setStatus({error:true,text:translate('editor.autosaveFailed',{message:error instanceof Error?error.message:String(error)})})});{const nextActivePath=activePathRef.current===null?null:rewriteRelativePath(activePathRef.current,sourcePath,result.path);if(nextActivePath!==activePathRef.current)setActivePath(nextActivePath)}setSelected(result);void loadDirectory(parentPath(sourcePath))}}).catch(error=>{if(error?.name==='AbortError'||!mounted.current){return}if(entryDialog?.mode==='rename'&&draftMoveGeneration!==undefined){void rollbackDraftTree(entryDialog.entry.path,entryPath(parentPath(entryDialog.entry.path),trimmed))}setEntryBusy(false);setEntryError(error instanceof Error?error.message:String(error))}).finally(()=>{if(mutationController.current===controller)mutationController.current=undefined;if(mounted.current)setEntryBusy(false)})},[createEntry,directories,draftScopeId,entryBusy,entryDialog,entryDraft,loadDirectory,renameEntry,rewriteRuntimePaths,workspace.workspaceId])
+  const submitEntryDialog=useCallback(()=>{if(entryBusy||entryDialog===undefined)return;const trimmed=entryDraft.trim();const message=entryNameError(entryDraft);if(message!==undefined){setEntryError(message);return}const parentPathValue=entryDialog.mode==='create'?entryDialog.parentPath:parentPath(entryDialog.entry.path);const siblings=directories.get(parentPathValue)?.entries??[];if(entryDialog.mode==='create'){if(siblings.some(entry=>entry.name===trimmed)){setEntryError(translate('entry.duplicate'));return}}else if(trimmed===entryDialog.entry.name||siblings.some(entry=>entry.name===trimmed&&entry.path!==entryDialog.entry.path)){setEntryError(trimmed===entryDialog.entry.name?translate('entry.nameUnchanged'):translate('entry.duplicate'));return}const controller=new AbortController();mutationController.current=controller;setEntryBusy(true);setEntryError(undefined);const mutationSeq=mutationSeqRef.current+=1;let draftMoveGeneration;const request=(async()=>{if(entryDialog.mode==='rename'){draftMoveGeneration=nextDraftGeneration('__tree__');await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:draftMoveGeneration,fromPath:entryDialog.entry.path,toPath:entryPath(parentPath(entryDialog.entry.path),trimmed)},controller.signal)}return entryDialog.mode==='create'?createEntry(workspace.workspaceId,entryDialog.parentPath,entryDialog.kind,trimmed,controller.signal):renameEntry(workspace.workspaceId,entryDialog.entry.path,trimmed,controller.signal)})();request.then(result=>{if(!mounted.current||mutationSeq!==mutationSeqRef.current)return;const mode=entryDialog.mode;const sourcePath=mode==='create'?entryDialog.parentPath:entryDialog.entry.path;const nextStatus=mode==='create'?result.kind==='directory'?translate('status.createdFolder'):translate('status.createdFile'):result.kind==='directory'?translate('status.renamedFolder'):translate('status.renamedFile');composingRef.current=false;setEntryBusy(false);setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);setStatus({text:nextStatus});if(mode==='create'){setExpanded(cur=>{const next=new Set(cur);next.add(sourcePath);if(result.kind==='directory')next.add(result.path);return next});if(result.kind==='file'){previewTabsBootstrapped.current = true;setTabs(cur=>cur.some(tab=>tab.path===result.path)?cur:[...cur,{baseText:'',dirty:false,draft:'',editing:false,name:result.name,path:result.path,pinned:false,saving:false,scrollTop:0,size:null,status:undefined,symlink:Boolean(result.symlink),bom:false,lineEnding:'none',revision:null}]);activatePath(result.path)}setSelected(result);void loadDirectory(sourcePath);if(result.kind==='directory')void loadDirectory(result.path)}else{setDirectories(cur=>rewriteDirectoryMap(cur,sourcePath,result.path,result));setExpanded(cur=>rewritePathSet(cur,sourcePath,result.path));setTabs(cur=>rewritePreviewTabs(cur,sourcePath,result.path,result));rewriteRuntimePaths(sourcePath,result.path);clearAutosaveTimer(sourcePath);void rewriteEmergencyDraftPath(workspace.workspaceId,draftScopeId,sourcePath,result.path).catch(error=>{if(mounted.current)setStatus({error:true,text:translate('editor.autosaveFailed',{message:error instanceof Error?error.message:String(error)})})});{const nextActivePath=activePathRef.current===null?null:rewriteRelativePath(activePathRef.current,sourcePath,result.path);if(nextActivePath!==activePathRef.current)setActivePath(nextActivePath)}setSelected(result);void loadDirectory(parentPath(sourcePath))}}).catch(error=>{if(error?.name==='AbortError'||!mounted.current||mutationSeq!==mutationSeqRef.current){return}if(entryDialog?.mode==='rename'&&draftMoveGeneration!==undefined){void rollbackDraftTree(entryDialog.entry.path,entryPath(parentPath(entryDialog.entry.path),trimmed))}setEntryBusy(false);setEntryError(error instanceof Error?error.message:String(error))}).finally(()=>{if(mutationController.current===controller)mutationController.current=undefined;if(mounted.current)setEntryBusy(false)})},[createEntry,directories,draftScopeId,entryBusy,entryDialog,entryDraft,loadDirectory,renameEntry,rewriteRuntimePaths,workspace.workspaceId])
   useLayoutEffect(() => {
     // A user-requested file refresh (preview header 刷新 action) is tracked
     // through this flag: consumed at the start of every read pass so a stale
@@ -4510,7 +4532,16 @@ function WorkspaceExplorer({
   const scheduleAutosave = useCallback((path, text) => {
     const tab = tabsRef.current.find(item => item.path === path)
     if (tab === undefined || tab.external || tab.saving || tab.editing !== true) return
+    // Drop the pending timer first, so an edit that reverts to the last-written
+    // text cannot let an earlier (different-content) timer fire afterwards; the
+    // dedup return below skips the generation bump, so the stale timer would
+    // not be caught by the enqueueDraftOperation staleness check either.
     clearAutosaveTimer(path)
+    // Skip a redundant write when the draft already equals the last content
+    // this owner persisted for the path (the dedup documented in
+    // development-notes §15 but never wired): typing back to the last-written
+    // text must neither rewrite the staging file nor the IndexedDB mirror.
+    if (lastWriteRef.current.get(path)?.content === text) return
     const generation = nextDraftGeneration(path)
     const snapshot = Object.freeze({
       owner: draftScopeId,
@@ -4543,12 +4574,11 @@ function WorkspaceExplorer({
   }, [performAutosave])
 
   // The unmount cleanup must run exactly once per real unmount. flushAutosaves
-  // depends on performAutosave, which depends on the `preview` state, so its
-  // identity changes on every preview transition (idle -> loading -> ready);
-  // listing it in the dependency array would re-run this effect on every such
-  // transition and its cleanup aborts every in-flight request (the tree
-  // listing and the active file read), leaving both stuck at their loading
-  // states. Snapshot the cleanup callbacks in refs so the effect is stable.
+  // depends on performAutosave, which depends on `preview`, so its identity
+  // changes on every preview transition; listing it in the deps would re-run
+  // this effect on each transition and its cleanup would abort every in-flight
+  // request (tree listing + active file read), leaving both stuck loading.
+  // Snapshot the cleanup callbacks in refs so the effect stays stable.
   const flushAutosavesRef = useRef(flushAutosaves)
   flushAutosavesRef.current = flushAutosaves
   const persistSessionTabsRef = useRef(persistSessionTabs)
@@ -4753,14 +4783,14 @@ function WorkspaceExplorer({
       if (mounted.current && activePathRef.current === path) setSaving(false)
     }
   }, [activeTab, clearDraft, clearDraftFile, dirty, draft, preview, saving, updateTab])
-  const refresh=useCallback(()=>{if(hasDirtyTabs){setStatus({error:true,text:translate('editor.refreshBlocked')});return}abortDirectoryRequests();setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);composingRef.current=false;setDirectories(new Map());setExpanded(new Set(['']));setStatus(undefined);void loadDirectory('')},[abortDirectoryRequests,hasDirtyTabs,loadDirectory])
+  const refresh=useCallback(()=>{if(hasDirtyTabs){setStatus({error:true,text:translate('tree.refreshBlocked')});return}abortDirectoryRequests();setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);composingRef.current=false;setDirectories(new Map());setExpanded(new Set(['']));setStatus(undefined);void loadDirectory('')},[abortDirectoryRequests,hasDirtyTabs,loadDirectory])
   const toggleDirectory=useCallback(entry=>{const path=entry.path;const opening=!expanded.has(path);setExpanded(cur=>{const next=new Set(cur);opening?next.add(path):next.delete(path);return next});if(opening){if(directories.get(path)?.state!=='ready')void loadDirectory(path);chooseDirectory(entry)}else setSelected(entry)},[chooseDirectory,directories,expanded,loadDirectory])
   const openContextMenu=useCallback((event,entry)=>{event.preventDefault();setSelected(entry);setContextMenu({entry,x:event.clientX,y:event.clientY})},[])
   const copyEntryPath=useCallback((entry,relative)=>{const value=relative?entry.path:joinAbsolutePath(workspace.path,entry.path);void copyText(value).then(ok=>{if(!mounted.current)return;setContextMenu(undefined);setCopyNotice(ok?(relative?translate('status.copiedRelative'):translate('status.copiedPath')):translate('status.copyFailed'));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},1600)})},[workspace.path])
   const copyEntryName=useCallback((entry)=>{void copyText(entry.name).then(ok=>{if(!mounted.current)return;setContextMenu(undefined);setCopyNotice(ok?translate('status.copiedName'):translate('status.copyFailed'));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},1600)})},[])
   const openInExplorer=useCallback((entry)=>{setContextMenu(undefined);const controller=new AbortController();revealInExplorer(workspace.workspaceId,entry.path,controller.signal).then(()=>{if(!mounted.current)return;setCopyNotice(translate('status.revealed'));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},1600)}).catch(error=>{if(!mounted.current||error?.name==='AbortError')return;setCopyNotice(translate('status.revealFailed',{message:error instanceof Error?error.message:String(error)}));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},3000)})},[workspace.workspaceId])
   const copyEntryToClipboard=useCallback((entry,cut)=>{setContextMenu(undefined);setClipboard({workspaceId:workspace.workspaceId,path:entry.path,name:entry.name,kind:entry.kind,cut});setCopyNotice(cut?translate('status.cut'):translate('status.copied'));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},1600)},[workspace.workspaceId])
-  const pasteEntry=useCallback((targetEntry)=>{if(clipboard===undefined||clipboard.workspaceId!==workspace.workspaceId)return;const targetDir=targetEntry.kind==='directory'?targetEntry.path:parentPath(targetEntry.path);const targetPath=entryPath(targetDir,pathBaseName(clipboard.path));if(clipboard.cut&&clipboard.path===targetPath)return;const wasCut=clipboard.cut;const affectedPrefix=clipboard.path===''?'':`${clipboard.path}/`;if(wasCut&&tabsRef.current.some(tab=>{if(!tab.dirty&&!tab.saving)return false;return tab.path===clipboard.path||(affectedPrefix!==''&&tab.path.startsWith(affectedPrefix))})){setStatus({error:true,text:translate('editor.unsavedBlocked')});return}const controller=new AbortController();mutationController.current?.abort();mutationController.current=controller;let draftMoveGeneration;const request=(async()=>{const result=await requestFsOperation(workspace.workspaceId,{action:wasCut?'move':'copy',source:clipboard.path,target:targetPath},controller.signal);if(wasCut){draftMoveGeneration=nextDraftGeneration('__tree__');await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:draftMoveGeneration,fromPath:clipboard.path,toPath:result.path},controller.signal).catch(error=>{if(mounted.current)console.warn('workspace-explorer-layout: draft move after fs move failed:',error)})}return result})();request.then(result=>{if(!mounted.current)return;setContextMenu(undefined);setStatus({text:wasCut?translate('status.moved'):translate('status.pasted')});if(wasCut){const source=clipboard.path;setClipboard(undefined);setSelected(result);setDirectories(cur=>rewriteDirectoryMap(cur,source,result.path,result));setExpanded(cur=>rewritePathSet(cur,source,result.path));setTabs(cur=>rewritePreviewTabs(cur,source,result.path,result));rewriteRuntimePaths(source,result.path);clearAutosaveTimer(source);void rewriteEmergencyDraftPath(workspace.workspaceId,draftScopeId,source,result.path).catch(error=>{if(mounted.current)setStatus({error:true,text:translate('editor.autosaveFailed',{message:error instanceof Error?error.message:String(error)})})});const nextActivePath=activePathRef.current===null?null:rewriteRelativePath(activePathRef.current,source,result.path);if(nextActivePath!==activePathRef.current)setActivePath(nextActivePath);void loadDirectory(parentPath(source));void loadDirectory(targetDir)}else{void loadDirectory(targetDir)}}).catch(error=>{if(error?.name==='AbortError'||!mounted.current)return;setCopyNotice(translate(wasCut?'status.cutFailed':'status.pasteFailed',{message:error instanceof Error?error.message:String(error)}));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},3000)}).finally(()=>{if(mutationController.current===controller)mutationController.current=undefined})},[clearAutosaveTimer,clipboard,draftScopeId,draftTree,loadDirectory,nextDraftGeneration,rewriteRuntimePaths,workspace.workspaceId])
+  const pasteEntry=useCallback((targetEntry)=>{if(clipboard===undefined||clipboard.workspaceId!==workspace.workspaceId)return;const targetDir=targetEntry.kind==='directory'?targetEntry.path:parentPath(targetEntry.path);const targetPath=entryPath(targetDir,pathBaseName(clipboard.path));if(clipboard.cut&&clipboard.path===targetPath)return;const wasCut=clipboard.cut;const affectedPrefix=clipboard.path===''?'':`${clipboard.path}/`;if(wasCut&&tabsRef.current.some(tab=>{if(!tab.dirty&&!tab.saving)return false;return tab.path===clipboard.path||(affectedPrefix!==''&&tab.path.startsWith(affectedPrefix))})){setStatus({error:true,text:translate('editor.unsavedBlocked')});return}const controller=new AbortController();mutationController.current=controller;const mutationSeq=mutationSeqRef.current+=1;let draftMoveGeneration;let draftMoveFailed=false;const request=(async()=>{const result=await requestFsOperation(workspace.workspaceId,{action:wasCut?'move':'copy',source:clipboard.path,target:targetPath},controller.signal);if(wasCut){draftMoveGeneration=nextDraftGeneration('__tree__');await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:draftMoveGeneration,fromPath:clipboard.path,toPath:result.path},controller.signal).catch(async error=>{if(!mounted.current)return;draftMoveFailed=true;console.warn('workspace-explorer-layout: draft move after fs move failed:',error);setStatus({error:true,text:translate('status.movedDraftWarning')});try{await draftTree(workspace.workspaceId,{action:'delete',owner:draftScopeId,generation:nextDraftGeneration('__tree__'),path:clipboard.path},controller.signal)}catch(cleanupError){if(mounted.current)console.warn('workspace-explorer-layout: draft cleanup after failed move also failed:',cleanupError)}})}return result})();request.then(result=>{if(!mounted.current||mutationSeq!==mutationSeqRef.current)return;setContextMenu(undefined);setStatus(draftMoveFailed?{error:true,text:translate('status.movedDraftWarning')}:{text:wasCut?translate('status.moved'):translate('status.pasted')});if(wasCut){const source=clipboard.path;setClipboard(undefined);setSelected(result);setDirectories(cur=>rewriteDirectoryMap(cur,source,result.path,result));setExpanded(cur=>rewritePathSet(cur,source,result.path));setTabs(cur=>rewritePreviewTabs(cur,source,result.path,result));rewriteRuntimePaths(source,result.path);clearAutosaveTimer(source);void rewriteEmergencyDraftPath(workspace.workspaceId,draftScopeId,source,result.path).catch(error=>{if(mounted.current)setStatus({error:true,text:translate('editor.autosaveFailed',{message:error instanceof Error?error.message:String(error)})})});const nextActivePath=activePathRef.current===null?null:rewriteRelativePath(activePathRef.current,source,result.path);if(nextActivePath!==activePathRef.current)setActivePath(nextActivePath);void loadDirectory(parentPath(source));void loadDirectory(targetDir)}else{void loadDirectory(targetDir)}}).catch(error=>{if(error?.name==='AbortError'||!mounted.current||mutationSeq!==mutationSeqRef.current)return;setCopyNotice(translate(wasCut?'status.cutFailed':'status.pasteFailed',{message:error instanceof Error?error.message:String(error)}));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},3000)}).finally(()=>{if(mutationController.current===controller)mutationController.current=undefined})},[clearAutosaveTimer,clipboard,draftScopeId,draftTree,loadDirectory,nextDraftGeneration,rewriteRuntimePaths,workspace.workspaceId])
   const openDeleteConfirm=useCallback(entry=>{setContextMenu(undefined);setDeleteDialog(entry);setDeleteBusy(false)},[])
   const closeDeleteDialog=useCallback(()=>{if(deleteBusy)return;setDeleteDialog(undefined)},[deleteBusy])
   const confirmDelete = useCallback(async () => {
@@ -4772,8 +4802,8 @@ function WorkspaceExplorer({
       .map(tab => ({ path: tab.path, draft: tab.draft, dirty: tab.dirty || tab.saving }))
     setDeleteBusy(true)
     const controller = new AbortController()
-    mutationController.current?.abort()
     mutationController.current = controller
+    const mutationSeq = (mutationSeqRef.current += 1)
     for (const item of affected) invalidateDraftPath(item.path)
     // Drain requests that already reached the Host before deleting the source;
     // otherwise a late PUT could recreate a draft for a future same-named file.
@@ -4786,7 +4816,7 @@ function WorkspaceExplorer({
       // The source tree was not touched, so the delete can be retried. Keep the
       // dialog open, release the busy flag, and reschedule the affected drafts
       // exactly like the fs-operation failure path below.
-      if (!mounted.current) return
+      if (!mounted.current || mutationSeq !== mutationSeqRef.current) return
       setDeleteBusy(false)
       for (const item of affected) if (item.dirty) scheduleAutosave(item.path, item.draft)
       if (error?.name === 'AbortError') return
@@ -4797,7 +4827,7 @@ function WorkspaceExplorer({
       return
     }
     requestFsOperation(workspace.workspaceId, { action: 'delete', path: entry.path }, controller.signal).then(async result => {
-      if (!mounted.current) return
+      if (!mounted.current || mutationSeq !== mutationSeqRef.current) return
       await Promise.all(affected.map(item => deleteEmergencyDraft(workspace.workspaceId, draftScopeId, item.path, draftGenerationsRef.current.get(item.path) ?? 0).catch(() => {})))
       setDeleteBusy(false)
       setDeleteDialog(undefined)
@@ -4820,7 +4850,7 @@ function WorkspaceExplorer({
       if (selected?.path === entry.path || (prefix !== '' && selected?.path?.startsWith(prefix))) setSelected(undefined)
       void loadDirectory(parentPath(entry.path))
     }).catch(error => {
-      if (!mounted.current) return
+      if (!mounted.current || mutationSeq !== mutationSeqRef.current) return
       setDeleteBusy(false)
       for (const item of affected) if (item.dirty) scheduleAutosave(item.path, item.draft)
       if (error?.name === 'AbortError') return
@@ -5390,7 +5420,7 @@ function EmptyWorkspaceExplorer({ treePortalTarget, sessionTitle }) {
 }function ExplorerSettingsSection({ settingsStore }) {
   const settings = useSyncExternalStore(settingsStore.subscribe, settingsStore.getSnapshot)
   const rowHeight = clamp(settings.rowHeight ?? ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MIN, ROW_HEIGHT_MAX)
-  const chatFontSize = settings.chatFontSize ?? CHAT_FONT_SIZE_DEFAULT
+  const chatFontSize = clamp(settings.chatFontSize ?? CHAT_FONT_SIZE_DEFAULT, CHAT_FONT_SIZE_MIN, CHAT_FONT_SIZE_MAX)
   const conflictFontSize = clamp(settings.conflictFontSize ?? CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MIN, CONFLICT_FONT_SIZE_MAX)
   const customizedCount = Object.keys(settings.fileColors ?? {}).length
   const customizedPresetCount = Object.keys(settings.highlightPresets ?? {}).length
@@ -5808,7 +5838,7 @@ function AppFrame(props) {
     observer.observe(header)
     return () => { observer.disconnect() }
   }, [mobile.files, mobile.on])
-  const chatFontScale = (settings.chatFontSize ?? CHAT_FONT_SIZE_DEFAULT) / CHAT_FONT_SIZE_DEFAULT
+  const chatFontScale = clamp(settings.chatFontSize ?? CHAT_FONT_SIZE_DEFAULT, CHAT_FONT_SIZE_MIN, CHAT_FONT_SIZE_MAX) / CHAT_FONT_SIZE_DEFAULT
   // One accent custom property per color group; unset groups resolve to their
   // default inside the CSS rule's var() fallback (the value here is the
   // effective color either way, so the fallback is only a safety net).

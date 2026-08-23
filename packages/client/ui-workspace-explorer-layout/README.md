@@ -26,7 +26,7 @@
 - 提供兼容的 `ctx.layout` 服务，占用根 Slot，并继续声明 `sidebar`、`conversation`、`details` 与 `shell.overlay`。
 - 在根布局中加入文件树与 CodeMirror 6 浏览器/编辑器；打开后的资源管理器最多扩展到可见布局的 80%，右侧对话栏继续收缩。
 - 文件以按会话保存的预览标签页打开，支持拖拽重排、`X` 关闭、树中定位与按标签恢复滚动位置。
-- 在树中提供新建文件/文件夹与 `F2` 重命名，并在 `sidebar.footer.action` 中、设置入口正上方注册资源管理器开关。
+- 在树中提供新建文件/文件夹与 `F2` 重命名，并在 `sidebar.footer.action` 中注册手机模式开关。
 - 按文件类型颜色分组为每行前置类型徽标着色（目录、TypeScript、JavaScript、JSON、标记、样式、Markdown、日志、Python、C#、Shell、配置、C 系、其他、受阻）。
 
 ### 编辑器上下文行
