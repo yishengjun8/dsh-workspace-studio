@@ -1257,7 +1257,7 @@ html.dsh-wel-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal
 .dsh-wel-mindmap-branch{flex:none;padding:2px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:16px;cursor:pointer}
 .dsh-wel-mindmap-branch:hover{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary)}
 .dsh-wel-mindmap-branch:disabled{opacity:.55;cursor:not-allowed}
-.dsh-wel-mindmap-node-current-badge{position:absolute;top:-8px;right:8px;padding:1px 7px;border-radius:999px;background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-primary-inverted);font-size:10px;line-height:14px}
+.dsh-wel-mindmap-node-current-badge{position:absolute;top:2px;right:8px;padding:1px 7px;border-radius:999px;background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-primary-inverted);font-size:10px;line-height:14px}
 /* Branch cards: fork children that cannot be connected to the shared trunk by
    overlapping windows render as their own card (always visible), with a head
    row (tag + branch title) and, when the branch has visible rounds, a preview
@@ -1281,7 +1281,6 @@ html.dsh-wel-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal
 .dsh-wel-mindmap-notice{margin-bottom:10px;padding:6px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:12px;line-height:17px}
 .dsh-wel-mindmap-notice-error{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}
 .dsh-wel-mindmap-node[data-branch]{border-style:solid}
-.dsh-wel-mindmap-node[data-branch]:hover::after{content:'⋯';position:absolute;top:3px;right:6px;color:var(--dsw-alias-label-secondary);font-size:14px;line-height:16px;pointer-events:none}
 .dsh-wel-mindmap-hidden-row{display:none!important}
 `
 
