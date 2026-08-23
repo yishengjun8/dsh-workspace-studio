@@ -7828,7 +7828,10 @@ export function apply(ctx) {
         return session.getSnapshot()
       },
       forkAt: async (id, seq) => {
-        const childId = await ctx.sessions.fork({ sessionId: String(id), atSeq: seq, increaseTitle: true })
+        // No increaseTitle: the host already generates a title from the fork
+        // boundary, and appending " (1)" would leak the parent's name onto the
+        // branch card.
+        const childId = await ctx.sessions.fork({ sessionId: String(id), atSeq: seq })
         ctx.sessions.open(childId)
         return childId
       },
