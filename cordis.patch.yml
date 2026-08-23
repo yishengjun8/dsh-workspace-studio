@@ -5,7 +5,7 @@
 
 - insert:
     - id: workspace-explorer-layout
-      name: '@deepseek-ai/dsh-client-ui-workspace-explorer-layout'
+      name: '@deepseek-ai/dsh-workspace-explorer-layout'
       config:
         enableEditing: true
         maxContextBytes: 65536

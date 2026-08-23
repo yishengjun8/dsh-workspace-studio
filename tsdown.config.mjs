@@ -1,6 +1,6 @@
 import { defineConfig } from 'tsdown'
 
-const ID = '@deepseek-ai/dsh-client-ui-workspace-explorer-layout'
+const ID = '@deepseek-ai/dsh-workspace-explorer-layout'
 const EXTERNALS = [
   'react',
   'react-dom',

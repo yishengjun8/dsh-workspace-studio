@@ -100,6 +100,34 @@
 
 `Makefile`、`.gitignore`、`.env`、`LICENSE` 与未知扩展名以纯文本显示，仍可浏览与编辑。
 
+## 🧩 双面实现
+
+一个包内封装三个端面：
+
+- **Host 端**（`lib/index.js`）注册 `/workspace-explorer-layout/api`：按 Workspace ID 列目录、读取有上限的 UTF-8 文件，按 membership 或规范化 cwd 授权当前 Session；显式启用编辑时，通过修订版本校验、单段名称校验和原子替换保存已有普通文件、新建文件与文件夹、重命名已有条目，拒绝过期修订版本而不是静默覆盖。
+- **Browser 端**（`lib/client.js`）提供兼容的 `ctx.layout` 服务，占用根 Slot，继续声明 `sidebar`、`conversation`、`details` 与 `shell.overlay`，并加入文件树、CodeMirror 6 浏览器/编辑器、编辑器上下文行、资源管理器设置页与 `/init` 命令。
+- **共享不变量**（`lib/invariant.js`）为每次 Host 请求提供路径包含与写入资格校验。
+
+### 激活模型
+
+layout 提供方有意不硬注入 `conversation`：conversation 插件本身消费 `layout`。因此 bundle 在激活后通过子注入 patch 现有 `sendSession` seam，并向 `conversation.input.dock` 注册编辑器上下文行，避免形成激活依赖环。
+
+### 已知限制与待办
+
+编辑器上下文发送桥适配 Harness 0.1.x 具体的 `sendSession`、输入提交与队列 steer 实现，因为跨包公开 face 不承载任意 Composer 上下文。这些 seam 都封装在本包内并在卸载时恢复，未来 Harness 版本可能只需更新本 bundle。
+
+布局状态、展开目录、编辑器选区与 Workspace 草稿缓存均属页面内存状态；预览标签页及其各自的垂直滚动位置在重载后、以及返回原 Session 或 Workspace 时恢复。
+
+### 模型体验
+
+当前缀启用且 CodeMirror 主选区非空时，每次发送都会捕获该选区的精确文本、规范化工作区路径与范围，并渲染为 `<selection>...</selection>` 封装。选区为空时，每次发送只捕获打开的文件路径，并渲染固定的 `<opened_file>...</opened_file>` 封装；绝不提交完整文件。
+
+Browser 发送桥把渲染后的文本拼接到直接用户提示前，因此普通 `user/message` 记录包含实际模型可见的上下文。对话页会把该封装折叠成气泡上方的一行摘要，只显示文件名与行列范围；鼠标悬浮该行会显示完整的注入 XML。灰色前缀不贡献上下文；后续每个启用回合都会再次记录相同上下文。
+
+#### Token 与 KV 缓存影响
+
+选区上下文会增加 `<selection>...</selection>` 封装以及选中文本的输入 Token。资源管理器先按默认 65,536 UTF-8 字节限制预检选中文本；Host 独立将完整渲染默认限制为 69,632 字节，并最多读取 10 MiB 用于 clean 修订版本校验。截断预览以浏览器权威的选区文本为准。仅路径上下文只增加 `<opened_file>...</opened_file>` 封装、不携带文件正文。每个启用回合都有自己的日志提示文本，因此 compaction 前重复选区可能增加提示 Token。
+
 ## 📦 安装
 
 在 Git Bash、Linux 或 WSL 中执行：
@@ -152,16 +180,16 @@ bash ./uninstall.sh
 
 ```text
 .
-├── package.json                         # Installable bundle manifest
-├── cordis.patch.yml                     # 禁用内置根布局并挂载本插件
+├── package.json                         # 单包 manifest：bundle patch + client inject + exports
+├── cordis.patch.yml                     # 禁用内置根布局并挂载本插件（自引用单包名）
 ├── install.sh / uninstall.sh
-└── packages/client/ui-workspace-explorer-layout/
-    ├── src/client/index.js              # 浏览器源码
-    ├── lib/index.js                     # Host：有界的 Workspace 读、保存、新建、重命名 API
-    └── lib/client.js                    # 预构建四栏布局、文件树与编辑器
+├── src/client/index.js                  # 浏览器源码
+├── lib/index.js                         # Host：有界的 Workspace 读、保存、新建、重命名 API
+├── lib/invariant.js                     # Host 共用不变量断言
+└── lib/client.js                        # 预构建四栏布局、文件树与编辑器
 ```
 
-CodeMirror 与语言模块已内联到预构建的普通 JavaScript Client bundle，安装时无需在项目内运行构建或测试。维护源码时，在内层包目录执行 `pnpm install --ignore-workspace --config.auto-install-peers=false`，再运行 `pnpm bundle` 重新生成 `lib/client.js`。
+CodeMirror 与语言模块已内联到预构建的普通 JavaScript Client bundle，安装时无需在项目内运行构建或测试。维护源码时，在仓库根目录执行 `pnpm install --config.auto-install-peers=false`，再运行 `npm run bundle` 重新生成 `lib/client.js`。
 
 ## 🔄 兼容性说明
 

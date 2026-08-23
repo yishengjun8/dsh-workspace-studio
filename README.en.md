@@ -100,6 +100,34 @@ Built in for **20+ languages**: JavaScript/JSX, TypeScript/TSX, JSON, HTML, CSS/
 
 `Makefile`, `.gitignore`, `.env`, `LICENSE`, and unknown extensions stay browsable and editable in plain text.
 
+## 🧩 Dual-Face Implementation
+
+One package ships three faces:
+
+- **Host entry** (`lib/index.js`) registers `/workspace-explorer-layout/api`: it lists directories by Workspace ID, reads bounded UTF-8 files, authorizes the current Session by membership or canonical cwd, and, when editing is explicitly enabled, saves existing regular files, creates files and folders, and renames entries through revision validation, single-segment name checks, and atomic replacement — refusing stale revisions instead of overwriting them.
+- **Browser entry** (`lib/client.js`) provides the compatible `ctx.layout` service, occupies the root Slot, keeps declaring `sidebar`, `conversation`, `details`, and `shell.overlay`, and adds the file tree, the CodeMirror 6 browser/editor, the editor-context row, the Explorer settings tab, and the `/init` command.
+- **Shared invariants** (`lib/invariant.js`) back every Host request with path-containment and write-eligibility checks.
+
+### Activation Model
+
+The layout provider intentionally does not hard-inject `conversation`: the conversation plugin itself consumes `layout`. The bundle therefore uses a child injection after activation to patch the existing `sendSession` seam and to register the editor row in `conversation.input.dock`, avoiding an activation cycle.
+
+### Known Limitations and Deferred Work
+
+The editor-context bridge adapts the concrete Harness 0.1.x `sendSession`, input-submit, and queue-steer implementations because the public cross-package faces do not carry arbitrary Composer context. These seams stay behind this package and are restored on unload, so a future Harness release may require updating only this bundle.
+
+Layout state, expanded directories, editor selection, and the workspace draft cache remain page-memory state; preview tabs and their per-tab vertical scroll positions persist and are restored across reloads and when returning to the previous Session or Workspace.
+
+### Model Experience
+
+When the prefix is active and the primary CodeMirror selection is non-empty, each send captures that exact selected text, its normalized workspace path, and its range, then renders it as a `<selection>...</selection>` envelope. When the selection is empty, each send captures only the open file path and renders the fixed `<opened_file>...</opened_file>` envelope; it never submits the full file.
+
+The Browser bridge prepends the rendered text to the direct user prompt, so the ordinary `user/message` record contains the exact model-visible context. The conversation view folds that same envelope into a compact row above the bubble, showing the file name and the line/column range; hovering that row reveals the full injected XML. Gray prefixes contribute no context, and the same context is intentionally recorded again on each later active turn.
+
+#### Token and KV Cache Effect
+
+Selection contexts add the selected text plus the `<selection>...</selection>` envelope to input tokens. The Explorer preflights selected text against its default 65,536-byte UTF-8 limit; the Host independently bounds the complete rendering at 69,632 bytes by default and reads at most 10 MiB for clean revision verification. Truncated previews use browser-authoritative selection text. Path-only contexts add only the `<opened_file>...</opened_file>` envelope and no file bytes. Every active turn has its own logged prompt text, so repeated selections may increase prompt tokens until compaction.
+
 ## 📦 Installation
 
 Run from Git Bash, Linux, or WSL:
@@ -152,16 +180,16 @@ The plugin row in `cordis.patch.yml` accepts:
 
 ```text
 .
-├── package.json                         # Installable bundle manifest
-├── cordis.patch.yml                     # Disables the built-in root layout and mounts this plugin
+├── package.json                         # Single-package manifest: bundle patch + client inject + exports
+├── cordis.patch.yml                     # Disables the built-in root layout and mounts this plugin (self-referencing)
 ├── install.sh / uninstall.sh
-└── packages/client/ui-workspace-explorer-layout/
-    ├── src/client/index.js              # Browser source
-    ├── lib/index.js                     # Host: bounded Workspace read, save, create, and rename API
-    └── lib/client.js                    # Prebuilt four-pane layout, file tree, and editor
+├── src/client/index.js                  # Browser source
+├── lib/index.js                         # Host: bounded Workspace read, save, create, and rename API
+├── lib/invariant.js                     # Shared Host invariants
+└── lib/client.js                        # Prebuilt four-pane layout, file tree, and editor
 ```
 
-CodeMirror and its language modules are bundled into the prebuilt plain-JavaScript Client artifact, so installation runs no builds or tests. To maintain the source, run `pnpm install --ignore-workspace --config.auto-install-peers=false` in the inner package and then `pnpm bundle` to regenerate `lib/client.js`.
+CodeMirror and its language modules are bundled into the prebuilt plain-JavaScript Client artifact, so installation runs no builds or tests. To maintain the source, run `pnpm install --config.auto-install-peers=false` in the repo root and then `npm run bundle` to regenerate `lib/client.js`.
 
 ## 🔄 Compatibility
 

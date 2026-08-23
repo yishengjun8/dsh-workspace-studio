@@ -1,7 +1,5 @@
-# Standalone plugin repo — declare its own workspace boundary so pnpm stops
-# walking up into the harness monorepo (whose workspace does not include these
-# packages, leaving the client bundle's deps never installed). The client
-# package is a workspace member so its devDependencies (tsdown, the bundled
-# @codemirror/* runtimes) are installed — a bare file: dependency would skip them.
-packages:
-  - packages/*/*
+# Standalone single-package plugin repo — declare an empty workspace boundary so
+# pnpm stops walking up into the harness monorepo (whose workspace does not
+# include this package). The root package is the only project; devDependencies
+# (tsdown, the bundled @codemirror/* runtimes) install with it.
+packages: []
