@@ -105,6 +105,13 @@ const MINDMAP_DEPTH_GAP = 64
 const MINDMAP_ROW_GAP = 12
 const MINDMAP_TEXT_MAX = 88
 const MINDMAP_ROUNDS_MAX = 3
+/* Mind-map viewport interaction bounds: wheel-zoom range, the overhang that
+   keeps the map from being panned completely out of view, and the exponential
+   zoom step per wheel delta pixel. */
+const MINDMAP_ZOOM_MIN = 0.25
+const MINDMAP_ZOOM_MAX = 3
+const MINDMAP_PAN_MARGIN = 48
+const MINDMAP_WHEEL_STEP = 0.0016
 /* DeepSeek fish logo path (ui-primitives FishLogo); the svg uses a padded
    viewBox so the 1.4-wide stroke is not clipped. */
 const FISH = 'M22.9168 1.43018C22.6713 1.31018 22.5658 1.53918 22.4223 1.65519C22.3733 1.69269 22.3318 1.74169 22.2903 1.78669C21.9317 2.1697 21.5127 2.42121 20.9657 2.39121C20.1657 2.34621 19.4827 2.59771 18.8787 3.20973C18.7502 2.45521 18.3236 2.0047 17.6746 1.71569C17.3351 1.56568 16.9916 1.41518 16.7536 1.08867C16.5876 0.856163 16.5421 0.597155 16.4591 0.341647C16.4061 0.187643 16.3536 0.0301382 16.1761 0.00363739C15.9836 -0.0263635 15.9081 0.135141 15.8326 0.270145C15.5306 0.822162 15.4136 1.43018 15.4251 2.0462C15.4516 3.43174 16.0366 4.53527 17.1991 5.3203C17.3311 5.4103 17.3651 5.5003 17.3236 5.63181C17.2441 5.90231 17.1501 6.16482 17.0671 6.43533C17.0141 6.60784 16.9351 6.64584 16.7501 6.57033C16.1121 6.30383 15.5611 5.90931 15.074 5.4328C14.2475 4.63328 13.5 3.75075 12.568 3.05973C12.349 2.89822 12.13 2.74822 11.9034 2.60522C10.9524 1.68169 12.028 0.923165 12.277 0.833162C12.5375 0.739159 12.3675 0.41615 11.5259 0.42015C10.6844 0.42365 9.91439 0.705658 8.93286 1.08117C8.78935 1.13767 8.63835 1.17867 8.48384 1.21267C7.59332 1.04367 6.66829 1.00617 5.70226 1.11517C3.88321 1.31768 2.43016 2.1777 1.36213 3.64575C0.0790928 5.4103 -0.222916 7.41536 0.146595 9.50642C0.535106 11.7105 1.66014 13.535 3.38869 14.9616C5.18125 16.4406 7.24581 17.1657 9.60138 17.0266C11.0319 16.9441 12.6245 16.7526 14.421 15.2321C14.874 15.4576 15.3496 15.5476 16.1381 15.6151C16.7456 15.6716 17.3306 15.5851 17.7836 15.4911C18.4931 15.3411 18.4441 14.6841 18.1876 14.5636C16.1081 13.595 16.5646 13.9891 16.1496 13.67C17.2061 12.42 18.8202 10.1979 19.3182 7.17235C19.3672 6.83834 19.4297 6.36783 19.4222 6.09732C19.4182 5.93231 19.4562 5.86831 19.6447 5.84931C20.1657 5.78931 20.6712 5.64681 21.1357 5.3913C22.4833 4.65528 23.0268 3.44624 23.1548 1.9972C23.1738 1.77569 23.1508 1.54668 22.9168 1.43018ZM11.1749 14.4736C9.15936 12.889 8.18184 12.3675 7.77832 12.39C7.40081 12.4125 7.46881 12.8445 7.55182 13.126C7.63882 13.404 7.75182 13.5955 7.91033 13.8396C8.01983 14.0011 8.09533 14.2411 7.80083 14.4216C7.15181 14.8231 6.02327 14.2866 5.97027 14.2601C4.65673 13.4865 3.5587 12.4655 2.78467 11.069C2.03715 9.72493 1.60314 8.28289 1.53164 6.74384C1.51264 6.37233 1.62214 6.24082 1.99215 6.17332C2.47916 6.08332 2.98118 6.06432 3.46769 6.13582C5.52476 6.43633 7.27581 7.35586 8.74385 8.8129C9.58188 9.64243 10.2159 10.634 10.8689 11.6025C11.5634 12.631 12.3105 13.611 13.262 14.4146C13.598 14.6961 13.866 14.9101 14.1225 15.0681C13.349 15.1546 12.058 15.1731 11.1749 14.4746L11.1749 14.4736ZM12.141 8.25988C12.141 8.09488 12.273 7.96338 12.439 7.96338C12.4765 7.96338 12.5105 7.97088 12.541 7.98188C12.5825 7.99688 12.6205 8.01938 12.6505 8.05338C12.7035 8.10588 12.7335 8.18088 12.7335 8.25988C12.7335 8.42489 12.6015 8.55639 12.4355 8.55639C12.2695 8.55639 12.141 8.42489 12.141 8.25988ZM15.1415 9.79893C14.949 9.87793 14.7565 9.94544 14.5715 9.95294C14.2845 9.96794 13.9715 9.85143 13.8015 9.70893C13.5375 9.48742 13.3485 9.36342 13.2695 8.97691C13.2355 8.8119 13.2545 8.55639 13.2845 8.40989C13.3525 8.09438 13.277 7.89187 13.0545 7.70787C12.8735 7.55786 12.643 7.51636 12.39 7.51636C12.2955 7.51636 12.209 7.47486 12.1445 7.44136C12.039 7.38886 11.9519 7.25735 12.035 7.09585C12.0615 7.04335 12.19 6.91584 12.22 6.89334C12.5635 6.69784 12.9595 6.76184 13.326 6.90834C13.6655 7.04735 13.9225 7.30236 14.292 7.66287C14.6695 8.09838 14.7375 8.21838 14.9525 8.54539C15.1225 8.8009 15.277 9.06341 15.3831 9.36392C15.4471 9.55142 15.3641 9.70493 15.1415 9.79893Z'
@@ -513,6 +520,8 @@ const zh = {
   'mindmap.archive.action': '归档',
   'mindmap.archived': '已归档分支。',
   'mindmap.renamed': '已重命名分支。',
+  'mindmap.view.restore': '还原视图',
+  'mindmap.view.restoreTitle': '将视图大小与位置还原',
   'mindmap.noticeFailed': '操作失败：{message}',
   'switcher.aria': '切换会话',
   'switcher.trigger.title': '点击切换会话',
@@ -870,6 +879,8 @@ const en = {
   'mindmap.archive.action': 'Archive',
   'mindmap.archived': 'Branch archived.',
   'mindmap.renamed': 'Branch renamed.',
+  'mindmap.view.restore': 'Restore view',
+  'mindmap.view.restoreTitle': 'Reset the view size and position',
   'mindmap.noticeFailed': 'Operation failed: {message}',
   'switcher.aria': 'Switch session',
   'switcher.trigger.title': 'Click to switch session',
@@ -1241,8 +1252,13 @@ html.dsh-wel-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal
 /* Mind-map conversation branching view ("导图") and the sidebar branch-row
    hider (fork children are hidden from the harness session list; branches
    live in the mind map). */
-.dsh-wel-mindmap{height:100%;overflow:auto;position:relative;box-sizing:border-box;padding:14px 16px 190px}
-.dsh-wel-mindmap-canvas{position:relative;margin:0 auto}
+.dsh-wel-mindmap{height:100%;position:relative;box-sizing:border-box;padding:14px 16px 190px;display:flex;flex-direction:column;overflow:hidden}
+.dsh-wel-mindmap-toolbar{flex:none;display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.dsh-wel-mindmap-toolbar-button{flex:none;padding:3px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:16px;cursor:pointer}
+.dsh-wel-mindmap-toolbar-button:hover{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary)}
+.dsh-wel-mindmap-viewport{position:relative;flex:1;min-height:0;overflow:hidden;cursor:grab;touch-action:none}
+.dsh-wel-mindmap-viewport[data-dragging]{cursor:grabbing;user-select:none}
+.dsh-wel-mindmap-canvas{position:absolute;left:0;top:0;transform-origin:0 0;will-change:transform}
 .dsh-wel-mindmap-edges{position:absolute;inset:0;pointer-events:none;overflow:visible}
 .dsh-wel-mindmap-edge{fill:none;stroke:var(--dsw-alias-border-l2,#8a8f98);stroke-width:1.5;opacity:.85}
 .dsh-wel-mindmap-node{position:absolute;box-sizing:border-box;display:flex;flex-direction:column;gap:4px;padding:8px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:12px;line-height:17px;text-align:left;cursor:pointer;overflow:hidden;transition:border-color .12s ease,box-shadow .12s ease}
@@ -6263,6 +6279,30 @@ function mindmapLayout(tree) {
 
 const mindmapXOf = depth => MINDMAP_DEPTH_GAP + depth * (MINDMAP_NODE_W + MINDMAP_DEPTH_GAP)
 
+/* Clamp a view translation so the scaled world always overlaps the viewport:
+   an axis whose world fits centers it; a larger world may slide with a small
+   overhang so the map can never be lost entirely. */
+function mindmapClampView(view, worldW, worldH, vw, vh) {
+  const sw = worldW * view.zoom
+  const sh = worldH * view.zoom
+  const tx = sw <= vw ? (vw - sw) / 2 : Math.max(vw - sw - MINDMAP_PAN_MARGIN, Math.min(view.tx, MINDMAP_PAN_MARGIN))
+  const ty = sh <= vh ? (vh - sh) / 2 : Math.max(vh - sh - MINDMAP_PAN_MARGIN, Math.min(view.ty, MINDMAP_PAN_MARGIN))
+  return { zoom: view.zoom, tx, ty }
+}
+
+/* Initial / "还原视图" view: fit the whole map (capped at 1x, never upscaled);
+   a map too large to fit even at the minimum zoom aligns to the top-left so
+   the root stays in view. */
+function mindmapFitView(worldW, worldH, vw, vh) {
+  if (worldW <= 0 || worldH <= 0 || vw <= 0 || vh <= 0) return null
+  const zoom = Math.max(Math.min(Math.min(vw / worldW, vh / worldH), 1), MINDMAP_ZOOM_MIN)
+  const sw = worldW * zoom
+  const sh = worldH * zoom
+  const tx = sw <= vw ? (vw - sw) / 2 : MINDMAP_PAN_MARGIN
+  const ty = sh <= vh ? (vh - sh) / 2 : MINDMAP_PAN_MARGIN
+  return { zoom, tx, ty }
+}
+
 /* The "导图" conversation view: family round tree + branch actions. */
 function MindMapView({ useSession, useSessions, useWorkspaces, sessionId, readSnapshot, forkAt, openSession, renameSession, archiveSession }) {
   const list = useSessions(state => state)
@@ -6285,6 +6325,16 @@ function MindMapView({ useSession, useSessions, useWorkspaces, sessionId, readSn
   const [archiveBusy, setArchiveBusy] = useState(false)
   const [archiveError, setArchiveError] = useState(null)
   const [notice, setNotice] = useState(null)
+  /* Pan/zoom view state of the map viewport (in-memory, reset per mount). */
+  const [view, setView] = useState({ tx: 0, ty: 0, zoom: 1 })
+  const [dragging, setDragging] = useState(false)
+  const viewportRef = useRef(null)
+  const canvasRef = useRef(null)
+  const viewRef = useRef({ tx: 0, ty: 0, zoom: 1 })
+  const dragRef = useRef(null)
+  const pendingViewRef = useRef(null)
+  const rafRef = useRef(0)
+  const fittedRef = useRef(false)
 
   useEffect(() => {
     mountedRef.current = true
@@ -6363,6 +6413,103 @@ function MindMapView({ useSession, useSessions, useWorkspaces, sessionId, readSn
 
   const tree = useMemo(() => mindmapBuildTree(roundsBySession, family.ids, parentOf), [roundsBySession, family.ids, parentOf])
   const layout = useMemo(() => mindmapLayout(tree), [tree])
+
+  /* Viewport interaction: grab-pan on blank area + wheel zoom anchored at the
+     cursor. The transform lives in React state (re-renders re-apply it), and
+     viewRef mirrors it for the native listeners without stale closures. */
+  const updateView = useCallback((next) => {
+    viewRef.current = next
+    setView(next)
+  }, [])
+  const scheduleView = useCallback((next) => {
+    pendingViewRef.current = next
+    if (rafRef.current !== 0) return
+    rafRef.current = window.requestAnimationFrame(() => {
+      rafRef.current = 0
+      const pending = pendingViewRef.current
+      pendingViewRef.current = null
+      if (pending !== null) updateView(pending)
+    })
+  }, [updateView])
+  const viewportSize = useCallback(() => {
+    const el = viewportRef.current
+    return el === null ? { vw: 0, vh: 0 } : { vw: el.clientWidth, vh: el.clientHeight }
+  }, [])
+  const restoreView = useCallback(() => {
+    const { vw, vh } = viewportSize()
+    const fit = mindmapFitView(layout.width, layout.height, vw, vh)
+    if (fit !== null) updateView(fit)
+  }, [layout.height, layout.width, updateView, viewportSize])
+  /* Fit once when the map first becomes visible; later layout growth keeps the
+     user's view and 还原视图 restores the fit at any time. */
+  useLayoutEffect(() => {
+    if (fittedRef.current) return
+    const { vw, vh } = viewportSize()
+    const fit = mindmapFitView(layout.width, layout.height, vw, vh)
+    if (fit !== null) { fittedRef.current = true; updateView(fit) }
+  }, [layout.height, layout.width, updateView, viewportSize])
+  /* Wheel zoom with the cursor as the anchor. React attaches wheel as passive
+     at the root, so preventDefault requires a native non-passive listener. */
+  useEffect(() => {
+    const el = viewportRef.current
+    if (el === null) return
+    const onWheel = (event) => {
+      event.preventDefault()
+      const dy = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY
+      const rect = el.getBoundingClientRect()
+      const cx = event.clientX - rect.left
+      const cy = event.clientY - rect.top
+      const cur = viewRef.current
+      const factor = Math.exp(-dy * MINDMAP_WHEEL_STEP)
+      const zoom = Math.max(MINDMAP_ZOOM_MIN, Math.min(cur.zoom * factor, MINDMAP_ZOOM_MAX))
+      const next = mindmapClampView({
+        zoom,
+        tx: cx - (cx - cur.tx) * (zoom / cur.zoom),
+        ty: cy - (cy - cur.ty) * (zoom / cur.zoom),
+      }, layout.width, layout.height, el.clientWidth, el.clientHeight)
+      updateView(next)
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [layout.height, layout.width, updateView])
+  /* Drop any pending rAF frame on unmount. */
+  useEffect(() => () => {
+    if (rafRef.current !== 0) { window.cancelAnimationFrame(rafRef.current); rafRef.current = 0 }
+  }, [])
+  /* Grab-pan: only a press on the viewport/canvas background (not a node)
+     starts a drag; pointer capture keeps the motion tracked outside the box. */
+  const startPan = useCallback((event) => {
+    if (event.button !== 0) return
+    const target = event.target
+    if (target !== viewportRef.current && target !== canvasRef.current) return
+    event.preventDefault()
+    const cur = viewRef.current
+    dragRef.current = { startX: event.clientX, startY: event.clientY, tx: cur.tx, ty: cur.ty }
+    setDragging(true)
+    const el = viewportRef.current
+    if (el !== null && typeof el.setPointerCapture === 'function') {
+      try { el.setPointerCapture(event.pointerId) } catch { /* already released */ }
+    }
+  }, [])
+  const movePan = useCallback((event) => {
+    const drag = dragRef.current
+    if (drag === null) return
+    const { vw, vh } = viewportSize()
+    scheduleView(mindmapClampView({
+      ...viewRef.current,
+      tx: drag.tx + (event.clientX - drag.startX),
+      ty: drag.ty + (event.clientY - drag.startY),
+    }, layout.width, layout.height, vw, vh))
+  }, [layout.height, layout.width, scheduleView, viewportSize])
+  const endPan = useCallback((event) => {
+    if (dragRef.current === null) return
+    dragRef.current = null
+    setDragging(false)
+    const el = viewportRef.current
+    if (el !== null && typeof el.releasePointerCapture === 'function') {
+      try { el.releasePointerCapture(event.pointerId) } catch { /* not captured */ }
+    }
+  }, [])
 
   const currentLastSeq = useMemo(() => {
     const rounds = roundsBySession.get(String(sessionId))
@@ -6659,16 +6806,19 @@ function MindMapView({ useSession, useSessions, useWorkspaces, sessionId, readSn
 
   return h(Fragment, null,
     h('div', { className: 'dsh-wel-mindmap', 'data-conversation-composer-overlay': '' },
+      h('div', { className: 'dsh-wel-mindmap-toolbar' },
+        h('button', { className: 'dsh-wel-mindmap-toolbar-button', onClick: restoreView, title: translate('mindmap.view.restoreTitle'), type: 'button' }, translate('mindmap.view.restore'))),
       h('div', { className: 'dsh-wel-mindmap-bar' },
         translate('mindmap.rootLabel'),
         h('span', { className: 'dsh-wel-mindmap-bar-title' }, rootTitle)),
       noticeView,
       forkError !== null ? h('div', { className: 'dsh-wel-mindmap-fork-error' }, translate('mindmap.forkFailed', { message: forkError })) : null,
-      h('div', { className: 'dsh-wel-mindmap-canvas', style: { width: layout.width, height: layout.height } },
-        h('svg', { className: 'dsh-wel-mindmap-edges', width: layout.width, height: layout.height },
-          edgePaths.map((d, index) => h('path', { className: 'dsh-wel-mindmap-edge', d, key: index }))),
-        nodeViews,
-        pendingViews)),
+      h('div', { className: 'dsh-wel-mindmap-viewport', 'data-dragging': dragging ? '' : undefined, onPointerCancel: endPan, onPointerDown: startPan, onPointerMove: movePan, onPointerUp: endPan, ref: viewportRef },
+        h('div', { className: 'dsh-wel-mindmap-canvas', ref: canvasRef, style: { height: layout.height, transform: `translate(${view.tx}px, ${view.ty}px) scale(${view.zoom})`, width: layout.width } },
+          h('svg', { className: 'dsh-wel-mindmap-edges', width: layout.width, height: layout.height },
+            edgePaths.map((d, index) => h('path', { className: 'dsh-wel-mindmap-edge', d, key: index }))),
+          nodeViews,
+          pendingViews))),
     menuView,
     renameView,
     archiveView)
