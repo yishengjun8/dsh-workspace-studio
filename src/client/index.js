@@ -6522,9 +6522,24 @@ function MindMapView({ useSession, useSessions, useWorkspaces, sessionId, readSn
 
   const openNode = useCallback((node) => {
     if (node === undefined) return
-    const owner = node.sessionIds.has(family.rootId) ? family.rootId : node.sessionIds.values().next().value
+    /* Open the session at this round's level: the shallowest session whose last
+       round is exactly this node, so clicking a middle round continues from
+       that level instead of falling to the family root or the deepest branch
+       (whose trunk can own the round when intermediate sessions render as
+       branch cards). */
+    let owner
+    for (const id of family.ids) {
+      const rounds = roundsBySession.get(String(id)) ?? []
+      if (rounds.length > 0 && rounds[rounds.length - 1].seq === node.seq) {
+        owner = String(id)
+        break
+      }
+    }
+    if (owner === undefined) {
+      owner = node.sessionIds.has(family.rootId) ? family.rootId : node.sessionIds.values().next().value
+    }
     if (owner !== undefined) openSession(owner)
-  }, [family.rootId, openSession])
+  }, [family.ids, family.rootId, openSession, roundsBySession])
 
   const branchHere = useCallback((targetSessionId, seq) => {
     if (forkingSeq !== null) return
