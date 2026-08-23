@@ -6069,14 +6069,18 @@ function mindmapRoundsOf(snapshot, sessionId) {
   }
   if (current !== null && current.turn !== undefined && completed.has(current.turn)) rounds.push(current)
   /* In-progress round: the user question is settled but the assistant has not
-     finished (snapshot.partial while streaming, or the session is running with
-     no partial yet — the request is in flight). */
+     finished — snapshot.partial while streaming, the assistant node already in
+     the list but its turn not yet completed, or the session is running with no
+     partial yet (the request is in flight). Always emit one so the live round
+     stays the session's last card instead of falling back to the parent. */
   const partial = snapshot.partial
   let thinkTurn
-  if (current !== null && current.turn === undefined) {
+  if (current !== null) {
     if (partial !== null && partial !== undefined && Number.isFinite(Number(partial.turn))) {
       thinkTurn = Number(partial.turn)
-    } else if (snapshot.running === true) {
+    } else if (current.turn !== undefined && !completed.has(current.turn)) {
+      thinkTurn = current.turn
+    } else if (current.turn === undefined && snapshot.running === true) {
       let maxTurn = 0
       for (const round of rounds) maxTurn = Math.max(maxTurn, round.turn)
       thinkTurn = maxTurn + 1
@@ -6668,10 +6672,18 @@ function MindMapView({ useSession, useSessions, useWorkspaces, sessionId, readSn
     edgePaths.push(`M ${x1} ${y1} H ${mx} V ${y2} H ${x2}`)
   }
 
+  /* A pending/branch card is the current card of its session: when the current
+     session is represented by such a card (not a trunk node), highlight the
+     card itself and suppress the trunk's currentLastSeq highlight so the
+     parent round is never highlighted instead. */
+  const pendingSessionIds = new Set()
+  for (const entry of layout.placedPending) pendingSessionIds.add(String(entry.pending.sessionId))
+  const currentIsPendingCard = pendingSessionIds.has(String(sessionId))
+
   const nodeViews = layout.placed.map((entry) => {
     const node = tree.nodes.get(entry.seq)
     if (node === undefined) return null
-    const isCurrent = entry.seq === currentLastSeq
+    const isCurrent = !currentIsPendingCard && entry.seq === currentLastSeq
     const isBranch = node.owner !== undefined && isMindmapBranchSession(list.byId[node.owner])
     const isThinking = node.thinking === true
     const ownerTitle = node.owner !== undefined ? (list.byId[node.owner]?.displayTitle ?? '') : ''
@@ -6732,9 +6744,11 @@ function MindMapView({ useSession, useSessions, useWorkspaces, sessionId, readSn
         }, translate('mindmap.branch.title')))
     })
     const rich = rounds.length > 0
-    const classes = rich
+    const isCurrent = String(p.sessionId) === String(sessionId)
+    const classes = (rich
       ? 'dsh-wel-mindmap-node dsh-wel-mindmap-branchcard'
-      : 'dsh-wel-mindmap-node dsh-wel-mindmap-pending'
+      : 'dsh-wel-mindmap-node dsh-wel-mindmap-pending')
+      + (isCurrent ? ' dsh-wel-mindmap-node-current' : '')
     return h('div', {
       className: classes,
       'data-branch': '',
