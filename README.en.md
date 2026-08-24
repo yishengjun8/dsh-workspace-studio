@@ -36,7 +36,7 @@ This bundle replaces the DeepSeek Harness Web root layout with four panes: **ses
 - CodeMirror 6 shows line numbers and syntax highlighting based on filenames or extensions; unknown types use plain text. A fold gutter and in-editor search (`Ctrl/Cmd+F`, `F3`) are built in.
 - `Ctrl+K+J` unfolds every collapsed fold region; `Ctrl+K+1..9` folds code by nesting level (e.g. `Ctrl+K+2` folds every second-level fold region).
 - Editable files **open directly in edit mode** (no **Edit** button); the panel header offers **Cancel**, **Save**, **Word wrap**, and **Reload from disk** (refresh). Read-only files (dropped external files, oversized, truncated, mixed line endings, symlink paths, or editing disabled) show a read-only reason banner.
-- Each file-type group can pick an editor highlight preset (Default, Classic, Warm, Cool, Monochrome, XML (VS Code)) from the Explorer settings page, remembered per type in `localStorage`.
+- Each file-type group can pick an editor highlight preset (Default, Classic, Warm, Cool, Monochrome, XML (VS Code), and 10+ more) from the Explorer settings page, remembered per type in `localStorage`.
 
 ### Encodings
 

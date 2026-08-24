@@ -104,11 +104,11 @@ const MINDMAP_TEXT_MAX = 88
 const MINDMAP_FRAME_PAD = 14
 /* Mind-map viewport interaction bounds: wheel-zoom range, the overhang that
    keeps the map from being panned completely out of view, and the exponential
-   zoom step per wheel delta pixel. MINDMAP_PAN_MARGIN is the legacy fixed
-   overhang (still used by the fit view's top-left alignment); the pan clamp
-   itself is proportional to the map size via MINDMAP_PAN_OUT_MAX, so a map may
-   be dragged away by up to 80% of its own width/height (at least 20% of it
-   stays visible) instead of being pinned to a 48 px ledge. */
+   zoom step per wheel delta pixel. MINDMAP_PAN_MARGIN is the fixed overhang
+   used by the fit view's top-left alignment; the pan clamp itself is
+   proportional to the map size via MINDMAP_PAN_OUT_MAX, so a map may be
+   dragged away by up to 80% of its own width/height (at least 20% of it
+   stays visible). */
 const MINDMAP_ZOOM_MIN = 0.25
 const MINDMAP_ZOOM_MAX = 3
 const MINDMAP_PAN_MARGIN = 48
@@ -181,8 +181,7 @@ function encodingLabel(id) {
    plugin): zh is the source of truth and en mirrors every key. All product
    copy goes through the `translate` function below; render code re-subscribes
    through useLocaleText() so a language switch re-renders the UI. Without the
-   locale service the plugin degrades to the zh dictionary (the historical
-   behavior). */
+   locale service the plugin falls back to the zh dictionary. */
 const EXPLORER_LOCALE_NS = 'workspace.studio'
 const zh = {
   'nav.sessions': '会话列表',
@@ -970,8 +969,7 @@ const CM_PHRASES_ZH = Object.freeze({
    plugin is present; undefined keeps the plugin on the zh dictionary. */
 let localeFace = undefined
 /* The active-locale translator. Bound to the harness locale registry in
-   apply() when available; the zh fallback preserves the historical behavior
-   in compositions without the locale plugin. */
+   apply() when available; without it, falls back to the zh dictionary. */
 const zhFallbackTranslate = (key, params) => {
   const template = zh[key] ?? key
   if (params === undefined) return template
@@ -986,8 +984,7 @@ function useLocaleText() {
     () => localeFace === undefined ? 0 : localeFace.getSnapshot().revision,
   )
 }
-/* Whether the active surface is Chinese: the default (no locale service) and
-   the zh locale both keep the historical wording. */
+/* Whether the active surface is Chinese (no locale service counts as Chinese). */
 function localeIsZh() {
   return localeFace === undefined || localeFace.getSnapshot().active !== 'en'
 }
@@ -1692,7 +1689,7 @@ function lineSeparator(value) {
 }
 
 /* Read-only reason codes the preview payload may carry, mapped to their
-   dictionary keys (some server codes have historical aliases). */
+   dictionary keys (including alias spellings from the server). */
 const READ_ONLY_REASON_KEYS = Object.freeze({
   binary: 'readonly.binary',
   encoding: 'readonly.encoding',
@@ -2080,11 +2077,10 @@ function hasNormalFile(event) {
 }
 // The persisted sidebar width lives with the explorer pane geometry
 // (EXPLORER_LAYOUT_STORE_KEY): the live value rides the root layout store,
-// which cannot persist its whole value (it also carries large file drafts), so
-// the explorer pane store mirrors it on change and this rehydrates it on load.
-// 0 means the sidebar is collapsed; missing or invalid persisted data falls
-// back to the default width (render-time clamping still applies the viewport
-// ceiling).
+// which cannot persist its whole value, so the explorer pane store mirrors it
+// on change and this rehydrates it on load. 0 means the sidebar is collapsed;
+// missing or invalid persisted data falls back to the default width
+// (render-time clamping still applies the viewport ceiling).
 function readPersistedSidebarWidth() {
   if (typeof localStorage === 'undefined') return SIDEBAR_DEFAULT
   try {
@@ -2103,7 +2099,6 @@ function createLayoutStore() {
     init: () => ({
       sidebar: readPersistedSidebarWidth(),
       detailsOpen: false,
-      drafts: {},
       // Sidebar browsing region: 'sessions' shows the harness workspace/session
       // browser; 'files' swaps the same region for the workspace file tree.
       view: 'sessions',
@@ -2113,14 +2108,6 @@ function createLayoutStore() {
       toggleSidebar: (draft) => { draft.sidebar = draft.sidebar === 0 ? SIDEBAR_DEFAULT : 0 },
       openDetails: (draft) => { draft.detailsOpen = true },
       closeDetails: (draft) => { draft.detailsOpen = false },
-      rememberDraft: (draft, workspaceId, value) => { draft.drafts[String(workspaceId)] = value },
-      clearDraft: (draft, workspaceId) => {
-        // Only mutate when the key actually exists: a no-op delete still
-        // bumps the store snapshot, which re-renders AppFrame and can sustain
-        // a remount loop that aborts every in-flight request.
-        const key = String(workspaceId)
-        if (draft.drafts[key] !== undefined) delete draft.drafts[key]
-      },
       setView: (draft, view) => { draft.view = view === 'files' ? 'files' : 'sessions' },
     },
   })
@@ -3438,45 +3425,14 @@ function normalizePreviewSession(value) {
     : []
   return { activePath, tabs, expanded }
 }
-function previewSessionWithDraft(value, storedDraft) {
-  const session = normalizePreviewSession(value)
-  if (storedDraft === undefined || storedDraft === null || typeof storedDraft.path !== 'string') return session
-  if (!session.tabs.some(tab => tab.path === storedDraft.path)) {
-    session.tabs.push({
-      baseText: typeof storedDraft.baseContent === 'string' ? storedDraft.baseContent : '',
-      bom: Boolean(storedDraft.bom),
-      dirty: true,
-      draft: typeof storedDraft.content === 'string' ? storedDraft.content : '',
-      editing: true,
-      encoding: typeof storedDraft.encoding === 'string' && storedDraft.encoding !== '' ? storedDraft.encoding : 'utf-8',
-      lineEnding: typeof storedDraft.lineEnding === 'string' ? storedDraft.lineEnding : 'none',
-      name: typeof storedDraft.name === 'string' && storedDraft.name !== ''
-        ? storedDraft.name
-        : storedDraft.path.slice(storedDraft.path.lastIndexOf('/') + 1),
-      path: storedDraft.path,
-      pinned: false,
-      revision: storedDraft.revision ?? null,
-      saving: false,
-      scrollTop: 0,
-      size: Number.isFinite(storedDraft.size) ? storedDraft.size : null,
-      status: storedDraft.revision === null || storedDraft.revision === undefined
-        ? { error: true, text: translate('status.draftRestored') }
-        : undefined,
-      symlink: false,
-    })
-  }
-  session.activePath = storedDraft.path
-  return session
-}
 function selectStoredPreviewSession(previewSessions, workspace, currentSession, workspaceId) {
   if (currentSession !== undefined) {
     const currentKey = String(currentSession)
     const currentValue = previewSessions[currentKey]
     if (currentValue !== undefined) return { key: currentKey, value: currentValue }
     // Restore priority ② (development-notes §2): the first snapshot of any
-    // session in this workspace, so a session that never established its own
-    // snapshot (legacy data, pruned workspace key) still restores the tabs its
-    // workspace previously had instead of an empty explorer.
+    // session in this workspace, so a session without its own snapshot still
+    // restores the tabs its workspace previously had instead of an empty explorer.
     if (workspace !== undefined) {
       for (const sessionId of workspace.sessionIds) {
         const key = String(sessionId)
@@ -4106,17 +4062,17 @@ function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShortcut, o
 }
 
 function WorkspaceExplorer({
-  workspace, treePortalTarget, sessionTitle, sessionId, renameSession, publishEditorContext, listDirectory, readFile, saveFile, createEntry, renameEntry, storedDraft, storedPreviewSession, persistDraft, persistPreviewSession, clearDraft, settingsStore, loadDraft, persistDraftFile, removeDraftFile, draftTree,
+  workspace, treePortalTarget, sessionTitle, sessionId, renameSession, publishEditorContext, listDirectory, readFile, saveFile, createEntry, renameEntry, storedPreviewSession, persistPreviewSession, settingsStore, loadDraft, persistDraftFile, removeDraftFile, draftTree,
 }) {
   const settings = useSyncExternalStore(settingsStore.subscribe, settingsStore.getSnapshot)
   const draftScopeId = sessionId === undefined ? `workspace:${workspace.workspaceId}` : `session:${sessionId}`
-  const initialPreviewSession = previewSessionWithDraft(storedPreviewSession, storedDraft)
+  const initialPreviewSession = normalizePreviewSession(storedPreviewSession)
   const [directories, setDirectories] = useState(() => new Map())
   const [expanded, setExpanded] = useState(() => new Set(['', ...(initialPreviewSession.expanded ?? [])]))
   const [tabs, setTabs] = useState(() => initialPreviewSession.tabs)
   const [activePath, setActivePath] = useState(() => initialPreviewSession.activePath)
   const [selected, setSelected] = useState(() => {
-    if (initialPreviewSession.activePath === null) return storedDraft ? { path: storedDraft.path, name: storedDraft.name, kind: 'file' } : undefined
+    if (initialPreviewSession.activePath === null) return undefined
     const activeTab = initialPreviewSession.tabs.find(tab => tab.path === initialPreviewSession.activePath)
     return activeTab ? entryFromPreviewTab(activeTab) : { path: initialPreviewSession.activePath, name: initialPreviewSession.activePath.slice(initialPreviewSession.activePath.lastIndexOf('/') + 1), kind: 'file' }
   })
@@ -4199,7 +4155,6 @@ function WorkspaceExplorer({
   const baseText = useRef('')
   const diskBaseRef = useRef('')
   const mounted = useRef(true)
-  const latestDraft = useRef(undefined)
   // Latest disk state this editor actually wrote (or last read): content plus
   // revision. Auto-save uses the revision as If-Match and the editor-context
   // uses the content to decide whether a selection matches disk. Per-path,
@@ -4363,13 +4318,6 @@ function WorkspaceExplorer({
     if (view !== undefined) publishContextState(view.state)
   }, [preview, publishContextState])
 
-  // The layout-store draft fallback is retired (the draft file is now the
-  // authoritative store): writing panels.drafts on unmount re-rendered
-  // AppFrame, remounting WorkspaceExplorer and aborting every in-flight
-  // request in a loop. Keep the ref (other paths still clear it) but never
-  // populate it.
-  latestDraft.current = undefined
-
   const abortDirectoryRequests = useCallback(() => {
     for (const controller of requests.current.values()) controller.abort()
     requests.current.clear()
@@ -4489,7 +4437,7 @@ function WorkspaceExplorer({
   useLayoutEffect(() => {
     if (previewTabsBootstrapped.current) return
     if (tabsRef.current.length !== 0) return
-    const next = previewSessionWithDraft(storedPreviewSession, storedDraft)
+    const next = normalizePreviewSession(storedPreviewSession)
     if (next.tabs.length === 0) return
     previewTabsBootstrapped.current = true
     setTabs(next.tabs)
@@ -4500,12 +4448,12 @@ function WorkspaceExplorer({
       setSelected(entry)
       revealPath(entry)
     }
-  }, [activatePath, revealPath, storedDraft, storedPreviewSession])
+  }, [activatePath, revealPath, storedPreviewSession])
   // Late-arriving restore for tree expansion: if storedPreviewSession becomes
   // available only after mount, merge its expanded paths and load them. The
   // hasAll guard keeps this idempotent across store updates.
   useLayoutEffect(() => {
-    const stored = previewSessionWithDraft(storedPreviewSession, storedDraft)
+    const stored = normalizePreviewSession(storedPreviewSession)
     const paths = (stored.expanded ?? []).filter(path => !prunedPathsRef.current.has(path))
     if (paths.length === 0) return
     if (paths.every(path => expandedRef.current.has(path))) return
@@ -4518,7 +4466,7 @@ function WorkspaceExplorer({
       if (path !== '' && path !== undefined) void loadDirectory(path, { pruneOnMissing: true })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storedDraft, storedPreviewSession])
+  }, [storedPreviewSession])
   const chooseFile = useCallback((entry) => {
     previewTabsBootstrapped.current = true
     setSelected(entry)
@@ -4793,28 +4741,6 @@ function WorkspaceExplorer({
     readController.current = controller
     publishEditorContext(undefined)
     const tab = tabsRef.current.find(item => item.path === activePath)
-      ?? (storedDraft?.path === activePath
-        ? {
-            baseText: typeof storedDraft.baseContent === 'string' ? storedDraft.baseContent : '',
-            bom: Boolean(storedDraft.bom),
-            dirty: true,
-            draft: typeof storedDraft.content === 'string' ? storedDraft.content : '',
-            editing: true,
-            lineEnding: typeof storedDraft.lineEnding === 'string' ? storedDraft.lineEnding : 'none',
-            name: typeof storedDraft.name === 'string' && storedDraft.name !== ''
-              ? storedDraft.name
-              : activePath.slice(activePath.lastIndexOf('/') + 1),
-            path: activePath,
-            revision: storedDraft.revision ?? null,
-            saving: false,
-            scrollTop: 0,
-            size: Number.isFinite(storedDraft.size) ? storedDraft.size : null,
-            status: storedDraft.revision === null || storedDraft.revision === undefined
-              ? { error: true, text: translate('status.draftRestored') }
-              : undefined,
-            symlink: false,
-          }
-        : undefined)
     const effectiveEncoding = requestedEncodingRef.current ?? tab?.encoding ?? 'utf-8'
     // Consume a pending encoding-open request immediately: clearing here keeps
     // an aborted re-read (file switch / tab close mid-flight) from leaking the
@@ -4834,8 +4760,8 @@ function WorkspaceExplorer({
       if (!mounted.current || activePathRef.current !== activePath) return
       requestedEncodingRef.current = undefined
       // Read the draft file (staging content + snapshot) so a refresh restores
-      // the editing session from disk rather than localStorage. A failed draft
-      // read is non-critical: fall back to legacy persisted content or source.
+      // the editing session from disk. A failed draft read is non-critical:
+      // fall back to the source.
       return Promise.all([
         loadDraft(workspace.workspaceId, activePath, controller.signal, draftScopeId).catch(() => ({ exists: false })),
         readEmergencyDraft(workspace.workspaceId, draftScopeId, activePath).catch(() => undefined),
@@ -4849,7 +4775,7 @@ function WorkspaceExplorer({
             && emergencyGeneration >= hostGeneration
             ? emergencyDraft
             : hostDraft
-        const stored = tab?.dirty ? tab : undefined
+        const tabDraft = tab?.dirty ? tab : undefined
         const editable = result.editable === true
         const diskDraftPresent = draftData !== null && typeof draftData === 'object'
           && draftData.exists !== false && typeof draftData.draft === 'string'
@@ -4865,19 +4791,19 @@ function WorkspaceExplorer({
             void deleteEmergencyDraft(workspace.workspaceId, draftScopeId, activePath, Math.max(hostGeneration, emergencyGeneration)).catch(() => {})
           }
         }
-        const hasStoredContent = stored !== undefined && typeof stored.draft === 'string'
-          && stored.draft !== '' && stored.draft !== result.content
+        const hasTabDraft = tabDraft !== undefined && typeof tabDraft.draft === 'string'
+          && tabDraft.draft !== '' && tabDraft.draft !== result.content
         const restored = hasDiskDraft
           ? {
               content: draftData.draft,
               baseText: typeof draftData.baseText === 'string' ? draftData.baseText : result.content,
               baseRevision: typeof draftData.baseRevision === 'string' ? draftData.baseRevision : result.revision,
             }
-          : hasStoredContent
-            ? { content: stored.draft, baseText: stored.baseText, baseRevision: stored.revision }
+          : hasTabDraft
+            ? { content: tabDraft.draft, baseText: tabDraft.baseText, baseRevision: tabDraft.revision }
             : { content: result.content, baseText: result.content, baseRevision: result.revision }
         const content = restored.content
-        const hasRestoredContent = hasDiskDraft || hasStoredContent
+        const hasRestoredContent = hasDiskDraft || hasTabDraft
         const canRestore = hasRestoredContent && editable
         const restoredDirty = hasRestoredContent && content !== restored.baseText
         // Compare the SOURCE content to the snapshot: when the source changed
@@ -4901,7 +4827,7 @@ function WorkspaceExplorer({
         const restoredStatus = canRestore && externallyChanged
           ? { error: true, text: translate('status.draftRestoredConflict') }
           : { text: translate('status.draftRestored') }
-        const notRestorableStatus = (hasDiskDraft || hasStoredContent) && !editable
+        const notRestorableStatus = (hasDiskDraft || hasTabDraft) && !editable
           ? { error: true, text: translate('status.draftNotRestorable') }
           : undefined
         // The source content (as last read) stays separate from the editing
@@ -4926,10 +4852,8 @@ function WorkspaceExplorer({
         setDirty(restoredDirty)
         if (canRestore) {
           setStatus(restoredStatus)
-          if (storedDraft?.path === activePath) clearDraft()
-        } else if (hasDiskDraft || hasStoredContent) {
+        } else if (hasDiskDraft || hasTabDraft) {
           setStatus(notRestorableStatus)
-          if (storedDraft?.path === activePath) clearDraft()
         }
         if (cancelRestore) setStatus({ text: translate('editor.cancelRestored') })
         else if (refreshPending) setStatus({ text: translate('editor.refreshed') })
@@ -4948,7 +4872,7 @@ function WorkspaceExplorer({
           saving: false,
           scrollTop: tab?.scrollTop ?? 0,
           size: Number.isFinite(result.size) ? result.size : null,
-          status: cancelRestore ? { text: translate('editor.cancelRestored') } : (refreshPending ? { text: translate('editor.refreshed') } : (canRestore ? restoredStatus : ((hasDiskDraft || hasStoredContent) ? notRestorableStatus : tab?.status))),
+          status: cancelRestore ? { text: translate('editor.cancelRestored') } : (refreshPending ? { text: translate('editor.refreshed') } : (canRestore ? restoredStatus : ((hasDiskDraft || hasTabDraft) ? notRestorableStatus : tab?.status))),
           symlink: Boolean(selection.symlink),
         })
       })
@@ -4960,10 +4884,7 @@ function WorkspaceExplorer({
       }
     })
     return () => controller.abort()
-    // The workspace draft arrives with the first render (the layout store is
-    // synchronous), never late, so it must not be a dependency: the restore
-    // path clears the draft, and that change must not re-read the file.
-  }, [activePath, clearDraft, draftScopeId, loadDraft, publishEditorContext, readFile, reloadToken, removeDraftFile, updateTab, workspace.workspaceId])
+  }, [activePath, draftScopeId, loadDraft, publishEditorContext, readFile, reloadToken, removeDraftFile, updateTab, workspace.workspaceId])
 
   const nextDraftGeneration = useCallback((path) => {
     draftGenerationCounterRef.current += 1
@@ -5102,8 +5023,6 @@ function WorkspaceExplorer({
         setDraft(content)
         setDirty(false)
         setEditing(true)
-        latestDraft.current = undefined
-        clearDraft()
         setPreview(current => current.state === 'ready' && current.path === path
           ? { ...current, content, encoding: savedEncoding, bom: savedBom, revision: result.revision ?? current.revision, size }
           : current)
@@ -5113,7 +5032,7 @@ function WorkspaceExplorer({
     } finally {
       if (saveController.current === controller) saveController.current = undefined
     }
-  }, [activePathRef, clearDraft, clearDraftFile, saveFile, updateTab, workspace.workspaceId])
+  }, [activePathRef, clearDraftFile, saveFile, updateTab, workspace.workspaceId])
 
   /* Auto-save an immutable snapshot. No active-editor ref is read after the
      snapshot is created, so switching files cannot cross-wire merge bases. */
@@ -5409,8 +5328,6 @@ function WorkspaceExplorer({
     try {
       await clearDraftFile(path, diskContent, encoding, lineEnding, bom, revision)
       if (!mounted.current) return
-      latestDraft.current = undefined
-      clearDraft()
       lastWriteRef.current.set(path, { generation: draftGenerationsRef.current.get(path) ?? 0, content: diskContent })
       updateTab(path, { dirty: false, draft: '', editing: true, saving: false, status: { text: translate('editor.cancelRestored') } })
       if (activePathRef.current === path) {
@@ -5432,7 +5349,7 @@ function WorkspaceExplorer({
     } finally {
       if (mounted.current && activePathRef.current === path) setSaving(false)
     }
-  }, [activeTab, clearDraft, clearDraftFile, dirty, draft, preview, saving, updateTab])
+  }, [activeTab, clearDraftFile, dirty, draft, preview, saving, updateTab])
   const refresh=useCallback(()=>{if(hasDirtyTabs){setStatus({error:true,text:translate('tree.refreshBlocked')});return}abortDirectoryRequests();setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);composingRef.current=false;setDirectories(new Map());setExpanded(new Set(['']));setStatus(undefined);void loadDirectory('')},[abortDirectoryRequests,hasDirtyTabs,loadDirectory])
   const toggleDirectory=useCallback(entry=>{const path=entry.path;const opening=!expanded.has(path);setExpanded(cur=>{const next=new Set(cur);opening?next.add(path):next.delete(path);return next});if(opening){if(directories.get(path)?.state!=='ready')void loadDirectory(path);chooseDirectory(entry)}else setSelected(entry)},[chooseDirectory,directories,expanded,loadDirectory])
   const openContextMenu=useCallback((event,entry)=>{event.preventDefault();setSelected(entry);setContextMenu({entry,x:event.clientX,y:event.clientY})},[])
@@ -6620,8 +6537,8 @@ function mindmapDocLayout(doc, streaming) {
       cursor = branches.find(b => b !== null && b !== undefined
         && String(b.sessionId) === String(cursor.parentSessionId))
     }
-    /* Unresolvable mount (legacy/inconsistent doc): keep the branch stable at
-       the end instead of colliding with a real group. */
+    /* Unresolvable mount (inconsistent doc): keep the branch stable at the end
+       instead of colliding with a real group. */
     if (!anchorOf.has(String(branch.sessionId))) anchorOf.set(String(branch.sessionId), trunk.length)
   }
   const orderedBranches = branches
@@ -6726,10 +6643,9 @@ const mindmapXOf = depth => MINDMAP_DEPTH_GAP + depth * (MINDMAP_NODE_W + MINDMA
 /* Clamp a view translation so the scaled world always keeps a MINIMUM fraction
    on screen instead of a fixed pixel ledge: each axis may be dragged out by up
    to MINDMAP_PAN_OUT_MAX of the world size (e.g. 80%), so the opposite 20% of
-   the map stays visible. Unlike the old clamp this also lets a map SMALLER
-   than the viewport slide around (it is no longer pinned to the center) —
-   panning up/down/left/right feels looser, and the "还原视图" button restores
-   the fitted position any time the map is pushed out of reach. */
+   the map stays visible. A map SMALLER than the viewport can also slide around
+   (it is not pinned to the center); 还原视图 restores the fitted position any
+   time the map is pushed out of reach. */
 function mindmapClampView(view, worldW, worldH, vw, vh) {
   const sw = worldW * view.zoom
   const sh = worldH * view.zoom
@@ -7688,7 +7604,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
 
   /* The map's header shows the mind map's OWN title (doc.rootTitle), which is
      independent of the root session's title after a sidebar rename; the
-     session title is only the fallback for legacy docs without one. */
+     session title is only the fallback when the doc has none. */
   const rootTitle = doc?.rootTitle
     || (rootId !== null && rootId !== undefined ? (list.titles[rootId] ?? '') : '')
     || ''
@@ -8340,9 +8256,9 @@ function AppFrame(props) {
   const mobile = useMobile()
   const overlay = useMindmapOverlay()
   // Mirror the runtime sidebar width into the persisted explorer pane store:
-  // the layout store owns the live value but cannot persist wholesale (it also
-  // carries large file drafts), so the pane store's small layout value is the
-  // durable copy, rehydrated into the layout store's init on the next load.
+  // the layout store owns the live value but cannot persist wholesale, so the
+  // pane store's small layout value is the durable copy, rehydrated into the
+  // layout store's init on the next load.
   const sidebarMirrorRef = useRef(null)
   useLayoutEffect(() => {
     if (sidebarMirrorRef.current !== panels.sidebar) {
@@ -8408,26 +8324,6 @@ function AppFrame(props) {
   useEffect(() => () => { mountedRef.current = false }, [])
   const [resizing, setResizing] = useState(false)
   const [chatDropActive, setChatDropActive] = useState(false)
-  // Migration: entries persisted before clean-tab drafts were slimmed carry
-  // full file text on every tab; re-serializing them on every write keeps the
-  // whole value over the localStorage quota. Re-write them once through the
-  // slimming path (dirty drafts are preserved, clean text dropped). Idempotent:
-  // after migration no entry has fat clean tabs, so the guard skips.
-  useEffect(() => {
-    const sessions = previewPanels?.previewSessions
-    if (sessions === undefined || typeof sessions !== 'object') return
-    const hasFat = Object.values(sessions).some(value =>
-      (value?.tabs ?? []).some(tab => tab?.dirty === false && typeof tab?.draft === 'string' && tab.draft !== ''))
-    if (!hasFat) return
-    for (const key of Object.keys(sessions)) {
-      const value = sessions[key]
-      if (value === undefined) continue
-      const fat = (value?.tabs ?? []).some(tab => tab?.dirty === false && typeof tab?.draft === 'string' && tab.draft !== '')
-      if (!fat) continue
-      props.previewSessionsStore.actions.rememberPreviewSession(key, serializePreviewSession(value.activePath, value.tabs, value.expanded ?? []))
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
   const workspace = useMemo(() => currentSession !== undefined
     ? workspaces.find(item => item.sessionIds.includes(currentSession) || item.path === currentCwd)
     : workspaces.find(item => item.workspaceId === recent),
@@ -8439,12 +8335,6 @@ function AppFrame(props) {
   useEffect(() => {
     if (currentSession !== undefined) props.activateEditorSession(String(currentSession))
   }, [currentSession, props.activateEditorSession])
-  const persistWorkspaceDraft = useCallback((value) => {
-    if (workspaceId !== undefined) props.actions.rememberDraft(String(workspaceId), value)
-  }, [props.actions, workspaceId])
-  const clearWorkspaceDraft = useCallback(() => {
-    if (workspaceId !== undefined) props.actions.clearDraft(String(workspaceId))
-  }, [props.actions, workspaceId])
   const previewSessionSelection = selectStoredPreviewSession(previewPanels.previewSessions, workspace, currentSession, workspaceId)
   const previewSessionKey = previewSessionSelection.key
   const storedPreviewSession = previewSessionSelection.value
@@ -8967,7 +8857,7 @@ function AppFrame(props) {
     props.openSession(String(id))
     mindmapOverlayStore.open(String(id))
   }, [props.openSession])
-  return h('div',{ref:viewportRef,className:'dsh-ws-viewport'},h('main',{className:'dsh-ws-frame','data-explorer-closed':!panes.explorerOpen&&!filesActive||undefined,'data-sidebar-collapsed':collapsed||undefined,'data-sidebar-files':filesActive||undefined,'data-resizing':resizing||undefined,style:{'--dsh-ws-preview':`${preview}px`,'--dsh-ws-sidebar':`${sidebar}px`,'--dsh-ws-row-height':`${clamp(settings.rowHeight ?? ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MIN, ROW_HEIGHT_MAX)}px`,'--dsh-ws-chat-font-scale':String(chatFontScale),'--dsh-ws-mobile-header-h':`${mobileHeaderHeight}px`,...fileColorVars}},h('aside',{className:'dsh-ws-sidebar',ref:asideRef},props.renderSlot('sidebar',{collapsed,width:sidebar}),sidebarChrome?.top?createPortal(h(SidebarTopActions,{collapsed,view,width:sidebar,onSelectSessions:()=>{props.actions.setView('sessions')},onSelectFiles:()=>{if(collapsed)props.toggleSidebar();props.actions.setView('files')}}),sidebarChrome.top):null,sidebarChrome&&(sidebarChrome.groups.length>0?sidebarChrome.groups.map(group=>createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:group.title,openSession:openMindmapSession,revealSession:revealSessionById}),group.container)):sidebarChrome.fallback?createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:undefined,openSession:openMindmapSession,revealSession:revealSessionById}),sidebarChrome.fallback):null)),workspace?h(WorkspaceExplorer,{key:`${workspace.workspaceId}:${sessionId ?? 'workspace'}`,clearDraft:clearWorkspaceDraft,createEntry:props.createEntry,listDirectory:props.listDirectory,persistDraft:persistWorkspaceDraft,persistPreviewSession,publishEditorContext,readFile:props.readFile,renameEntry:props.renameEntry,saveFile:props.saveFile,loadDraft:props.loadDraft,persistDraftFile:props.persistDraftFile,removeDraftFile:props.removeDraftFile,draftTree:props.draftTree,settingsStore:props.settingsStore,storedDraft:panels.drafts[String(workspace.workspaceId)],storedPreviewSession,sessionTitle,sessionId,renameSession:props.renameSession,treePortalTarget,workspace}):h(EmptyWorkspaceExplorer,{sessionTitle,treePortalTarget}),h('section',{className:'dsh-ws-chat',ref:chatSectionRef},props.renderSlot('conversation',{}),chatDropActive?h('div',{className:'dsh-ws-chat-drop-mask',role:'presentation'},h('button',{'aria-label':translate('drop.closeAria'),className:'dsh-ws-chat-drop-close',onClick:()=>{chatDropSuppressed.current=true;setChatDropActive(false)},title:translate('drop.closeTitle'),type:'button'},'×'),h('div',{className:'dsh-ws-chat-drop-card'},translate('drop.releaseImages'))):null),!collapsed?h(ResizeHandle,{label:translate('resize.sidebar'),left:sidebar,max:sidebarMax,min:SIDEBAR_MIN,onDragging:setResizing,onResize:width=>props.actions.setSidebar(width,sidebarMax),value:sidebar}):null,(panes.explorerOpen||filesActive)?h(ResizeHandle,{label:translate('resize.preview'),left:previewBoundary,max:previewMax,min:PREVIEW_MIN,onDragging:setResizing,onResize:width=>props.explorerPaneStore.actions.setPreview(width,previewMax),value:preview}):null,h('aside',{className:'dsh-ws-details','data-closed':!panels.detailsOpen||!detailsCapable||undefined},props.renderSlot('details',{})),mobile.on&&mobile.drawerOpen?h('div',{className:'dsh-ws-mobile-scrim',onClick:()=>setDrawerOpen(false)}):null,h('div',{className:'dsh-ws-overlay','data-shell-overlay':true},props.renderSlot('shell.overlay',{})),sessionContextMenu?h('div',{className:'dsh-ws-context-menu',ref:sessionMenuRef,role:'menu',style:{left:Math.max(4,Math.min(sessionContextMenu.x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top:Math.max(4,Math.min(sessionContextMenu.y,window.innerHeight-52))}},h('button',{className:'dsh-ws-context-item',onClick:beginSessionInlineRename,role:'menuitem',type:'button'},translate('context.renameSession')),h('button',{className:'dsh-ws-context-item',onClick:archiveSessionFromMenu,role:'menuitem',type:'button'},translate('context.archiveSession')),h('div',{className:'dsh-ws-context-separator',role:'separator'}),h('button',{className:'dsh-ws-context-item',onClick:revealSessionFromMenu,role:'menuitem',type:'button'},translate('context.reveal'))):null,sessionInlineRename?h(SessionInlineRename,{busy:sessionInlineRenameBusy,error:sessionInlineRenameError,onCancel:cancelSessionInlineRename,onConfirm:confirmSessionInlineRename,row:sessionInlineRename.row,title:sessionInlineRename.title}):null,sessionNotice?h('div',{className:'dsh-ws-copy-notice','data-error':sessionNotice.error||undefined,role:'status'},sessionNotice.text):null),overlay.open?h(MindmapOverlayHost,{actions:props.mindmapActions,chatWidth,mobile:mobile.on,sessionId:overlay.sessionId,sidebarWidth:sidebar,useSessions:props.useSessions}):null)}
+  return h('div',{ref:viewportRef,className:'dsh-ws-viewport'},h('main',{className:'dsh-ws-frame','data-explorer-closed':!panes.explorerOpen&&!filesActive||undefined,'data-sidebar-collapsed':collapsed||undefined,'data-sidebar-files':filesActive||undefined,'data-resizing':resizing||undefined,style:{'--dsh-ws-preview':`${preview}px`,'--dsh-ws-sidebar':`${sidebar}px`,'--dsh-ws-row-height':`${clamp(settings.rowHeight ?? ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MIN, ROW_HEIGHT_MAX)}px`,'--dsh-ws-chat-font-scale':String(chatFontScale),'--dsh-ws-mobile-header-h':`${mobileHeaderHeight}px`,...fileColorVars}},h('aside',{className:'dsh-ws-sidebar',ref:asideRef},props.renderSlot('sidebar',{collapsed,width:sidebar}),sidebarChrome?.top?createPortal(h(SidebarTopActions,{collapsed,view,width:sidebar,onSelectSessions:()=>{props.actions.setView('sessions')},onSelectFiles:()=>{if(collapsed)props.toggleSidebar();props.actions.setView('files')}}),sidebarChrome.top):null,sidebarChrome&&(sidebarChrome.groups.length>0?sidebarChrome.groups.map(group=>createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:group.title,openSession:openMindmapSession,revealSession:revealSessionById}),group.container)):sidebarChrome.fallback?createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:undefined,openSession:openMindmapSession,revealSession:revealSessionById}),sidebarChrome.fallback):null)),workspace?h(WorkspaceExplorer,{key:`${workspace.workspaceId}:${sessionId ?? 'workspace'}`,createEntry:props.createEntry,listDirectory:props.listDirectory,persistPreviewSession,publishEditorContext,readFile:props.readFile,renameEntry:props.renameEntry,saveFile:props.saveFile,loadDraft:props.loadDraft,persistDraftFile:props.persistDraftFile,removeDraftFile:props.removeDraftFile,draftTree:props.draftTree,settingsStore:props.settingsStore,storedPreviewSession,sessionTitle,sessionId,renameSession:props.renameSession,treePortalTarget,workspace}):h(EmptyWorkspaceExplorer,{sessionTitle,treePortalTarget}),h('section',{className:'dsh-ws-chat',ref:chatSectionRef},props.renderSlot('conversation',{}),chatDropActive?h('div',{className:'dsh-ws-chat-drop-mask',role:'presentation'},h('button',{'aria-label':translate('drop.closeAria'),className:'dsh-ws-chat-drop-close',onClick:()=>{chatDropSuppressed.current=true;setChatDropActive(false)},title:translate('drop.closeTitle'),type:'button'},'×'),h('div',{className:'dsh-ws-chat-drop-card'},translate('drop.releaseImages'))):null),!collapsed?h(ResizeHandle,{label:translate('resize.sidebar'),left:sidebar,max:sidebarMax,min:SIDEBAR_MIN,onDragging:setResizing,onResize:width=>props.actions.setSidebar(width,sidebarMax),value:sidebar}):null,(panes.explorerOpen||filesActive)?h(ResizeHandle,{label:translate('resize.preview'),left:previewBoundary,max:previewMax,min:PREVIEW_MIN,onDragging:setResizing,onResize:width=>props.explorerPaneStore.actions.setPreview(width,previewMax),value:preview}):null,h('aside',{className:'dsh-ws-details','data-closed':!panels.detailsOpen||!detailsCapable||undefined},props.renderSlot('details',{})),mobile.on&&mobile.drawerOpen?h('div',{className:'dsh-ws-mobile-scrim',onClick:()=>setDrawerOpen(false)}):null,h('div',{className:'dsh-ws-overlay','data-shell-overlay':true},props.renderSlot('shell.overlay',{})),sessionContextMenu?h('div',{className:'dsh-ws-context-menu',ref:sessionMenuRef,role:'menu',style:{left:Math.max(4,Math.min(sessionContextMenu.x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top:Math.max(4,Math.min(sessionContextMenu.y,window.innerHeight-52))}},h('button',{className:'dsh-ws-context-item',onClick:beginSessionInlineRename,role:'menuitem',type:'button'},translate('context.renameSession')),h('button',{className:'dsh-ws-context-item',onClick:archiveSessionFromMenu,role:'menuitem',type:'button'},translate('context.archiveSession')),h('div',{className:'dsh-ws-context-separator',role:'separator'}),h('button',{className:'dsh-ws-context-item',onClick:revealSessionFromMenu,role:'menuitem',type:'button'},translate('context.reveal'))):null,sessionInlineRename?h(SessionInlineRename,{busy:sessionInlineRenameBusy,error:sessionInlineRenameError,onCancel:cancelSessionInlineRename,onConfirm:confirmSessionInlineRename,row:sessionInlineRename.row,title:sessionInlineRename.title}):null,sessionNotice?h('div',{className:'dsh-ws-copy-notice','data-error':sessionNotice.error||undefined,role:'status'},sessionNotice.text):null),overlay.open?h(MindmapOverlayHost,{actions:props.mindmapActions,chatWidth,mobile:mobile.on,sessionId:overlay.sessionId,sidebarWidth:sidebar,useSessions:props.useSessions}):null)}
 
 export const inject = ['slots', 'theme', 'sessions', 'workspaces']
 export function apply(ctx) {
@@ -8976,16 +8866,15 @@ export function apply(ctx) {
   const previewSessionsStore = createPreviewSessionStore().create()
   const settingsStore = createExplorerSettingsStore().create()
   const explorerPaneStore = createExplorerPaneStore().create()
-  // The explorer footer toggle was removed; keep the panes always on-screen.
-  // Persisted `explorerOpen:false` from the removed toggle (users who had
-  // closed it) self-heals here, since nothing else can reopen it anymore.
+  // The explorer footer toggle is gone; keep the panes always on-screen.
+  // Persisted `explorerOpen:false` self-heals here, since nothing else can
+  // reopen it anymore.
   explorerPaneStore.actions.setExplorerOpen(true)
   const editorContexts = new EditorContextController()
   /* Follow the harness language setting (Settings -> General -> Language) when
      the locale plugin is present: register this plugin's dictionaries, bind
      the active-locale translator, and expose the locale face to useLocaleText.
-     Without the service everything stays on the zh dictionary (historical
-     behavior). */
+     Without the service everything stays on the zh dictionary. */
   const locale = ctx.get('locale')
   if (locale !== undefined) {
     ctx.effect(() => {
@@ -9203,10 +9092,10 @@ export function apply(ctx) {
     inject: () => ({ openSession: sessionId => { ctx.sessions.open(sessionId) } }),
   }, SessionSwitcherDropdown))
   /* The session-header 导图 button: opens the floating mind-map overlay for
-     the current session (the chat column stays visible on the right). The
-     old full-page mind-map conversation view was removed — persisted mindmap
-     view selections fall back to the chat view automatically (the harness
-     treats unknown view ids as the stable Chat view). */
+     the current session (the chat column stays visible on the right).
+     Persisted full-page mind-map view selections fall back to the chat view
+     automatically (the harness treats unknown view ids as the stable Chat
+     view). */
   ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
     name: 'conversation.session.header.actions', id: 'workspace-mindmap-toggle', order: -350,
   }, MindmapHeaderButton))
