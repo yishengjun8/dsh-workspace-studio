@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Remove the workspace explorer layout bundle from a DeepSeek Harness Web profile.
+# Remove the workspace studio bundle from a DeepSeek Harness Web profile.
 # Usage: bash ./uninstall.sh [profile]
 # Env:   PROFILE  default profile when no positional argument is supplied
 #        DSH_BIN  optional dsh executable path/name without extra arguments
@@ -8,7 +8,7 @@ set -euo pipefail
 PROFILE="${1:-${PROFILE:-web}}"
 BUNDLE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HARNESS_ROOT="$(cd "$BUNDLE_DIR/../.." && pwd)"
-PACKAGE_NAME="@deepseek-ai/dsh-workspace-explorer-layout"
+PACKAGE_NAME="@deepseek-ai/dsh-workspace-studio"
 
 DSH_HOME_RAW="${DSH_HOME:-$HOME/.dsh}"
 if command -v cygpath >/dev/null 2>&1; then

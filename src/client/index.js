@@ -30,11 +30,11 @@ import { dockerFile } from '@codemirror/legacy-modes/mode/dockerfile'
 import { clike } from '@codemirror/legacy-modes/mode/clike'
 
 const { Fragment, createElement: h, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } = React
-const PACKAGE_ID = '@deepseek-ai/dsh-workspace-explorer-layout'
-const API_PREFIX = '/workspace-explorer-layout/api'
+const PACKAGE_ID = '@deepseek-ai/dsh-workspace-studio'
+const API_PREFIX = '/workspace-studio/api'
 const EDITOR_CONTEXT_PROVIDER = 'workspace-editor-context'
-const SEND_SESSION_BRIDGE_MARKER = Symbol('workspace-explorer-layout.send-session-bridge')
-const PREVIEW_SESSION_STORE_KEY = 'dsh.workspace.explorer.preview-sessions.v1'
+const SEND_SESSION_BRIDGE_MARKER = Symbol('workspace-studio.send-session-bridge')
+const PREVIEW_SESSION_STORE_KEY = 'dsh.workspace.studio.preview-sessions.v1'
 const PREVIEW_SESSION_MAX = 25
 const SIDEBAR_DEFAULT = 280, SIDEBAR_COLLAPSED = 56, SIDEBAR_MIN = 240, SIDEBAR_MAX_RATIO = 0.8, SIDEBAR_MAX_FALLBACK = 420
 const EXPLORER_MAX_RATIO = 0.8
@@ -44,7 +44,7 @@ const CONTEXT_MENU_WIDTH = 176, CONTEXT_MENU_HEIGHT = 280
 const ROW_HEIGHT_DEFAULT = 20, ROW_HEIGHT_MIN = 12, ROW_HEIGHT_MAX = 36
 const CHAT_FONT_SIZE_DEFAULT = 16, CHAT_FONT_SIZE_MIN = 13, CHAT_FONT_SIZE_MAX = 20
 /* Font size of the comparison text inside the save-conflict dialog (px). The
- * default matches the pre-existing .dsh-wel-conflict-code font-size. */
+ * default matches the pre-existing .dsh-ws-conflict-code font-size. */
 const CONFLICT_FONT_SIZE_DEFAULT = 12, CONFLICT_FONT_SIZE_MIN = 6, CONFLICT_FONT_SIZE_MAX = 24
 /* Whether search results show each file's matched rows expanded by default;
  * the explorer settings page lets the user choose (default: expanded). */
@@ -61,8 +61,8 @@ const THINK_COLLAPSE_DELAY_DEFAULT_S = 3
 const THINK_COLLAPSE_DELAY_MIN_S = 0
 const THINK_COLLAPSE_DELAY_MAX_S = 10
 const THINK_COLLAPSE_DELAY_STEP_S = 0.1
-const EXPLORER_SETTINGS_STORE_KEY = 'dsh.workspace.explorer.settings.v1'
-const EXPLORER_LAYOUT_STORE_KEY = 'dsh.workspace.explorer.layout.v1'
+const EXPLORER_SETTINGS_STORE_KEY = 'dsh.workspace.studio.settings.v1'
+const EXPLORER_LAYOUT_STORE_KEY = 'dsh.workspace.studio.layout.v1'
 /* Debounce (ms) before a dirty tab's draft is auto-saved to disk. Auto-save
    persists the temporary edits so a page refresh restores them from disk; it
    never clears the dirty marker (only an explicit save does). */
@@ -79,9 +79,9 @@ const MYERS_TRACE_CELL_LIMIT = 4_000_000
    and file-fullscreen states ride sibling classes so the whole chrome stays in
    sync. The state is transient (not persisted): a reload returns to the
    desktop layout. */
-const MOBILE_CLASS = 'dsh-wel-mobile-on'
-const MOBILE_DRAWER_CLASS = 'dsh-wel-mobile-drawer-open'
-const MOBILE_FILES_CLASS = 'dsh-wel-mobile-files-on'
+const MOBILE_CLASS = 'dsh-ws-mobile-on'
+const MOBILE_DRAWER_CLASS = 'dsh-ws-mobile-drawer-open'
+const MOBILE_FILES_CLASS = 'dsh-ws-mobile-files-on'
 const MOBILE_WIDTH = 430
 const MOBILE_DRAWER_WIDTH = 280
 const MOBILE_HEADER_FALLBACK_H = 52
@@ -183,7 +183,7 @@ function encodingLabel(id) {
    through useLocaleText() so a language switch re-renders the UI. Without the
    locale service the plugin degrades to the zh dictionary (the historical
    behavior). */
-const EXPLORER_LOCALE_NS = 'workspace.explorer'
+const EXPLORER_LOCALE_NS = 'workspace.studio'
 const zh = {
   'nav.sessions': '会话列表',
   'nav.files': '文件浏览',
@@ -1051,168 +1051,168 @@ function highlightPresetLabel(id) {
 }
 
 const styles = `
-.dsh-wel-viewport{position:relative;height:100%;min-width:0;overflow:auto;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary)}
-.dsh-wel-frame{--dsh-wel-sidebar:280px;--dsh-wel-preview:420px;position:relative;display:grid;grid-template-columns:var(--dsh-wel-sidebar) var(--dsh-wel-preview) minmax(0,1fr);grid-template-rows:100%;width:100%;min-width:0;height:100%;overflow:hidden;background:var(--dsw-alias-bg-base);transition:grid-template-columns var(--ds-transition-duration-slow) var(--ds-ease-in-out)}
-.dsh-wel-frame[data-resizing]{transition:none;user-select:none}.dsh-wel-sidebar,.dsh-wel-tree,.dsh-wel-preview,.dsh-wel-chat{min-width:0;height:100%;overflow:hidden}.dsh-wel-sidebar{background:var(--dsw-specific-sidebar-fill);border-right:1px solid var(--dsw-alias-border-l1)}
-.dsh-wel-tree,.dsh-wel-preview{display:flex;flex-direction:column;position:relative;background:var(--dsw-alias-bg-layer-1);border-right:1px solid var(--dsw-alias-border-l2)}.dsh-wel-frame[data-explorer-closed] .dsh-wel-tree,.dsh-wel-frame[data-explorer-closed] .dsh-wel-preview{visibility:hidden;pointer-events:none;border-right:0}.dsh-wel-chat{display:flex;flex-direction:column;position:relative;background:var(--dsw-alias-bg-base)}
-.dsh-wel-panel-header{display:flex;align-items:center;gap:8px;min-height:52px;padding:0 12px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);box-sizing:border-box}.dsh-wel-panel-title{min-width:0;display:flex;flex:1;flex-direction:column;gap:2px}.dsh-wel-panel-title strong{overflow:hidden;color:var(--dsw-alias-label-primary);font-size:13px;line-height:18px;text-overflow:ellipsis;white-space:nowrap}.dsh-wel-panel-title>span{overflow:hidden;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:15px;text-overflow:ellipsis;white-space:nowrap}
+.dsh-ws-viewport{position:relative;height:100%;min-width:0;overflow:auto;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary)}
+.dsh-ws-frame{--dsh-ws-sidebar:280px;--dsh-ws-preview:420px;position:relative;display:grid;grid-template-columns:var(--dsh-ws-sidebar) var(--dsh-ws-preview) minmax(0,1fr);grid-template-rows:100%;width:100%;min-width:0;height:100%;overflow:hidden;background:var(--dsw-alias-bg-base);transition:grid-template-columns var(--ds-transition-duration-slow) var(--ds-ease-in-out)}
+.dsh-ws-frame[data-resizing]{transition:none;user-select:none}.dsh-ws-sidebar,.dsh-ws-tree,.dsh-ws-preview,.dsh-ws-chat{min-width:0;height:100%;overflow:hidden}.dsh-ws-sidebar{background:var(--dsw-specific-sidebar-fill);border-right:1px solid var(--dsw-alias-border-l1)}
+.dsh-ws-tree,.dsh-ws-preview{display:flex;flex-direction:column;position:relative;background:var(--dsw-alias-bg-layer-1);border-right:1px solid var(--dsw-alias-border-l2)}.dsh-ws-frame[data-explorer-closed] .dsh-ws-tree,.dsh-ws-frame[data-explorer-closed] .dsh-ws-preview{visibility:hidden;pointer-events:none;border-right:0}.dsh-ws-chat{display:flex;flex-direction:column;position:relative;background:var(--dsw-alias-bg-base)}
+.dsh-ws-panel-header{display:flex;align-items:center;gap:8px;min-height:52px;padding:0 12px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);box-sizing:border-box}.dsh-ws-panel-title{min-width:0;display:flex;flex:1;flex-direction:column;gap:2px}.dsh-ws-panel-title strong{overflow:hidden;color:var(--dsw-alias-label-primary);font-size:13px;line-height:18px;text-overflow:ellipsis;white-space:nowrap}.dsh-ws-panel-title>span{overflow:hidden;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:15px;text-overflow:ellipsis;white-space:nowrap}
 /* Preview page top rows (file tabs + active-file name) share the harness left
    sidebar fill so the file browsing page reads as one band with the sidebar. */
-.dsh-wel-preview .dsh-wel-panel-header{background:var(--dsw-specific-sidebar-fill)}
-.dsh-wel-panel-actions{display:flex;flex:none;align-items:center;gap:2px}.dsh-wel-icon-button,.dsh-wel-text-button{display:inline-flex;align-items:center;justify-content:center;height:30px;padding:0 8px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}.dsh-wel-icon-button{width:30px;padding:0;font-size:18px}.dsh-wel-icon-button svg{display:block;width:16px;height:16px}.dsh-wel-icon-button:hover,.dsh-wel-text-button:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.dsh-wel-icon-button:disabled,.dsh-wel-text-button:disabled{cursor:not-allowed;opacity:.55}
-.dsh-wel-icon-button:focus-visible,.dsh-wel-text-button:focus-visible,.dsh-wel-tree-row:focus-visible,.dsh-wel-preview-tab-button:focus-visible,.dsh-wel-preview-tab-close:focus-visible,.dsh-wel-splitter:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}.dsh-wel-tree-scroll{flex:1;min-height:0;overflow:auto;padding:8px 6px 16px}.dsh-wel-tree-row{display:flex;align-items:center;gap:5px;width:100%;height:var(--dsh-wel-row-height,28px);padding:0 7px 0 calc(7px + var(--dsh-wel-depth,0) * 15px);border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:18px;text-align:left;cursor:pointer;box-sizing:border-box}.dsh-wel-tree-row:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.dsh-wel-tree-row[data-selected]{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary)}.dsh-wel-tree-row:disabled{cursor:not-allowed;opacity:.55}.dsh-wel-tree-row[data-cut]{opacity:.55}
-.dsh-wel-chevron{display:inline-flex;align-items:center;justify-content:center;flex:0 0 12px;color:var(--dsw-alias-label-caption);font-size:10px}.dsh-wel-file-mark{display:inline-flex;align-items:center;justify-content:center;flex:0 0 16px;width:16px;height:16px;border-radius:4px;background:color-mix(in srgb,var(--dsh-wel-file-accent,var(--dsw-alias-label-tertiary)) 16%,transparent);color:var(--dsh-wel-file-accent,var(--dsw-alias-label-tertiary));font-size:8px;font-weight:600;text-transform:uppercase}.dsh-wel-file-mark[data-group='directory']{--dsh-wel-file-accent:var(--dsh-wel-file-directory,#3b82f6)}.dsh-wel-file-mark[data-group='typescript']{--dsh-wel-file-accent:var(--dsh-wel-file-typescript,#3178c6)}.dsh-wel-file-mark[data-group='javascript']{--dsh-wel-file-accent:var(--dsh-wel-file-javascript,#e5c158)}.dsh-wel-file-mark[data-group='json']{--dsh-wel-file-accent:var(--dsh-wel-file-json,#e07a3c)}.dsh-wel-file-mark[data-group='markup']{--dsh-wel-file-accent:var(--dsh-wel-file-markup,#e04a3c)}.dsh-wel-file-mark[data-group='style']{--dsh-wel-file-accent:var(--dsh-wel-file-style,#a855f7)}.dsh-wel-file-mark[data-group='markdown']{--dsh-wel-file-accent:var(--dsh-wel-file-markdown,#12a5a0)}.dsh-wel-file-mark[data-group='log']{--dsh-wel-file-accent:var(--dsh-wel-file-log,#d99a2b)}.dsh-wel-file-mark[data-group='python']{--dsh-wel-file-accent:var(--dsh-wel-file-python,#4b8bb8)}.dsh-wel-file-mark[data-group='shell']{--dsh-wel-file-accent:var(--dsh-wel-file-shell,#22a06b)}.dsh-wel-file-mark[data-group='config']{--dsh-wel-file-accent:var(--dsh-wel-file-config,#8a95a5)}.dsh-wel-file-mark[data-group='c-family']{--dsh-wel-file-accent:var(--dsh-wel-file-c-family,#5a7ba6)}.dsh-wel-file-mark[data-group='csharp']{--dsh-wel-file-accent:var(--dsh-wel-file-csharp,#a25fd0)}.dsh-wel-file-mark[data-group='other']{--dsh-wel-file-accent:var(--dsh-wel-file-other,#9aa3ad)}.dsh-wel-file-mark[data-group='blocked']{--dsh-wel-file-accent:var(--dsh-wel-file-blocked,#e5484d)}.dsh-wel-row-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-wel-symlink{margin-left:auto;color:var(--dsw-alias-label-caption);font-size:10px}.dsh-wel-tree-status{padding:8px 10px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.dsh-wel-tree-status[data-error]{color:var(--dsw-alias-state-error-primary)}.dsh-wel-empty{display:flex;flex:1;min-height:0;align-items:center;justify-content:center;padding:24px;color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:20px;text-align:center}
-.dsh-wel-preview-header-meta{display:flex;align-items:center;gap:6px;min-width:0}.dsh-wel-preview-header-meta>span:not(.dsh-wel-language):not(.dsh-wel-encoding){overflow:hidden;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:15px;text-overflow:ellipsis;white-space:nowrap}.dsh-wel-language{flex:0 0 auto;padding:1px 5px;border-radius:4px;background:var(--dsw-alias-markdown-tag);color:var(--dsw-alias-label-secondary);font-size:9px;font-weight:600;line-height:14px;text-transform:uppercase}.dsh-wel-encoding{flex:0 0 auto;padding:1px 5px;border-radius:4px;background:var(--dsw-alias-markdown-tag);color:var(--dsw-alias-label-secondary);font-size:9px;font-weight:600;line-height:14px;text-transform:uppercase}.dsh-wel-dirty{color:var(--dsw-alias-state-warn-label);font-size:12px}.dsh-wel-preview-tabs{display:flex;align-items:stretch;gap:4px;min-width:0;padding:6px 8px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-specific-sidebar-fill);overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}.dsh-wel-preview-tab{flex:none;display:flex;align-items:center;gap:5px;min-width:0;max-width:220px;height:28px;padding:0 5px 0 9px;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:18px;cursor:grab;box-sizing:border-box;white-space:nowrap}.dsh-wel-preview-tab:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.dsh-wel-preview-tab[data-active]{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary)}.dsh-wel-preview-tab[data-dragging]{opacity:.7}.dsh-wel-preview-drop-indicator{flex:none;width:3px;height:20px;border-radius:2px;background:var(--dsw-alias-state-business-primary);align-self:center;pointer-events:none}.dsh-wel-preview-tab-button{display:flex;flex:1;align-items:center;gap:5px;min-width:0;height:100%;padding:0;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}.dsh-wel-preview-tab-name{min-width:0;overflow:hidden;text-overflow:ellipsis}.dsh-wel-preview-tab-close{flex:none;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border:0;border-radius:4px;background:transparent;color:inherit;font-size:14px;line-height:1;cursor:pointer}.dsh-wel-preview-tab-close:hover{background:var(--dsw-alias-interactive-bg-hover-danger);color:var(--dsw-alias-state-error-primary)}.dsh-wel-preview-tab-close:disabled{cursor:not-allowed;opacity:.45}.dsh-wel-preview-body{position:relative;flex:1;min-height:0;overflow:hidden;background:var(--dsw-alias-markdown-code-block)}.dsh-wel-editor-host{height:100%;min-width:0}.dsh-wel-editor-host .cm-editor{height:100%;background:var(--dsw-alias-markdown-code-block);color:var(--dsw-alias-label-primary)}.dsh-wel-editor-host .cm-scroller{font-family:var(--dsw-font-family-code,ui-monospace,SFMono-Regular,Consolas,monospace);font-size:12px;line-height:19px;overflow:auto}.dsh-wel-editor-host .cm-gutters{background:var(--dsw-alias-markdown-code-block-banner);color:var(--dsw-alias-label-caption);border-right:1px solid var(--dsw-alias-border-l2)}.dsh-wel-editor-host .cm-activeLine,.dsh-wel-editor-host .cm-activeLineGutter{background:var(--dsw-alias-interactive-bg-hover)}.dsh-wel-editor-host .cm-selectionBackground,.dsh-wel-editor-host .cm-content ::selection{background:var(--dsw-alias-interactive-bg-active)!important}.dsh-wel-editor-host .cm-cursor{border-left-color:var(--dsw-alias-label-primary)}.dsh-wel-editor-host .cm-foldPlaceholder{background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary)}.dsh-wel-editor-host .cm-panels{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}.dsh-wel-editor-host .cm-panel input{background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary)}
-.dsh-wel-context-row{box-sizing:border-box;display:flex;align-items:center;gap:8px;flex:none;width:min(var(--dsh-composer-card-max-width),max(0px,calc(100% - (var(--dsh-composer-side-clearance) * 2))));margin:0 auto;padding:0}.dsh-wel-context-prefix{display:flex;flex:1;align-items:center;gap:6px;min-width:0;min-height:28px;padding:5px 8px 5px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:22px;background:var(--dsw-specific-input-major);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:16px;text-align:left;cursor:pointer}.dsh-wel-context-prefix:hover{color:var(--dsw-alias-label-primary)}.dsh-wel-context-prefix:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}.dsh-wel-context-prefix[data-inactive]{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-caption);filter:grayscale(1)}.dsh-wel-context-prefix-mark{flex:none;font-size:12px}.dsh-wel-context-prefix-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-wel-message-context-summary{box-sizing:border-box;display:flex;align-items:center;align-self:flex-end;gap:6px;max-width:100%;min-height:24px;padding:3px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:22px;background:var(--dsw-specific-input-major);color:var(--dsw-alias-label-secondary);font-size:11px;line-height:16px}.dsh-wel-message-context-summary-mark{flex:none;font-size:12px}.dsh-wel-message-context-summary-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-wel-message-context-summary-range{flex:none;color:var(--dsw-alias-label-caption)}.dsh-wel-message-context-bubble[data-dsh-wel-empty-prompt]{display:none}
-.dsh-wel-banner{padding:7px 12px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-state-warn-tertiary);color:var(--dsw-alias-state-warn-label);font-size:11px;line-height:16px}.dsh-wel-banner-actions{display:flex;gap:6px;margin-top:5px}.dsh-wel-status{flex:none;box-sizing:border-box;width:100%;padding:4px 12px;border-top:1px solid var(--dsw-alias-border-l2);background:var(--dsw-specific-sidebar-fill);color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;text-align:right}.dsh-wel-status[data-error]{color:var(--dsw-alias-state-error-primary)}.dsh-wel-error-card{max-width:300px;padding:14px 16px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:19px;text-align:left}.dsh-wel-dialog-backdrop{position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;padding:20px;background:var(--dsw-alias-bg-mask-1,rgba(0,0,0,.38));box-sizing:border-box}.dsh-wel-dialog{width:min(360px,100%);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-elevated,0 12px 36px rgba(0,0,0,.24));box-sizing:border-box}.dsh-wel-dialog-header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-bottom:1px solid var(--dsw-alias-border-l2)}.dsh-wel-dialog-title{min-width:0;overflow:hidden;color:var(--dsw-alias-label-primary);font-size:13px;font-weight:600;line-height:18px;text-overflow:ellipsis;white-space:nowrap}.dsh-wel-dialog-body{display:flex;flex-direction:column;gap:8px;padding:14px}.dsh-wel-dialog-input{width:100%;height:32px;padding:0 9px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;box-sizing:border-box}.dsh-wel-dialog-input:focus{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}.dsh-wel-dialog-error{color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px}.dsh-wel-dialog-message{color:var(--dsw-alias-label-primary);font-size:13px;line-height:20px}.dsh-wel-dialog-warning{color:var(--dsw-alias-state-warn-label);font-size:12px;line-height:18px}.dsh-wel-danger-button{color:var(--dsw-alias-state-error-primary)}.dsh-wel-dialog-footer{display:flex;justify-content:flex-end;gap:8px;padding:0 14px 14px}.dsh-wel-conflict-region{display:flex;flex-direction:column;gap:8px;min-height:0}.dsh-wel-conflict-region-title{display:flex;align-items:center;gap:8px;color:var(--dsw-alias-state-warn-label);font-size:12px;line-height:18px}.dsh-wel-conflict-cols{display:grid;grid-template-columns:1fr 1fr;gap:8px;min-height:0;flex:1}.dsh-wel-conflict-cols-final{border-top:1px solid var(--dsw-alias-border-l2);padding-top:8px}.dsh-wel-conflict-col{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;border:1px solid var(--dsw-alias-border-l2);border-radius:6px}.dsh-wel-conflict-col-label{padding:4px 8px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}.dsh-wel-conflict-mine .dsh-wel-conflict-col-label{color:var(--dsw-alias-state-warn-label)}.dsh-wel-conflict-theirs .dsh-wel-conflict-col-label{color:var(--dsw-alias-state-business-primary)}.dsh-wel-conflict-code{margin:0;min-height:0;flex:1;overflow:auto;padding:10px;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-mono,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace);font-size:var(--dsh-wel-conflict-font-size,12px);line-height:20px;white-space:pre;box-sizing:border-box}.dsh-wel-inline-add{color:var(--dsw-alias-state-success-primary);background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 14%,transparent);border-radius:3px;box-decoration-break:clone;-webkit-box-decoration-break:clone}.dsh-wel-inline-del{color:var(--dsw-alias-state-error-primary);text-decoration:line-through;text-decoration-thickness:1.5px;background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 12%,transparent);border-radius:3px;opacity:.9;box-decoration-break:clone;-webkit-box-decoration-break:clone}.dsh-wel-conflict-code-row{display:inline;border-radius:3px;box-decoration-break:clone;-webkit-box-decoration-break:clone}.dsh-wel-conflict-code-row[data-kind='add']{background:color-mix(in srgb,var(--dsw-alias-label-secondary) 16%,transparent)}.dsh-wel-conflict-mine .dsh-wel-conflict-code-row[data-kind='add']{background:color-mix(in srgb,var(--dsw-alias-state-warn-label) 20%,transparent);color:var(--dsw-alias-state-warn-label)}.dsh-wel-conflict-theirs .dsh-wel-conflict-code-row[data-kind='add']{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 20%,transparent);color:var(--dsw-alias-state-business-primary)}.dsh-wel-conflict-code-row[data-kind='del']{color:var(--dsw-alias-state-error-primary);text-decoration:line-through;text-decoration-thickness:1.5px;background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,transparent);opacity:.85}.dsh-wel-conflict-dialog{width:66vw;max-width:66vw;max-height:min(90vh,1000px);display:flex;flex-direction:column}.dsh-wel-conflict-dialog .dsh-wel-dialog-body{flex:1;min-height:0;overflow:auto}.dsh-wel-conflict-progress{margin-left:8px;padding:0 6px;border-radius:6px;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);font-size:11px;font-weight:600;line-height:18px;white-space:nowrap}
-.dsh-wel-frame [data-slot='sidebar.footer.action']{display:flex!important;flex-direction:column;align-items:stretch;width:100%;min-width:0}
-.dsh-wel-splitter{position:absolute;top:0;bottom:0;z-index:8;width:8px;margin-left:-4px;border:0;background:transparent;cursor:col-resize;touch-action:none}.dsh-wel-splitter::after{content:'';position:absolute;top:0;bottom:0;left:3px;width:2px;background:transparent;transition:background var(--ds-transition-duration-fast) var(--ds-ease-in-out)}.dsh-wel-splitter:hover::after,.dsh-wel-splitter[data-dragging]::after,.dsh-wel-splitter:focus-visible::after{background:var(--dsw-alias-state-business-primary)}.dsh-wel-details{position:absolute;z-index:16;top:0;right:0;bottom:0;width:min(440px,45vw);overflow:hidden;border-left:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-elevated,0 12px 36px var(--dsw-alias-bg-mask-1));transform:translateX(0);opacity:1;transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out),opacity var(--ds-transition-duration-fast) var(--ds-ease-in-out)}.dsh-wel-details[data-closed]{pointer-events:none;visibility:hidden;transform:translateX(100%);opacity:0}.dsh-wel-overlay{position:absolute;inset:0;z-index:20;pointer-events:none}.dsh-wel-overlay>*{pointer-events:auto}.dsh-wel-tree{position:relative}.dsh-wel-context-menu{position:fixed;z-index:40;min-width:168px;padding:6px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-elevated,0 12px 36px rgba(0,0,0,.24));box-sizing:border-box}.dsh-wel-context-item{display:block;width:100%;height:30px;padding:0 10px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:30px;text-align:left;cursor:pointer;box-sizing:border-box}.dsh-wel-context-item:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.dsh-wel-context-item-danger{color:var(--dsw-alias-state-error-primary)}.dsh-wel-context-item-danger:hover{color:var(--dsw-alias-state-error-primary)}.dsh-wel-context-item:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}.dsh-wel-context-item:disabled{cursor:not-allowed;opacity:.5}.dsh-wel-context-item:disabled:hover{background:transparent;color:var(--dsw-alias-label-primary)}.dsh-wel-context-separator{height:1px;margin:4px 0;border:0;background:var(--dsw-alias-border-l2)}.dsh-wel-copy-notice{position:absolute;right:10px;bottom:10px;z-index:12;padding:5px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-size:11px;line-height:16px;box-shadow:var(--dsw-shadow-elevated,0 4px 12px rgba(0,0,0,.18))}@media(prefers-reduced-motion:reduce){.dsh-wel-frame,.dsh-wel-details,.dsh-wel-splitter::after{transition:none}}
-.dsh-wel-search-header{flex-direction:column;align-items:stretch;gap:8px;padding:8px}
-.dsh-wel-search-input-row{display:flex;align-items:center;gap:6px}
-.dsh-wel-search-input{flex:1;min-width:0;height:30px;padding:0 9px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;box-sizing:border-box}
-.dsh-wel-search-input:focus{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}
-.dsh-wel-search-input::placeholder{color:var(--dsw-alias-label-caption)}
-.dsh-wel-search-case{width:34px;padding:0;font-size:11px;font-weight:600}
-.dsh-wel-icon-button[data-active]{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary)}
-.dsh-wel-text-button[data-active]{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary)}
-.dsh-wel-search-summary{padding:8px 10px 2px;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}
-.dsh-wel-search-file{margin:2px 0}
-.dsh-wel-search-file-header{display:flex;align-items:center;gap:6px;width:100%;min-height:26px;padding:3px 7px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:18px;text-align:left;cursor:pointer;box-sizing:border-box}
-.dsh-wel-search-file-header:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
-.dsh-wel-search-file-count{flex:none;color:var(--dsw-alias-label-caption);font-size:10px}
-.dsh-wel-search-truncated{flex:none;color:var(--dsw-alias-state-warn-label);font-size:10px}
-.dsh-wel-search-row{display:flex;align-items:flex-start;gap:8px;width:100%;min-height:22px;padding:2px 7px 2px 18px;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:17px;text-align:left;cursor:pointer;box-sizing:border-box}
-.dsh-wel-search-row:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
-.dsh-wel-search-line{flex:none;width:32px;color:var(--dsw-alias-label-caption);font-variant-numeric:tabular-nums;text-align:right}
-.dsh-wel-search-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dsh-wel-search-hit{background:var(--dsw-alias-state-business-tertiary);color:var(--dsw-alias-state-business-primary);border-radius:2px}
-.dsh-wel-settings-row{display:flex;align-items:center;gap:10px}.dsh-wel-settings-label{flex:none;min-width:64px;color:var(--dsw-alias-label-primary);font-size:13px}.dsh-wel-settings-slider{flex:1;min-width:0;accent-color:var(--dsw-alias-state-business-primary);cursor:pointer}.dsh-wel-settings-checkbox{flex:none;width:16px;height:16px;margin:0;accent-color:var(--dsw-alias-state-business-primary);cursor:pointer}.dsh-wel-settings-value{flex:none;min-width:48px;color:var(--dsw-alias-label-secondary);font-size:13px;text-align:right;font-variant-numeric:tabular-nums}.dsh-wel-settings-hint{padding:0 14px 12px;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}.dsh-wel-explorer-settings{display:flex;flex-direction:column;gap:12px;width:100%;max-width:560px}.dsh-wel-explorer-settings .dsh-wel-settings-label{min-width:88px}.dsh-wel-explorer-settings .dsh-wel-settings-slider{max-width:320px}.dsh-wel-explorer-settings .dsh-wel-settings-hint{padding:0}.dsh-wel-settings-group{display:flex;flex-direction:column;gap:10px}.dsh-wel-settings-group-title{display:flex;align-items:center;gap:8px;color:var(--dsw-alias-label-primary);font-size:14px;font-weight:600;line-height:22px}.dsh-wel-settings-group-title::before{content:'';flex:none;width:3px;height:14px;border-radius:2px;background:var(--dsw-alias-state-business-primary)}.dsh-wel-explorer-divider{height:1px;margin:0;border:0;background:var(--dsw-alias-border-l2)}.dsh-wel-file-colors{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 14px}.dsh-wel-file-colors-title{font-size:14px;line-height:22px;font-weight:500;color:var(--dsw-alias-label-primary)}.dsh-wel-file-color-row{display:flex;align-items:center;gap:10px;min-height:26px}.dsh-wel-file-color-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:20px}.dsh-wel-file-color-input{flex:none;width:32px;height:24px;padding:0;border:1px solid var(--dsw-alias-border-l2);border-radius:4px;background:transparent;cursor:pointer;box-sizing:border-box}.dsh-wel-file-color-input::-webkit-color-swatch-wrapper{padding:2px}.dsh-wel-file-color-input::-webkit-color-swatch{border:0;border-radius:2px}.dsh-wel-file-color-reset{flex:none;height:24px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:12px;line-height:24px;cursor:pointer}.dsh-wel-file-color-reset:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.dsh-wel-file-color-reset:disabled{cursor:not-allowed;opacity:.55}.dsh-wel-file-colors-actions{display:flex;align-items:center;justify-content:flex-start;gap:8px;padding-top:2px}
-.dsh-wel-chat{--dsw-font-markdown-h1:700 calc(24px * var(--dsh-wel-chat-font-scale,1)) / calc(34px * var(--dsh-wel-chat-font-scale,1)) var(--dsw-font-family);--dsw-font-markdown-h2:700 calc(22px * var(--dsh-wel-chat-font-scale,1)) / calc(32px * var(--dsh-wel-chat-font-scale,1)) var(--dsw-font-family);--dsw-font-markdown-h3:700 calc(20px * var(--dsh-wel-chat-font-scale,1)) / calc(30px * var(--dsh-wel-chat-font-scale,1)) var(--dsw-font-family);--dsw-font-markdown-h4:600 calc(16px * var(--dsh-wel-chat-font-scale,1)) / calc(28px * var(--dsh-wel-chat-font-scale,1)) var(--dsw-font-family);--dsw-font-markdown-base:calc(16px * var(--dsh-wel-chat-font-scale,1)) / calc(28px * var(--dsh-wel-chat-font-scale,1)) var(--dsw-font-family);--dsw-font-markdown-base-strong:600 calc(16px * var(--dsh-wel-chat-font-scale,1)) / calc(28px * var(--dsh-wel-chat-font-scale,1)) var(--dsw-font-family);--dsw-font-markdown-base-italic:italic calc(16px * var(--dsh-wel-chat-font-scale,1)) / calc(28px * var(--dsh-wel-chat-font-scale,1)) var(--dsw-font-family);--dsw-font-markdown-base-strong-italic:italic 600 calc(16px * var(--dsh-wel-chat-font-scale,1)) / calc(28px * var(--dsh-wel-chat-font-scale,1)) var(--dsw-font-family);--dsw-font-markdown-table:calc(15px * var(--dsh-wel-chat-font-scale,1)) / calc(25px * var(--dsh-wel-chat-font-scale,1)) var(--dsw-font-family);--dsw-font-markdown-table-head:500 calc(15px * var(--dsh-wel-chat-font-scale,1)) / calc(25px * var(--dsh-wel-chat-font-scale,1)) var(--dsw-font-family);--dsw-font-markdown-code:calc(14px * var(--dsh-wel-chat-font-scale,1)) / calc(22px * var(--dsh-wel-chat-font-scale,1)) var(--ds-font-family-code);--dsw-font-markdown-code-block:calc(13px * var(--dsh-wel-chat-font-scale,1)) / calc(22px * var(--dsh-wel-chat-font-scale,1)) var(--ds-font-family-code);--dsw-font-markdown-code-block-small:calc(12px * var(--dsh-wel-chat-font-scale,1)) / calc(18px * var(--dsh-wel-chat-font-scale,1)) var(--ds-font-family-code)}
-.dsh-wel-chat [data-chat-flow-kind='user'] [data-time-hover-root] > div:first-child > div:last-child,.dsh-wel-chat [data-chat-flow-kind='steering'] [data-time-hover-root] > div:first-child > div:last-child,.dsh-wel-chat [data-pending-steering] > div:first-child > div:last-child{font-size:calc(16px * var(--dsh-wel-chat-font-scale,1));line-height:calc(24px * var(--dsh-wel-chat-font-scale,1))}
-.dsh-wel-chat [data-tool],.dsh-wel-chat [data-sample='bash'],.dsh-wel-chat [data-variant='think']{font-size:calc(14px * var(--dsh-wel-chat-font-scale,1))}
-.dsh-wel-chat [data-tool] [data-disclosure-row] :is(span,button),.dsh-wel-chat [data-sample='bash'] span,.dsh-wel-chat [data-variant='think'] span,.dsh-wel-chat [data-variant='think'] > div > div{font-size:1em}
-.dsh-wel-chat [data-chat-flow]{gap:calc(12px * var(--dsh-wel-chat-font-scale,1))}
-.dsh-wel-chat [data-chat-flow-kind='assistant-step'] [data-slot='conversation.chat.node'] > div > div{gap:calc(12px * var(--dsh-wel-chat-font-scale,1))}
-.dsh-wel-chat [data-chat-flow-kind='assistant-step'] p:not(li p),.dsh-wel-chat [data-chat-flow-kind='assistant-step'] :where(ul,ol,h4,h5,h6,pre){margin-top:calc(12px * var(--dsh-wel-chat-font-scale,1));margin-bottom:calc(12px * var(--dsh-wel-chat-font-scale,1))}
-.dsh-wel-chat [data-chat-flow-kind='assistant-step'] :where(h1,h2,h3){margin-top:calc(24px * var(--dsh-wel-chat-font-scale,1));margin-bottom:calc(12px * var(--dsh-wel-chat-font-scale,1))}
-.dsh-wel-chat [data-chat-flow-kind='assistant-step'] hr{margin:calc(24px * var(--dsh-wel-chat-font-scale,1)) 0}
-.dsh-wel-chat [data-chat-flow-kind='assistant-step'] blockquote{margin-top:calc(12px * var(--dsh-wel-chat-font-scale,1))}
-.dsh-wel-chat [data-chat-flow-kind='assistant-step'] li:not(:first-child){margin-top:calc(4px * var(--dsh-wel-chat-font-scale,1))}
-.dsh-wel-chat [data-chat-flow-kind='assistant-step'] li > p{margin:calc(6px * var(--dsh-wel-chat-font-scale,1)) 0}
-.dsh-wel-preview-tab-close[data-pinned]{color:var(--dsw-alias-state-business-primary);width:22px;height:22px}
-.dsh-wel-preview-tab-close[data-pinned] svg{display:block;width:18px;height:18px}
-.dsh-wel-highlight-preset-select{flex:1;min-width:0;height:30px;padding:0 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;box-sizing:border-box}.dsh-wel-highlight-preset-select:focus{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}
-.dsh-wel-editor-host[data-highlight-preset='classic']{--shiki-token-constant:#0451a5;--shiki-token-string:#a31515;--shiki-token-comment:#008000;--shiki-token-keyword:#0000ff;--shiki-token-parameter:#001080;--shiki-token-function:#795e26;--shiki-token-string-expression:#a31515;--shiki-token-punctuation:#000000;--shiki-token-link:#0000ff}
-body[data-ds-dark-theme] .dsh-wel-editor-host[data-highlight-preset='classic']{--shiki-token-constant:#4ec9b0;--shiki-token-string:#ce9178;--shiki-token-comment:#6a9955;--shiki-token-keyword:#569cd6;--shiki-token-parameter:#9cdcfe;--shiki-token-function:#dcdcaa;--shiki-token-string-expression:#ce9178;--shiki-token-punctuation:#d4d4d4;--shiki-token-link:#569cd6}
-.dsh-wel-editor-host[data-highlight-preset='warm']{--shiki-token-constant:#b4452c;--shiki-token-string:#8a5a00;--shiki-token-comment:#a06a4a;--shiki-token-keyword:#c2410c;--shiki-token-parameter:#d97706;--shiki-token-function:#be185d;--shiki-token-string-expression:#9a3412;--shiki-token-punctuation:#6b4a3f;--shiki-token-link:#9a3412}
-body[data-ds-dark-theme] .dsh-wel-editor-host[data-highlight-preset='warm']{--shiki-token-constant:#ff8a65;--shiki-token-string:#ffd54f;--shiki-token-comment:#c8a48c;--shiki-token-keyword:#ff9e6d;--shiki-token-parameter:#ffb74d;--shiki-token-function:#f472b6;--shiki-token-string-expression:#ffcc80;--shiki-token-punctuation:#e0c8bb;--shiki-token-link:#ffab91}
-.dsh-wel-editor-host[data-highlight-preset='cool']{--shiki-token-constant:#1971c2;--shiki-token-string:#0f766e;--shiki-token-comment:#6f7d94;--shiki-token-keyword:#364fc7;--shiki-token-parameter:#0b7285;--shiki-token-function:#7048e8;--shiki-token-string-expression:#099268;--shiki-token-punctuation:#49576b;--shiki-token-link:#1c7ed6}
-body[data-ds-dark-theme] .dsh-wel-editor-host[data-highlight-preset='cool']{--shiki-token-constant:#4dabf7;--shiki-token-string:#38d9a9;--shiki-token-comment:#8fa3c2;--shiki-token-keyword:#91a7ff;--shiki-token-parameter:#22b8cf;--shiki-token-function:#b197fc;--shiki-token-string-expression:#63e6be;--shiki-token-punctuation:#b6c2d6;--shiki-token-link:#74c0fc}
-.dsh-wel-editor-host[data-highlight-preset='mono']{--shiki-token-constant:#3f3f3f;--shiki-token-string:#2e2e2e;--shiki-token-comment:#9d9d9d;--shiki-token-keyword:#e8590c;--shiki-token-parameter:#565656;--shiki-token-function:#7a7a7a;--shiki-token-string-expression:#4a4a4a;--shiki-token-punctuation:#8a8a8a;--shiki-token-link:#a0a0a0}
-body[data-ds-dark-theme] .dsh-wel-editor-host[data-highlight-preset='mono']{--shiki-token-constant:#d0d0d0;--shiki-token-string:#e2e2e2;--shiki-token-comment:#6e6e6e;--shiki-token-keyword:#ffa94d;--shiki-token-parameter:#a8a8a8;--shiki-token-function:#bfbfbf;--shiki-token-string-expression:#cfcfcf;--shiki-token-punctuation:#8f8f8f;--shiki-token-link:#7d7d7d}
+.dsh-ws-preview .dsh-ws-panel-header{background:var(--dsw-specific-sidebar-fill)}
+.dsh-ws-panel-actions{display:flex;flex:none;align-items:center;gap:2px}.dsh-ws-icon-button,.dsh-ws-text-button{display:inline-flex;align-items:center;justify-content:center;height:30px;padding:0 8px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}.dsh-ws-icon-button{width:30px;padding:0;font-size:18px}.dsh-ws-icon-button svg{display:block;width:16px;height:16px}.dsh-ws-icon-button:hover,.dsh-ws-text-button:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.dsh-ws-icon-button:disabled,.dsh-ws-text-button:disabled{cursor:not-allowed;opacity:.55}
+.dsh-ws-icon-button:focus-visible,.dsh-ws-text-button:focus-visible,.dsh-ws-tree-row:focus-visible,.dsh-ws-preview-tab-button:focus-visible,.dsh-ws-preview-tab-close:focus-visible,.dsh-ws-splitter:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}.dsh-ws-tree-scroll{flex:1;min-height:0;overflow:auto;padding:8px 6px 16px}.dsh-ws-tree-row{display:flex;align-items:center;gap:5px;width:100%;height:var(--dsh-ws-row-height,28px);padding:0 7px 0 calc(7px + var(--dsh-ws-depth,0) * 15px);border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:18px;text-align:left;cursor:pointer;box-sizing:border-box}.dsh-ws-tree-row:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.dsh-ws-tree-row[data-selected]{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary)}.dsh-ws-tree-row:disabled{cursor:not-allowed;opacity:.55}.dsh-ws-tree-row[data-cut]{opacity:.55}
+.dsh-ws-chevron{display:inline-flex;align-items:center;justify-content:center;flex:0 0 12px;color:var(--dsw-alias-label-caption);font-size:10px}.dsh-ws-file-mark{display:inline-flex;align-items:center;justify-content:center;flex:0 0 16px;width:16px;height:16px;border-radius:4px;background:color-mix(in srgb,var(--dsh-ws-file-accent,var(--dsw-alias-label-tertiary)) 16%,transparent);color:var(--dsh-ws-file-accent,var(--dsw-alias-label-tertiary));font-size:8px;font-weight:600;text-transform:uppercase}.dsh-ws-file-mark[data-group='directory']{--dsh-ws-file-accent:var(--dsh-ws-file-directory,#3b82f6)}.dsh-ws-file-mark[data-group='typescript']{--dsh-ws-file-accent:var(--dsh-ws-file-typescript,#3178c6)}.dsh-ws-file-mark[data-group='javascript']{--dsh-ws-file-accent:var(--dsh-ws-file-javascript,#e5c158)}.dsh-ws-file-mark[data-group='json']{--dsh-ws-file-accent:var(--dsh-ws-file-json,#e07a3c)}.dsh-ws-file-mark[data-group='markup']{--dsh-ws-file-accent:var(--dsh-ws-file-markup,#e04a3c)}.dsh-ws-file-mark[data-group='style']{--dsh-ws-file-accent:var(--dsh-ws-file-style,#a855f7)}.dsh-ws-file-mark[data-group='markdown']{--dsh-ws-file-accent:var(--dsh-ws-file-markdown,#12a5a0)}.dsh-ws-file-mark[data-group='log']{--dsh-ws-file-accent:var(--dsh-ws-file-log,#d99a2b)}.dsh-ws-file-mark[data-group='python']{--dsh-ws-file-accent:var(--dsh-ws-file-python,#4b8bb8)}.dsh-ws-file-mark[data-group='shell']{--dsh-ws-file-accent:var(--dsh-ws-file-shell,#22a06b)}.dsh-ws-file-mark[data-group='config']{--dsh-ws-file-accent:var(--dsh-ws-file-config,#8a95a5)}.dsh-ws-file-mark[data-group='c-family']{--dsh-ws-file-accent:var(--dsh-ws-file-c-family,#5a7ba6)}.dsh-ws-file-mark[data-group='csharp']{--dsh-ws-file-accent:var(--dsh-ws-file-csharp,#a25fd0)}.dsh-ws-file-mark[data-group='other']{--dsh-ws-file-accent:var(--dsh-ws-file-other,#9aa3ad)}.dsh-ws-file-mark[data-group='blocked']{--dsh-ws-file-accent:var(--dsh-ws-file-blocked,#e5484d)}.dsh-ws-row-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-ws-symlink{margin-left:auto;color:var(--dsw-alias-label-caption);font-size:10px}.dsh-ws-tree-status{padding:8px 10px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.dsh-ws-tree-status[data-error]{color:var(--dsw-alias-state-error-primary)}.dsh-ws-empty{display:flex;flex:1;min-height:0;align-items:center;justify-content:center;padding:24px;color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:20px;text-align:center}
+.dsh-ws-preview-header-meta{display:flex;align-items:center;gap:6px;min-width:0}.dsh-ws-preview-header-meta>span:not(.dsh-ws-language):not(.dsh-ws-encoding){overflow:hidden;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:15px;text-overflow:ellipsis;white-space:nowrap}.dsh-ws-language{flex:0 0 auto;padding:1px 5px;border-radius:4px;background:var(--dsw-alias-markdown-tag);color:var(--dsw-alias-label-secondary);font-size:9px;font-weight:600;line-height:14px;text-transform:uppercase}.dsh-ws-encoding{flex:0 0 auto;padding:1px 5px;border-radius:4px;background:var(--dsw-alias-markdown-tag);color:var(--dsw-alias-label-secondary);font-size:9px;font-weight:600;line-height:14px;text-transform:uppercase}.dsh-ws-dirty{color:var(--dsw-alias-state-warn-label);font-size:12px}.dsh-ws-preview-tabs{display:flex;align-items:stretch;gap:4px;min-width:0;padding:6px 8px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-specific-sidebar-fill);overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}.dsh-ws-preview-tab{flex:none;display:flex;align-items:center;gap:5px;min-width:0;max-width:220px;height:28px;padding:0 5px 0 9px;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:18px;cursor:grab;box-sizing:border-box;white-space:nowrap}.dsh-ws-preview-tab:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.dsh-ws-preview-tab[data-active]{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary)}.dsh-ws-preview-tab[data-dragging]{opacity:.7}.dsh-ws-preview-drop-indicator{flex:none;width:3px;height:20px;border-radius:2px;background:var(--dsw-alias-state-business-primary);align-self:center;pointer-events:none}.dsh-ws-preview-tab-button{display:flex;flex:1;align-items:center;gap:5px;min-width:0;height:100%;padding:0;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}.dsh-ws-preview-tab-name{min-width:0;overflow:hidden;text-overflow:ellipsis}.dsh-ws-preview-tab-close{flex:none;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border:0;border-radius:4px;background:transparent;color:inherit;font-size:14px;line-height:1;cursor:pointer}.dsh-ws-preview-tab-close:hover{background:var(--dsw-alias-interactive-bg-hover-danger);color:var(--dsw-alias-state-error-primary)}.dsh-ws-preview-tab-close:disabled{cursor:not-allowed;opacity:.45}.dsh-ws-preview-body{position:relative;flex:1;min-height:0;overflow:hidden;background:var(--dsw-alias-markdown-code-block)}.dsh-ws-editor-host{height:100%;min-width:0}.dsh-ws-editor-host .cm-editor{height:100%;background:var(--dsw-alias-markdown-code-block);color:var(--dsw-alias-label-primary)}.dsh-ws-editor-host .cm-scroller{font-family:var(--dsw-font-family-code,ui-monospace,SFMono-Regular,Consolas,monospace);font-size:12px;line-height:19px;overflow:auto}.dsh-ws-editor-host .cm-gutters{background:var(--dsw-alias-markdown-code-block-banner);color:var(--dsw-alias-label-caption);border-right:1px solid var(--dsw-alias-border-l2)}.dsh-ws-editor-host .cm-activeLine,.dsh-ws-editor-host .cm-activeLineGutter{background:var(--dsw-alias-interactive-bg-hover)}.dsh-ws-editor-host .cm-selectionBackground,.dsh-ws-editor-host .cm-content ::selection{background:var(--dsw-alias-interactive-bg-active)!important}.dsh-ws-editor-host .cm-cursor{border-left-color:var(--dsw-alias-label-primary)}.dsh-ws-editor-host .cm-foldPlaceholder{background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary)}.dsh-ws-editor-host .cm-panels{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}.dsh-ws-editor-host .cm-panel input{background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary)}
+.dsh-ws-context-row{box-sizing:border-box;display:flex;align-items:center;gap:8px;flex:none;width:min(var(--dsh-composer-card-max-width),max(0px,calc(100% - (var(--dsh-composer-side-clearance) * 2))));margin:0 auto;padding:0}.dsh-ws-context-prefix{display:flex;flex:1;align-items:center;gap:6px;min-width:0;min-height:28px;padding:5px 8px 5px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:22px;background:var(--dsw-specific-input-major);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:16px;text-align:left;cursor:pointer}.dsh-ws-context-prefix:hover{color:var(--dsw-alias-label-primary)}.dsh-ws-context-prefix:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}.dsh-ws-context-prefix[data-inactive]{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-caption);filter:grayscale(1)}.dsh-ws-context-prefix-mark{flex:none;font-size:12px}.dsh-ws-context-prefix-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-ws-message-context-summary{box-sizing:border-box;display:flex;align-items:center;align-self:flex-end;gap:6px;max-width:100%;min-height:24px;padding:3px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:22px;background:var(--dsw-specific-input-major);color:var(--dsw-alias-label-secondary);font-size:11px;line-height:16px}.dsh-ws-message-context-summary-mark{flex:none;font-size:12px}.dsh-ws-message-context-summary-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-ws-message-context-summary-range{flex:none;color:var(--dsw-alias-label-caption)}.dsh-ws-message-context-bubble[data-dsh-ws-empty-prompt]{display:none}
+.dsh-ws-banner{padding:7px 12px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-state-warn-tertiary);color:var(--dsw-alias-state-warn-label);font-size:11px;line-height:16px}.dsh-ws-banner-actions{display:flex;gap:6px;margin-top:5px}.dsh-ws-status{flex:none;box-sizing:border-box;width:100%;padding:4px 12px;border-top:1px solid var(--dsw-alias-border-l2);background:var(--dsw-specific-sidebar-fill);color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;text-align:right}.dsh-ws-status[data-error]{color:var(--dsw-alias-state-error-primary)}.dsh-ws-error-card{max-width:300px;padding:14px 16px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:19px;text-align:left}.dsh-ws-dialog-backdrop{position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;padding:20px;background:var(--dsw-alias-bg-mask-1,rgba(0,0,0,.38));box-sizing:border-box}.dsh-ws-dialog{width:min(360px,100%);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-elevated,0 12px 36px rgba(0,0,0,.24));box-sizing:border-box}.dsh-ws-dialog-header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-bottom:1px solid var(--dsw-alias-border-l2)}.dsh-ws-dialog-title{min-width:0;overflow:hidden;color:var(--dsw-alias-label-primary);font-size:13px;font-weight:600;line-height:18px;text-overflow:ellipsis;white-space:nowrap}.dsh-ws-dialog-body{display:flex;flex-direction:column;gap:8px;padding:14px}.dsh-ws-dialog-input{width:100%;height:32px;padding:0 9px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;box-sizing:border-box}.dsh-ws-dialog-input:focus{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}.dsh-ws-dialog-error{color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px}.dsh-ws-dialog-message{color:var(--dsw-alias-label-primary);font-size:13px;line-height:20px}.dsh-ws-dialog-warning{color:var(--dsw-alias-state-warn-label);font-size:12px;line-height:18px}.dsh-ws-danger-button{color:var(--dsw-alias-state-error-primary)}.dsh-ws-dialog-footer{display:flex;justify-content:flex-end;gap:8px;padding:0 14px 14px}.dsh-ws-conflict-region{display:flex;flex-direction:column;gap:8px;min-height:0}.dsh-ws-conflict-region-title{display:flex;align-items:center;gap:8px;color:var(--dsw-alias-state-warn-label);font-size:12px;line-height:18px}.dsh-ws-conflict-cols{display:grid;grid-template-columns:1fr 1fr;gap:8px;min-height:0;flex:1}.dsh-ws-conflict-cols-final{border-top:1px solid var(--dsw-alias-border-l2);padding-top:8px}.dsh-ws-conflict-col{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;border:1px solid var(--dsw-alias-border-l2);border-radius:6px}.dsh-ws-conflict-col-label{padding:4px 8px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}.dsh-ws-conflict-mine .dsh-ws-conflict-col-label{color:var(--dsw-alias-state-warn-label)}.dsh-ws-conflict-theirs .dsh-ws-conflict-col-label{color:var(--dsw-alias-state-business-primary)}.dsh-ws-conflict-code{margin:0;min-height:0;flex:1;overflow:auto;padding:10px;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-mono,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace);font-size:var(--dsh-ws-conflict-font-size,12px);line-height:20px;white-space:pre;box-sizing:border-box}.dsh-ws-inline-add{color:var(--dsw-alias-state-success-primary);background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 14%,transparent);border-radius:3px;box-decoration-break:clone;-webkit-box-decoration-break:clone}.dsh-ws-inline-del{color:var(--dsw-alias-state-error-primary);text-decoration:line-through;text-decoration-thickness:1.5px;background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 12%,transparent);border-radius:3px;opacity:.9;box-decoration-break:clone;-webkit-box-decoration-break:clone}.dsh-ws-conflict-code-row{display:inline;border-radius:3px;box-decoration-break:clone;-webkit-box-decoration-break:clone}.dsh-ws-conflict-code-row[data-kind='add']{background:color-mix(in srgb,var(--dsw-alias-label-secondary) 16%,transparent)}.dsh-ws-conflict-mine .dsh-ws-conflict-code-row[data-kind='add']{background:color-mix(in srgb,var(--dsw-alias-state-warn-label) 20%,transparent);color:var(--dsw-alias-state-warn-label)}.dsh-ws-conflict-theirs .dsh-ws-conflict-code-row[data-kind='add']{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 20%,transparent);color:var(--dsw-alias-state-business-primary)}.dsh-ws-conflict-code-row[data-kind='del']{color:var(--dsw-alias-state-error-primary);text-decoration:line-through;text-decoration-thickness:1.5px;background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,transparent);opacity:.85}.dsh-ws-conflict-dialog{width:66vw;max-width:66vw;max-height:min(90vh,1000px);display:flex;flex-direction:column}.dsh-ws-conflict-dialog .dsh-ws-dialog-body{flex:1;min-height:0;overflow:auto}.dsh-ws-conflict-progress{margin-left:8px;padding:0 6px;border-radius:6px;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);font-size:11px;font-weight:600;line-height:18px;white-space:nowrap}
+.dsh-ws-frame [data-slot='sidebar.footer.action']{display:flex!important;flex-direction:column;align-items:stretch;width:100%;min-width:0}
+.dsh-ws-splitter{position:absolute;top:0;bottom:0;z-index:8;width:8px;margin-left:-4px;border:0;background:transparent;cursor:col-resize;touch-action:none}.dsh-ws-splitter::after{content:'';position:absolute;top:0;bottom:0;left:3px;width:2px;background:transparent;transition:background var(--ds-transition-duration-fast) var(--ds-ease-in-out)}.dsh-ws-splitter:hover::after,.dsh-ws-splitter[data-dragging]::after,.dsh-ws-splitter:focus-visible::after{background:var(--dsw-alias-state-business-primary)}.dsh-ws-details{position:absolute;z-index:16;top:0;right:0;bottom:0;width:min(440px,45vw);overflow:hidden;border-left:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-elevated,0 12px 36px var(--dsw-alias-bg-mask-1));transform:translateX(0);opacity:1;transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out),opacity var(--ds-transition-duration-fast) var(--ds-ease-in-out)}.dsh-ws-details[data-closed]{pointer-events:none;visibility:hidden;transform:translateX(100%);opacity:0}.dsh-ws-overlay{position:absolute;inset:0;z-index:20;pointer-events:none}.dsh-ws-overlay>*{pointer-events:auto}.dsh-ws-tree{position:relative}.dsh-ws-context-menu{position:fixed;z-index:40;min-width:168px;padding:6px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-elevated,0 12px 36px rgba(0,0,0,.24));box-sizing:border-box}.dsh-ws-context-item{display:block;width:100%;height:30px;padding:0 10px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:30px;text-align:left;cursor:pointer;box-sizing:border-box}.dsh-ws-context-item:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.dsh-ws-context-item-danger{color:var(--dsw-alias-state-error-primary)}.dsh-ws-context-item-danger:hover{color:var(--dsw-alias-state-error-primary)}.dsh-ws-context-item:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}.dsh-ws-context-item:disabled{cursor:not-allowed;opacity:.5}.dsh-ws-context-item:disabled:hover{background:transparent;color:var(--dsw-alias-label-primary)}.dsh-ws-context-separator{height:1px;margin:4px 0;border:0;background:var(--dsw-alias-border-l2)}.dsh-ws-copy-notice{position:absolute;right:10px;bottom:10px;z-index:12;padding:5px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-size:11px;line-height:16px;box-shadow:var(--dsw-shadow-elevated,0 4px 12px rgba(0,0,0,.18))}@media(prefers-reduced-motion:reduce){.dsh-ws-frame,.dsh-ws-details,.dsh-ws-splitter::after{transition:none}}
+.dsh-ws-search-header{flex-direction:column;align-items:stretch;gap:8px;padding:8px}
+.dsh-ws-search-input-row{display:flex;align-items:center;gap:6px}
+.dsh-ws-search-input{flex:1;min-width:0;height:30px;padding:0 9px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;box-sizing:border-box}
+.dsh-ws-search-input:focus{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}
+.dsh-ws-search-input::placeholder{color:var(--dsw-alias-label-caption)}
+.dsh-ws-search-case{width:34px;padding:0;font-size:11px;font-weight:600}
+.dsh-ws-icon-button[data-active]{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary)}
+.dsh-ws-text-button[data-active]{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary)}
+.dsh-ws-search-summary{padding:8px 10px 2px;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}
+.dsh-ws-search-file{margin:2px 0}
+.dsh-ws-search-file-header{display:flex;align-items:center;gap:6px;width:100%;min-height:26px;padding:3px 7px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:18px;text-align:left;cursor:pointer;box-sizing:border-box}
+.dsh-ws-search-file-header:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dsh-ws-search-file-count{flex:none;color:var(--dsw-alias-label-caption);font-size:10px}
+.dsh-ws-search-truncated{flex:none;color:var(--dsw-alias-state-warn-label);font-size:10px}
+.dsh-ws-search-row{display:flex;align-items:flex-start;gap:8px;width:100%;min-height:22px;padding:2px 7px 2px 18px;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:17px;text-align:left;cursor:pointer;box-sizing:border-box}
+.dsh-ws-search-row:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dsh-ws-search-line{flex:none;width:32px;color:var(--dsw-alias-label-caption);font-variant-numeric:tabular-nums;text-align:right}
+.dsh-ws-search-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-ws-search-hit{background:var(--dsw-alias-state-business-tertiary);color:var(--dsw-alias-state-business-primary);border-radius:2px}
+.dsh-ws-settings-row{display:flex;align-items:center;gap:10px}.dsh-ws-settings-label{flex:none;min-width:64px;color:var(--dsw-alias-label-primary);font-size:13px}.dsh-ws-settings-slider{flex:1;min-width:0;accent-color:var(--dsw-alias-state-business-primary);cursor:pointer}.dsh-ws-settings-checkbox{flex:none;width:16px;height:16px;margin:0;accent-color:var(--dsw-alias-state-business-primary);cursor:pointer}.dsh-ws-settings-value{flex:none;min-width:48px;color:var(--dsw-alias-label-secondary);font-size:13px;text-align:right;font-variant-numeric:tabular-nums}.dsh-ws-settings-hint{padding:0 14px 12px;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}.dsh-ws-explorer-settings{display:flex;flex-direction:column;gap:12px;width:100%;max-width:560px}.dsh-ws-explorer-settings .dsh-ws-settings-label{min-width:88px}.dsh-ws-explorer-settings .dsh-ws-settings-slider{max-width:320px}.dsh-ws-explorer-settings .dsh-ws-settings-hint{padding:0}.dsh-ws-settings-group{display:flex;flex-direction:column;gap:10px}.dsh-ws-settings-group-title{display:flex;align-items:center;gap:8px;color:var(--dsw-alias-label-primary);font-size:14px;font-weight:600;line-height:22px}.dsh-ws-settings-group-title::before{content:'';flex:none;width:3px;height:14px;border-radius:2px;background:var(--dsw-alias-state-business-primary)}.dsh-ws-explorer-divider{height:1px;margin:0;border:0;background:var(--dsw-alias-border-l2)}.dsh-ws-file-colors{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 14px}.dsh-ws-file-colors-title{font-size:14px;line-height:22px;font-weight:500;color:var(--dsw-alias-label-primary)}.dsh-ws-file-color-row{display:flex;align-items:center;gap:10px;min-height:26px}.dsh-ws-file-color-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:20px}.dsh-ws-file-color-input{flex:none;width:32px;height:24px;padding:0;border:1px solid var(--dsw-alias-border-l2);border-radius:4px;background:transparent;cursor:pointer;box-sizing:border-box}.dsh-ws-file-color-input::-webkit-color-swatch-wrapper{padding:2px}.dsh-ws-file-color-input::-webkit-color-swatch{border:0;border-radius:2px}.dsh-ws-file-color-reset{flex:none;height:24px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:12px;line-height:24px;cursor:pointer}.dsh-ws-file-color-reset:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.dsh-ws-file-color-reset:disabled{cursor:not-allowed;opacity:.55}.dsh-ws-file-colors-actions{display:flex;align-items:center;justify-content:flex-start;gap:8px;padding-top:2px}
+.dsh-ws-chat{--dsw-font-markdown-h1:700 calc(24px * var(--dsh-ws-chat-font-scale,1)) / calc(34px * var(--dsh-ws-chat-font-scale,1)) var(--dsw-font-family);--dsw-font-markdown-h2:700 calc(22px * var(--dsh-ws-chat-font-scale,1)) / calc(32px * var(--dsh-ws-chat-font-scale,1)) var(--dsw-font-family);--dsw-font-markdown-h3:700 calc(20px * var(--dsh-ws-chat-font-scale,1)) / calc(30px * var(--dsh-ws-chat-font-scale,1)) var(--dsw-font-family);--dsw-font-markdown-h4:600 calc(16px * var(--dsh-ws-chat-font-scale,1)) / calc(28px * var(--dsh-ws-chat-font-scale,1)) var(--dsw-font-family);--dsw-font-markdown-base:calc(16px * var(--dsh-ws-chat-font-scale,1)) / calc(28px * var(--dsh-ws-chat-font-scale,1)) var(--dsw-font-family);--dsw-font-markdown-base-strong:600 calc(16px * var(--dsh-ws-chat-font-scale,1)) / calc(28px * var(--dsh-ws-chat-font-scale,1)) var(--dsw-font-family);--dsw-font-markdown-base-italic:italic calc(16px * var(--dsh-ws-chat-font-scale,1)) / calc(28px * var(--dsh-ws-chat-font-scale,1)) var(--dsw-font-family);--dsw-font-markdown-base-strong-italic:italic 600 calc(16px * var(--dsh-ws-chat-font-scale,1)) / calc(28px * var(--dsh-ws-chat-font-scale,1)) var(--dsw-font-family);--dsw-font-markdown-table:calc(15px * var(--dsh-ws-chat-font-scale,1)) / calc(25px * var(--dsh-ws-chat-font-scale,1)) var(--dsw-font-family);--dsw-font-markdown-table-head:500 calc(15px * var(--dsh-ws-chat-font-scale,1)) / calc(25px * var(--dsh-ws-chat-font-scale,1)) var(--dsw-font-family);--dsw-font-markdown-code:calc(14px * var(--dsh-ws-chat-font-scale,1)) / calc(22px * var(--dsh-ws-chat-font-scale,1)) var(--ds-font-family-code);--dsw-font-markdown-code-block:calc(13px * var(--dsh-ws-chat-font-scale,1)) / calc(22px * var(--dsh-ws-chat-font-scale,1)) var(--ds-font-family-code);--dsw-font-markdown-code-block-small:calc(12px * var(--dsh-ws-chat-font-scale,1)) / calc(18px * var(--dsh-ws-chat-font-scale,1)) var(--ds-font-family-code)}
+.dsh-ws-chat [data-chat-flow-kind='user'] [data-time-hover-root] > div:first-child > div:last-child,.dsh-ws-chat [data-chat-flow-kind='steering'] [data-time-hover-root] > div:first-child > div:last-child,.dsh-ws-chat [data-pending-steering] > div:first-child > div:last-child{font-size:calc(16px * var(--dsh-ws-chat-font-scale,1));line-height:calc(24px * var(--dsh-ws-chat-font-scale,1))}
+.dsh-ws-chat [data-tool],.dsh-ws-chat [data-sample='bash'],.dsh-ws-chat [data-variant='think']{font-size:calc(14px * var(--dsh-ws-chat-font-scale,1))}
+.dsh-ws-chat [data-tool] [data-disclosure-row] :is(span,button),.dsh-ws-chat [data-sample='bash'] span,.dsh-ws-chat [data-variant='think'] span,.dsh-ws-chat [data-variant='think'] > div > div{font-size:1em}
+.dsh-ws-chat [data-chat-flow]{gap:calc(12px * var(--dsh-ws-chat-font-scale,1))}
+.dsh-ws-chat [data-chat-flow-kind='assistant-step'] [data-slot='conversation.chat.node'] > div > div{gap:calc(12px * var(--dsh-ws-chat-font-scale,1))}
+.dsh-ws-chat [data-chat-flow-kind='assistant-step'] p:not(li p),.dsh-ws-chat [data-chat-flow-kind='assistant-step'] :where(ul,ol,h4,h5,h6,pre){margin-top:calc(12px * var(--dsh-ws-chat-font-scale,1));margin-bottom:calc(12px * var(--dsh-ws-chat-font-scale,1))}
+.dsh-ws-chat [data-chat-flow-kind='assistant-step'] :where(h1,h2,h3){margin-top:calc(24px * var(--dsh-ws-chat-font-scale,1));margin-bottom:calc(12px * var(--dsh-ws-chat-font-scale,1))}
+.dsh-ws-chat [data-chat-flow-kind='assistant-step'] hr{margin:calc(24px * var(--dsh-ws-chat-font-scale,1)) 0}
+.dsh-ws-chat [data-chat-flow-kind='assistant-step'] blockquote{margin-top:calc(12px * var(--dsh-ws-chat-font-scale,1))}
+.dsh-ws-chat [data-chat-flow-kind='assistant-step'] li:not(:first-child){margin-top:calc(4px * var(--dsh-ws-chat-font-scale,1))}
+.dsh-ws-chat [data-chat-flow-kind='assistant-step'] li > p{margin:calc(6px * var(--dsh-ws-chat-font-scale,1)) 0}
+.dsh-ws-preview-tab-close[data-pinned]{color:var(--dsw-alias-state-business-primary);width:22px;height:22px}
+.dsh-ws-preview-tab-close[data-pinned] svg{display:block;width:18px;height:18px}
+.dsh-ws-highlight-preset-select{flex:1;min-width:0;height:30px;padding:0 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;box-sizing:border-box}.dsh-ws-highlight-preset-select:focus{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}
+.dsh-ws-editor-host[data-highlight-preset='classic']{--shiki-token-constant:#0451a5;--shiki-token-string:#a31515;--shiki-token-comment:#008000;--shiki-token-keyword:#0000ff;--shiki-token-parameter:#001080;--shiki-token-function:#795e26;--shiki-token-string-expression:#a31515;--shiki-token-punctuation:#000000;--shiki-token-link:#0000ff}
+body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='classic']{--shiki-token-constant:#4ec9b0;--shiki-token-string:#ce9178;--shiki-token-comment:#6a9955;--shiki-token-keyword:#569cd6;--shiki-token-parameter:#9cdcfe;--shiki-token-function:#dcdcaa;--shiki-token-string-expression:#ce9178;--shiki-token-punctuation:#d4d4d4;--shiki-token-link:#569cd6}
+.dsh-ws-editor-host[data-highlight-preset='warm']{--shiki-token-constant:#b4452c;--shiki-token-string:#8a5a00;--shiki-token-comment:#a06a4a;--shiki-token-keyword:#c2410c;--shiki-token-parameter:#d97706;--shiki-token-function:#be185d;--shiki-token-string-expression:#9a3412;--shiki-token-punctuation:#6b4a3f;--shiki-token-link:#9a3412}
+body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='warm']{--shiki-token-constant:#ff8a65;--shiki-token-string:#ffd54f;--shiki-token-comment:#c8a48c;--shiki-token-keyword:#ff9e6d;--shiki-token-parameter:#ffb74d;--shiki-token-function:#f472b6;--shiki-token-string-expression:#ffcc80;--shiki-token-punctuation:#e0c8bb;--shiki-token-link:#ffab91}
+.dsh-ws-editor-host[data-highlight-preset='cool']{--shiki-token-constant:#1971c2;--shiki-token-string:#0f766e;--shiki-token-comment:#6f7d94;--shiki-token-keyword:#364fc7;--shiki-token-parameter:#0b7285;--shiki-token-function:#7048e8;--shiki-token-string-expression:#099268;--shiki-token-punctuation:#49576b;--shiki-token-link:#1c7ed6}
+body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='cool']{--shiki-token-constant:#4dabf7;--shiki-token-string:#38d9a9;--shiki-token-comment:#8fa3c2;--shiki-token-keyword:#91a7ff;--shiki-token-parameter:#22b8cf;--shiki-token-function:#b197fc;--shiki-token-string-expression:#63e6be;--shiki-token-punctuation:#b6c2d6;--shiki-token-link:#74c0fc}
+.dsh-ws-editor-host[data-highlight-preset='mono']{--shiki-token-constant:#3f3f3f;--shiki-token-string:#2e2e2e;--shiki-token-comment:#9d9d9d;--shiki-token-keyword:#e8590c;--shiki-token-parameter:#565656;--shiki-token-function:#7a7a7a;--shiki-token-string-expression:#4a4a4a;--shiki-token-punctuation:#8a8a8a;--shiki-token-link:#a0a0a0}
+body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='mono']{--shiki-token-constant:#d0d0d0;--shiki-token-string:#e2e2e2;--shiki-token-comment:#6e6e6e;--shiki-token-keyword:#ffa94d;--shiki-token-parameter:#a8a8a8;--shiki-token-function:#bfbfbf;--shiki-token-string-expression:#cfcfcf;--shiki-token-punctuation:#8f8f8f;--shiki-token-link:#7d7d7d}
 /* VS Code default theme (Light+/Dark+) XML palette: tag names ride the
    function token (tagName -> typeName), attribute names the parameter token
    (attributeName -> propertyName), values/entities the string token, and the
    two extra vars cover angle brackets and entity characters. */
-.dsh-wel-editor-host[data-highlight-preset='vscode-xml']{--shiki-token-comment:#008000;--shiki-token-function:#800000;--shiki-token-parameter:#e50000;--shiki-token-string:#a31515;--shiki-token-string-expression:#0000ff;--dsh-wel-token-xml-punctuation:#800000;--dsh-wel-token-xml-entity:#0000ff}
-body[data-ds-dark-theme] .dsh-wel-editor-host[data-highlight-preset='vscode-xml']{--shiki-token-comment:#6A9955;--shiki-token-function:#569cd6;--shiki-token-parameter:#9cdcfe;--shiki-token-string:#ce9178;--shiki-token-string-expression:#569cd6;--dsh-wel-token-xml-punctuation:#808080;--dsh-wel-token-xml-entity:#569cd6}
+.dsh-ws-editor-host[data-highlight-preset='vscode-xml']{--shiki-token-comment:#008000;--shiki-token-function:#800000;--shiki-token-parameter:#e50000;--shiki-token-string:#a31515;--shiki-token-string-expression:#0000ff;--dsh-ws-token-xml-punctuation:#800000;--dsh-ws-token-xml-entity:#0000ff}
+body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-xml']{--shiki-token-comment:#6A9955;--shiki-token-function:#569cd6;--shiki-token-parameter:#9cdcfe;--shiki-token-string:#ce9178;--shiki-token-string-expression:#569cd6;--dsh-ws-token-xml-punctuation:#808080;--dsh-ws-token-xml-entity:#569cd6}
 /* VS Code default theme (Light+/Dark+) shared token palette: one rule serves
    every non-XML vscode-* preset, since VS Code colors all languages with the
    same theme. */
-.dsh-wel-editor-host[data-highlight-preset='vscode-python'],.dsh-wel-editor-host[data-highlight-preset='vscode-json'],.dsh-wel-editor-host[data-highlight-preset='vscode-typescript'],.dsh-wel-editor-host[data-highlight-preset='vscode-javascript'],.dsh-wel-editor-host[data-highlight-preset='vscode-css'],.dsh-wel-editor-host[data-highlight-preset='vscode-markdown'],.dsh-wel-editor-host[data-highlight-preset='vscode-shell'],.dsh-wel-editor-host[data-highlight-preset='vscode-config'],.dsh-wel-editor-host[data-highlight-preset='vscode-cpp'],.dsh-wel-editor-host[data-highlight-preset='vscode-csharp']{--shiki-token-constant:#098658;--shiki-token-string:#a31515;--shiki-token-comment:#008000;--shiki-token-keyword:#0000ff;--shiki-token-parameter:#001080;--shiki-token-function:#795e26;--shiki-token-string-expression:#795e26;--shiki-token-punctuation:#000000;--shiki-token-link:#0000ff}
-body[data-ds-dark-theme] .dsh-wel-editor-host[data-highlight-preset='vscode-python'],body[data-ds-dark-theme] .dsh-wel-editor-host[data-highlight-preset='vscode-json'],body[data-ds-dark-theme] .dsh-wel-editor-host[data-highlight-preset='vscode-typescript'],body[data-ds-dark-theme] .dsh-wel-editor-host[data-highlight-preset='vscode-javascript'],body[data-ds-dark-theme] .dsh-wel-editor-host[data-highlight-preset='vscode-css'],body[data-ds-dark-theme] .dsh-wel-editor-host[data-highlight-preset='vscode-markdown'],body[data-ds-dark-theme] .dsh-wel-editor-host[data-highlight-preset='vscode-shell'],body[data-ds-dark-theme] .dsh-wel-editor-host[data-highlight-preset='vscode-config'],body[data-ds-dark-theme] .dsh-wel-editor-host[data-highlight-preset='vscode-cpp'],body[data-ds-dark-theme] .dsh-wel-editor-host[data-highlight-preset='vscode-csharp']{--shiki-token-constant:#b5cea8;--shiki-token-string:#ce9178;--shiki-token-comment:#6a9955;--shiki-token-keyword:#569cd6;--shiki-token-parameter:#9cdcfe;--shiki-token-function:#dcdcaa;--shiki-token-string-expression:#dcdcaa;--shiki-token-punctuation:#d4d4d4;--shiki-token-link:#569cd6}
-.dsh-wel-editor-host[data-highlight-preset='vs2022']{--shiki-token-constant:#098658;--shiki-token-string:#a31515;--shiki-token-comment:#008000;--shiki-token-keyword:#0000ff;--shiki-token-parameter:#000000;--shiki-token-function:#2b91af;--shiki-token-string-expression:#a31515;--shiki-token-punctuation:#000000;--shiki-token-link:#0000ff}
-body[data-ds-dark-theme] .dsh-wel-editor-host[data-highlight-preset='vs2022']{--shiki-token-constant:#b5cea8;--shiki-token-string:#d69d85;--shiki-token-comment:#57a64a;--shiki-token-keyword:#569cd6;--shiki-token-parameter:#dcdcdc;--shiki-token-function:#4ec9b0;--shiki-token-string-expression:#d69d85;--shiki-token-punctuation:#b4b4b4;--shiki-token-link:#569cd6}
+.dsh-ws-editor-host[data-highlight-preset='vscode-python'],.dsh-ws-editor-host[data-highlight-preset='vscode-json'],.dsh-ws-editor-host[data-highlight-preset='vscode-typescript'],.dsh-ws-editor-host[data-highlight-preset='vscode-javascript'],.dsh-ws-editor-host[data-highlight-preset='vscode-css'],.dsh-ws-editor-host[data-highlight-preset='vscode-markdown'],.dsh-ws-editor-host[data-highlight-preset='vscode-shell'],.dsh-ws-editor-host[data-highlight-preset='vscode-config'],.dsh-ws-editor-host[data-highlight-preset='vscode-cpp'],.dsh-ws-editor-host[data-highlight-preset='vscode-csharp']{--shiki-token-constant:#098658;--shiki-token-string:#a31515;--shiki-token-comment:#008000;--shiki-token-keyword:#0000ff;--shiki-token-parameter:#001080;--shiki-token-function:#795e26;--shiki-token-string-expression:#795e26;--shiki-token-punctuation:#000000;--shiki-token-link:#0000ff}
+body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-python'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-json'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-typescript'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-javascript'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-css'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-markdown'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-shell'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-config'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-cpp'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-csharp']{--shiki-token-constant:#b5cea8;--shiki-token-string:#ce9178;--shiki-token-comment:#6a9955;--shiki-token-keyword:#569cd6;--shiki-token-parameter:#9cdcfe;--shiki-token-function:#dcdcaa;--shiki-token-string-expression:#dcdcaa;--shiki-token-punctuation:#d4d4d4;--shiki-token-link:#569cd6}
+.dsh-ws-editor-host[data-highlight-preset='vs2022']{--shiki-token-constant:#098658;--shiki-token-string:#a31515;--shiki-token-comment:#008000;--shiki-token-keyword:#0000ff;--shiki-token-parameter:#000000;--shiki-token-function:#2b91af;--shiki-token-string-expression:#a31515;--shiki-token-punctuation:#000000;--shiki-token-link:#0000ff}
+body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vs2022']{--shiki-token-constant:#b5cea8;--shiki-token-string:#d69d85;--shiki-token-comment:#57a64a;--shiki-token-keyword:#569cd6;--shiki-token-parameter:#dcdcdc;--shiki-token-function:#4ec9b0;--shiki-token-string-expression:#d69d85;--shiki-token-punctuation:#b4b4b4;--shiki-token-link:#569cd6}
 /* Preprocessor directive color (C# #if/#region, ...): purple on both themes,
    lighter in dark for contrast; overridable per preset. */
-.dsh-wel-editor-host{--dsh-wel-token-directive:#8e44ad}
-body[data-ds-dark-theme] .dsh-wel-editor-host{--dsh-wel-token-directive:#c586c0}
+.dsh-ws-editor-host{--dsh-ws-token-directive:#8e44ad}
+body[data-ds-dark-theme] .dsh-ws-editor-host{--dsh-ws-token-directive:#c586c0}
 /* Sidebar top actions: the harness New Session button (the root div's only
    direct button) is hidden and the plugin draws its own two-button row —
    New Session / workspace files — in the same flow position. */
-.dsh-wel-frame [data-slot="sidebar"] > div > button{display:none}
-.dsh-wel-sidebar-top-actions{flex:none;min-width:0;display:flex;align-items:stretch;gap:6px;height:38px;margin:0 2px 8px;box-sizing:border-box}
-.dsh-wel-sidebar-top-action{flex:1;min-width:0;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:38px;padding:0 10px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-button-elevated-fill);color:var(--dsw-alias-label-primary);font:inherit;font-size:14px;font-weight:500;line-height:22px;cursor:pointer;overflow:hidden;white-space:nowrap}
-.dsh-wel-sidebar-top-action:hover{background:var(--dsw-alias-button-floating-hover)}
-.dsh-wel-sidebar-top-action[data-active]{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-brand-primary)}
-.dsh-wel-sidebar-top-action:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
-.dsh-wel-sidebar-top-icon{flex:none;width:14px;height:14px}
-.dsh-wel-sidebar-top-icon svg{display:block;width:100%;height:100%}
-.dsh-wel-sidebar-top-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-ws-frame [data-slot="sidebar"] > div > button{display:none}
+.dsh-ws-sidebar-top-actions{flex:none;min-width:0;display:flex;align-items:stretch;gap:6px;height:38px;margin:0 2px 8px;box-sizing:border-box}
+.dsh-ws-sidebar-top-action{flex:1;min-width:0;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:38px;padding:0 10px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-button-elevated-fill);color:var(--dsw-alias-label-primary);font:inherit;font-size:14px;font-weight:500;line-height:22px;cursor:pointer;overflow:hidden;white-space:nowrap}
+.dsh-ws-sidebar-top-action:hover{background:var(--dsw-alias-button-floating-hover)}
+.dsh-ws-sidebar-top-action[data-active]{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-brand-primary)}
+.dsh-ws-sidebar-top-action:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
+.dsh-ws-sidebar-top-icon{flex:none;width:14px;height:14px}
+.dsh-ws-sidebar-top-icon svg{display:block;width:100%;height:100%}
+.dsh-ws-sidebar-top-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* Collapsed rail: the two controls become icon-only 36px buttons, stacked. */
-.dsh-wel-sidebar-top-actions[data-rail]{flex-direction:column;align-items:flex-start;gap:0;height:auto;margin:0 0 12px;position:relative;z-index:10}
-.dsh-wel-sidebar-top-actions[data-rail] .dsh-wel-sidebar-top-action{flex:none;width:36px;height:36px;padding:0;gap:0;border-color:transparent;background:transparent}
-.dsh-wel-sidebar-top-actions[data-rail] .dsh-wel-sidebar-top-action:hover{background:var(--dsw-alias-interactive-bg-hover)}
-.dsh-wel-sidebar-top-actions[data-rail] .dsh-wel-sidebar-top-icon{width:18px;height:18px}
-.dsh-wel-sidebar-top-actions[data-rail] .dsh-wel-sidebar-top-label{display:none}
+.dsh-ws-sidebar-top-actions[data-rail]{flex-direction:column;align-items:flex-start;gap:0;height:auto;margin:0 0 12px;position:relative;z-index:10}
+.dsh-ws-sidebar-top-actions[data-rail] .dsh-ws-sidebar-top-action{flex:none;width:36px;height:36px;padding:0;gap:0;border-color:transparent;background:transparent}
+.dsh-ws-sidebar-top-actions[data-rail] .dsh-ws-sidebar-top-action:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.dsh-ws-sidebar-top-actions[data-rail] .dsh-ws-sidebar-top-icon{width:18px;height:18px}
+.dsh-ws-sidebar-top-actions[data-rail] .dsh-ws-sidebar-top-label{display:none}
 /* Collapsed rail: hide the harness workspace browser's rail controls (search
    + add workspace) — the plugin's two nav tabs are the only region icons. */
-.dsh-wel-frame[data-sidebar-collapsed] [data-slot="sidebar.workspaces"] > *{display:none}
+.dsh-ws-frame[data-sidebar-collapsed] [data-slot="sidebar.workspaces"] > *{display:none}
 /* Sidebar files region: the harness workspace browser is hidden while the
    plugin's file tree fills the region seat (fused into the sidebar). */
-.dsh-wel-sidebar-files{display:none}
-.dsh-wel-frame[data-sidebar-files] [data-slot="sidebar.workspaces"] > :not(.dsh-wel-sidebar-files){display:none}
+.dsh-ws-sidebar-files{display:none}
+.dsh-ws-frame[data-sidebar-files] [data-slot="sidebar.workspaces"] > :not(.dsh-ws-sidebar-files){display:none}
 /* The sidebar shell hides nested scrollbars until the pointer is over the
    column (quietBars); the file list is scroll-heavy, so its scrollbar stays
    visible. The files panel is inset 12px on both sides (the harness region
    otherwise extends flush to the right edge) so it reads as a symmetric card. */
-.dsh-wel-frame[data-sidebar-files] .dsh-wel-sidebar-files{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;margin-right:12px;--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2)}
-.dsh-wel-frame[data-sidebar-files] .dsh-wel-sidebar-files .dsh-wel-tree{flex:1;min-height:0;height:auto;border-right:0}
+.dsh-ws-frame[data-sidebar-files] .dsh-ws-sidebar-files{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;margin-right:12px;--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2)}
+.dsh-ws-frame[data-sidebar-files] .dsh-ws-sidebar-files .dsh-ws-tree{flex:1;min-height:0;height:auto;border-right:0}
 /* CodeMirror search panel (Ctrl+F): rendered by panels({ topContainer }) into
-   the .dsh-wel-preview-search strip between the status bar and the preview
+   the .dsh-ws-preview-search strip between the status bar and the preview
    body, so the panel rules are scoped to that container. !important keeps the
    controls legible regardless of the harness's global control styles; the
    alias tokens adapt to the active GUI theme. Match marks live in the editor
    content, so they stay scoped to the editor host. */
-.dsh-wel-preview-search{flex:none;min-width:0;background:var(--dsw-alias-bg-layer-1);user-select:none}
-.dsh-wel-preview-search .cm-panels.cm-panels-top{background:var(--dsw-alias-bg-layer-1)!important;color:var(--dsw-alias-label-primary)!important;border-bottom:1px solid var(--dsw-alias-border-l2)!important}
-.dsh-wel-preview-search .cm-panel.cm-search{padding:5px 36px 5px 6px}
-.dsh-wel-preview-search .cm-panel.cm-search .cm-textfield{height:28px;padding:0 8px;border:1px solid var(--dsw-alias-border-l2)!important;border-radius:6px;background:var(--dsw-alias-bg-base)!important;color:var(--dsw-alias-label-primary)!important;font:inherit!important;font-size:12px!important;box-sizing:border-box;user-select:text}
-.dsh-wel-preview-search .cm-panel.cm-search .cm-textfield:focus{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}
-.dsh-wel-preview-search .cm-panel.cm-search .cm-button{height:26px;padding:0 8px;border:0!important;border-radius:6px;background:transparent!important;color:var(--dsw-alias-label-secondary)!important;font:inherit!important;font-size:12px!important;cursor:pointer}
-.dsh-wel-preview-search .cm-panel.cm-search .cm-button:hover{background:var(--dsw-alias-interactive-bg-hover)!important;color:var(--dsw-alias-label-primary)!important}
-.dsh-wel-preview-search .cm-panel.cm-search label{display:inline-flex;align-items:center;gap:3px;height:28px;transform:translateY(3px);color:var(--dsw-alias-label-secondary)!important}
-.dsh-wel-preview-search .cm-panel.cm-search input[type=checkbox]{margin:2px 0 0;vertical-align:middle;accent-color:var(--dsw-alias-state-business-primary)}
-.dsh-wel-preview-search .cm-panel.cm-search [name=close]{display:inline-flex!important;align-items:center!important;justify-content:center!important;position:absolute!important;top:50%!important;right:4px!important;transform:translateY(-50%)!important;width:30px!important;height:30px!important;padding:0 0 2px!important;margin:0!important;border:0!important;border-radius:8px!important;background:transparent!important;color:var(--dsw-alias-label-secondary)!important;font-size:18px!important;line-height:1!important;cursor:pointer!important;box-sizing:border-box!important}
-.dsh-wel-preview-search .cm-panel.cm-search [name=close]:hover{background:var(--dsw-alias-interactive-bg-hover)!important;color:var(--dsw-alias-label-primary)!important}
+.dsh-ws-preview-search{flex:none;min-width:0;background:var(--dsw-alias-bg-layer-1);user-select:none}
+.dsh-ws-preview-search .cm-panels.cm-panels-top{background:var(--dsw-alias-bg-layer-1)!important;color:var(--dsw-alias-label-primary)!important;border-bottom:1px solid var(--dsw-alias-border-l2)!important}
+.dsh-ws-preview-search .cm-panel.cm-search{padding:5px 36px 5px 6px}
+.dsh-ws-preview-search .cm-panel.cm-search .cm-textfield{height:28px;padding:0 8px;border:1px solid var(--dsw-alias-border-l2)!important;border-radius:6px;background:var(--dsw-alias-bg-base)!important;color:var(--dsw-alias-label-primary)!important;font:inherit!important;font-size:12px!important;box-sizing:border-box;user-select:text}
+.dsh-ws-preview-search .cm-panel.cm-search .cm-textfield:focus{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}
+.dsh-ws-preview-search .cm-panel.cm-search .cm-button{height:26px;padding:0 8px;border:0!important;border-radius:6px;background:transparent!important;color:var(--dsw-alias-label-secondary)!important;font:inherit!important;font-size:12px!important;cursor:pointer}
+.dsh-ws-preview-search .cm-panel.cm-search .cm-button:hover{background:var(--dsw-alias-interactive-bg-hover)!important;color:var(--dsw-alias-label-primary)!important}
+.dsh-ws-preview-search .cm-panel.cm-search label{display:inline-flex;align-items:center;gap:3px;height:28px;transform:translateY(3px);color:var(--dsw-alias-label-secondary)!important}
+.dsh-ws-preview-search .cm-panel.cm-search input[type=checkbox]{margin:2px 0 0;vertical-align:middle;accent-color:var(--dsw-alias-state-business-primary)}
+.dsh-ws-preview-search .cm-panel.cm-search [name=close]{display:inline-flex!important;align-items:center!important;justify-content:center!important;position:absolute!important;top:50%!important;right:4px!important;transform:translateY(-50%)!important;width:30px!important;height:30px!important;padding:0 0 2px!important;margin:0!important;border:0!important;border-radius:8px!important;background:transparent!important;color:var(--dsw-alias-label-secondary)!important;font-size:18px!important;line-height:1!important;cursor:pointer!important;box-sizing:border-box!important}
+.dsh-ws-preview-search .cm-panel.cm-search [name=close]:hover{background:var(--dsw-alias-interactive-bg-hover)!important;color:var(--dsw-alias-label-primary)!important}
 /* The search field is wrapped (see CodeEditor) with a col-resize grip on its
    right edge so the user can drag it wider/narrower. */
-.dsh-wel-preview-search .dsh-wel-search-field-wrap{display:inline-flex;align-items:center;vertical-align:middle}
-.dsh-wel-preview-search .dsh-wel-search-field-wrap .cm-textfield{flex:none;min-width:60px}
-.dsh-wel-preview-search .dsh-wel-search-resize{flex:none;width:6px;height:16px;margin:0 2px 0 4px;border-radius:3px;background:var(--dsw-alias-border-l2);cursor:col-resize;opacity:.65}
-.dsh-wel-preview-search .dsh-wel-search-resize:hover{background:var(--dsw-alias-state-business-primary);opacity:1}
-.dsh-wel-preview-search .dsh-wel-search-resize:active{background:var(--dsw-alias-state-business-primary);opacity:1}
-.dsh-wel-editor-host .cm-searchMatch{background-color:var(--dsw-alias-state-business-tertiary)!important}
-.dsh-wel-editor-host .cm-searchMatch-selected{background-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 28%,transparent)!important}
-.dsh-wel-editor-host .cm-selectionMatch{background-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 14%,transparent)!important}
-.dsh-wel-editor-host .cm-searchMatch .cm-selectionMatch{background-color:transparent!important}
-.dsh-wel-drop-overlay{position:absolute;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent);pointer-events:none}
-.dsh-wel-drop-hint{display:inline-flex;align-items:center;padding:8px 14px;border:1px dashed var(--dsw-alias-state-business-primary);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-state-business-primary);font-size:12px;box-shadow:var(--dsw-shadow-elevated,0 8px 24px rgba(0,0,0,.18))}
-.dsh-wel-preview[data-drop-active] .dsh-wel-preview-tabs,.dsh-wel-preview[data-drop-active] .dsh-wel-panel-header,.dsh-wel-preview[data-drop-active] .dsh-wel-editor-host{pointer-events:none}
+.dsh-ws-preview-search .dsh-ws-search-field-wrap{display:inline-flex;align-items:center;vertical-align:middle}
+.dsh-ws-preview-search .dsh-ws-search-field-wrap .cm-textfield{flex:none;min-width:60px}
+.dsh-ws-preview-search .dsh-ws-search-resize{flex:none;width:6px;height:16px;margin:0 2px 0 4px;border-radius:3px;background:var(--dsw-alias-border-l2);cursor:col-resize;opacity:.65}
+.dsh-ws-preview-search .dsh-ws-search-resize:hover{background:var(--dsw-alias-state-business-primary);opacity:1}
+.dsh-ws-preview-search .dsh-ws-search-resize:active{background:var(--dsw-alias-state-business-primary);opacity:1}
+.dsh-ws-editor-host .cm-searchMatch{background-color:var(--dsw-alias-state-business-tertiary)!important}
+.dsh-ws-editor-host .cm-searchMatch-selected{background-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 28%,transparent)!important}
+.dsh-ws-editor-host .cm-selectionMatch{background-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 14%,transparent)!important}
+.dsh-ws-editor-host .cm-searchMatch .cm-selectionMatch{background-color:transparent!important}
+.dsh-ws-drop-overlay{position:absolute;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent);pointer-events:none}
+.dsh-ws-drop-hint{display:inline-flex;align-items:center;padding:8px 14px;border:1px dashed var(--dsw-alias-state-business-primary);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-state-business-primary);font-size:12px;box-shadow:var(--dsw-shadow-elevated,0 8px 24px rgba(0,0,0,.18))}
+.dsh-ws-preview[data-drop-active] .dsh-ws-preview-tabs,.dsh-ws-preview[data-drop-active] .dsh-ws-panel-header,.dsh-ws-preview[data-drop-active] .dsh-ws-editor-host{pointer-events:none}
 /* Hide the harness's full-viewport chat drop mask (ui-attachment DropOverlay,
    the only role="status" element portaled directly to body — verified against
    the harness tree; its Toast uses role="alert" and every other role="status"
    lives inside the app tree); the layout draws its own chat-confined mask
    below so the mask covers the chat pane instead of the whole page. */
 body > [role="status"]{display:none!important}
-.dsh-wel-chat-drop-mask{position:absolute;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;background:var(--dsw-alias-bg-mask-drop,rgba(0,0,0,.32));backdrop-filter:blur(6px);pointer-events:none}
-.dsh-wel-chat-drop-card{display:flex;align-items:center;gap:10px;padding:12px 16px;border:1px dashed var(--dsw-alias-state-business-primary);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:13px;box-shadow:var(--dsw-shadow-elevated,0 10px 28px rgba(0,0,0,.2))}
-.dsh-wel-chat-drop-close{position:absolute;top:12px;right:12px;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0 0 2px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:16px;line-height:1;cursor:pointer;box-sizing:border-box;pointer-events:auto}
-.dsh-wel-chat-drop-close:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dsh-ws-chat-drop-mask{position:absolute;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;background:var(--dsw-alias-bg-mask-drop,rgba(0,0,0,.32));backdrop-filter:blur(6px);pointer-events:none}
+.dsh-ws-chat-drop-card{display:flex;align-items:center;gap:10px;padding:12px 16px;border:1px dashed var(--dsw-alias-state-business-primary);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:13px;box-shadow:var(--dsw-shadow-elevated,0 10px 28px rgba(0,0,0,.2))}
+.dsh-ws-chat-drop-close{position:absolute;top:12px;right:12px;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0 0 2px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:16px;line-height:1;cursor:pointer;box-sizing:border-box;pointer-events:auto}
+.dsh-ws-chat-drop-close:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 /* Close button on the preview drop hint, matching the chat drop mask. */
-.dsh-wel-drop-close{position:absolute;top:12px;right:12px;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0 0 2px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:16px;line-height:1;cursor:pointer;box-sizing:border-box;pointer-events:auto}
-.dsh-wel-drop-close:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dsh-ws-drop-close{position:absolute;top:12px;right:12px;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0 0 2px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:16px;line-height:1;cursor:pointer;box-sizing:border-box;pointer-events:auto}
+.dsh-ws-drop-close:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 /* Transient top-center banner matching the harness conversation Toast look
    (contrast fill, inverted label, slide-in, hold-and-fade) so a failed
    external-file open announces like the composer's image-intake rejections.
    Positioned inside the preview pane (not a viewport portal) so the notice
    stays scoped to the panel. */
-.dsh-wel-toast{position:absolute;top:12px;left:50%;z-index:60;pointer-events:none;display:flex;align-items:center;gap:10px;max-width:min(560px,calc(100% - 48px));padding:12px 16px;border-radius:14px;background:var(--dsw-alias-button-contrast-fill);color:var(--dsw-alias-label-primary-inverted);font-size:14px;line-height:22px;box-shadow:var(--dsw-shadow-lv3);transform:translateX(-50%);animation:dsh-wel-toast-in 160ms ease-out,dsh-wel-toast-fade 1000ms ease 3000ms forwards}
-.dsh-wel-toast-icon{display:grid;place-items:center;flex:none;color:var(--dsw-alias-state-warn-label)}
-.dsh-wel-toast-text{min-width:0}
-@keyframes dsh-wel-toast-in{from{opacity:0;transform:translate(-50%,-6px)}to{opacity:1;transform:translate(-50%,0)}}
-@keyframes dsh-wel-toast-fade{to{opacity:0}}
-@media (prefers-reduced-motion: reduce){.dsh-wel-toast{animation:dsh-wel-toast-fade 1000ms ease 3000ms forwards}}
+.dsh-ws-toast{position:absolute;top:12px;left:50%;z-index:60;pointer-events:none;display:flex;align-items:center;gap:10px;max-width:min(560px,calc(100% - 48px));padding:12px 16px;border-radius:14px;background:var(--dsw-alias-button-contrast-fill);color:var(--dsw-alias-label-primary-inverted);font-size:14px;line-height:22px;box-shadow:var(--dsw-shadow-lv3);transform:translateX(-50%);animation:dsh-ws-toast-in 160ms ease-out,dsh-ws-toast-fade 1000ms ease 3000ms forwards}
+.dsh-ws-toast-icon{display:grid;place-items:center;flex:none;color:var(--dsw-alias-state-warn-label)}
+.dsh-ws-toast-text{min-width:0}
+@keyframes dsh-ws-toast-in{from{opacity:0;transform:translate(-50%,-6px)}to{opacity:1;transform:translate(-50%,0)}}
+@keyframes dsh-ws-toast-fade{to{opacity:0}}
+@media (prefers-reduced-motion: reduce){.dsh-ws-toast{animation:dsh-ws-toast-fade 1000ms ease 3000ms forwards}}
 /* ── Session switcher (right-header title → quick-switch dropdown) ──────
    The conversation header's current-title crumb (the last crumb segment) is
    hidden so the switcher trigger — rendered in
@@ -1221,66 +1221,66 @@ body > [role="status"]{display:none!important}
    hidden). The panel is portalled to body with fixed positioning, so the
    chat column's overflow never clips it. */
 [data-slot="conversation.session.header"] > header > div:first-child > div:first-child > nav > span:last-child{display:none}
-.dsh-wel-session-switcher{display:inline-flex;align-items:center;min-width:0;flex:0 0 auto}
-.dsh-wel-session-switcher-trigger{display:inline-flex;align-items:center;gap:4px;max-width:min(320px,60vw);min-width:0;padding:2px 6px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);font-family:inherit;font-size:14px;font-weight:500;line-height:22px;cursor:pointer;box-sizing:border-box}
-.dsh-wel-session-switcher-trigger:hover{background:var(--dsw-alias-interactive-bg-hover)}
-.dsh-wel-session-switcher-trigger:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
-.dsh-wel-session-switcher-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dsh-wel-session-switcher .dsh-wel-chevron{flex:none;font-size:10px;line-height:1;color:var(--dsw-alias-label-secondary)}
-.dsh-wel-session-switcher-panel{position:fixed;z-index:60;max-height:min(60vh,420px);overflow-y:auto;padding:4px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-elevated,0 10px 28px rgba(0,0,0,.2))}
-.dsh-wel-session-switcher-row{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;box-sizing:border-box;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font-family:inherit;font-size:13px;line-height:20px;text-align:left;cursor:pointer}
-.dsh-wel-session-switcher-row:hover{background:var(--dsw-alias-interactive-bg-hover)}
-.dsh-wel-session-switcher-row.dsh-wel-session-switcher-current{color:var(--dsw-alias-brand-primary);font-weight:600}
-.dsh-wel-session-switcher-row-main{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dsh-wel-session-switcher-badge{flex:none;margin-left:4px;padding:0 5px;border-radius:6px;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);font-size:11px;line-height:16px;font-weight:400}
-.dsh-wel-session-switcher-row-ws{flex:none;max-width:40%;margin-left:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-caption);font-size:12px;line-height:20px}
-.dsh-wel-session-switcher-empty{padding:8px 10px;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:20px}
+.dsh-ws-session-switcher{display:inline-flex;align-items:center;min-width:0;flex:0 0 auto}
+.dsh-ws-session-switcher-trigger{display:inline-flex;align-items:center;gap:4px;max-width:min(320px,60vw);min-width:0;padding:2px 6px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);font-family:inherit;font-size:14px;font-weight:500;line-height:22px;cursor:pointer;box-sizing:border-box}
+.dsh-ws-session-switcher-trigger:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.dsh-ws-session-switcher-trigger:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
+.dsh-ws-session-switcher-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-ws-session-switcher .dsh-ws-chevron{flex:none;font-size:10px;line-height:1;color:var(--dsw-alias-label-secondary)}
+.dsh-ws-session-switcher-panel{position:fixed;z-index:60;max-height:min(60vh,420px);overflow-y:auto;padding:4px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-elevated,0 10px 28px rgba(0,0,0,.2))}
+.dsh-ws-session-switcher-row{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;box-sizing:border-box;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font-family:inherit;font-size:13px;line-height:20px;text-align:left;cursor:pointer}
+.dsh-ws-session-switcher-row:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.dsh-ws-session-switcher-row.dsh-ws-session-switcher-current{color:var(--dsw-alias-brand-primary);font-weight:600}
+.dsh-ws-session-switcher-row-main{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-ws-session-switcher-badge{flex:none;margin-left:4px;padding:0 5px;border-radius:6px;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);font-size:11px;line-height:16px;font-weight:400}
+.dsh-ws-session-switcher-row-ws{flex:none;max-width:40%;margin-left:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-caption);font-size:12px;line-height:20px}
+.dsh-ws-session-switcher-empty{padding:8px 10px;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:20px}
 /* ── Mobile (phone-column) mode ─────────────────────────────────────────
-   Mirror of dsh-mobile-preview: the document-class gate (dsh-wel-mobile-on)
+   Mirror of dsh-mobile-preview: the document-class gate (dsh-ws-mobile-on)
    drives every override; the floating sidebar drawer and the file-fullscreen
    view ride sibling classes. Desktop layout is untouched when the gate is
    absent. In-flow order of the frame is aside(1) preview(2) chat(3); the
    aside becomes an absolute drawer, so explicit grid-column keeps each
    section in the phone track. */
-.dsh-wel-mobile-toggle{flex:none;display:flex;align-items:center;gap:8px;width:calc(100% + 8px);height:34px;margin:4px -4px 4px;padding:6px 2px 6px 10px;box-sizing:border-box;border:0;border-radius:12px;background:transparent;cursor:pointer;overflow:hidden;color:var(--dsw-alias-label-primary);font-family:inherit;font-size:14px;line-height:22px;text-align:left}.dsh-wel-mobile-toggle:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.dsh-wel-mobile-toggle[data-open]{color:var(--dsw-alias-brand-primary)}.dsh-wel-mobile-toggle[data-rail]{width:36px;height:36px;margin:8px 0 10px;justify-content:center;gap:0;padding:0;border-radius:50%}.dsh-wel-mobile-toggle:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}.dsh-wel-mobile-toggle-icon{flex:none;width:16px;height:16px}.dsh-wel-mobile-toggle[data-rail] .dsh-wel-mobile-toggle-icon{width:18px;height:18px}.dsh-wel-mobile-toggle-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-html.dsh-wel-mobile-on .dsh-wel-frame{grid-template-columns:0 minmax(0,430px) 0!important;justify-content:center}
-html.dsh-wel-mobile-on .dsh-wel-chat{grid-column:2}
-html.dsh-wel-mobile-on .dsh-wel-preview{display:none}
-html.dsh-wel-mobile-on .dsh-wel-sidebar{position:absolute;top:0;bottom:0;left:0;z-index:30;width:min(280px,85vw);box-shadow:8px 0 24px #0000002e;transform:translateX(-100%);transition:transform .2s var(--ds-ease-in-out)}
-html.dsh-wel-mobile-on .dsh-wel-sidebar [data-slot="sidebar"] > div{width:100%!important}
-html.dsh-wel-mobile-on.dsh-wel-mobile-drawer-open .dsh-wel-sidebar{transform:translateX(0)}
-html.dsh-wel-mobile-on .dsh-wel-splitter{display:none}
-html.dsh-wel-mobile-on .dsh-wel-details{display:none}
-html.dsh-wel-mobile-on [data-slot="sidebar"] > div > div:first-child > button:last-child{display:none}
-.dsh-wel-mobile-scrim{position:absolute;inset:0;z-index:25;background:#00000047}
+.dsh-ws-mobile-toggle{flex:none;display:flex;align-items:center;gap:8px;width:calc(100% + 8px);height:34px;margin:4px -4px 4px;padding:6px 2px 6px 10px;box-sizing:border-box;border:0;border-radius:12px;background:transparent;cursor:pointer;overflow:hidden;color:var(--dsw-alias-label-primary);font-family:inherit;font-size:14px;line-height:22px;text-align:left}.dsh-ws-mobile-toggle:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.dsh-ws-mobile-toggle[data-open]{color:var(--dsw-alias-brand-primary)}.dsh-ws-mobile-toggle[data-rail]{width:36px;height:36px;margin:8px 0 10px;justify-content:center;gap:0;padding:0;border-radius:50%}.dsh-ws-mobile-toggle:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}.dsh-ws-mobile-toggle-icon{flex:none;width:16px;height:16px}.dsh-ws-mobile-toggle[data-rail] .dsh-ws-mobile-toggle-icon{width:18px;height:18px}.dsh-ws-mobile-toggle-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+html.dsh-ws-mobile-on .dsh-ws-frame{grid-template-columns:0 minmax(0,430px) 0!important;justify-content:center}
+html.dsh-ws-mobile-on .dsh-ws-chat{grid-column:2}
+html.dsh-ws-mobile-on .dsh-ws-preview{display:none}
+html.dsh-ws-mobile-on .dsh-ws-sidebar{position:absolute;top:0;bottom:0;left:0;z-index:30;width:min(280px,85vw);box-shadow:8px 0 24px #0000002e;transform:translateX(-100%);transition:transform .2s var(--ds-ease-in-out)}
+html.dsh-ws-mobile-on .dsh-ws-sidebar [data-slot="sidebar"] > div{width:100%!important}
+html.dsh-ws-mobile-on.dsh-ws-mobile-drawer-open .dsh-ws-sidebar{transform:translateX(0)}
+html.dsh-ws-mobile-on .dsh-ws-splitter{display:none}
+html.dsh-ws-mobile-on .dsh-ws-details{display:none}
+html.dsh-ws-mobile-on [data-slot="sidebar"] > div > div:first-child > button:last-child{display:none}
+.dsh-ws-mobile-scrim{position:absolute;inset:0;z-index:25;background:#00000047}
 /* File content browsing fills the phone column below the pinned conversation
-   header (height measured into --dsh-wel-mobile-header-h); the chat's scroll
+   header (height measured into --dsh-ws-mobile-header-h); the chat's scroll
    area (messages + composer) is hidden so only the header stays reachable. */
-html.dsh-wel-mobile-on.dsh-wel-mobile-files-on .dsh-wel-frame{grid-template-columns:0 minmax(0,430px) 0!important}
-html.dsh-wel-mobile-on.dsh-wel-mobile-files-on .dsh-wel-preview{display:flex;grid-column:2;visibility:visible;pointer-events:auto;box-sizing:border-box;padding-top:var(--dsh-wel-mobile-header-h,52px)}
-html.dsh-wel-mobile-on.dsh-wel-mobile-files-on .dsh-wel-chat{position:fixed;top:0;left:50%;width:min(430px,100%);margin-left:calc(min(430px,100%) / -2);z-index:3;height:var(--dsh-wel-mobile-header-h,52px);overflow:hidden}
-html.dsh-wel-mobile-on.dsh-wel-mobile-files-on .dsh-wel-chat [data-slot="conversation"] [data-conversation-scroll]{display:none}
+html.dsh-ws-mobile-on.dsh-ws-mobile-files-on .dsh-ws-frame{grid-template-columns:0 minmax(0,430px) 0!important}
+html.dsh-ws-mobile-on.dsh-ws-mobile-files-on .dsh-ws-preview{display:flex;grid-column:2;visibility:visible;pointer-events:auto;box-sizing:border-box;padding-top:var(--dsh-ws-mobile-header-h,52px)}
+html.dsh-ws-mobile-on.dsh-ws-mobile-files-on .dsh-ws-chat{position:fixed;top:0;left:50%;width:min(430px,100%);margin-left:calc(min(430px,100%) / -2);z-index:3;height:var(--dsh-ws-mobile-header-h,52px);overflow:hidden}
+html.dsh-ws-mobile-on.dsh-ws-mobile-files-on .dsh-ws-chat [data-slot="conversation"] [data-conversation-scroll]{display:none}
 /* In file-fullscreen the conversation's view tabs (chat/trajectory) are pinned
    with the title row; they belong to the chat, not the file page, so they are
    hidden and the file content starts flush under the title row (which is also
-   what --dsh-wel-mobile-header-h measures after this rule applies). */
-html.dsh-wel-mobile-on.dsh-wel-mobile-files-on [data-slot="conversation.session.header"] > header > div[role="tablist"]{display:none}
+   what --dsh-ws-mobile-header-h measures after this rule applies). */
+html.dsh-ws-mobile-on.dsh-ws-mobile-files-on [data-slot="conversation.session.header"] > header > div[role="tablist"]{display:none}
 /* Session-header controls: hidden outside mobile, inline at the phone column's
    top-left in mobile (whale first, file button right after it). */
-.dsh-wel-mobile-controls{display:none;align-items:center;gap:2px}
-html.dsh-wel-mobile-on .dsh-wel-mobile-controls{display:flex;order:-1}
-.dsh-wel-mobile-whale,.dsh-wel-mobile-files{display:grid;place-items:center;width:32px;height:32px;padding:0;border:0;border-radius:10px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer}
-.dsh-wel-mobile-whale:hover,.dsh-wel-mobile-files:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
-.dsh-wel-mobile-active{color:var(--dsw-alias-brand-primary)}
-.dsh-wel-mobile-files-icon{width:16px;height:16px}
-html.dsh-wel-mobile-on [data-slot="conversation.session.header"] > header > div:first-child > div:first-child,html.dsh-wel-mobile-on [data-slot="conversation.session.header"] > header > div:first-child > div:first-child > div:nth-child(2){display:contents}
-html.dsh-wel-mobile-on [data-slot="conversation.session.header"] > header > div:first-child > nav{flex:1}
-html.dsh-wel-mobile-on [data-slot="conversation.session.header.utilities"]{display:none!important}
+.dsh-ws-mobile-controls{display:none;align-items:center;gap:2px}
+html.dsh-ws-mobile-on .dsh-ws-mobile-controls{display:flex;order:-1}
+.dsh-ws-mobile-whale,.dsh-ws-mobile-files{display:grid;place-items:center;width:32px;height:32px;padding:0;border:0;border-radius:10px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer}
+.dsh-ws-mobile-whale:hover,.dsh-ws-mobile-files:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dsh-ws-mobile-active{color:var(--dsw-alias-brand-primary)}
+.dsh-ws-mobile-files-icon{width:16px;height:16px}
+html.dsh-ws-mobile-on [data-slot="conversation.session.header"] > header > div:first-child > div:first-child,html.dsh-ws-mobile-on [data-slot="conversation.session.header"] > header > div:first-child > div:first-child > div:nth-child(2){display:contents}
+html.dsh-ws-mobile-on [data-slot="conversation.session.header"] > header > div:first-child > nav{flex:1}
+html.dsh-ws-mobile-on [data-slot="conversation.session.header.utilities"]{display:none!important}
 /* Hero whale + file button: a frame-level overlay visible only on the
    blank-session hero (the :has gate mirrors ConversationRoot's own hero
    decision). */
-.dsh-wel-mobile-hero{display:none;position:absolute;top:10px;left:calc(max(0px,50% - 215px) + 8px)}
-html.dsh-wel-mobile-on:has([data-slot="conversation"] [data-phase="hero"]) .dsh-wel-mobile-hero{display:flex;align-items:center;gap:2px}
+.dsh-ws-mobile-hero{display:none;position:absolute;top:10px;left:calc(max(0px,50% - 215px) + 8px)}
+html.dsh-ws-mobile-on:has([data-slot="conversation"] [data-phase="hero"]) .dsh-ws-mobile-hero{display:flex;align-items:center;gap:2px}
 /* Settings dialog (the harness Settings panel from the sidebar.settings seat):
    in mobile the centered 800px modal becomes a fullscreen phone panel with the
    section nav as a horizontal bar at the bottom, mirroring dsh-mobile-preview.
@@ -1288,141 +1288,141 @@ html.dsh-wel-mobile-on:has([data-slot="conversation"] [data-phase="hero"]) .dsh-
    make the dialog's position:fixed overlay resolve against the 280px drawer
    instead of the viewport; dropping the transform while the dialog is open
    frees the modal to cover the phone column. */
-html.dsh-wel-mobile-on .dsh-wel-sidebar:has([data-slot="sidebar.settings"] [role="dialog"][aria-modal="true"]){transform:none;transition:none}
-html.dsh-wel-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal="true"]:has(> nav){width:100vw;height:100vh;height:100dvh;max-width:none;max-height:none;border-radius:0;flex-direction:column;overflow:hidden}
-html.dsh-wel-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal="true"]:has(> nav) > nav{order:2;flex:none;display:flex;flex-direction:row;align-items:center;gap:8px;width:100%;padding:8px 12px 10px;box-sizing:border-box;overflow-x:auto;scrollbar-width:thin}
-html.dsh-wel-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal="true"]:has(> nav) > nav > div:last-child{display:flex;flex-direction:row;gap:8px;overflow-x:auto;padding-bottom:4px;scrollbar-width:thin}
-html.dsh-wel-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal="true"]:has(> nav) > nav > div:last-child > button{flex:none}
-html.dsh-wel-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal="true"]:has(> nav) > nav > div:first-child{position:absolute;top:0;left:0;z-index:1;display:flex;align-items:center;height:54px;padding:0 16px;box-sizing:border-box;white-space:nowrap}
-html.dsh-wel-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal="true"]:has(> nav) > div{flex:1;min-height:0;display:flex;flex-direction:column}
-html.dsh-wel-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal="true"]:has(> nav) > div > div:first-child{height:auto;min-height:54px;align-items:center;padding:12px 16px}
-.dsh-wel-tree-rename{box-sizing:border-box;width:100%;padding:0 7px 0 calc(7px + var(--dsh-wel-depth,0) * 15px)}
-.dsh-wel-tree-rename-row{display:flex;align-items:center;gap:5px;width:100%;height:var(--dsh-wel-row-height,28px);box-sizing:border-box}
-.dsh-wel-tree-rename-input{flex:1;min-width:0;height:22px;padding:0 6px;border:1px solid var(--dsw-alias-state-business-primary);border-radius:4px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:18px;box-sizing:border-box}
-.dsh-wel-tree-rename-input:focus{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}
-.dsh-wel-tree-rename-error{padding:2px 0 4px;color:var(--dsw-alias-state-error-primary);font-size:11px;line-height:15px}
-.dsh-wel-session-rename-overlay{position:fixed;z-index:45;box-sizing:border-box;padding:0}
-.dsh-wel-session-rename-input{width:100%;height:100%;box-sizing:border-box;padding:0 4px;border:1px solid var(--dsw-alias-state-business-primary);border-radius:4px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;outline:none}
-.dsh-wel-session-rename-input:disabled{opacity:.7;cursor:not-allowed}
-.dsh-wel-session-rename-error{position:fixed;z-index:45;max-width:280px;padding:2px 6px;border:1px solid var(--dsw-alias-border-l2);border-radius:4px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-state-error-primary);font-size:11px;line-height:16px;box-shadow:var(--dsw-shadow-elevated,0 4px 12px rgba(0,0,0,.18))}
-.dsh-wel-copy-notice[data-error]{color:var(--dsw-alias-state-error-primary)}
+html.dsh-ws-mobile-on .dsh-ws-sidebar:has([data-slot="sidebar.settings"] [role="dialog"][aria-modal="true"]){transform:none;transition:none}
+html.dsh-ws-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal="true"]:has(> nav){width:100vw;height:100vh;height:100dvh;max-width:none;max-height:none;border-radius:0;flex-direction:column;overflow:hidden}
+html.dsh-ws-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal="true"]:has(> nav) > nav{order:2;flex:none;display:flex;flex-direction:row;align-items:center;gap:8px;width:100%;padding:8px 12px 10px;box-sizing:border-box;overflow-x:auto;scrollbar-width:thin}
+html.dsh-ws-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal="true"]:has(> nav) > nav > div:last-child{display:flex;flex-direction:row;gap:8px;overflow-x:auto;padding-bottom:4px;scrollbar-width:thin}
+html.dsh-ws-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal="true"]:has(> nav) > nav > div:last-child > button{flex:none}
+html.dsh-ws-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal="true"]:has(> nav) > nav > div:first-child{position:absolute;top:0;left:0;z-index:1;display:flex;align-items:center;height:54px;padding:0 16px;box-sizing:border-box;white-space:nowrap}
+html.dsh-ws-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal="true"]:has(> nav) > div{flex:1;min-height:0;display:flex;flex-direction:column}
+html.dsh-ws-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal="true"]:has(> nav) > div > div:first-child{height:auto;min-height:54px;align-items:center;padding:12px 16px}
+.dsh-ws-tree-rename{box-sizing:border-box;width:100%;padding:0 7px 0 calc(7px + var(--dsh-ws-depth,0) * 15px)}
+.dsh-ws-tree-rename-row{display:flex;align-items:center;gap:5px;width:100%;height:var(--dsh-ws-row-height,28px);box-sizing:border-box}
+.dsh-ws-tree-rename-input{flex:1;min-width:0;height:22px;padding:0 6px;border:1px solid var(--dsw-alias-state-business-primary);border-radius:4px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:18px;box-sizing:border-box}
+.dsh-ws-tree-rename-input:focus{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}
+.dsh-ws-tree-rename-error{padding:2px 0 4px;color:var(--dsw-alias-state-error-primary);font-size:11px;line-height:15px}
+.dsh-ws-session-rename-overlay{position:fixed;z-index:45;box-sizing:border-box;padding:0}
+.dsh-ws-session-rename-input{width:100%;height:100%;box-sizing:border-box;padding:0 4px;border:1px solid var(--dsw-alias-state-business-primary);border-radius:4px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;outline:none}
+.dsh-ws-session-rename-input:disabled{opacity:.7;cursor:not-allowed}
+.dsh-ws-session-rename-error{position:fixed;z-index:45;max-width:280px;padding:2px 6px;border:1px solid var(--dsw-alias-border-l2);border-radius:4px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-state-error-primary);font-size:11px;line-height:16px;box-shadow:var(--dsw-shadow-elevated,0 4px 12px rgba(0,0,0,.18))}
+.dsh-ws-copy-notice[data-error]{color:var(--dsw-alias-state-error-primary)}
 /* Mind-map conversation branching view ("导图") and the sidebar branch-row
    hider (fork children are hidden from the harness session list; branches
    live in the mind map). */
-.dsh-wel-mindmap{height:100%;position:relative;box-sizing:border-box;padding:14px 16px 190px;display:flex;flex-direction:column;overflow:hidden}
-.dsh-wel-mindmap-toolbar{flex:none;display:flex;align-items:center;gap:8px;margin-bottom:8px}
-.dsh-wel-mindmap-toolbar-button{flex:none;padding:3px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:16px;cursor:pointer}
-.dsh-wel-mindmap-toolbar-button:hover{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary)}
+.dsh-ws-mindmap{height:100%;position:relative;box-sizing:border-box;padding:14px 16px 190px;display:flex;flex-direction:column;overflow:hidden}
+.dsh-ws-mindmap-toolbar{flex:none;display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.dsh-ws-mindmap-toolbar-button{flex:none;padding:3px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:16px;cursor:pointer}
+.dsh-ws-mindmap-toolbar-button:hover{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary)}
 /* The window-scope toggle (full left area vs sidebar column only): pressed
    state mirrors the session-header button pattern; hidden on mobile where the
    overlay is always full screen. */
-.dsh-wel-mindmap-toolbar-button[aria-pressed='true']{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-interactive-bg-active)}
-html.dsh-wel-mobile-on .dsh-wel-mindmap-scope-toggle{display:none}
-.dsh-wel-mindmap-viewport{position:relative;flex:1;min-height:0;overflow:hidden;cursor:grab;touch-action:none}
-.dsh-wel-mindmap-viewport[data-dragging]{cursor:grabbing;user-select:none}
+.dsh-ws-mindmap-toolbar-button[aria-pressed='true']{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-interactive-bg-active)}
+html.dsh-ws-mobile-on .dsh-ws-mindmap-scope-toggle{display:none}
+.dsh-ws-mindmap-viewport{position:relative;flex:1;min-height:0;overflow:hidden;cursor:grab;touch-action:none}
+.dsh-ws-mindmap-viewport[data-dragging]{cursor:grabbing;user-select:none}
 /* The floating mind-map window: everything left of the chat column (width =
    100% - chat width, tracked live), the chat stays visible on the right. */
-.dsh-wel-mindmap-overlay{position:fixed;top:0;bottom:0;left:0;z-index:30;display:flex;flex-direction:column;min-width:0;background:var(--dsw-alias-bg-layer-1);border-right:1px solid var(--dsw-alias-border-l2);box-shadow:var(--dsw-shadow-elevated,0 12px 36px rgba(0,0,0,.24))}
-.dsh-wel-mindmap-overlay .dsh-wel-mindmap{flex:1;min-height:0;padding-bottom:14px}
-.dsh-wel-mindmap-overlay-close{position:absolute;top:10px;right:10px;z-index:2;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0 0 2px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:16px;line-height:1;cursor:pointer;box-sizing:border-box}
-.dsh-wel-mindmap-overlay-close:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dsh-ws-mindmap-overlay{position:fixed;top:0;bottom:0;left:0;z-index:30;display:flex;flex-direction:column;min-width:0;background:var(--dsw-alias-bg-layer-1);border-right:1px solid var(--dsw-alias-border-l2);box-shadow:var(--dsw-shadow-elevated,0 12px 36px rgba(0,0,0,.24))}
+.dsh-ws-mindmap-overlay .dsh-ws-mindmap{flex:1;min-height:0;padding-bottom:14px}
+.dsh-ws-mindmap-overlay-close{position:absolute;top:10px;right:10px;z-index:2;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0 0 2px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:16px;line-height:1;cursor:pointer;box-sizing:border-box}
+.dsh-ws-mindmap-overlay-close:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 /* The convert-to-mind-map confirm dialog: a roomier modal than the default
    dialog (larger width, more padding) with pill buttons — the cancel button
    gets a neutral border, the confirm button a primary-colored border. */
-.dsh-wel-mindmap-confirm-dialog{width:min(440px,100%)}
-.dsh-wel-mindmap-confirm-dialog .dsh-wel-dialog-body{padding:18px 20px}
-.dsh-wel-mindmap-confirm-dialog .dsh-wel-dialog-message{font-size:14px;line-height:22px}
-.dsh-wel-mindmap-confirm-dialog .dsh-wel-dialog-footer{padding:0 20px 18px;gap:10px}
-.dsh-wel-mindmap-confirm-button{height:34px;padding:0 18px;border-radius:999px;font-size:13px}
-.dsh-wel-mindmap-confirm-cancel{border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary)}
-.dsh-wel-mindmap-confirm-cancel:hover{border-color:var(--dsw-alias-label-secondary);color:var(--dsw-alias-label-primary)}
-.dsh-wel-mindmap-confirm-ok{border:1px solid var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent)}
-.dsh-wel-mindmap-confirm-ok:hover{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 16%,transparent);border-color:var(--dsw-alias-state-business-primary)}
+.dsh-ws-mindmap-confirm-dialog{width:min(440px,100%)}
+.dsh-ws-mindmap-confirm-dialog .dsh-ws-dialog-body{padding:18px 20px}
+.dsh-ws-mindmap-confirm-dialog .dsh-ws-dialog-message{font-size:14px;line-height:22px}
+.dsh-ws-mindmap-confirm-dialog .dsh-ws-dialog-footer{padding:0 20px 18px;gap:10px}
+.dsh-ws-mindmap-confirm-button{height:34px;padding:0 18px;border-radius:999px;font-size:13px}
+.dsh-ws-mindmap-confirm-cancel{border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary)}
+.dsh-ws-mindmap-confirm-cancel:hover{border-color:var(--dsw-alias-label-secondary);color:var(--dsw-alias-label-primary)}
+.dsh-ws-mindmap-confirm-ok{border:1px solid var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent)}
+.dsh-ws-mindmap-confirm-ok:hover{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 16%,transparent);border-color:var(--dsw-alias-state-business-primary)}
 /* The session-header 导图 toggle button. */
-.dsh-wel-mindmap-header-button{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 9px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:1;cursor:pointer;box-sizing:border-box}
-.dsh-wel-mindmap-header-button:hover{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary)}
-.dsh-wel-mindmap-header-button-on,.dsh-wel-mindmap-header-button[aria-pressed='true']{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-interactive-bg-active)}
-.dsh-wel-mindmap-header-icon{width:14px;height:14px;flex:none}
-html.dsh-wel-mobile-on .dsh-wel-mindmap-header-button{display:none}
-.dsh-wel-mindmap-canvas{position:absolute;left:0;top:0;transform-origin:0 0}
-.dsh-wel-mindmap-edges{position:absolute;inset:0;pointer-events:none;overflow:visible}
-.dsh-wel-mindmap-edge{fill:none;stroke:var(--dsw-alias-border-l2,#8a8f98);stroke-width:1.5;opacity:.85}
-.dsh-wel-mindmap-node{position:absolute;box-sizing:border-box;display:flex;flex-direction:column;gap:4px;padding:8px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:12px;line-height:17px;text-align:left;cursor:pointer;overflow:hidden;transition:border-color .12s ease,box-shadow .12s ease}
-.dsh-wel-mindmap-node:hover{border-color:var(--dsw-alias-state-business-primary)}
-.dsh-wel-mindmap-node-current{border-color:var(--dsw-alias-state-business-primary);box-shadow:0 0 0 1px var(--dsw-alias-state-business-primary)}
-.dsh-wel-mindmap-node-title{flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:15px}
-.dsh-wel-mindmap-node-q{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;font-weight:600;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--dsw-alias-label-primary);flex:1;min-height:0}
-.dsh-wel-mindmap-node-status{flex:none;font-size:11px;line-height:15px}
-.dsh-wel-mindmap-node-thinking{color:var(--dsw-alias-state-business-primary)}
-.dsh-wel-mindmap-node-done{color:var(--dsw-alias-label-tertiary,var(--dsw-alias-label-secondary))}
-.dsh-wel-mindmap-node-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px}
-.dsh-wel-mindmap-branch{flex:none;padding:2px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:16px;cursor:pointer}
-.dsh-wel-mindmap-branch:hover{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary)}
-.dsh-wel-mindmap-branch:disabled{opacity:.55;cursor:not-allowed}
-.dsh-wel-mindmap-node-current-badge{position:absolute;top:3px;right:8px;padding:1px 7px;border-radius:999px;background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-primary-inverted);font-size:10px;line-height:14px}
+.dsh-ws-mindmap-header-button{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 9px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:1;cursor:pointer;box-sizing:border-box}
+.dsh-ws-mindmap-header-button:hover{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary)}
+.dsh-ws-mindmap-header-button-on,.dsh-ws-mindmap-header-button[aria-pressed='true']{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-interactive-bg-active)}
+.dsh-ws-mindmap-header-icon{width:14px;height:14px;flex:none}
+html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
+.dsh-ws-mindmap-canvas{position:absolute;left:0;top:0;transform-origin:0 0}
+.dsh-ws-mindmap-edges{position:absolute;inset:0;pointer-events:none;overflow:visible}
+.dsh-ws-mindmap-edge{fill:none;stroke:var(--dsw-alias-border-l2,#8a8f98);stroke-width:1.5;opacity:.85}
+.dsh-ws-mindmap-node{position:absolute;box-sizing:border-box;display:flex;flex-direction:column;gap:4px;padding:8px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:12px;line-height:17px;text-align:left;cursor:pointer;overflow:hidden;transition:border-color .12s ease,box-shadow .12s ease}
+.dsh-ws-mindmap-node:hover{border-color:var(--dsw-alias-state-business-primary)}
+.dsh-ws-mindmap-node-current{border-color:var(--dsw-alias-state-business-primary);box-shadow:0 0 0 1px var(--dsw-alias-state-business-primary)}
+.dsh-ws-mindmap-node-title{flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:15px}
+.dsh-ws-mindmap-node-q{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;font-weight:600;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--dsw-alias-label-primary);flex:1;min-height:0}
+.dsh-ws-mindmap-node-status{flex:none;font-size:11px;line-height:15px}
+.dsh-ws-mindmap-node-thinking{color:var(--dsw-alias-state-business-primary)}
+.dsh-ws-mindmap-node-done{color:var(--dsw-alias-label-tertiary,var(--dsw-alias-label-secondary))}
+.dsh-ws-mindmap-node-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px}
+.dsh-ws-mindmap-branch{flex:none;padding:2px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:16px;cursor:pointer}
+.dsh-ws-mindmap-branch:hover{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary)}
+.dsh-ws-mindmap-branch:disabled{opacity:.55;cursor:not-allowed}
+.dsh-ws-mindmap-node-current-badge{position:absolute;top:3px;right:8px;padding:1px 7px;border-radius:999px;background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-primary-inverted);font-size:10px;line-height:14px}
 /* Branch cards: fork children that cannot be connected to the shared trunk by
    overlapping windows render as their own card (always visible), with a head
    row (tag + branch title) and, when the branch has visible rounds, a preview
    list with a per-round branch action. */
-.dsh-wel-mindmap-pending{border-style:dashed;cursor:pointer;justify-content:flex-start;align-items:stretch}
-.dsh-wel-mindmap-branchcard{border-style:dashed;cursor:pointer;justify-content:flex-start;align-items:stretch;gap:6px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 88%,var(--dsw-alias-state-business-primary) 6%)}
+.dsh-ws-mindmap-pending{border-style:dashed;cursor:pointer;justify-content:flex-start;align-items:stretch}
+.dsh-ws-mindmap-branchcard{border-style:dashed;cursor:pointer;justify-content:flex-start;align-items:stretch;gap:6px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 88%,var(--dsw-alias-state-business-primary) 6%)}
 /* The live streaming card (a turn in flight, ephemeral UI — replaced by the
    normal card once the turn completes) and the frame that encloses it with
    its parent card as one unit. */
-.dsh-wel-mindmap-node-streaming{border-color:var(--dsw-alias-state-business-primary);cursor:default;animation:dsh-wel-mindmap-node-streaming-pulse 1.6s ease-in-out infinite}
-.dsh-wel-mindmap-node-frame-parent{border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 55%,var(--dsw-alias-border-l2));box-shadow:0 0 0 1px color-mix(in srgb,var(--dsw-alias-state-business-primary) 22%,transparent)}
-.dsh-wel-mindmap-node-streaming-status{display:flex;align-items:center;gap:6px;color:var(--dsw-alias-state-business-primary)}
-.dsh-wel-mindmap-node-streaming-dot{width:7px;height:7px;border-radius:50%;background:var(--dsw-alias-state-business-primary);animation:dsh-wel-mindmap-dot-pulse 1s ease-in-out infinite}
-.dsh-wel-mindmap-frame{position:absolute;border:1.5px dashed var(--dsw-alias-state-business-primary);border-radius:16px;background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 5%,transparent);pointer-events:none}
-@keyframes dsh-wel-mindmap-node-streaming-pulse{0%,100%{box-shadow:0 0 0 1px var(--dsw-alias-state-business-primary)}50%{box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-state-business-primary) 30%,transparent)}}
-@keyframes dsh-wel-mindmap-dot-pulse{0%,100%{opacity:1}50%{opacity:.25}}
-.dsh-wel-mindmap-pending-head{display:flex;align-items:center;gap:6px;min-width:0}
-.dsh-wel-mindmap-pending-label{flex:none;padding:1px 7px;border:1px solid var(--dsw-alias-state-business-primary);border-radius:999px;color:var(--dsw-alias-state-business-primary);font-size:10px;line-height:14px}
-.dsh-wel-mindmap-pending-title{flex:1;min-width:0;color:var(--dsw-alias-label-primary);font-weight:600;font-size:12px;line-height:17px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dsh-wel-mindmap-pending-count{color:var(--dsw-alias-label-secondary);font-size:10px;line-height:14px}
-.dsh-wel-mindmap-branch-round{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;column-gap:8px;row-gap:1px;align-items:center;padding:5px 7px;border:1px solid var(--dsw-alias-border-l1,transparent);border-radius:8px;background:var(--dsw-alias-bg-base)}
-.dsh-wel-mindmap-branch-round .dsh-wel-mindmap-node-q{grid-column:1;font-size:11px;line-height:15px;flex:none;-webkit-line-clamp:1}
-.dsh-wel-mindmap-branch-round .dsh-wel-mindmap-node-status{grid-column:1;font-size:11px;line-height:15px}
-.dsh-wel-mindmap-branch-round .dsh-wel-mindmap-branch{grid-column:2;grid-row:1 / span 2;align-self:center}
-.dsh-wel-mindmap-more{color:var(--dsw-alias-label-secondary);font-size:11px;line-height:15px}
-.dsh-wel-mindmap-bar{display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:12px;color:var(--dsw-alias-label-secondary)}
-.dsh-wel-mindmap-bar-title{font-weight:600;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dsh-wel-mindmap-status{display:flex;align-items:flex-start;justify-content:center;padding:48px 24px;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:20px;text-align:center}
-.dsh-wel-mindmap-error{color:var(--dsw-alias-state-error-primary)}
-.dsh-wel-mindmap-fork-error{position:sticky;top:0;z-index:2;margin-bottom:10px;padding:6px 10px;border:1px solid var(--dsw-alias-state-error-primary);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:17px}
-.dsh-wel-mindmap-notice{margin-bottom:10px;padding:6px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:12px;line-height:17px}
-.dsh-wel-mindmap-notice-error{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}
-.dsh-wel-mindmap-node[data-branch]{border-style:solid}
+.dsh-ws-mindmap-node-streaming{border-color:var(--dsw-alias-state-business-primary);cursor:default;animation:dsh-ws-mindmap-node-streaming-pulse 1.6s ease-in-out infinite}
+.dsh-ws-mindmap-node-frame-parent{border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 55%,var(--dsw-alias-border-l2));box-shadow:0 0 0 1px color-mix(in srgb,var(--dsw-alias-state-business-primary) 22%,transparent)}
+.dsh-ws-mindmap-node-streaming-status{display:flex;align-items:center;gap:6px;color:var(--dsw-alias-state-business-primary)}
+.dsh-ws-mindmap-node-streaming-dot{width:7px;height:7px;border-radius:50%;background:var(--dsw-alias-state-business-primary);animation:dsh-ws-mindmap-dot-pulse 1s ease-in-out infinite}
+.dsh-ws-mindmap-frame{position:absolute;border:1.5px dashed var(--dsw-alias-state-business-primary);border-radius:16px;background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 5%,transparent);pointer-events:none}
+@keyframes dsh-ws-mindmap-node-streaming-pulse{0%,100%{box-shadow:0 0 0 1px var(--dsw-alias-state-business-primary)}50%{box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-state-business-primary) 30%,transparent)}}
+@keyframes dsh-ws-mindmap-dot-pulse{0%,100%{opacity:1}50%{opacity:.25}}
+.dsh-ws-mindmap-pending-head{display:flex;align-items:center;gap:6px;min-width:0}
+.dsh-ws-mindmap-pending-label{flex:none;padding:1px 7px;border:1px solid var(--dsw-alias-state-business-primary);border-radius:999px;color:var(--dsw-alias-state-business-primary);font-size:10px;line-height:14px}
+.dsh-ws-mindmap-pending-title{flex:1;min-width:0;color:var(--dsw-alias-label-primary);font-weight:600;font-size:12px;line-height:17px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-ws-mindmap-pending-count{color:var(--dsw-alias-label-secondary);font-size:10px;line-height:14px}
+.dsh-ws-mindmap-branch-round{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;column-gap:8px;row-gap:1px;align-items:center;padding:5px 7px;border:1px solid var(--dsw-alias-border-l1,transparent);border-radius:8px;background:var(--dsw-alias-bg-base)}
+.dsh-ws-mindmap-branch-round .dsh-ws-mindmap-node-q{grid-column:1;font-size:11px;line-height:15px;flex:none;-webkit-line-clamp:1}
+.dsh-ws-mindmap-branch-round .dsh-ws-mindmap-node-status{grid-column:1;font-size:11px;line-height:15px}
+.dsh-ws-mindmap-branch-round .dsh-ws-mindmap-branch{grid-column:2;grid-row:1 / span 2;align-self:center}
+.dsh-ws-mindmap-more{color:var(--dsw-alias-label-secondary);font-size:11px;line-height:15px}
+.dsh-ws-mindmap-bar{display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:12px;color:var(--dsw-alias-label-secondary)}
+.dsh-ws-mindmap-bar-title{font-weight:600;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-ws-mindmap-status{display:flex;align-items:flex-start;justify-content:center;padding:48px 24px;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:20px;text-align:center}
+.dsh-ws-mindmap-error{color:var(--dsw-alias-state-error-primary)}
+.dsh-ws-mindmap-fork-error{position:sticky;top:0;z-index:2;margin-bottom:10px;padding:6px 10px;border:1px solid var(--dsw-alias-state-error-primary);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:17px}
+.dsh-ws-mindmap-notice{margin-bottom:10px;padding:6px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:12px;line-height:17px}
+.dsh-ws-mindmap-notice-error{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}
+.dsh-ws-mindmap-node[data-branch]{border-style:solid}
 /* Selected-card ancestor trace: the current (solid-highlighted) card's chain
    back to the root — every connecting edge turns into a dashed primary-blue
    line, every parent node gets a dashed primary-blue border. The ancestor
    selector is a two-class compound so it beats the branch node rule
-   dsh-wel-mindmap-node[data-branch] { border-style:solid } (same specificity,
+   dsh-ws-mindmap-node[data-branch] { border-style:solid } (same specificity,
    later in source). */
-.dsh-wel-mindmap-edge-active{stroke:var(--dsw-alias-state-business-primary);stroke-dasharray:6 5;stroke-width:2;opacity:1}
-.dsh-wel-mindmap-node.dsh-wel-mindmap-node-ancestor{border-style:dashed;border-color:var(--dsw-alias-state-business-primary);box-shadow:0 0 0 1px color-mix(in srgb,var(--dsw-alias-state-business-primary) 18%,transparent)}
-.dsh-wel-mindmap-hidden-row{display:none!important}
+.dsh-ws-mindmap-edge-active{stroke:var(--dsw-alias-state-business-primary);stroke-dasharray:6 5;stroke-width:2;opacity:1}
+.dsh-ws-mindmap-node.dsh-ws-mindmap-node-ancestor{border-style:dashed;border-color:var(--dsw-alias-state-business-primary);box-shadow:0 0 0 1px color-mix(in srgb,var(--dsw-alias-state-business-primary) 18%,transparent)}
+.dsh-ws-mindmap-hidden-row{display:none!important}
 /* Sidebar mind-map session entries: rendered INSIDE each workspace group's
    session list (one container appended to its group section), so a mind map
    shows among the ordinary sessions of the workspace it belongs to. In flat /
    search list modes (no group sections) a single region-area fallback seat is
    used instead. Entries are draggable to reorder (order persisted per group)
    and carry a right-click menu (rename / reveal). Empty containers collapse. */
-.dsh-wel-sidebar-mindmaps{min-width:0;display:flex;flex-direction:column;gap:2px;padding:2px 8px 4px;box-sizing:border-box}
-.dsh-wel-sidebar-mindmaps:empty{display:none}
-.dsh-wel-sidebar-mindmaps-fallback{flex:none;padding:2px 2px 6px}
-.dsh-wel-sidebar-mindmaps-empty{color:var(--dsw-alias-label-tertiary,var(--dsw-alias-label-secondary));font-size:11px;line-height:16px;padding:0 4px}
-.dsh-wel-sidebar-mindmaps-list{display:flex;flex-direction:column;gap:2px;min-width:0}
-.dsh-wel-sidebar-mindmaps-item{display:flex;align-items:center;gap:6px;min-width:0;height:30px;padding:0 8px;border:none;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:17px;text-align:left;cursor:grab}
-.dsh-wel-sidebar-mindmaps-item:hover{background:var(--dsw-alias-interactive-bg-hover)}
-.dsh-wel-sidebar-mindmaps-item[data-dragging]{opacity:.45}
-.dsh-wel-sidebar-mindmaps-item[data-drop="before"]{box-shadow:inset 0 2px 0 var(--dsw-alias-state-business-primary)}
-.dsh-wel-sidebar-mindmaps-item[data-drop="after"]{box-shadow:inset 0 -2px 0 var(--dsw-alias-state-business-primary)}
-.dsh-wel-sidebar-mindmaps-icon{flex:none;width:14px;height:14px;color:var(--dsw-alias-state-business-primary)}
-.dsh-wel-sidebar-mindmaps-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dsh-wel-sidebar-mindmaps-count{flex:none;color:var(--dsw-alias-label-secondary);font-size:10px;line-height:14px}
-.dsh-wel-frame[data-sidebar-files] .dsh-wel-sidebar-mindmaps{display:none}
-.dsh-wel-frame[data-sidebar-collapsed] .dsh-wel-sidebar-mindmaps{display:none}
+.dsh-ws-sidebar-mindmaps{min-width:0;display:flex;flex-direction:column;gap:2px;padding:2px 8px 4px;box-sizing:border-box}
+.dsh-ws-sidebar-mindmaps:empty{display:none}
+.dsh-ws-sidebar-mindmaps-fallback{flex:none;padding:2px 2px 6px}
+.dsh-ws-sidebar-mindmaps-empty{color:var(--dsw-alias-label-tertiary,var(--dsw-alias-label-secondary));font-size:11px;line-height:16px;padding:0 4px}
+.dsh-ws-sidebar-mindmaps-list{display:flex;flex-direction:column;gap:2px;min-width:0}
+.dsh-ws-sidebar-mindmaps-item{display:flex;align-items:center;gap:6px;min-width:0;height:30px;padding:0 8px;border:none;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:17px;text-align:left;cursor:grab}
+.dsh-ws-sidebar-mindmaps-item:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.dsh-ws-sidebar-mindmaps-item[data-dragging]{opacity:.45}
+.dsh-ws-sidebar-mindmaps-item[data-drop="before"]{box-shadow:inset 0 2px 0 var(--dsw-alias-state-business-primary)}
+.dsh-ws-sidebar-mindmaps-item[data-drop="after"]{box-shadow:inset 0 -2px 0 var(--dsw-alias-state-business-primary)}
+.dsh-ws-sidebar-mindmaps-icon{flex:none;width:14px;height:14px;color:var(--dsw-alias-state-business-primary)}
+.dsh-ws-sidebar-mindmaps-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-ws-sidebar-mindmaps-count{flex:none;color:var(--dsw-alias-label-secondary);font-size:10px;line-height:14px}
+.dsh-ws-frame[data-sidebar-files] .dsh-ws-sidebar-mindmaps{display:none}
+.dsh-ws-frame[data-sidebar-collapsed] .dsh-ws-sidebar-mindmaps{display:none}
 `
 
 const tokenHighlight = HighlightStyle.define([
@@ -1441,14 +1441,14 @@ const tokenHighlight = HighlightStyle.define([
   // Preprocessor directives: purple via the directive variable, with a purple
   // fallback so a directive never silently renders as a string when the
   // variable is unavailable.
-  { tag: tags.meta, color: 'var(--dsh-wel-token-directive, #8e44ad)' },
+  { tag: tags.meta, color: 'var(--dsh-ws-token-directive, #8e44ad)' },
   { tag: [tags.inserted, tags.meta], color: 'var(--shiki-token-string-expression)' },
   { tag: tags.punctuation, color: 'var(--shiki-token-punctuation)' },
   // Markup (XML/HTML) tokens. angleBracket was unstyled and character already
   // rides the string color; the fallbacks preserve that unless a markup preset
   // (e.g. the VS Code XML preset) sets the override variables.
-  { tag: tags.angleBracket, color: 'var(--dsh-wel-token-xml-punctuation, inherit)' },
-  { tag: tags.character, color: 'var(--dsh-wel-token-xml-entity, var(--shiki-token-string))' },
+  { tag: tags.angleBracket, color: 'var(--dsh-ws-token-xml-punctuation, inherit)' },
+  { tag: tags.character, color: 'var(--dsh-ws-token-xml-entity, var(--shiki-token-string))' },
   { tag: [tags.invalid, tags.deleted], color: 'var(--dsw-alias-state-error-primary)' },
 ])
 
@@ -1846,14 +1846,14 @@ function wholeFileConflict(base, mine, theirs, reason) {
 function resolveMergeParts(parts, conflicts, choices) {
   if (!Array.isArray(choices) || choices.length !== conflicts.length
     || choices.some(choice => choice !== 'mine' && choice !== 'theirs')) {
-    throw new Error('workspace-explorer-layout: incomplete conflict choices')
+    throw new Error('workspace-studio: incomplete conflict choices')
   }
   const output = []
   for (const part of parts) {
     if (part.kind === 'text') output.push(...part.lines)
     else {
       const conflict = conflicts[part.id]
-      if (conflict === undefined) throw new Error('workspace-explorer-layout: invalid conflict part')
+      if (conflict === undefined) throw new Error('workspace-studio: invalid conflict part')
       output.push(...conflict[choices[part.id]])
     }
   }
@@ -2001,7 +2001,7 @@ function diffRows(baseLines, sideLines) {
     for (const segment of segments) {
       nodes.push(segment.kind === 'same'
         ? segment.text
-        : h('span', { className: `dsh-wel-inline-${segment.kind}` }, segment.text))
+        : h('span', { className: `dsh-ws-inline-${segment.kind}` }, segment.text))
     }
     return nodes
   }
@@ -2011,7 +2011,7 @@ function diffRows(baseLines, sideLines) {
   const nodes = []
   for (let i = 0; i < rows.length; i += 1) {
     if (i > 0) nodes.push('\n')
-    nodes.push(h('span', { className: 'dsh-wel-conflict-code-row', 'data-kind': rows[i].kind }, rows[i].text))
+    nodes.push(h('span', { className: 'dsh-ws-conflict-code-row', 'data-kind': rows[i].kind }, rows[i].text))
   }
   return nodes
 }
@@ -2207,7 +2207,7 @@ function createExplorerSettingsStore() {
     },
   })
 }
-class LayoutController { attach(actions){this.actions=actions} requireActions(){if(!this.actions)throw new Error('workspace-explorer-layout: root store actions are not attached');return this.actions} toggleSidebar(){this.requireActions().toggleSidebar()} openDetails(){this.requireActions().openDetails()} closeDetails(){this.requireActions().closeDetails()} }
+class LayoutController { attach(actions){this.actions=actions} requireActions(){if(!this.actions)throw new Error('workspace-studio: root store actions are not attached');return this.actions} toggleSidebar(){this.requireActions().toggleSidebar()} openDetails(){this.requireActions().openDetails()} closeDetails(){this.requireActions().closeDetails()} }
 
 const EMPTY_EDITOR_CONTEXT_VIEW = Object.freeze({ present: false, active: false })
 class EditorContextController {
@@ -2341,17 +2341,17 @@ function EditorContextPrefix({ useEditorContext, useSessions, toggle, ensureSess
   const title = context.active
     ? translate('context.active', { path: label })
     : translate('context.inactive', { path: label })
-  return h('div', { className: 'dsh-wel-context-row', ref: rowRef, style: queueDockGap === 0 ? undefined : { marginTop: `${queueDockGap}px` } },
+  return h('div', { className: 'dsh-ws-context-row', ref: rowRef, style: queueDockGap === 0 ? undefined : { marginTop: `${queueDockGap}px` } },
     h('button', {
       'aria-label': title,
       'aria-pressed': context.active,
-      className: 'dsh-wel-context-prefix',
+      className: 'dsh-ws-context-prefix',
       'data-inactive': !context.active || undefined,
       onClick: toggle,
       title,
       type: 'button',
-    }, h('span', { 'aria-hidden': true, className: 'dsh-wel-context-prefix-mark' }, context.active ? '↳' : '○'),
-    h('span', { className: 'dsh-wel-context-prefix-label' }, label)))
+    }, h('span', { 'aria-hidden': true, className: 'dsh-ws-context-prefix-mark' }, context.active ? '↳' : '○'),
+    h('span', { className: 'dsh-ws-context-prefix-label' }, label)))
 }
 
 const OPENED_FILE_PREFIX = '<opened_file>The user opened the file '
@@ -2360,7 +2360,7 @@ const SELECTION_PREFIX = '<selection>The user selected the lines '
 const SELECTION_TRAILER = 'This may or may not be related to the current task.'
 const SELECTION_CLOSE = '</selection>'
 const MESSAGE_CONTEXT_SELECTOR = '[data-chat-flow-kind="user"],[data-chat-flow-kind="steering"],[data-pending-steering]'
-const MESSAGE_CONTEXT_SUMMARY_ATTR = 'data-dsh-wel-message-context-summary'
+const MESSAGE_CONTEXT_SUMMARY_ATTR = 'data-dsh-ws-message-context-summary'
 const pendingEditorContextDisplays = new Map()
 
 function rememberEditorContextDisplay(text, display) {
@@ -2492,21 +2492,21 @@ function renderEditorContextSummary(bubble, context) {
   if (!(row instanceof HTMLElement) || !row.hasAttribute(MESSAGE_CONTEXT_SUMMARY_ATTR)) {
     row = document.createElement('div')
     row.setAttribute(MESSAGE_CONTEXT_SUMMARY_ATTR, '')
-    row.className = 'dsh-wel-message-context-summary'
+    row.className = 'dsh-ws-message-context-summary'
     parent.insertBefore(row, bubble)
   }
   row.setAttribute('title', context.raw ?? context.title)
   row.replaceChildren(
     Object.assign(document.createElement('span'), {
-      className: 'dsh-wel-message-context-summary-mark',
+      className: 'dsh-ws-message-context-summary-mark',
       textContent: '↳',
     }),
     Object.assign(document.createElement('span'), {
-      className: 'dsh-wel-message-context-summary-label',
+      className: 'dsh-ws-message-context-summary-label',
       textContent: context.fileName,
     }),
     ...(context.range === null ? [] : [Object.assign(document.createElement('span'), {
-      className: 'dsh-wel-message-context-summary-range',
+      className: 'dsh-ws-message-context-summary-range',
       textContent: context.range,
     })]),
   )
@@ -2521,9 +2521,9 @@ function installEditorContextMessageCompactor() {
     if (context === null) return
     originals.set(bubble, text)
     renderEditorContextSummary(bubble, consumeEditorContextDisplay(text) ?? context)
-    bubble.classList.add('dsh-wel-message-context-bubble')
-    if (context.visibleText === '') bubble.setAttribute('data-dsh-wel-empty-prompt', '')
-    else bubble.removeAttribute('data-dsh-wel-empty-prompt')
+    bubble.classList.add('dsh-ws-message-context-bubble')
+    if (context.visibleText === '') bubble.setAttribute('data-dsh-ws-empty-prompt', '')
+    else bubble.removeAttribute('data-dsh-ws-empty-prompt')
     bubble.textContent = context.visibleText
   }
   const compactContainer = (container) => {
@@ -2558,8 +2558,8 @@ function installEditorContextMessageCompactor() {
       if (!bubble.isConnected) continue
       const summary = bubble.previousElementSibling
       if (summary instanceof HTMLElement && summary.hasAttribute(MESSAGE_CONTEXT_SUMMARY_ATTR)) summary.remove()
-      bubble.classList.remove('dsh-wel-message-context-bubble')
-      bubble.removeAttribute('data-dsh-wel-empty-prompt')
+      bubble.classList.remove('dsh-ws-message-context-bubble')
+      bubble.removeAttribute('data-dsh-ws-empty-prompt')
       bubble.textContent = text
     }
     originals.clear()
@@ -2603,7 +2603,7 @@ class PromptContextBridge {
     if (typeof this.originalSendSession !== 'function') {
       this.conversation = undefined
       this.originalSendSession = undefined
-      throw new Error('workspace-explorer-layout requires the Harness 0.1.x conversation.sendSession seam')
+      throw new Error('workspace-studio requires the Harness 0.1.x conversation.sendSession seam')
     }
     const bridge = this
     const wrappedSendSession = async function sendSessionWithEditorContext(session, text, imageIds, mode) {
@@ -2726,7 +2726,7 @@ class PromptContextBridge {
       const original = input.submit
       const originalSteerQueue = input.steerQueue
       if (typeof original !== 'function' || typeof originalSteerQueue !== 'function') {
-        console.error(`workspace-explorer-layout: session ${id} input submit/steer seams unavailable; editor context will not attach`)
+        console.error(`workspace-studio: session ${id} input submit/steer seams unavailable; editor context will not attach`)
         return
       }
       const bridge = this
@@ -2750,7 +2750,7 @@ class PromptContextBridge {
       input.steerQueue = steerWrapper
       this.inputPatches.set(id, { input, original, wrapper, originalSteerQueue, steerWrapper })
     } catch (error) {
-      console.error(`workspace-explorer-layout: failed to patch input seams for session ${id}:`, error)
+      console.error(`workspace-studio: failed to patch input seams for session ${id}:`, error)
     }
   }
   restoreInput(id, patch) {
@@ -3020,7 +3020,7 @@ function useMindmapOverlay() {
 /* Per-group sidebar order of mind-map entries, persisted in localStorage
    (a small id list per group key; a workspace rename loses the mapping and
    entries fall back to their default order — accepted trade-off). */
-const MINDMAP_ORDER_STORE_KEY = 'dsh.workspace.explorer.mindmap-order.v1'
+const MINDMAP_ORDER_STORE_KEY = 'dsh.workspace.studio.mindmap-order.v1'
 function readMindmapOrder() {
   try {
     const raw = window.localStorage.getItem(MINDMAP_ORDER_STORE_KEY)
@@ -3118,7 +3118,7 @@ async function requestDraftTree(workspaceId, payload, signal) {
 /* IndexedDB mirrors the newest dirty snapshot immediately. Host drafts remain
    the long-lived authority, but an unload cannot reliably finish a 1 MiB fetch;
    the local mirror closes that durability gap and is reconciled on restore. */
-const EMERGENCY_DRAFT_DB = 'dsh-workspace-explorer-layout'
+const EMERGENCY_DRAFT_DB = 'dsh-workspace-studio'
 const EMERGENCY_DRAFT_STORE = 'drafts-v1'
 let emergencyDraftDbPromise
 const emergencyDraftTails = new Map()
@@ -3525,7 +3525,7 @@ function previewSnapshotFingerprint(value) {
   return `${value?.activePath ?? ''}|${tabPart}|${expandedPart}`
 }
 function dropIndexFromEvent(event) {
-  const tabNodes = event.currentTarget.querySelectorAll('.dsh-wel-preview-tab')
+  const tabNodes = event.currentTarget.querySelectorAll('.dsh-ws-preview-tab')
   for (let i = 0; i < tabNodes.length; i += 1) {
     const rect = tabNodes[i].getBoundingClientRect()
     if (event.clientX < rect.left + rect.width / 2) return i
@@ -3574,51 +3574,51 @@ function SidebarTopActions({ collapsed, view, width, onSelectSessions, onSelectF
   // explicitly (root padding 12px x2 plus the row's 2px x2 margins) instead of
   // relying on the parent flex stretch; AppFrame re-renders on every drag tick.
   const rowStyle = collapsed ? undefined : { width: `${Math.max(0, width - 28)}px` }
-  return h('div', { className: 'dsh-wel-sidebar-top-actions', 'data-rail': collapsed || undefined, style: rowStyle },
+  return h('div', { className: 'dsh-ws-sidebar-top-actions', 'data-rail': collapsed || undefined, style: rowStyle },
     h('button', {
       'aria-label': translate('nav.sessions'),
-      className: 'dsh-wel-sidebar-top-action',
+      className: 'dsh-ws-sidebar-top-action',
       'data-active': view !== 'files' || undefined,
       onClick: onSelectSessions,
       title: translate('nav.sessions'),
       type: 'button',
-    }, h('span', { 'aria-hidden': true, className: 'dsh-wel-sidebar-top-icon' }, h(IconSessionList)), h('span', { className: 'dsh-wel-sidebar-top-label' }, translate('nav.sessions'))),
+    }, h('span', { 'aria-hidden': true, className: 'dsh-ws-sidebar-top-icon' }, h(IconSessionList)), h('span', { className: 'dsh-ws-sidebar-top-label' }, translate('nav.sessions'))),
     h('button', {
       'aria-label': translate('nav.files'),
-      className: 'dsh-wel-sidebar-top-action',
+      className: 'dsh-ws-sidebar-top-action',
       'data-active': view === 'files' || undefined,
       onClick: onSelectFiles,
       title: translate('nav.files'),
       type: 'button',
-    }, h('span', { 'aria-hidden': true, className: 'dsh-wel-sidebar-top-icon' }, h(IconFolder)), h('span', { className: 'dsh-wel-sidebar-top-label' }, translate('nav.files'))),
+    }, h('span', { 'aria-hidden': true, className: 'dsh-ws-sidebar-top-icon' }, h(IconFolder)), h('span', { className: 'dsh-ws-sidebar-top-label' }, translate('nav.files'))),
   )
 }
 
-function ResizeHandle({label,left,value,min,max,onResize,onDragging}){const[dragging,setDragging]=useState(false),origin=useRef(0),base=useRef(0);const start=useCallback(e=>{e.preventDefault();e.currentTarget.setPointerCapture(e.pointerId);origin.current=e.clientX;base.current=value;setDragging(true);onDragging(true)},[onDragging,value]);const move=useCallback(e=>{if(e.currentTarget.hasPointerCapture(e.pointerId))onResize(clamp(base.current+e.clientX-origin.current,min,max))},[max,min,onResize]);const end=useCallback(e=>{if(!e.currentTarget.hasPointerCapture(e.pointerId))return;e.currentTarget.releasePointerCapture(e.pointerId);onResize(clamp(base.current+e.clientX-origin.current,min,max));setDragging(false);onDragging(false)},[max,min,onDragging,onResize]);return h('div',{'aria-label':label,'aria-orientation':'vertical','aria-valuemax':max,'aria-valuemin':min,'aria-valuenow':value,className:'dsh-wel-splitter','data-dragging':dragging||undefined,onKeyDown:e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();onResize(clamp(value+(e.key==='ArrowLeft'?-RESIZE_STEP:RESIZE_STEP),min,max))}},onLostPointerCapture:()=>{setDragging(false);onDragging(false)},onPointerCancel:end,onPointerDown:start,onPointerMove:move,onPointerUp:end,role:'separator',style:{left},tabIndex:0})}
-function HeaderAction({action}){return h('button',{'aria-label':action.label,className:'dsh-wel-icon-button','data-active':action.active||undefined,disabled:action.disabled||undefined,onClick:action.onClick,title:action.title??action.label,type:'button'},action.icon)}
-function PanelHeader({title,subtitle,action,actionLabel,actions=[],onContextMenu}){const items=[...actions];if(action)items.push({label:actionLabel,onClick:action,icon:h(IconRefresh)});return h('header',{className:'dsh-wel-panel-header'},h('div',{className:'dsh-wel-panel-title',onContextMenu},h('strong',{title},title),subtitle?h('span',{title:subtitle},subtitle):null),items.length?h('div',{className:'dsh-wel-panel-actions'},items.map(item=>h(HeaderAction,{action:item,key:item.label}))):null)}
+function ResizeHandle({label,left,value,min,max,onResize,onDragging}){const[dragging,setDragging]=useState(false),origin=useRef(0),base=useRef(0);const start=useCallback(e=>{e.preventDefault();e.currentTarget.setPointerCapture(e.pointerId);origin.current=e.clientX;base.current=value;setDragging(true);onDragging(true)},[onDragging,value]);const move=useCallback(e=>{if(e.currentTarget.hasPointerCapture(e.pointerId))onResize(clamp(base.current+e.clientX-origin.current,min,max))},[max,min,onResize]);const end=useCallback(e=>{if(!e.currentTarget.hasPointerCapture(e.pointerId))return;e.currentTarget.releasePointerCapture(e.pointerId);onResize(clamp(base.current+e.clientX-origin.current,min,max));setDragging(false);onDragging(false)},[max,min,onDragging,onResize]);return h('div',{'aria-label':label,'aria-orientation':'vertical','aria-valuemax':max,'aria-valuemin':min,'aria-valuenow':value,className:'dsh-ws-splitter','data-dragging':dragging||undefined,onKeyDown:e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();onResize(clamp(value+(e.key==='ArrowLeft'?-RESIZE_STEP:RESIZE_STEP),min,max))}},onLostPointerCapture:()=>{setDragging(false);onDragging(false)},onPointerCancel:end,onPointerDown:start,onPointerMove:move,onPointerUp:end,role:'separator',style:{left},tabIndex:0})}
+function HeaderAction({action}){return h('button',{'aria-label':action.label,className:'dsh-ws-icon-button','data-active':action.active||undefined,disabled:action.disabled||undefined,onClick:action.onClick,title:action.title??action.label,type:'button'},action.icon)}
+function PanelHeader({title,subtitle,action,actionLabel,actions=[],onContextMenu}){const items=[...actions];if(action)items.push({label:actionLabel,onClick:action,icon:h(IconRefresh)});return h('header',{className:'dsh-ws-panel-header'},h('div',{className:'dsh-ws-panel-title',onContextMenu},h('strong',{title},title),subtitle?h('span',{title:subtitle},subtitle):null),items.length?h('div',{className:'dsh-ws-panel-actions'},items.map(item=>h(HeaderAction,{action:item,key:item.label}))):null)}
 /* Memoized: the tree re-renders when tabs change (typing, tab drags), but a
    row's own props only change on selection/expansion/directory data, so
    scrolling and typing skip most row reconciliation entirely. */
-const TreeRow = memo(function TreeRow({entry,depth,expanded,selected,cut,onContextMenu,onDirectory,onFile,onRename}){useLocaleText();const directory=entry.kind==='directory',blocked=entry.kind==='blocked'||entry.kind==='other',label=directory?'dir':fileLabel(entry.name);return h('button',{'aria-expanded':directory?expanded:undefined,className:'dsh-wel-tree-row','data-cut':cut||undefined,'data-selected':selected||undefined,disabled:blocked,onClick:directory?()=>onDirectory(entry):()=>onFile(entry),onContextMenu:e=>onContextMenu(e,entry),onKeyDown:e=>{if(e.key==='F2'){e.preventDefault();onRename(entry)}},style:{'--dsh-wel-depth':depth},title:`${entry.path}${entry.symlink?translate('tree.symlink'):''}`,type:'button'},h('span',{className:'dsh-wel-chevron'},directory?(expanded?'▼':'▶'):''),h('span',{className:'dsh-wel-file-mark','data-kind':entry.kind,'data-group':colorGroupOf(entry)},label.slice(0,3)),h('span',{className:'dsh-wel-row-name'},entry.name),entry.symlink?h('span',{className:'dsh-wel-symlink'},'↗'):null)})
+const TreeRow = memo(function TreeRow({entry,depth,expanded,selected,cut,onContextMenu,onDirectory,onFile,onRename}){useLocaleText();const directory=entry.kind==='directory',blocked=entry.kind==='blocked'||entry.kind==='other',label=directory?'dir':fileLabel(entry.name);return h('button',{'aria-expanded':directory?expanded:undefined,className:'dsh-ws-tree-row','data-cut':cut||undefined,'data-selected':selected||undefined,disabled:blocked,onClick:directory?()=>onDirectory(entry):()=>onFile(entry),onContextMenu:e=>onContextMenu(e,entry),onKeyDown:e=>{if(e.key==='F2'){e.preventDefault();onRename(entry)}},style:{'--dsh-ws-depth':depth},title:`${entry.path}${entry.symlink?translate('tree.symlink'):''}`,type:'button'},h('span',{className:'dsh-ws-chevron'},directory?(expanded?'▼':'▶'):''),h('span',{className:'dsh-ws-file-mark','data-kind':entry.kind,'data-group':colorGroupOf(entry)},label.slice(0,3)),h('span',{className:'dsh-ws-row-name'},entry.name),entry.symlink?h('span',{className:'dsh-ws-symlink'},'↗'):null)})
 /* In-place rename of a tree row: the normal TreeRow is swapped for an input
    that mirrors the row layout (same depth indent, chevron and file mark), so
    the edit happens exactly where the name sits — no modal dialog. Enter
    confirms (IME-safe); Escape or blur cancels and restores the original name.
    An unchanged name closes quietly (no-op); invalid/duplicate input keeps the
    editor open and shows an inline error below the row. */
-function TreeRenameRow({busy,depth,entry,expanded,error,onCancel,onConfirm,onDraft,value}){const composingRef=useRef(false),inputRef=useRef(null);const directory=entry.kind==='directory',label=directory?'dir':fileLabel(entry.name);useEffect(()=>{const input=inputRef.current;if(input!==null){input.focus();input.select()}},[]);return h('div',{className:'dsh-wel-tree-rename',style:{'--dsh-wel-depth':depth}},h('div',{className:'dsh-wel-tree-rename-row'},h('span',{className:'dsh-wel-chevron'},directory?(expanded?'▼':'▶'):''),h('span',{className:'dsh-wel-file-mark','data-kind':entry.kind,'data-group':colorGroupOf(entry)},label.slice(0,3)),h('input',{'aria-label':translate('dialog.name'),autoFocus:true,className:'dsh-wel-tree-rename-input',disabled:busy,onBlur:()=>{if(!busy)onCancel()},onChange:event=>onDraft(event.target.value),onCompositionEnd:()=>{composingRef.current=false},onCompositionStart:()=>{composingRef.current=true},onKeyDown:event=>{if(event.key==='Escape'){event.preventDefault();if(!busy)onCancel()}else if(event.key==='Enter'&&!composingRef.current){event.preventDefault();if(value.trim()===entry.name){onCancel();return}onConfirm()}},ref:inputRef,value})),error?h('div',{className:'dsh-wel-tree-rename-error',role:'alert'},error):null)}
-const TreeStatus=({children,error})=>h('div',{className:'dsh-wel-tree-status','data-error':error||undefined},children)
-function TreeContextMenu({entry,menuRef,onRename,onCopyName,onCopyPath,onReveal,onCopy,onPaste,onCut,onDelete,pasteDisabled,pasteTitle,x,y}){const left=Math.max(4,Math.min(x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top=Math.max(4,Math.min(y,window.innerHeight-CONTEXT_MENU_HEIGHT-4));return h('div',{'aria-label':entry.path,className:'dsh-wel-context-menu',ref:menuRef,role:'menu',style:{left,top}},h('button',{className:'dsh-wel-context-item',onClick:()=>onRename(entry),role:'menuitem',title:translate('context.rename.title'),type:'button'},translate('context.rename')),h('button',{className:'dsh-wel-context-item',onClick:()=>onCopyName(entry),role:'menuitem',title:translate('context.copyName.title'),type:'button'},translate('context.copyName')),h('button',{className:'dsh-wel-context-item',onClick:()=>onCopyPath(entry,false),role:'menuitem',title:translate('context.copyPath.title'),type:'button'},translate('context.copyPath')),h('button',{className:'dsh-wel-context-item',onClick:()=>onCopyPath(entry,true),role:'menuitem',title:translate('context.copyRelative.title'),type:'button'},translate('context.copyRelative')),h('div',{className:'dsh-wel-context-separator',role:'separator'}),h('button',{className:'dsh-wel-context-item',onClick:()=>onReveal(entry),role:'menuitem',title:translate('context.reveal.title'),type:'button'},translate('context.reveal')),h('div',{className:'dsh-wel-context-separator',role:'separator'}),h('button',{className:'dsh-wel-context-item',onClick:()=>onCopy(entry),role:'menuitem',title:translate('context.copy.title'),type:'button'},translate('context.copy')),h('button',{className:'dsh-wel-context-item',disabled:pasteDisabled,onClick:()=>onPaste(entry),role:'menuitem',title:pasteDisabled?pasteTitle:translate('context.paste.title'),type:'button'},translate('context.paste')),h('button',{className:'dsh-wel-context-item',onClick:()=>onCut(entry),role:'menuitem',title:translate('context.cut.title'),type:'button'},translate('context.cut')),h('button',{className:'dsh-wel-context-item',onClick:()=>onDelete(entry),role:'menuitem',title:translate('context.delete.title'),type:'button'},translate('context.delete')))}
-function TabContextMenu({menuRef,onCloseOthers,onTogglePin,pinned,x,y}){const left=Math.max(4,Math.min(x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top=Math.max(4,Math.min(y,window.innerHeight-CONTEXT_MENU_HEIGHT-4));return h('div',{className:'dsh-wel-context-menu',ref:menuRef,role:'menu',style:{left,top}},h('button',{className:'dsh-wel-context-item',onClick:onTogglePin,role:'menuitem',title:pinned?translate('tab.unpin.title'):translate('tab.pin.title'),type:'button'},pinned?translate('tab.unpin'):translate('tab.pin')),h('button',{className:'dsh-wel-context-item',onClick:onCloseOthers,role:'menuitem',title:translate('tab.closeOthers.title'),type:'button'},translate('tab.closeOthers')))}
-function EntryDialog({dialog,draft,error,busy,blocked,composingRef,onCancel,onConfirm,onDraft}){if(!dialog)return null;const title=entryDialogTitle(dialog),action=entryDialogAction(dialog);return h('div',{className:'dsh-wel-dialog-backdrop',onMouseDown:e=>{if(e.target===e.currentTarget)onCancel()}},h('div',{'aria-modal':true,className:'dsh-wel-dialog',role:'dialog'},h('div',{className:'dsh-wel-dialog-header'},h('div',{className:'dsh-wel-dialog-title'},title),h('button',{'aria-label':translate('dialog.close'),className:'dsh-wel-icon-button',disabled:busy,onClick:onCancel,title:translate('dialog.close'),type:'button'},'×')),h('div',{className:'dsh-wel-dialog-body'},h('input',{'aria-label':translate('dialog.name'),autoFocus:true,className:'dsh-wel-dialog-input',disabled:busy,onChange:e=>onDraft(e.target.value),onCompositionEnd:()=>{composingRef.current=false},onCompositionStart:()=>{composingRef.current=true},onFocus:e=>e.target.select(),onKeyDown:e=>{if(e.key==='Escape'){e.preventDefault();onCancel()}else if(e.key==='Enter'&&!composingRef.current){e.preventDefault();onConfirm()}},value:draft}),error?h('div',{className:'dsh-wel-dialog-error',role:'alert'},error):null),h('div',{className:'dsh-wel-dialog-footer'},h('button',{className:'dsh-wel-text-button',disabled:busy,onClick:onCancel,type:'button'},translate('dialog.cancel')),h('button',{className:'dsh-wel-text-button',disabled:blocked,onClick:onConfirm,type:'button'},busy?translate('dialog.processing'):action))))}
-function EncodingMenu({menuRef,onOpen,onSave,canOpen,canSave,x,y}){const left=Math.max(4,Math.min(x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top=Math.max(4,Math.min(y,window.innerHeight-CONTEXT_MENU_HEIGHT-4));return h('div',{className:'dsh-wel-context-menu',ref:menuRef,role:'menu',style:{left,top}},h('button',{className:'dsh-wel-context-item',disabled:!canOpen,onClick:onOpen,role:'menuitem',title:canOpen?translate('encoding.open.title'):translate('encoding.open.titleDirty'),type:'button'},translate('encoding.open')),h('button',{className:'dsh-wel-context-item',disabled:!canSave,onClick:onSave,role:'menuitem',title:canSave?translate('encoding.save.title'):translate('encoding.save.titleReadonly'),type:'button'},translate('encoding.save')))}
+function TreeRenameRow({busy,depth,entry,expanded,error,onCancel,onConfirm,onDraft,value}){const composingRef=useRef(false),inputRef=useRef(null);const directory=entry.kind==='directory',label=directory?'dir':fileLabel(entry.name);useEffect(()=>{const input=inputRef.current;if(input!==null){input.focus();input.select()}},[]);return h('div',{className:'dsh-ws-tree-rename',style:{'--dsh-ws-depth':depth}},h('div',{className:'dsh-ws-tree-rename-row'},h('span',{className:'dsh-ws-chevron'},directory?(expanded?'▼':'▶'):''),h('span',{className:'dsh-ws-file-mark','data-kind':entry.kind,'data-group':colorGroupOf(entry)},label.slice(0,3)),h('input',{'aria-label':translate('dialog.name'),autoFocus:true,className:'dsh-ws-tree-rename-input',disabled:busy,onBlur:()=>{if(!busy)onCancel()},onChange:event=>onDraft(event.target.value),onCompositionEnd:()=>{composingRef.current=false},onCompositionStart:()=>{composingRef.current=true},onKeyDown:event=>{if(event.key==='Escape'){event.preventDefault();if(!busy)onCancel()}else if(event.key==='Enter'&&!composingRef.current){event.preventDefault();if(value.trim()===entry.name){onCancel();return}onConfirm()}},ref:inputRef,value})),error?h('div',{className:'dsh-ws-tree-rename-error',role:'alert'},error):null)}
+const TreeStatus=({children,error})=>h('div',{className:'dsh-ws-tree-status','data-error':error||undefined},children)
+function TreeContextMenu({entry,menuRef,onRename,onCopyName,onCopyPath,onReveal,onCopy,onPaste,onCut,onDelete,pasteDisabled,pasteTitle,x,y}){const left=Math.max(4,Math.min(x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top=Math.max(4,Math.min(y,window.innerHeight-CONTEXT_MENU_HEIGHT-4));return h('div',{'aria-label':entry.path,className:'dsh-ws-context-menu',ref:menuRef,role:'menu',style:{left,top}},h('button',{className:'dsh-ws-context-item',onClick:()=>onRename(entry),role:'menuitem',title:translate('context.rename.title'),type:'button'},translate('context.rename')),h('button',{className:'dsh-ws-context-item',onClick:()=>onCopyName(entry),role:'menuitem',title:translate('context.copyName.title'),type:'button'},translate('context.copyName')),h('button',{className:'dsh-ws-context-item',onClick:()=>onCopyPath(entry,false),role:'menuitem',title:translate('context.copyPath.title'),type:'button'},translate('context.copyPath')),h('button',{className:'dsh-ws-context-item',onClick:()=>onCopyPath(entry,true),role:'menuitem',title:translate('context.copyRelative.title'),type:'button'},translate('context.copyRelative')),h('div',{className:'dsh-ws-context-separator',role:'separator'}),h('button',{className:'dsh-ws-context-item',onClick:()=>onReveal(entry),role:'menuitem',title:translate('context.reveal.title'),type:'button'},translate('context.reveal')),h('div',{className:'dsh-ws-context-separator',role:'separator'}),h('button',{className:'dsh-ws-context-item',onClick:()=>onCopy(entry),role:'menuitem',title:translate('context.copy.title'),type:'button'},translate('context.copy')),h('button',{className:'dsh-ws-context-item',disabled:pasteDisabled,onClick:()=>onPaste(entry),role:'menuitem',title:pasteDisabled?pasteTitle:translate('context.paste.title'),type:'button'},translate('context.paste')),h('button',{className:'dsh-ws-context-item',onClick:()=>onCut(entry),role:'menuitem',title:translate('context.cut.title'),type:'button'},translate('context.cut')),h('button',{className:'dsh-ws-context-item',onClick:()=>onDelete(entry),role:'menuitem',title:translate('context.delete.title'),type:'button'},translate('context.delete')))}
+function TabContextMenu({menuRef,onCloseOthers,onTogglePin,pinned,x,y}){const left=Math.max(4,Math.min(x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top=Math.max(4,Math.min(y,window.innerHeight-CONTEXT_MENU_HEIGHT-4));return h('div',{className:'dsh-ws-context-menu',ref:menuRef,role:'menu',style:{left,top}},h('button',{className:'dsh-ws-context-item',onClick:onTogglePin,role:'menuitem',title:pinned?translate('tab.unpin.title'):translate('tab.pin.title'),type:'button'},pinned?translate('tab.unpin'):translate('tab.pin')),h('button',{className:'dsh-ws-context-item',onClick:onCloseOthers,role:'menuitem',title:translate('tab.closeOthers.title'),type:'button'},translate('tab.closeOthers')))}
+function EntryDialog({dialog,draft,error,busy,blocked,composingRef,onCancel,onConfirm,onDraft}){if(!dialog)return null;const title=entryDialogTitle(dialog),action=entryDialogAction(dialog);return h('div',{className:'dsh-ws-dialog-backdrop',onMouseDown:e=>{if(e.target===e.currentTarget)onCancel()}},h('div',{'aria-modal':true,className:'dsh-ws-dialog',role:'dialog'},h('div',{className:'dsh-ws-dialog-header'},h('div',{className:'dsh-ws-dialog-title'},title),h('button',{'aria-label':translate('dialog.close'),className:'dsh-ws-icon-button',disabled:busy,onClick:onCancel,title:translate('dialog.close'),type:'button'},'×')),h('div',{className:'dsh-ws-dialog-body'},h('input',{'aria-label':translate('dialog.name'),autoFocus:true,className:'dsh-ws-dialog-input',disabled:busy,onChange:e=>onDraft(e.target.value),onCompositionEnd:()=>{composingRef.current=false},onCompositionStart:()=>{composingRef.current=true},onFocus:e=>e.target.select(),onKeyDown:e=>{if(e.key==='Escape'){e.preventDefault();onCancel()}else if(e.key==='Enter'&&!composingRef.current){e.preventDefault();onConfirm()}},value:draft}),error?h('div',{className:'dsh-ws-dialog-error',role:'alert'},error):null),h('div',{className:'dsh-ws-dialog-footer'},h('button',{className:'dsh-ws-text-button',disabled:busy,onClick:onCancel,type:'button'},translate('dialog.cancel')),h('button',{className:'dsh-ws-text-button',disabled:blocked,onClick:onConfirm,type:'button'},busy?translate('dialog.processing'):action))))}
+function EncodingMenu({menuRef,onOpen,onSave,canOpen,canSave,x,y}){const left=Math.max(4,Math.min(x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top=Math.max(4,Math.min(y,window.innerHeight-CONTEXT_MENU_HEIGHT-4));return h('div',{className:'dsh-ws-context-menu',ref:menuRef,role:'menu',style:{left,top}},h('button',{className:'dsh-ws-context-item',disabled:!canOpen,onClick:onOpen,role:'menuitem',title:canOpen?translate('encoding.open.title'):translate('encoding.open.titleDirty'),type:'button'},translate('encoding.open')),h('button',{className:'dsh-ws-context-item',disabled:!canSave,onClick:onSave,role:'menuitem',title:canSave?translate('encoding.save.title'):translate('encoding.save.titleReadonly'),type:'button'},translate('encoding.save')))}
 /* In-place session rename: an input overlaid exactly on the harness session
    row's title span. The row itself is harness-rendered, so the plugin never
    mutates its DOM; the overlay is fixed-positioned at the span's rect. Enter
    confirms (IME-safe), Escape/blur cancels; a row that detaches (session
    removed, list rebuilt) cancels too. */
-function SessionInlineRename({busy,error,onCancel,onConfirm,row,title}){const composingRef=useRef(false),inputRef=useRef(null);const[draft,setDraft]=useState(title);useEffect(()=>{if(row===null||!row.isConnected){onCancel();return}const input=inputRef.current;if(input!==null){input.focus();input.select()}},[/* mount-only */]);useEffect(()=>{if(row!==null&&row.isConnected)return undefined;onCancel();return undefined},[onCancel,row]);const span=row===null?null:row.querySelector('span[class*="title"]');const rect=span===null?null:span.getBoundingClientRect();const overlayStyle=rect===null||rect.width===0?undefined:{left:rect.left,top:rect.top,width:Math.max(rect.width,140),height:rect.height};return h(Fragment,null,h('div',{className:'dsh-wel-session-rename-overlay',style:overlayStyle},h('input',{'aria-label':translate('dialog.sessionName'),autoFocus:true,className:'dsh-wel-session-rename-input',disabled:busy,onBlur:()=>{if(!busy)onCancel()},onChange:event=>{setDraft(event.target.value)},onCompositionEnd:()=>{composingRef.current=false},onCompositionStart:()=>{composingRef.current=true},onKeyDown:event=>{if(event.key==='Escape'){event.preventDefault();if(!busy)onCancel()}else if(event.key==='Enter'&&!composingRef.current){event.preventDefault();onConfirm(draft)}},ref:inputRef,value:draft})),error?h('div',{className:'dsh-wel-session-rename-error',role:'alert',style:rect===null?undefined:{left:rect.left,top:rect.bottom+4}},error):null)}
+function SessionInlineRename({busy,error,onCancel,onConfirm,row,title}){const composingRef=useRef(false),inputRef=useRef(null);const[draft,setDraft]=useState(title);useEffect(()=>{if(row===null||!row.isConnected){onCancel();return}const input=inputRef.current;if(input!==null){input.focus();input.select()}},[/* mount-only */]);useEffect(()=>{if(row!==null&&row.isConnected)return undefined;onCancel();return undefined},[onCancel,row]);const span=row===null?null:row.querySelector('span[class*="title"]');const rect=span===null?null:span.getBoundingClientRect();const overlayStyle=rect===null||rect.width===0?undefined:{left:rect.left,top:rect.top,width:Math.max(rect.width,140),height:rect.height};return h(Fragment,null,h('div',{className:'dsh-ws-session-rename-overlay',style:overlayStyle},h('input',{'aria-label':translate('dialog.sessionName'),autoFocus:true,className:'dsh-ws-session-rename-input',disabled:busy,onBlur:()=>{if(!busy)onCancel()},onChange:event=>{setDraft(event.target.value)},onCompositionEnd:()=>{composingRef.current=false},onCompositionStart:()=>{composingRef.current=true},onKeyDown:event=>{if(event.key==='Escape'){event.preventDefault();if(!busy)onCancel()}else if(event.key==='Enter'&&!composingRef.current){event.preventDefault();onConfirm(draft)}},ref:inputRef,value:draft})),error?h('div',{className:'dsh-ws-session-rename-error',role:'alert',style:rect===null?undefined:{left:rect.left,top:rect.bottom+4}},error):null)}
 /* Transient banner mirroring the harness conversation Toast look: same
    contrast fill, hold-then-fade timing and warning icon, so a failed
    external-file open reads exactly like the composer's image-intake
@@ -3628,10 +3628,10 @@ function SessionInlineRename({busy,error,onCancel,onConfirm,row,title}){const co
 const WEL_TOAST_HOLD_MS = 3000
 const WEL_TOAST_FADE_MS = 1000
 const welToastIcon = h('svg',{fill:'none',height:16,viewBox:'0 0 16 16',width:16},h('circle',{cx:8,cy:8,r:6.5,stroke:'currentColor',strokeWidth:1.5}),h('path',{d:'M8 4.75v3.5',stroke:'currentColor',strokeLinecap:'round',strokeWidth:1.5}),h('circle',{cx:8,cy:11.25,fill:'currentColor',r:0.9}))
-function PreviewToast({text,onDone,headerRef}){const[top,setTop]=useState(null);useLayoutEffect(()=>{const header=headerRef?.current;if(header===null||header===undefined)return;const section=header.parentElement;if(section===null)return;const headerBottom=header.getBoundingClientRect().bottom;const sectionTop=section.getBoundingClientRect().top;setTop(headerBottom-sectionTop+8)},[headerRef]);useEffect(()=>{const timer=setTimeout(onDone,WEL_TOAST_HOLD_MS+WEL_TOAST_FADE_MS);return()=>clearTimeout(timer)},[onDone]);return h('div',{className:'dsh-wel-toast',role:'alert',style:top===null?undefined:{top}},h('span',{'aria-hidden':true,className:'dsh-wel-toast-icon'},welToastIcon),h('span',{className:'dsh-wel-toast-text'},text))}
-function EncodingDialog({dialog,options,value,busy,onCancel,onPick,onConfirm}){if(dialog===undefined)return null;const title=dialog.mode==='open'?translate('encoding.dialog.open'):translate('encoding.dialog.save'),action=dialog.mode==='open'?translate('encoding.dialog.openAction'):translate('encoding.dialog.saveAction');return h('div',{className:'dsh-wel-dialog-backdrop',onMouseDown:e=>{if(e.target===e.currentTarget&&!busy)onCancel()}},h('div',{'aria-modal':true,className:'dsh-wel-dialog',role:'dialog'},h('div',{className:'dsh-wel-dialog-header'},h('div',{className:'dsh-wel-dialog-title'},title),h('button',{'aria-label':translate('dialog.close'),className:'dsh-wel-icon-button',disabled:busy,onClick:onCancel,title:translate('dialog.close'),type:'button'},'×')),h('div',{className:'dsh-wel-dialog-body'},h('label',{className:'dsh-wel-settings-label',htmlFor:'dsh-wel-encoding-select'},translate('encoding.badge')),h('select',{'aria-label':translate('encoding.badge'),className:'dsh-wel-highlight-preset-select',disabled:busy,id:'dsh-wel-encoding-select',onChange:e=>onPick(e.target.value),value},options.map(enc=>h('option',{key:enc.id,value:enc.id},encodingLabel(enc.id))))),h('div',{className:'dsh-wel-dialog-footer'},h('button',{className:'dsh-wel-text-button',disabled:busy,onClick:onCancel,type:'button'},translate('dialog.cancel')),h('button',{className:'dsh-wel-text-button',disabled:busy||options.length===0,onClick:onConfirm,type:'button'},busy?translate('dialog.processing'):action))))}
-function SessionRenameDialog({draft,busy,error,onCancel,onConfirm,onDraft,title}){const composingRef=useRef(false);return h('div',{className:'dsh-wel-dialog-backdrop',onMouseDown:e=>{if(e.target===e.currentTarget&&!busy)onCancel()}},h('div',{'aria-modal':true,className:'dsh-wel-dialog',role:'dialog'},h('div',{className:'dsh-wel-dialog-header'},h('div',{className:'dsh-wel-dialog-title'},title ?? translate('dialog.renameSession')),h('button',{'aria-label':translate('dialog.close'),className:'dsh-wel-icon-button',disabled:busy,onClick:onCancel,title:translate('dialog.close'),type:'button'},'×')),h('div',{className:'dsh-wel-dialog-body'},h('input',{'aria-label':translate('dialog.sessionName'),autoFocus:true,className:'dsh-wel-dialog-input',disabled:busy,onChange:e=>onDraft(e.target.value),onCompositionEnd:()=>{composingRef.current=false},onCompositionStart:()=>{composingRef.current=true},onFocus:e=>e.target.select(),onKeyDown:e=>{if(e.key==='Escape'){e.preventDefault();onCancel()}else if(e.key==='Enter'&&!composingRef.current){e.preventDefault();onConfirm()}},value:draft}),error?h('div',{className:'dsh-wel-dialog-error',role:'alert'},error):null),h('div',{className:'dsh-wel-dialog-footer'},h('button',{className:'dsh-wel-text-button',disabled:busy,onClick:onCancel,type:'button'},translate('dialog.cancel')),h('button',{className:'dsh-wel-text-button',disabled:busy||draft.trim()==='',onClick:onConfirm,type:'button'},busy?translate('dialog.processing'):translate('dialog.rename')))))}
-function DeleteDialog({entry,busy,dirtyWarning,onCancel,onConfirm}){if(entry===undefined)return null;return h('div',{className:'dsh-wel-dialog-backdrop',onMouseDown:e=>{if(e.target===e.currentTarget&&!busy)onCancel()}},h('div',{'aria-modal':true,className:'dsh-wel-dialog',role:'dialog'},h('div',{className:'dsh-wel-dialog-header'},h('div',{className:'dsh-wel-dialog-title'},translate('dialog.deleteTitle')),h('button',{'aria-label':translate('dialog.close'),className:'dsh-wel-icon-button',disabled:busy,onClick:onCancel,title:translate('dialog.close'),type:'button'},'×')),h('div',{className:'dsh-wel-dialog-body'},h('div',{className:'dsh-wel-dialog-message'},translate('dialog.deleteMessage',{name:entry.name})),dirtyWarning?h('div',{className:'dsh-wel-dialog-warning',role:'alert'},translate('dialog.deleteDirtyWarning')):null),h('div',{className:'dsh-wel-dialog-footer'},h('button',{className:'dsh-wel-text-button',disabled:busy,onClick:onCancel,type:'button'},translate('dialog.cancel')),h('button',{className:'dsh-wel-danger-button dsh-wel-text-button',disabled:busy,onClick:onConfirm,type:'button'},busy?translate('dialog.processing'):translate('dialog.deleteAction')))))}
+function PreviewToast({text,onDone,headerRef}){const[top,setTop]=useState(null);useLayoutEffect(()=>{const header=headerRef?.current;if(header===null||header===undefined)return;const section=header.parentElement;if(section===null)return;const headerBottom=header.getBoundingClientRect().bottom;const sectionTop=section.getBoundingClientRect().top;setTop(headerBottom-sectionTop+8)},[headerRef]);useEffect(()=>{const timer=setTimeout(onDone,WEL_TOAST_HOLD_MS+WEL_TOAST_FADE_MS);return()=>clearTimeout(timer)},[onDone]);return h('div',{className:'dsh-ws-toast',role:'alert',style:top===null?undefined:{top}},h('span',{'aria-hidden':true,className:'dsh-ws-toast-icon'},welToastIcon),h('span',{className:'dsh-ws-toast-text'},text))}
+function EncodingDialog({dialog,options,value,busy,onCancel,onPick,onConfirm}){if(dialog===undefined)return null;const title=dialog.mode==='open'?translate('encoding.dialog.open'):translate('encoding.dialog.save'),action=dialog.mode==='open'?translate('encoding.dialog.openAction'):translate('encoding.dialog.saveAction');return h('div',{className:'dsh-ws-dialog-backdrop',onMouseDown:e=>{if(e.target===e.currentTarget&&!busy)onCancel()}},h('div',{'aria-modal':true,className:'dsh-ws-dialog',role:'dialog'},h('div',{className:'dsh-ws-dialog-header'},h('div',{className:'dsh-ws-dialog-title'},title),h('button',{'aria-label':translate('dialog.close'),className:'dsh-ws-icon-button',disabled:busy,onClick:onCancel,title:translate('dialog.close'),type:'button'},'×')),h('div',{className:'dsh-ws-dialog-body'},h('label',{className:'dsh-ws-settings-label',htmlFor:'dsh-ws-encoding-select'},translate('encoding.badge')),h('select',{'aria-label':translate('encoding.badge'),className:'dsh-ws-highlight-preset-select',disabled:busy,id:'dsh-ws-encoding-select',onChange:e=>onPick(e.target.value),value},options.map(enc=>h('option',{key:enc.id,value:enc.id},encodingLabel(enc.id))))),h('div',{className:'dsh-ws-dialog-footer'},h('button',{className:'dsh-ws-text-button',disabled:busy,onClick:onCancel,type:'button'},translate('dialog.cancel')),h('button',{className:'dsh-ws-text-button',disabled:busy||options.length===0,onClick:onConfirm,type:'button'},busy?translate('dialog.processing'):action))))}
+function SessionRenameDialog({draft,busy,error,onCancel,onConfirm,onDraft,title}){const composingRef=useRef(false);return h('div',{className:'dsh-ws-dialog-backdrop',onMouseDown:e=>{if(e.target===e.currentTarget&&!busy)onCancel()}},h('div',{'aria-modal':true,className:'dsh-ws-dialog',role:'dialog'},h('div',{className:'dsh-ws-dialog-header'},h('div',{className:'dsh-ws-dialog-title'},title ?? translate('dialog.renameSession')),h('button',{'aria-label':translate('dialog.close'),className:'dsh-ws-icon-button',disabled:busy,onClick:onCancel,title:translate('dialog.close'),type:'button'},'×')),h('div',{className:'dsh-ws-dialog-body'},h('input',{'aria-label':translate('dialog.sessionName'),autoFocus:true,className:'dsh-ws-dialog-input',disabled:busy,onChange:e=>onDraft(e.target.value),onCompositionEnd:()=>{composingRef.current=false},onCompositionStart:()=>{composingRef.current=true},onFocus:e=>e.target.select(),onKeyDown:e=>{if(e.key==='Escape'){e.preventDefault();onCancel()}else if(e.key==='Enter'&&!composingRef.current){e.preventDefault();onConfirm()}},value:draft}),error?h('div',{className:'dsh-ws-dialog-error',role:'alert'},error):null),h('div',{className:'dsh-ws-dialog-footer'},h('button',{className:'dsh-ws-text-button',disabled:busy,onClick:onCancel,type:'button'},translate('dialog.cancel')),h('button',{className:'dsh-ws-text-button',disabled:busy||draft.trim()==='',onClick:onConfirm,type:'button'},busy?translate('dialog.processing'):translate('dialog.rename')))))}
+function DeleteDialog({entry,busy,dirtyWarning,onCancel,onConfirm}){if(entry===undefined)return null;return h('div',{className:'dsh-ws-dialog-backdrop',onMouseDown:e=>{if(e.target===e.currentTarget&&!busy)onCancel()}},h('div',{'aria-modal':true,className:'dsh-ws-dialog',role:'dialog'},h('div',{className:'dsh-ws-dialog-header'},h('div',{className:'dsh-ws-dialog-title'},translate('dialog.deleteTitle')),h('button',{'aria-label':translate('dialog.close'),className:'dsh-ws-icon-button',disabled:busy,onClick:onCancel,title:translate('dialog.close'),type:'button'},'×')),h('div',{className:'dsh-ws-dialog-body'},h('div',{className:'dsh-ws-dialog-message'},translate('dialog.deleteMessage',{name:entry.name})),dirtyWarning?h('div',{className:'dsh-ws-dialog-warning',role:'alert'},translate('dialog.deleteDirtyWarning')):null),h('div',{className:'dsh-ws-dialog-footer'},h('button',{className:'dsh-ws-text-button',disabled:busy,onClick:onCancel,type:'button'},translate('dialog.cancel')),h('button',{className:'dsh-ws-danger-button dsh-ws-text-button',disabled:busy,onClick:onConfirm,type:'button'},busy?translate('dialog.processing'):translate('dialog.deleteAction')))))}
 /* Save-time three-way merge conflict prompt: the file changed on disk by
    another tool and the changes overlap the local edits. Each conflicting
    region is reviewed one at a time (mine vs theirs) in a large dialog; the
@@ -3669,37 +3669,37 @@ function SaveConflictDialog({conflict,fontSize,onResolve}) {
     setIndex(current - 1)
     setChoices(prev => prev.slice(0, current - 1))
   }
-  return h('div', { className: 'dsh-wel-dialog-backdrop', onMouseDown: (e) => { if (e.target === e.currentTarget) onResolve('cancel') } },
-    h('div', { 'aria-modal': true, className: 'dsh-wel-dialog dsh-wel-conflict-dialog', role: 'dialog', style: fontSize === undefined ? undefined : { '--dsh-wel-conflict-font-size': `${fontSize}px` } },
-      h('div', { className: 'dsh-wel-dialog-header' },
-        h('div', { className: 'dsh-wel-dialog-title' },
+  return h('div', { className: 'dsh-ws-dialog-backdrop', onMouseDown: (e) => { if (e.target === e.currentTarget) onResolve('cancel') } },
+    h('div', { 'aria-modal': true, className: 'dsh-ws-dialog dsh-ws-conflict-dialog', role: 'dialog', style: fontSize === undefined ? undefined : { '--dsh-ws-conflict-font-size': `${fontSize}px` } },
+      h('div', { className: 'dsh-ws-dialog-header' },
+        h('div', { className: 'dsh-ws-dialog-title' },
           translate('dialog.saveConflictTitle'),
-          total > 1 ? h('span', { className: 'dsh-wel-conflict-progress' }, `${current + 1} / ${total}`) : null),
-        h('button', { 'aria-label': translate('dialog.close'), className: 'dsh-wel-icon-button', onClick: () => onResolve('cancel'), title: translate('dialog.close'), type: 'button' }, '×')),
-      h('div', { className: 'dsh-wel-dialog-body' },
-        h('div', { className: 'dsh-wel-dialog-message' }, translate('dialog.saveConflictMessage')),
-        h('div', { className: 'dsh-wel-conflict-region' },
-          h('div', { className: 'dsh-wel-conflict-region-title' },
+          total > 1 ? h('span', { className: 'dsh-ws-conflict-progress' }, `${current + 1} / ${total}`) : null),
+        h('button', { 'aria-label': translate('dialog.close'), className: 'dsh-ws-icon-button', onClick: () => onResolve('cancel'), title: translate('dialog.close'), type: 'button' }, '×')),
+      h('div', { className: 'dsh-ws-dialog-body' },
+        h('div', { className: 'dsh-ws-dialog-message' }, translate('dialog.saveConflictMessage')),
+        h('div', { className: 'dsh-ws-conflict-region' },
+          h('div', { className: 'dsh-ws-conflict-region-title' },
             translate('dialog.saveConflictRegion', { lines: regionLines })),
-          h('div', { className: 'dsh-wel-conflict-cols' },
-            h('div', { className: 'dsh-wel-conflict-col dsh-wel-conflict-mine' },
-              h('div', { className: 'dsh-wel-conflict-col-label' }, translate('dialog.saveConflictMine')),
-              h('pre', { className: 'dsh-wel-conflict-code' }, region.display === 'plain' ? region.mine.join('\n') : diffRows(region.base, region.mine))),
-            h('div', { className: 'dsh-wel-conflict-col dsh-wel-conflict-theirs' },
-              h('div', { className: 'dsh-wel-conflict-col-label' }, translate('dialog.saveConflictTheirs')),
-              h('pre', { className: 'dsh-wel-conflict-code' }, region.display === 'plain' ? region.theirs.join('\n') : diffRows(region.base, region.theirs)))),
-          h('div', { className: 'dsh-wel-conflict-cols dsh-wel-conflict-cols-final' },
-            h('div', { className: 'dsh-wel-conflict-col dsh-wel-conflict-mine' },
-              h('div', { className: 'dsh-wel-conflict-col-label' }, translate('dialog.saveConflictMineFinal')),
-              h('pre', { className: 'dsh-wel-conflict-code' }, region.mine.join('\n'))),
-            h('div', { className: 'dsh-wel-conflict-col dsh-wel-conflict-theirs' },
-              h('div', { className: 'dsh-wel-conflict-col-label' }, translate('dialog.saveConflictTheirsFinal')),
-              h('pre', { className: 'dsh-wel-conflict-code' }, region.theirs.join('\n'))))),
-      h('div', { className: 'dsh-wel-dialog-footer' },
-        h('button', { className: 'dsh-wel-text-button', onClick: () => onResolve('cancel'), type: 'button' }, translate('dialog.cancel')),
-        h('button', { className: 'dsh-wel-text-button', disabled: current === 0, onClick: goBack, type: 'button' }, translate('dialog.saveConflictPrev')),
-        h('button', { className: 'dsh-wel-text-button', onClick: () => pick('theirs'), type: 'button' }, translate('dialog.saveConflictKeepTheirs')),
-        h('button', { className: 'dsh-wel-danger-button dsh-wel-text-button', onClick: () => pick('mine'), type: 'button' }, translate('dialog.saveConflictKeepMine'))))))}
+          h('div', { className: 'dsh-ws-conflict-cols' },
+            h('div', { className: 'dsh-ws-conflict-col dsh-ws-conflict-mine' },
+              h('div', { className: 'dsh-ws-conflict-col-label' }, translate('dialog.saveConflictMine')),
+              h('pre', { className: 'dsh-ws-conflict-code' }, region.display === 'plain' ? region.mine.join('\n') : diffRows(region.base, region.mine))),
+            h('div', { className: 'dsh-ws-conflict-col dsh-ws-conflict-theirs' },
+              h('div', { className: 'dsh-ws-conflict-col-label' }, translate('dialog.saveConflictTheirs')),
+              h('pre', { className: 'dsh-ws-conflict-code' }, region.display === 'plain' ? region.theirs.join('\n') : diffRows(region.base, region.theirs)))),
+          h('div', { className: 'dsh-ws-conflict-cols dsh-ws-conflict-cols-final' },
+            h('div', { className: 'dsh-ws-conflict-col dsh-ws-conflict-mine' },
+              h('div', { className: 'dsh-ws-conflict-col-label' }, translate('dialog.saveConflictMineFinal')),
+              h('pre', { className: 'dsh-ws-conflict-code' }, region.mine.join('\n'))),
+            h('div', { className: 'dsh-ws-conflict-col dsh-ws-conflict-theirs' },
+              h('div', { className: 'dsh-ws-conflict-col-label' }, translate('dialog.saveConflictTheirsFinal')),
+              h('pre', { className: 'dsh-ws-conflict-code' }, region.theirs.join('\n'))))),
+      h('div', { className: 'dsh-ws-dialog-footer' },
+        h('button', { className: 'dsh-ws-text-button', onClick: () => onResolve('cancel'), type: 'button' }, translate('dialog.cancel')),
+        h('button', { className: 'dsh-ws-text-button', disabled: current === 0, onClick: goBack, type: 'button' }, translate('dialog.saveConflictPrev')),
+        h('button', { className: 'dsh-ws-text-button', onClick: () => pick('theirs'), type: 'button' }, translate('dialog.saveConflictKeepTheirs')),
+        h('button', { className: 'dsh-ws-danger-button dsh-ws-text-button', onClick: () => pick('mine'), type: 'button' }, translate('dialog.saveConflictKeepMine'))))))}
 
 
 function revealPosition(view, reveal) {
@@ -4033,9 +4033,9 @@ function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShortcut, o
       if (input === null || input.dataset.dshWelResize === '1') return
       input.dataset.dshWelResize = '1'
       const wrap = document.createElement('span')
-      wrap.className = 'dsh-wel-search-field-wrap'
+      wrap.className = 'dsh-ws-search-field-wrap'
       const handle = document.createElement('span')
-      handle.className = 'dsh-wel-search-resize'
+      handle.className = 'dsh-ws-search-resize'
       handle.title = translate('editor.searchResize')
       input.before(wrap)
       wrap.append(input, handle)
@@ -4063,7 +4063,7 @@ function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShortcut, o
     return () => observer.disconnect()
   }, [searchPanelContainer])
 
-  return h('div', { className: 'dsh-wel-editor-host', 'data-highlight-preset': highlightPreset ?? HIGHLIGHT_PRESET_DEFAULT, ref: host })
+  return h('div', { className: 'dsh-ws-editor-host', 'data-highlight-preset': highlightPreset ?? HIGHLIGHT_PRESET_DEFAULT, ref: host })
 }
 
 function WorkspaceExplorer({
@@ -5038,7 +5038,7 @@ function WorkspaceExplorer({
         // the restore path (draft===disk is treated as clean) or the next
         // auto-save; the emergency IndexedDB mirror already holds the newest
         // content for the unload case.
-        console.warn('workspace-explorer-layout: draft cleanup after save failed:', error)
+        console.warn('workspace-studio: draft cleanup after save failed:', error)
       }
       if (!mounted.current) return false
       lastWriteRef.current.set(path, { revision: null, content })
@@ -5401,7 +5401,7 @@ function WorkspaceExplorer({
   const copyEntryName=useCallback((entry)=>{void copyText(entry.name).then(ok=>{if(!mounted.current)return;setContextMenu(undefined);setCopyNotice(ok?translate('status.copiedName'):translate('status.copyFailed'));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},1600)})},[])
   const openInExplorer=useCallback((entry)=>{setContextMenu(undefined);const controller=new AbortController();revealInExplorer(workspace.workspaceId,entry.path,controller.signal).then(()=>{if(!mounted.current)return;setCopyNotice(translate('status.revealed'));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},1600)}).catch(error=>{if(!mounted.current||error?.name==='AbortError')return;setCopyNotice(translate('status.revealFailed',{message:error instanceof Error?error.message:String(error)}));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},3000)})},[workspace.workspaceId])
   const copyEntryToClipboard=useCallback((entry,cut)=>{setContextMenu(undefined);setClipboard({workspaceId:workspace.workspaceId,path:entry.path,name:entry.name,kind:entry.kind,cut});setCopyNotice(cut?translate('status.cut'):translate('status.copied'));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},1600)},[workspace.workspaceId])
-  const pasteEntry=useCallback((targetEntry)=>{if(clipboard===undefined||clipboard.workspaceId!==workspace.workspaceId)return;const targetDir=targetEntry.kind==='directory'?targetEntry.path:parentPath(targetEntry.path);const targetPath=entryPath(targetDir,pathBaseName(clipboard.path));if(clipboard.cut&&clipboard.path===targetPath)return;const wasCut=clipboard.cut;const affectedPrefix=clipboard.path===''?'':`${clipboard.path}/`;if(wasCut&&tabsRef.current.some(tab=>{if(!tab.dirty&&!tab.saving)return false;return tab.path===clipboard.path||(affectedPrefix!==''&&tab.path.startsWith(affectedPrefix))})){setStatus({error:true,text:translate('editor.unsavedBlocked')});return}const controller=new AbortController();mutationController.current=controller;const mutationSeq=mutationSeqRef.current+=1;let draftMoveGeneration;let draftMoveFailed=false;const request=(async()=>{const result=await requestFsOperation(workspace.workspaceId,{action:wasCut?'move':'copy',source:clipboard.path,target:targetPath},controller.signal);if(wasCut){draftMoveGeneration=nextDraftGeneration('__tree__');await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:draftMoveGeneration,fromPath:clipboard.path,toPath:result.path},controller.signal).catch(async error=>{if(!mounted.current)return;draftMoveFailed=true;console.warn('workspace-explorer-layout: draft move after fs move failed:',error);setStatus({error:true,text:translate('status.movedDraftWarning')});try{await draftTree(workspace.workspaceId,{action:'delete',owner:draftScopeId,generation:nextDraftGeneration('__tree__'),path:clipboard.path},controller.signal)}catch(cleanupError){if(mounted.current)console.warn('workspace-explorer-layout: draft cleanup after failed move also failed:',cleanupError)}})}return result})();request.then(result=>{if(!mounted.current||mutationSeq!==mutationSeqRef.current)return;setContextMenu(undefined);setStatus(draftMoveFailed?{error:true,text:translate('status.movedDraftWarning')}:{text:wasCut?translate('status.moved'):translate('status.pasted')});if(wasCut){const source=clipboard.path;setClipboard(undefined);setSelected(result);setDirectories(cur=>rewriteDirectoryMap(cur,source,result.path,result));setExpanded(cur=>rewritePathSet(cur,source,result.path));setTabs(cur=>rewritePreviewTabs(cur,source,result.path,result));rewriteRuntimePaths(source,result.path);migratePendingAutosavesRef.current?.(source,result.path);void rewriteEmergencyDraftPath(workspace.workspaceId,draftScopeId,source,result.path).catch(error=>{if(mounted.current)setStatus({error:true,text:translate('editor.autosaveFailed',{message:error instanceof Error?error.message:String(error)})})});const nextActivePath=activePathRef.current===null?null:rewriteRelativePath(activePathRef.current,source,result.path);if(nextActivePath!==activePathRef.current)setActivePath(nextActivePath);void loadDirectory(parentPath(source));void loadDirectory(targetDir)}else{void loadDirectory(targetDir)}}).catch(error=>{if(error?.name==='AbortError'||!mounted.current||mutationSeq!==mutationSeqRef.current)return;setCopyNotice(translate(wasCut?'status.cutFailed':'status.pasteFailed',{message:error instanceof Error?error.message:String(error)}));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},3000)}).finally(()=>{if(mutationController.current===controller)mutationController.current=undefined})},[clipboard,draftScopeId,draftTree,loadDirectory,nextDraftGeneration,rewriteRuntimePaths,workspace.workspaceId])
+  const pasteEntry=useCallback((targetEntry)=>{if(clipboard===undefined||clipboard.workspaceId!==workspace.workspaceId)return;const targetDir=targetEntry.kind==='directory'?targetEntry.path:parentPath(targetEntry.path);const targetPath=entryPath(targetDir,pathBaseName(clipboard.path));if(clipboard.cut&&clipboard.path===targetPath)return;const wasCut=clipboard.cut;const affectedPrefix=clipboard.path===''?'':`${clipboard.path}/`;if(wasCut&&tabsRef.current.some(tab=>{if(!tab.dirty&&!tab.saving)return false;return tab.path===clipboard.path||(affectedPrefix!==''&&tab.path.startsWith(affectedPrefix))})){setStatus({error:true,text:translate('editor.unsavedBlocked')});return}const controller=new AbortController();mutationController.current=controller;const mutationSeq=mutationSeqRef.current+=1;let draftMoveGeneration;let draftMoveFailed=false;const request=(async()=>{const result=await requestFsOperation(workspace.workspaceId,{action:wasCut?'move':'copy',source:clipboard.path,target:targetPath},controller.signal);if(wasCut){draftMoveGeneration=nextDraftGeneration('__tree__');await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:draftMoveGeneration,fromPath:clipboard.path,toPath:result.path},controller.signal).catch(async error=>{if(!mounted.current)return;draftMoveFailed=true;console.warn('workspace-studio: draft move after fs move failed:',error);setStatus({error:true,text:translate('status.movedDraftWarning')});try{await draftTree(workspace.workspaceId,{action:'delete',owner:draftScopeId,generation:nextDraftGeneration('__tree__'),path:clipboard.path},controller.signal)}catch(cleanupError){if(mounted.current)console.warn('workspace-studio: draft cleanup after failed move also failed:',cleanupError)}})}return result})();request.then(result=>{if(!mounted.current||mutationSeq!==mutationSeqRef.current)return;setContextMenu(undefined);setStatus(draftMoveFailed?{error:true,text:translate('status.movedDraftWarning')}:{text:wasCut?translate('status.moved'):translate('status.pasted')});if(wasCut){const source=clipboard.path;setClipboard(undefined);setSelected(result);setDirectories(cur=>rewriteDirectoryMap(cur,source,result.path,result));setExpanded(cur=>rewritePathSet(cur,source,result.path));setTabs(cur=>rewritePreviewTabs(cur,source,result.path,result));rewriteRuntimePaths(source,result.path);migratePendingAutosavesRef.current?.(source,result.path);void rewriteEmergencyDraftPath(workspace.workspaceId,draftScopeId,source,result.path).catch(error=>{if(mounted.current)setStatus({error:true,text:translate('editor.autosaveFailed',{message:error instanceof Error?error.message:String(error)})})});const nextActivePath=activePathRef.current===null?null:rewriteRelativePath(activePathRef.current,source,result.path);if(nextActivePath!==activePathRef.current)setActivePath(nextActivePath);void loadDirectory(parentPath(source));void loadDirectory(targetDir)}else{void loadDirectory(targetDir)}}).catch(error=>{if(error?.name==='AbortError'||!mounted.current||mutationSeq!==mutationSeqRef.current)return;setCopyNotice(translate(wasCut?'status.cutFailed':'status.pasteFailed',{message:error instanceof Error?error.message:String(error)}));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},3000)}).finally(()=>{if(mutationController.current===controller)mutationController.current=undefined})},[clipboard,draftScopeId,draftTree,loadDirectory,nextDraftGeneration,rewriteRuntimePaths,workspace.workspaceId])
   const openDeleteConfirm=useCallback(entry=>{setContextMenu(undefined);setDeleteDialog(entry);setDeleteBusy(false)},[])
   const closeDeleteDialog=useCallback(()=>{if(deleteBusy)return;setDeleteDialog(undefined)},[deleteBusy])
   const confirmDelete = useCallback(async () => {
@@ -5494,7 +5494,7 @@ function WorkspaceExplorer({
       if(element.tagName==='INPUT'||element.tagName==='TEXTAREA'||element.tagName==='SELECT'||element.isContentEditable)return
       // The file shortcuts only fire while a tree row is focused (or the tree
       // context menu is open); editors and inputs keep their native behavior.
-      const treeFocused=element.classList.contains('dsh-wel-tree-row')
+      const treeFocused=element.classList.contains('dsh-ws-tree-row')
       if(!treeFocused&&contextMenu===undefined)return
       if(selected===undefined)return
       event.preventDefault()
@@ -5697,7 +5697,7 @@ function WorkspaceExplorer({
     if (strip === null || target === null) return
     let tabNode = null
     for (const child of strip.children) {
-      if (child instanceof HTMLElement && child.classList.contains('dsh-wel-preview-tab') && child.dataset.path === target) {
+      if (child instanceof HTMLElement && child.classList.contains('dsh-ws-preview-tab') && child.dataset.path === target) {
         tabNode = child
         break
       }
@@ -5733,20 +5733,20 @@ function WorkspaceExplorer({
   }, [tabs.length])
   let body
   if (preview.state === 'idle') {
-    body = h('div', { className: 'dsh-wel-empty' }, translate('panel.previewHint'))
+    body = h('div', { className: 'dsh-ws-empty' }, translate('panel.previewHint'))
   } else if (preview.state === 'loading') {
-    body = h('div', { className: 'dsh-wel-empty' }, translate('editor.loading'))
+    body = h('div', { className: 'dsh-ws-empty' }, translate('editor.loading'))
   } else if (preview.state === 'error') {
-    body = h('div', { className: 'dsh-wel-empty' },
-      h('div', { className: 'dsh-wel-error-card' }, preview.message))
+    body = h('div', { className: 'dsh-ws-empty' },
+      h('div', { className: 'dsh-ws-error-card' }, preview.message))
   } else {
     const highlightPreset = highlightPresetOf(settings, colorGroupOf({ kind: 'file', name: preview.name }))
     const previewReason = readOnlyReason(preview)
     body = h(Fragment, null,
-      preview.truncated ? h('div', { className: 'dsh-wel-banner' }, translate('editor.previewTruncated')) : null,
-      previewReason && !preview.truncated ? h('div', { className: 'dsh-wel-banner' }, translate('editor.cannotEdit', { reason: previewReason })) : null,
-      h('div', { className: 'dsh-wel-preview-search', ref: searchPanelContainerRef, onContextMenu: (event) => { if (event.button !== 2) event.preventDefault() } }),
-      h('div', { className: 'dsh-wel-preview-body', onClick: () => { if (activePathRef.current !== null) scrollTabIntoView(activePathRef.current) } },
+      preview.truncated ? h('div', { className: 'dsh-ws-banner' }, translate('editor.previewTruncated')) : null,
+      previewReason && !preview.truncated ? h('div', { className: 'dsh-ws-banner' }, translate('editor.cannotEdit', { reason: previewReason })) : null,
+      h('div', { className: 'dsh-ws-preview-search', ref: searchPanelContainerRef, onContextMenu: (event) => { if (event.button !== 2) event.preventDefault() } }),
+      h('div', { className: 'dsh-ws-preview-body', onClick: () => { if (activePathRef.current !== null) scrollTabIntoView(activePathRef.current) } },
         h(CodeEditor, {
           key: `${preview.path}:${preview.encoding}:${readEpoch}`,
           editorRef,
@@ -5785,51 +5785,51 @@ function WorkspaceExplorer({
         })),
       // Bottom status bar: transient notices sit below the editor body at the
       // panel's bottom edge (right-aligned), not above the search strip.
-      status ? h('div', { className: 'dsh-wel-status', 'data-error': status.error || undefined }, status.text) : null)
+      status ? h('div', { className: 'dsh-ws-status', 'data-error': status.error || undefined }, status.text) : null)
   }
   let searchBody
   if (searchState.state === 'idle') {
-    searchBody = h('div', { className: 'dsh-wel-empty' }, translate('search.hint'))
+    searchBody = h('div', { className: 'dsh-ws-empty' }, translate('search.hint'))
   } else if (searchState.state === 'searching') {
     searchBody = h(TreeStatus, null, translate('search.searching'))
   } else if (searchState.state === 'error') {
-    searchBody = h('div', { className: 'dsh-wel-empty' },
-      h('div', { className: 'dsh-wel-error-card' }, searchState.message))
+    searchBody = h('div', { className: 'dsh-ws-empty' },
+      h('div', { className: 'dsh-ws-error-card' }, searchState.message))
   } else if (searchState.result.files.length === 0) {
     searchBody = h(Fragment, null,
-      h('div', { className: 'dsh-wel-search-summary' }, translate('search.noResults')),
-      h('div', { className: 'dsh-wel-empty' }, translate('search.noResultsFor', { query: searchState.result.query })),
+      h('div', { className: 'dsh-ws-search-summary' }, translate('search.noResults')),
+      h('div', { className: 'dsh-ws-empty' }, translate('search.noResultsFor', { query: searchState.result.query })),
     )
   } else {
     searchBody = h(Fragment, null,
-      h('div', { className: 'dsh-wel-search-summary' },
+      h('div', { className: 'dsh-ws-search-summary' },
         `${translate('search.summary', { matches: searchState.result.matchCount, files: searchState.result.fileCount })}${searchState.result.truncated ? translate('search.summaryTruncated') : ''}`),
       searchState.result.files.map(file => {
         const expanded = searchExpanded.has(file.path)
-        return h('div', { className: 'dsh-wel-search-file', key: file.path },
+        return h('div', { className: 'dsh-ws-search-file', key: file.path },
           h('button', {
             'aria-expanded': expanded,
-            className: 'dsh-wel-search-file-header',
+            className: 'dsh-ws-search-file-header',
             onClick: () => toggleSearchFile(file.path),
             title: file.path,
             type: 'button',
           },
-            h('span', { className: 'dsh-wel-chevron' }, expanded ? '▼' : '▶'),
-            h('span', { className: 'dsh-wel-row-name' }, file.path),
-            file.truncated ? h('span', { className: 'dsh-wel-search-truncated', title: translate('search.partial.title') }, translate('search.partial')) : null,
-            h('span', { className: 'dsh-wel-search-file-count' }, `${file.matches.length}`),
+            h('span', { className: 'dsh-ws-chevron' }, expanded ? '▼' : '▶'),
+            h('span', { className: 'dsh-ws-row-name' }, file.path),
+            file.truncated ? h('span', { className: 'dsh-ws-search-truncated', title: translate('search.partial.title') }, translate('search.partial')) : null,
+            h('span', { className: 'dsh-ws-search-file-count' }, `${file.matches.length}`),
           ),
           expanded ? file.matches.map(match => h('button', {
-            className: 'dsh-wel-search-row',
+            className: 'dsh-ws-search-row',
             key: `${match.line}:${match.startColumn}`,
             onClick: () => openSearchMatch(file, match),
             title: translate('search.row.title', { path: file.path, line: match.line }),
             type: 'button',
           },
-            h('span', { className: 'dsh-wel-search-line' }, String(match.line)),
-            h('span', { className: 'dsh-wel-search-text' },
+            h('span', { className: 'dsh-ws-search-line' }, String(match.line)),
+            h('span', { className: 'dsh-ws-search-text' },
               match.text.slice(0, match.startColumn - 1),
-              h('span', { className: 'dsh-wel-search-hit' }, match.text.slice(match.startColumn - 1, match.endColumn - 1)),
+              h('span', { className: 'dsh-ws-search-hit' }, match.text.slice(match.startColumn - 1, match.endColumn - 1)),
               match.text.slice(match.endColumn - 1),
             ),
           )) : null,
@@ -5861,9 +5861,9 @@ function WorkspaceExplorer({
   const size = preview.state === 'ready' ? formatBytes(preview.size) : ''
   const previewTabNodes = []
   for (const [index, tab] of tabs.entries()) {
-    if (draggingPath !== null && dropIndex === index) previewTabNodes.push(h('div', { 'aria-hidden': true, className: 'dsh-wel-preview-drop-indicator', key: `drop:${index}` }))
+    if (draggingPath !== null && dropIndex === index) previewTabNodes.push(h('div', { 'aria-hidden': true, className: 'dsh-ws-preview-drop-indicator', key: `drop:${index}` }))
     previewTabNodes.push(h('div', {
-      className: 'dsh-wel-preview-tab',
+      className: 'dsh-ws-preview-tab',
       'data-active': tab.path === activePath || undefined,
       'data-dragging': draggingPath === tab.path || undefined,
       'data-path': tab.path,
@@ -5875,17 +5875,17 @@ function WorkspaceExplorer({
       title: tab.path,
     },
       h('button', {
-        className: 'dsh-wel-preview-tab-button',
+        className: 'dsh-ws-preview-tab-button',
         onClick: () => chooseFile(entryFromPreviewTab(tab)),
         role: 'tab',
         'aria-selected': tab.path === activePath,
         title: tab.path,
         type: 'button',
-      }, h('span', { className: 'dsh-wel-preview-tab-name' }, tab.name), tab.dirty ? h('span', { className: 'dsh-wel-dirty', title: translate('tab.dirty') }, '·') : null),
+      }, h('span', { className: 'dsh-ws-preview-tab-name' }, tab.name), tab.dirty ? h('span', { className: 'dsh-ws-dirty', title: translate('tab.dirty') }, '·') : null),
       tab.pinned
         ? h('button', {
           'aria-label': translate('tab.unpinAria', { name: tab.name }),
-          className: 'dsh-wel-preview-tab-close',
+          className: 'dsh-ws-preview-tab-close',
           'data-pinned': true,
           onClick: event => { event.stopPropagation(); unpinTab(tab.path) },
           title: translate('tab.unpin'),
@@ -5893,7 +5893,7 @@ function WorkspaceExplorer({
         }, h(IconPin))
         : h('button', {
           'aria-label': translate('tab.closeAria', { name: tab.name }),
-          className: 'dsh-wel-preview-tab-close',
+          className: 'dsh-ws-preview-tab-close',
           disabled: tab.dirty || tab.saving || undefined,
           onClick: event => { event.stopPropagation(); closeTab(tab.path) },
           title: tab.dirty || tab.saving ? translate('tab.close.title') : translate('tab.close'),
@@ -5901,17 +5901,17 @@ function WorkspaceExplorer({
         }, '×'),
     ))
   }
-  if (draggingPath !== null && dropIndex === tabs.length) previewTabNodes.push(h('div', { 'aria-hidden': true, className: 'dsh-wel-preview-drop-indicator', key: 'drop:end' }))
+  if (draggingPath !== null && dropIndex === tabs.length) previewTabNodes.push(h('div', { 'aria-hidden': true, className: 'dsh-ws-preview-drop-indicator', key: 'drop:end' }))
   const tabMenuTarget = tabContextMenu === undefined ? undefined : tabs.find(tab => tab.path === tabContextMenu.path)
-  const treeSection = h('section', { className: 'dsh-wel-tree' },
+  const treeSection = h('section', { className: 'dsh-ws-tree' },
       searchOpen
         ? h(Fragment, null,
-          h('header', { className: 'dsh-wel-panel-header dsh-wel-search-header' },
-            h('div', { className: 'dsh-wel-search-input-row' },
+          h('header', { className: 'dsh-ws-panel-header dsh-ws-search-header' },
+            h('div', { className: 'dsh-ws-search-input-row' },
               h('input', {
                 'aria-label': translate('search.placeholder'),
                 autoFocus: true,
-                className: 'dsh-wel-search-input',
+                className: 'dsh-ws-search-input',
                 onChange: e => setSearchQuery(e.target.value),
                 onKeyDown: e => {
                   if (e.key === 'Enter') { e.preventDefault(); void runSearch(searchQuery) }
@@ -5923,7 +5923,7 @@ function WorkspaceExplorer({
               }),
               h('button', {
                 'aria-pressed': searchCaseSensitive,
-                className: 'dsh-wel-icon-button dsh-wel-search-case',
+                className: 'dsh-ws-icon-button dsh-ws-search-case',
                 'data-active': searchCaseSensitive || undefined,
                 onClick: () => setSearchCaseSensitive(value => !value),
                 title: searchCaseSensitive ? translate('search.caseSensitive') : translate('search.caseInsensitive'),
@@ -5931,14 +5931,14 @@ function WorkspaceExplorer({
               }, 'Aa'),
               h('button', {
                 'aria-label': translate('search.closeAria'),
-                className: 'dsh-wel-icon-button',
+                className: 'dsh-ws-icon-button',
                 onClick: closeSearch,
                 title: translate('search.close.title'),
                 type: 'button',
               }, '×'),
             ),
           ),
-          h('div', { className: 'dsh-wel-tree-scroll' }, searchBody),
+          h('div', { className: 'dsh-ws-tree-scroll' }, searchBody),
         )
         : h(Fragment, null,
           h(PanelHeader, {
@@ -5953,10 +5953,10 @@ function WorkspaceExplorer({
             subtitle: workspace.path,
             title: sessionTitle ?? translate('panel.workspaceFiles'),
           }),
-          h('div', { className: 'dsh-wel-tree-scroll' }, renderDirectory('', 0)),
+          h('div', { className: 'dsh-ws-tree-scroll' }, renderDirectory('', 0)),
           contextMenu ? h(TreeContextMenu, { entry: contextMenu.entry, menuRef, onRename: entry => { setContextMenu(undefined); beginRename(entry) }, onCopyName: copyEntryName, onCopyPath: copyEntryPath, onReveal: openInExplorer, onCopy: entry => copyEntryToClipboard(entry, false), onPaste: pasteEntry, onCut: entry => copyEntryToClipboard(entry, true), onDelete: openDeleteConfirm, pasteDisabled: clipboard === undefined || clipboard.workspaceId !== workspace.workspaceId, pasteTitle: clipboard === undefined ? translate('context.paste.titleEmpty') : clipboard.workspaceId !== workspace.workspaceId ? translate('context.paste.titleForeign') : translate('context.paste.title'), x: contextMenu.x, y: contextMenu.y }) : null,
-          titleContextMenu ? h('div', { className: 'dsh-wel-context-menu', ref: titleMenuRef, role: 'menu', style: { left: Math.max(4, Math.min(titleContextMenu.x, window.innerWidth - CONTEXT_MENU_WIDTH - 4)), top: Math.max(4, Math.min(titleContextMenu.y, window.innerHeight - 52)) } }, h('button', { className: 'dsh-wel-context-item', onClick: openSessionRename, role: 'menuitem', title: translate('dialog.renameSession'), type: 'button' }, translate('dialog.renameSession'))) : null,
-          copyNotice ? h('div', { className: 'dsh-wel-copy-notice', role: 'status' }, copyNotice) : null,
+          titleContextMenu ? h('div', { className: 'dsh-ws-context-menu', ref: titleMenuRef, role: 'menu', style: { left: Math.max(4, Math.min(titleContextMenu.x, window.innerWidth - CONTEXT_MENU_WIDTH - 4)), top: Math.max(4, Math.min(titleContextMenu.y, window.innerHeight - 52)) } }, h('button', { className: 'dsh-ws-context-item', onClick: openSessionRename, role: 'menuitem', title: translate('dialog.renameSession'), type: 'button' }, translate('dialog.renameSession'))) : null,
+          copyNotice ? h('div', { className: 'dsh-ws-copy-notice', role: 'status' }, copyNotice) : null,
         ),
   )
   return h(Fragment, null,
@@ -5984,27 +5984,27 @@ function WorkspaceExplorer({
       onDraft: value => { setSessionRenameDraft(value); setSessionRenameError(undefined) },
     }) : null,
     treePortalTarget ? createPortal(treeSection, treePortalTarget) : null,
-    h('section', { 'data-drop-active': dropActive || undefined, className: 'dsh-wel-preview', ref: previewSectionRef },
-      tabs.length ? h('div', { ref: previewTabsRef, className: 'dsh-wel-preview-tabs', role: 'tablist', 'aria-label': translate('tab.list'), onDragLeave: handleTabsDragLeave, onDragOver: updateDropIndex, onDrop: handleTabsDrop }, previewTabNodes) : null,
+    h('section', { 'data-drop-active': dropActive || undefined, className: 'dsh-ws-preview', ref: previewSectionRef },
+      tabs.length ? h('div', { ref: previewTabsRef, className: 'dsh-ws-preview-tabs', role: 'tablist', 'aria-label': translate('tab.list'), onDragLeave: handleTabsDragLeave, onDragOver: updateDropIndex, onDrop: handleTabsDrop }, previewTabNodes) : null,
       tabContextMenu ? h(TabContextMenu, { menuRef: tabMenuRef, onCloseOthers: () => { setTabContextMenu(undefined); closeOtherTabs(tabContextMenu.path) }, onTogglePin: () => { setTabContextMenu(undefined); if (tabMenuTarget?.pinned) unpinTab(tabContextMenu.path); else pinTab(tabContextMenu.path) }, pinned: Boolean(tabMenuTarget?.pinned), x: tabContextMenu.x, y: tabContextMenu.y }) : null,
-      h('header', { className: 'dsh-wel-panel-header', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) }, ref: previewHeaderRef },
-        h('div', { className: 'dsh-wel-panel-title' },
-          h('strong', { title: activeTab?.external ? activeTab.name : (activeTab?.path ?? translate('panel.filePreview')) }, activeTab?.name ?? translate('panel.filePreview'), dirty ? h('span', { className: 'dsh-wel-dirty', title: translate('tab.dirty') }, '·') : null),
-          h('div', { className: 'dsh-wel-preview-header-meta' },
+      h('header', { className: 'dsh-ws-panel-header', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) }, ref: previewHeaderRef },
+        h('div', { className: 'dsh-ws-panel-title' },
+          h('strong', { title: activeTab?.external ? activeTab.name : (activeTab?.path ?? translate('panel.filePreview')) }, activeTab?.name ?? translate('panel.filePreview'), dirty ? h('span', { className: 'dsh-ws-dirty', title: translate('tab.dirty') }, '·') : null),
+          h('div', { className: 'dsh-ws-preview-header-meta' },
             activeTab
               ? (activeTab.external
                   ? h('span', { title: translate('external.externalFile.title') }, translate('external.externalFile', { name: activeTab.name }))
                   : h('span', { title: activeTab.path }, activeTab.path))
               : h('span', null, workspace.title),
-            activeTab ? h('span', { className: 'dsh-wel-language' }, fileLabel(activeTab.name)) : null,
+            activeTab ? h('span', { className: 'dsh-ws-language' }, fileLabel(activeTab.name)) : null,
             size ? h('span', null, size) : null,
-            preview.state === 'ready' && preview.encoding ? h('span', { className: 'dsh-wel-encoding', title: translate('encoding.badge') }, encodingLabel(preview.encoding)) : null,
+            preview.state === 'ready' && preview.encoding ? h('span', { className: 'dsh-ws-encoding', title: translate('encoding.badge') }, encodingLabel(preview.encoding)) : null,
           ),
         ),
         preview.state === 'ready'
           ? h(Fragment, null,
             h('button', {
-              className: 'dsh-wel-text-button',
+              className: 'dsh-ws-text-button',
               disabled: Boolean(activeTab?.external),
               onClick: refreshFile,
               title: translate('editor.refresh.title'),
@@ -6012,7 +6012,7 @@ function WorkspaceExplorer({
             }, translate('editor.refresh')),
             h('button', {
               'aria-pressed': settings.wrap === true,
-              className: 'dsh-wel-text-button',
+              className: 'dsh-ws-text-button',
               'data-active': settings.wrap === true || undefined,
               onClick: () => settingsStore.actions.setWrap(settings.wrap !== true),
               title: settings.wrap === true ? translate('editor.wrap.off.title') : translate('editor.wrap.on.title'),
@@ -6020,27 +6020,27 @@ function WorkspaceExplorer({
             }, translate('editor.wrap')),
             reason === null
               ? h(Fragment, null,
-                h('button', { className: 'dsh-wel-text-button', disabled: !dirty || saving, onClick: cancel, type: 'button' }, translate('editor.cancel')),
-                h('button', { className: 'dsh-wel-text-button', disabled: !dirty || saving, onClick: () => void save(), type: 'button' }, saving ? translate('editor.saving') : translate('editor.save')),
+                h('button', { className: 'dsh-ws-text-button', disabled: !dirty || saving, onClick: cancel, type: 'button' }, translate('editor.cancel')),
+                h('button', { className: 'dsh-ws-text-button', disabled: !dirty || saving, onClick: () => void save(), type: 'button' }, saving ? translate('editor.saving') : translate('editor.save')),
               )
               : null,
           )
           : null,
       ),
       body,
-      dropActive ? h('div', { className: 'dsh-wel-drop-overlay', role: 'presentation' },
-        h('button', { 'aria-label': translate('drop.closeAria'), className: 'dsh-wel-drop-close', onClick: () => { dropSuppressedRef.current = true; setDropActive(false) }, title: translate('drop.closeTitle'), type: 'button' }, '×'),
-        h('div', { className: 'dsh-wel-drop-hint' }, translate('drop.releaseFiles'))) : null,
+      dropActive ? h('div', { className: 'dsh-ws-drop-overlay', role: 'presentation' },
+        h('button', { 'aria-label': translate('drop.closeAria'), className: 'dsh-ws-drop-close', onClick: () => { dropSuppressedRef.current = true; setDropActive(false) }, title: translate('drop.closeTitle'), type: 'button' }, '×'),
+        h('div', { className: 'dsh-ws-drop-hint' }, translate('drop.releaseFiles'))) : null,
       previewToast ? h(PreviewToast, { headerRef: previewHeaderRef, key: previewToast.seq, onDone: () => setPreviewToast(undefined), text: previewToast.text }) : null,
     ),
   )
 }
 
 function EmptyWorkspaceExplorer({ treePortalTarget, sessionTitle }) {
-  const treeSection = h('section', { className: 'dsh-wel-tree' }, h(PanelHeader, { title: sessionTitle ?? translate('panel.workspaceFiles'), subtitle: translate('panel.noWorkspace') }), h('div', { className: 'dsh-wel-empty' }, translate('panel.chooseSession')))
+  const treeSection = h('section', { className: 'dsh-ws-tree' }, h(PanelHeader, { title: sessionTitle ?? translate('panel.workspaceFiles'), subtitle: translate('panel.noWorkspace') }), h('div', { className: 'dsh-ws-empty' }, translate('panel.chooseSession')))
   return h(Fragment, null,
     treePortalTarget ? createPortal(treeSection, treePortalTarget) : null,
-    h('section', { className: 'dsh-wel-preview' }, h(PanelHeader, { title: translate('panel.filePreview'), subtitle: translate('panel.noWorkspace') }), h('div', { className: 'dsh-wel-empty' }, translate('panel.chooseWorkspaceToBrowse'))))
+    h('section', { className: 'dsh-ws-preview' }, h(PanelHeader, { title: translate('panel.filePreview'), subtitle: translate('panel.noWorkspace') }), h('div', { className: 'dsh-ws-empty' }, translate('panel.chooseWorkspaceToBrowse'))))
 }function ExplorerSettingsSection({ settingsStore }) {
   const settings = useSyncExternalStore(settingsStore.subscribe, settingsStore.getSnapshot)
   const rowHeight = clamp(settings.rowHeight ?? ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MIN, ROW_HEIGHT_MAX)
@@ -6048,15 +6048,15 @@ function EmptyWorkspaceExplorer({ treePortalTarget, sessionTitle }) {
   const conflictFontSize = clamp(settings.conflictFontSize ?? CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MIN, CONFLICT_FONT_SIZE_MAX)
   const customizedCount = Object.keys(settings.fileColors ?? {}).length
   const customizedPresetCount = Object.keys(settings.highlightPresets ?? {}).length
-  return h('div', { className: 'dsh-wel-explorer-settings' },
-    h('div', { className: 'dsh-wel-settings-group' },
-      h('div', { className: 'dsh-wel-settings-group-title' }, translate('settings.group.browse')),
-      h('div', { className: 'dsh-wel-settings-row' },
-        h('label', { className: 'dsh-wel-settings-label', htmlFor: 'dsh-wel-row-height' }, translate('settings.rowHeight')),
+  return h('div', { className: 'dsh-ws-explorer-settings' },
+    h('div', { className: 'dsh-ws-settings-group' },
+      h('div', { className: 'dsh-ws-settings-group-title' }, translate('settings.group.browse')),
+      h('div', { className: 'dsh-ws-settings-row' },
+        h('label', { className: 'dsh-ws-settings-label', htmlFor: 'dsh-ws-row-height' }, translate('settings.rowHeight')),
         h('input', {
           'aria-label': translate('settings.rowHeight'),
-          className: 'dsh-wel-settings-slider',
-          id: 'dsh-wel-row-height',
+          className: 'dsh-ws-settings-slider',
+          id: 'dsh-ws-row-height',
           max: ROW_HEIGHT_MAX,
           min: ROW_HEIGHT_MIN,
           onChange: e => settingsStore.actions.setRowHeight(Number(e.target.value)),
@@ -6064,87 +6064,87 @@ function EmptyWorkspaceExplorer({ treePortalTarget, sessionTitle }) {
           type: 'range',
           value: rowHeight,
         }),
-        h('span', { className: 'dsh-wel-settings-value' }, `${rowHeight}px`),
+        h('span', { className: 'dsh-ws-settings-value' }, `${rowHeight}px`),
         h('button', {
-          className: 'dsh-wel-text-button',
+          className: 'dsh-ws-text-button',
           disabled: rowHeight === ROW_HEIGHT_DEFAULT || undefined,
           onClick: () => settingsStore.actions.setRowHeight(ROW_HEIGHT_DEFAULT),
           title: translate('settings.rowHeight.reset.title'),
           type: 'button',
         }, translate('settings.resetDefault'))),
-      h('div', { className: 'dsh-wel-settings-row' },
-        h('label', { className: 'dsh-wel-settings-label', htmlFor: 'dsh-wel-search-expand-default' }, translate('settings.searchResult')),
+      h('div', { className: 'dsh-ws-settings-row' },
+        h('label', { className: 'dsh-ws-settings-label', htmlFor: 'dsh-ws-search-expand-default' }, translate('settings.searchResult')),
         h('select', {
           'aria-label': translate('settings.searchResult'),
-          className: 'dsh-wel-highlight-preset-select',
-          id: 'dsh-wel-search-expand-default',
+          className: 'dsh-ws-highlight-preset-select',
+          id: 'dsh-ws-search-expand-default',
           onChange: e => settingsStore.actions.setExpandSearchMatches(e.target.value === 'expanded'),
           value: (settings.expandSearchMatches ?? SEARCH_MATCH_EXPAND_DEFAULT) ? 'expanded' : 'collapsed',
         },
           h('option', { value: 'expanded' }, translate('settings.expanded')),
           h('option', { value: 'collapsed' }, translate('settings.collapsed')))),
-      h('div', { className: 'dsh-wel-file-colors-title' }, translate('settings.fileColors')),
-      h('div', { className: 'dsh-wel-file-colors' },
-        FILE_COLOR_GROUPS.map(({ group }) => { const label = fileColorGroupLabel(group); return h('div', { className: 'dsh-wel-file-color-row', key: group },
-          h('span', { className: 'dsh-wel-file-color-name', title: label }, label),
+      h('div', { className: 'dsh-ws-file-colors-title' }, translate('settings.fileColors')),
+      h('div', { className: 'dsh-ws-file-colors' },
+        FILE_COLOR_GROUPS.map(({ group }) => { const label = fileColorGroupLabel(group); return h('div', { className: 'dsh-ws-file-color-row', key: group },
+          h('span', { className: 'dsh-ws-file-color-name', title: label }, label),
           h('input', {
             'aria-label': translate('settings.fileColor.aria', { label }),
-            className: 'dsh-wel-file-color-input',
+            className: 'dsh-ws-file-color-input',
             onChange: e => settingsStore.actions.setFileColor(group, e.target.value),
             type: 'color',
             value: fileColorOf(settings, group),
           }),
           h('button', {
-            className: 'dsh-wel-file-color-reset',
+            className: 'dsh-ws-file-color-reset',
             disabled: settings.fileColors?.[group] === undefined || undefined,
             onClick: () => settingsStore.actions.resetFileColor(group),
             title: translate('settings.fileColor.reset.title', { label }),
             type: 'button',
           }, translate('settings.reset')),
         ) })),
-      h('div', { className: 'dsh-wel-file-colors-actions' },
+      h('div', { className: 'dsh-ws-file-colors-actions' },
         h('button', {
-          className: 'dsh-wel-text-button',
+          className: 'dsh-ws-text-button',
           disabled: customizedCount === 0 || undefined,
           onClick: () => settingsStore.actions.resetFileColors(),
           type: 'button',
         }, translate('settings.resetAllColors'))),
     ),
-    h('div', { className: 'dsh-wel-explorer-divider' }),
-    h('div', { className: 'dsh-wel-settings-group' },
-      h('div', { className: 'dsh-wel-settings-group-title' }, translate('settings.group.content')),
-      h('div', { className: 'dsh-wel-file-colors-title' }, translate('settings.presets')),
-      h('div', { className: 'dsh-wel-file-colors' },
-        FILE_COLOR_GROUPS.map(({ group }) => { const label = fileColorGroupLabel(group); return h('div', { className: 'dsh-wel-file-color-row', key: `preset-${group}` },
-          h('span', { className: 'dsh-wel-file-color-name', title: label }, label),
+    h('div', { className: 'dsh-ws-explorer-divider' }),
+    h('div', { className: 'dsh-ws-settings-group' },
+      h('div', { className: 'dsh-ws-settings-group-title' }, translate('settings.group.content')),
+      h('div', { className: 'dsh-ws-file-colors-title' }, translate('settings.presets')),
+      h('div', { className: 'dsh-ws-file-colors' },
+        FILE_COLOR_GROUPS.map(({ group }) => { const label = fileColorGroupLabel(group); return h('div', { className: 'dsh-ws-file-color-row', key: `preset-${group}` },
+          h('span', { className: 'dsh-ws-file-color-name', title: label }, label),
           h('select', {
             'aria-label': translate('settings.preset.aria', { label }),
-            className: 'dsh-wel-highlight-preset-select',
+            className: 'dsh-ws-highlight-preset-select',
             onChange: e => settingsStore.actions.setHighlightPreset(group, e.target.value),
             value: highlightPresetOf(settings, group),
           },
             HIGHLIGHT_PRESETS.map(preset => h('option', { key: preset.id, value: preset.id }, highlightPresetLabel(preset.id)))),
           h('button', {
-            className: 'dsh-wel-file-color-reset',
+            className: 'dsh-ws-file-color-reset',
             disabled: settings.highlightPresets?.[group] === undefined || undefined,
             onClick: () => settingsStore.actions.resetHighlightPreset(group),
             title: translate('settings.preset.reset.title', { label }),
             type: 'button',
           }, translate('settings.reset')),
         ) })),
-      h('div', { className: 'dsh-wel-file-colors-actions' },
+      h('div', { className: 'dsh-ws-file-colors-actions' },
         h('button', {
-          className: 'dsh-wel-text-button',
+          className: 'dsh-ws-text-button',
           disabled: customizedPresetCount === 0 || undefined,
           onClick: () => settingsStore.actions.resetHighlightPresets(),
           type: 'button',
         }, translate('settings.resetAllPresets'))),
-      h('div', { className: 'dsh-wel-settings-row' },
-        h('label', { className: 'dsh-wel-settings-label', htmlFor: 'dsh-wel-conflict-font-size' }, translate('settings.conflictFontSize')),
+      h('div', { className: 'dsh-ws-settings-row' },
+        h('label', { className: 'dsh-ws-settings-label', htmlFor: 'dsh-ws-conflict-font-size' }, translate('settings.conflictFontSize')),
         h('input', {
           'aria-label': translate('settings.conflictFontSize'),
-          className: 'dsh-wel-settings-slider',
-          id: 'dsh-wel-conflict-font-size',
+          className: 'dsh-ws-settings-slider',
+          id: 'dsh-ws-conflict-font-size',
           max: CONFLICT_FONT_SIZE_MAX,
           min: CONFLICT_FONT_SIZE_MIN,
           onChange: e => settingsStore.actions.setConflictFontSize(Number(e.target.value)),
@@ -6152,24 +6152,24 @@ function EmptyWorkspaceExplorer({ treePortalTarget, sessionTitle }) {
           type: 'range',
           value: conflictFontSize,
         }),
-        h('span', { className: 'dsh-wel-settings-value' }, `${conflictFontSize}px`),
+        h('span', { className: 'dsh-ws-settings-value' }, `${conflictFontSize}px`),
         h('button', {
-          className: 'dsh-wel-text-button',
+          className: 'dsh-ws-text-button',
           disabled: conflictFontSize === CONFLICT_FONT_SIZE_DEFAULT || undefined,
           onClick: () => settingsStore.actions.setConflictFontSize(CONFLICT_FONT_SIZE_DEFAULT),
           title: translate('settings.conflictFontSize.reset.title'),
           type: 'button',
         }, translate('settings.resetDefault'))),
     ),
-    h('div', { className: 'dsh-wel-explorer-divider' }),
-    h('div', { className: 'dsh-wel-settings-group' },
-      h('div', { className: 'dsh-wel-settings-group-title' }, translate('settings.group.dialog')),
-      h('div', { className: 'dsh-wel-settings-row' },
-        h('label', { className: 'dsh-wel-settings-label', htmlFor: 'dsh-wel-chat-font-size' }, translate('settings.chatFont')),
+    h('div', { className: 'dsh-ws-explorer-divider' }),
+    h('div', { className: 'dsh-ws-settings-group' },
+      h('div', { className: 'dsh-ws-settings-group-title' }, translate('settings.group.dialog')),
+      h('div', { className: 'dsh-ws-settings-row' },
+        h('label', { className: 'dsh-ws-settings-label', htmlFor: 'dsh-ws-chat-font-size' }, translate('settings.chatFont')),
         h('input', {
           'aria-label': translate('settings.chatFont'),
-          className: 'dsh-wel-settings-slider',
-          id: 'dsh-wel-chat-font-size',
+          className: 'dsh-ws-settings-slider',
+          id: 'dsh-ws-chat-font-size',
           max: CHAT_FONT_SIZE_MAX,
           min: CHAT_FONT_SIZE_MIN,
           onChange: e => settingsStore.actions.setChatFontSize(Number(e.target.value)),
@@ -6177,31 +6177,31 @@ function EmptyWorkspaceExplorer({ treePortalTarget, sessionTitle }) {
           type: 'range',
           value: chatFontSize,
         }),
-        h('span', { className: 'dsh-wel-settings-value' }, `${chatFontSize}px`),
+        h('span', { className: 'dsh-ws-settings-value' }, `${chatFontSize}px`),
         h('button', {
-          className: 'dsh-wel-text-button',
+          className: 'dsh-ws-text-button',
           disabled: chatFontSize === CHAT_FONT_SIZE_DEFAULT || undefined,
           onClick: () => settingsStore.actions.setChatFontSize(CHAT_FONT_SIZE_DEFAULT),
           title: translate('settings.chatFont.reset.title'),
           type: 'button',
         }, translate('settings.resetDefault'))),
-      h('div', { className: 'dsh-wel-settings-row' },
-        h('label', { className: 'dsh-wel-settings-label', htmlFor: 'dsh-wel-auto-expand-think' }, translate('settings.autoExpandThink')),
+      h('div', { className: 'dsh-ws-settings-row' },
+        h('label', { className: 'dsh-ws-settings-label', htmlFor: 'dsh-ws-auto-expand-think' }, translate('settings.autoExpandThink')),
         h('input', {
           'aria-label': translate('settings.autoExpandThink'),
           checked: (settings.autoExpandThink ?? AUTO_EXPAND_THINK_DEFAULT) === true,
-          className: 'dsh-wel-settings-checkbox',
-          id: 'dsh-wel-auto-expand-think',
+          className: 'dsh-ws-settings-checkbox',
+          id: 'dsh-ws-auto-expand-think',
           onChange: e => settingsStore.actions.setAutoExpandThink(e.target.checked),
           type: 'checkbox',
         })),
-      h('div', { className: 'dsh-wel-settings-row' },
-        h('label', { className: 'dsh-wel-settings-label', htmlFor: 'dsh-wel-think-collapse-delay' }, translate('settings.thinkDelay')),
+      h('div', { className: 'dsh-ws-settings-row' },
+        h('label', { className: 'dsh-ws-settings-label', htmlFor: 'dsh-ws-think-collapse-delay' }, translate('settings.thinkDelay')),
         h('input', {
           'aria-label': translate('settings.thinkDelay'),
-          className: 'dsh-wel-settings-slider',
+          className: 'dsh-ws-settings-slider',
           disabled: (settings.autoExpandThink ?? AUTO_EXPAND_THINK_DEFAULT) !== true || undefined,
-          id: 'dsh-wel-think-collapse-delay',
+          id: 'dsh-ws-think-collapse-delay',
           max: THINK_COLLAPSE_DELAY_MAX_S,
           min: THINK_COLLAPSE_DELAY_MIN_S,
           onChange: e => settingsStore.actions.setThinkCollapseDelay(Number(e.target.value)),
@@ -6209,9 +6209,9 @@ function EmptyWorkspaceExplorer({ treePortalTarget, sessionTitle }) {
           type: 'range',
           value: settings.thinkCollapseDelay ?? THINK_COLLAPSE_DELAY_DEFAULT_S,
         }),
-        h('span', { className: 'dsh-wel-settings-value' }, `${(settings.thinkCollapseDelay ?? THINK_COLLAPSE_DELAY_DEFAULT_S).toFixed(1)}s`)),
+        h('span', { className: 'dsh-ws-settings-value' }, `${(settings.thinkCollapseDelay ?? THINK_COLLAPSE_DELAY_DEFAULT_S).toFixed(1)}s`)),
     ),
-    h('div', { className: 'dsh-wel-settings-hint' }, translate('settings.hint')),
+    h('div', { className: 'dsh-ws-settings-hint' }, translate('settings.hint')),
   )
 }
 /* The session-switcher dropdown: rendered in the conversation header's action
@@ -6238,7 +6238,7 @@ function SessionSwitcherDropdown({ useSessions, useWorkspaces, sessionId, openSe
     const trigger = triggerRef.current
     if (trigger === null) return null
     const rect = trigger.getBoundingClientRect()
-    const chat = trigger.closest('.dsh-wel-chat')
+    const chat = trigger.closest('.dsh-ws-chat')
     const chatRect = chat?.getBoundingClientRect()
     const width = chatRect !== undefined && chatRect.width > 0
       ? Math.max(360, Math.round(chatRect.width * 0.33))
@@ -6317,37 +6317,37 @@ function SessionSwitcherDropdown({ useSessions, useWorkspaces, sessionId, openSe
     'aria-expanded': open,
     'aria-haspopup': 'listbox',
     'aria-label': translate('switcher.aria'),
-    className: 'dsh-wel-session-switcher-trigger',
+    className: 'dsh-ws-session-switcher-trigger',
     onClick: toggle,
     ref: triggerRef,
     title: translate('switcher.trigger.title'),
     type: 'button',
   },
-    h('span', { className: 'dsh-wel-session-switcher-title' }, currentTitle ?? ''),
-    h('span', { className: 'dsh-wel-chevron' }, open ? '▲' : '▼'))
+    h('span', { className: 'dsh-ws-session-switcher-title' }, currentTitle ?? ''),
+    h('span', { className: 'dsh-ws-chevron' }, open ? '▲' : '▼'))
   const panel = open && pos !== null ? createPortal(
     h('div', {
-      className: 'dsh-wel-session-switcher-panel',
+      className: 'dsh-ws-session-switcher-panel',
       ref: panelRef,
       role: 'listbox',
       style: { left: pos.left, top: pos.top, width: pos.width },
     },
-      rows.length === 0 ? h('div', { className: 'dsh-wel-session-switcher-empty' }, translate('switcher.noSessions'))
+      rows.length === 0 ? h('div', { className: 'dsh-ws-session-switcher-empty' }, translate('switcher.noSessions'))
         : rows.map(row => h('button', {
           'aria-selected': row.summary.id === sessionId,
-          className: row.summary.id === sessionId ? 'dsh-wel-session-switcher-row dsh-wel-session-switcher-current' : 'dsh-wel-session-switcher-row',
+          className: row.summary.id === sessionId ? 'dsh-ws-session-switcher-row dsh-ws-session-switcher-current' : 'dsh-ws-session-switcher-row',
           key: row.summary.id,
           onClick: () => { openSession(row.summary.id); setOpen(false) },
           role: 'option',
           type: 'button',
         },
-          h('span', { className: 'dsh-wel-session-switcher-row-main' },
+          h('span', { className: 'dsh-ws-session-switcher-row-main' },
             row.summary.displayTitle,
-            row.summary.origin === 'subagent' ? h('span', { className: 'dsh-wel-session-switcher-badge' }, translate('switcher.subagent')) : null),
-          row.workspaceTitle !== undefined ? h('span', { className: 'dsh-wel-session-switcher-row-ws' }, row.workspaceTitle) : null))),
+            row.summary.origin === 'subagent' ? h('span', { className: 'dsh-ws-session-switcher-badge' }, translate('switcher.subagent')) : null),
+          row.workspaceTitle !== undefined ? h('span', { className: 'dsh-ws-session-switcher-row-ws' }, row.workspaceTitle) : null))),
     document.body,
   ) : null
-  return h('div', { className: 'dsh-wel-session-switcher' }, trigger, panel)
+  return h('div', { className: 'dsh-ws-session-switcher' }, trigger, panel)
 }
 /* ---------------------------------------------------------------------------
    Mind-map conversation branching ("导图").
@@ -6756,12 +6756,12 @@ const MindMapCard = memo(function MindMapCard({
   entry, title, isCurrent, isStreaming, isFrameParent, isAncestor, onOpen, onMenu,
 }) {
   const classes = (entry.branch !== undefined
-    ? 'dsh-wel-mindmap-node dsh-wel-mindmap-branchcard'
-    : 'dsh-wel-mindmap-node')
-    + (isCurrent ? ' dsh-wel-mindmap-node-current' : '')
-    + (isStreaming ? ' dsh-wel-mindmap-node-streaming' : '')
-    + (isFrameParent ? ' dsh-wel-mindmap-node-frame-parent' : '')
-    + (isAncestor ? ' dsh-wel-mindmap-node-ancestor' : '')
+    ? 'dsh-ws-mindmap-node dsh-ws-mindmap-branchcard'
+    : 'dsh-ws-mindmap-node')
+    + (isCurrent ? ' dsh-ws-mindmap-node-current' : '')
+    + (isStreaming ? ' dsh-ws-mindmap-node-streaming' : '')
+    + (isFrameParent ? ' dsh-ws-mindmap-node-frame-parent' : '')
+    + (isAncestor ? ' dsh-ws-mindmap-node-ancestor' : '')
   const turn = entry.turn
   return h('div', {
     className: classes,
@@ -6779,22 +6779,22 @@ const MindMapCard = memo(function MindMapCard({
     style: { left: mindmapXOf(entry.depth), top: entry.y, width: MINDMAP_NODE_W, height: entry.height },
     title: isStreaming ? translate('mindmap.streaming') : translate('mindmap.open.hint'),
   },
-    isCurrent ? h('span', { className: 'dsh-wel-mindmap-node-current-badge' }, translate('mindmap.current')) : null,
-    h('div', { className: 'dsh-wel-mindmap-node-title' },
-      entry.branch !== undefined ? h('span', { className: 'dsh-wel-mindmap-pending-label' }, translate('mindmap.branchTag')) : null,
+    isCurrent ? h('span', { className: 'dsh-ws-mindmap-node-current-badge' }, translate('mindmap.current')) : null,
+    h('div', { className: 'dsh-ws-mindmap-node-title' },
+      entry.branch !== undefined ? h('span', { className: 'dsh-ws-mindmap-pending-label' }, translate('mindmap.branchTag')) : null,
       title),
     entry.empty
-      ? h('div', { className: 'dsh-wel-mindmap-pending-title' }, translate('mindmap.pending'))
+      ? h('div', { className: 'dsh-ws-mindmap-pending-title' }, translate('mindmap.pending'))
       : isStreaming
-        ? h('div', { className: 'dsh-wel-mindmap-node-q' }, mindmapClip(entry.question || translate('mindmap.streaming'), MINDMAP_TEXT_MAX))
-        : h('div', { className: 'dsh-wel-mindmap-node-q' }, mindmapClip(turn.user || translate('mindmap.emptyRound'), MINDMAP_TEXT_MAX)),
+        ? h('div', { className: 'dsh-ws-mindmap-node-q' }, mindmapClip(entry.question || translate('mindmap.streaming'), MINDMAP_TEXT_MAX))
+        : h('div', { className: 'dsh-ws-mindmap-node-q' }, mindmapClip(turn.user || translate('mindmap.emptyRound'), MINDMAP_TEXT_MAX)),
     entry.empty
       ? null
       : isStreaming
-        ? h('div', { className: 'dsh-wel-mindmap-node-status dsh-wel-mindmap-node-streaming-status' },
-            h('span', { className: 'dsh-wel-mindmap-node-streaming-dot' }),
+        ? h('div', { className: 'dsh-ws-mindmap-node-status dsh-ws-mindmap-node-streaming-status' },
+            h('span', { className: 'dsh-ws-mindmap-node-streaming-dot' }),
             h('span', null, translate('mindmap.streaming')))
-        : h('div', { className: 'dsh-wel-mindmap-node-status dsh-wel-mindmap-node-done' }, translate('mindmap.done')))
+        : h('div', { className: 'dsh-ws-mindmap-node-status dsh-ws-mindmap-node-done' }, translate('mindmap.done')))
 })
 
 /* The floating mind map: a persisted turn tree (trunk + fork branches)
@@ -7499,7 +7499,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   }, [deleteBusy])
   /* Escape closes the archive / delete dialogs (the rename dialog and the
      context menu already handle their own Escape). The overlay's own Escape
-     handler defers while any .dsh-wel-dialog-backdrop is in the DOM, so
+     handler defers while any .dsh-ws-dialog-backdrop is in the DOM, so
      without this the key would do nothing while one of these dialogs is open. */
   useEffect(() => {
     if (archiveTarget === null && deleteTarget === null) return undefined
@@ -7618,16 +7618,16 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   }, [deleteBusy, deleteTarget, doc, rootId, sessionId, showNotice])
 
   if (phase.status === 'error') {
-    return h('div', { className: 'dsh-wel-mindmap dsh-wel-mindmap-status' },
-      h('div', { className: 'dsh-wel-mindmap-error' }, translate('mindmap.error', { message: phase.message ?? '' })))
+    return h('div', { className: 'dsh-ws-mindmap dsh-ws-mindmap-status' },
+      h('div', { className: 'dsh-ws-mindmap-error' }, translate('mindmap.error', { message: phase.message ?? '' })))
   }
   if (phase.status === 'loading') {
-    return h('div', { className: 'dsh-wel-mindmap dsh-wel-mindmap-status' },
-      h('div', { className: 'dsh-wel-mindmap-loading' }, translate('mindmap.loading')))
+    return h('div', { className: 'dsh-ws-mindmap dsh-ws-mindmap-status' },
+      h('div', { className: 'dsh-ws-mindmap-loading' }, translate('mindmap.loading')))
   }
   if (phase.status === 'empty' || layout.nodes.length === 0) {
-    return h('div', { className: 'dsh-wel-mindmap dsh-wel-mindmap-status' },
-      h('div', { className: 'dsh-wel-mindmap-empty' }, translate('mindmap.empty')))
+    return h('div', { className: 'dsh-ws-mindmap dsh-ws-mindmap-status' },
+      h('div', { className: 'dsh-ws-mindmap-empty' }, translate('mindmap.empty')))
   }
 
   /* The map's header shows the mind map's OWN title (doc.rootTitle), which is
@@ -7657,12 +7657,12 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   })
 
   const noticeView = notice === null ? null : h('div', {
-    className: notice.error ? 'dsh-wel-mindmap-notice dsh-wel-mindmap-notice-error' : 'dsh-wel-mindmap-notice',
+    className: notice.error ? 'dsh-ws-mindmap-notice dsh-ws-mindmap-notice-error' : 'dsh-ws-mindmap-notice',
     role: notice.error ? 'alert' : 'status',
   }, notice.text)
   const menuView = menu !== null ? createPortal(
     h('div', {
-      className: 'dsh-wel-context-menu',
+      className: 'dsh-ws-context-menu',
       ref: menuRef,
       role: 'menu',
       style: {
@@ -7671,9 +7671,9 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       },
     },
       menu.isBranch ? h(Fragment, null,
-        h('button', { className: 'dsh-wel-context-item', onClick: startRename, role: 'menuitem', title: translate('mindmap.menu.rename'), type: 'button' }, translate('mindmap.menu.rename')),
-        h('div', { className: 'dsh-wel-context-separator', role: 'separator' })) : null,
-      h('button', { className: 'dsh-wel-context-item dsh-wel-context-item-danger', onClick: startDelete, role: 'menuitem', title: translate('mindmap.menu.deleteCard'), type: 'button' }, translate('mindmap.menu.deleteCard'))),
+        h('button', { className: 'dsh-ws-context-item', onClick: startRename, role: 'menuitem', title: translate('mindmap.menu.rename'), type: 'button' }, translate('mindmap.menu.rename')),
+        h('div', { className: 'dsh-ws-context-separator', role: 'separator' })) : null,
+      h('button', { className: 'dsh-ws-context-item dsh-ws-context-item-danger', onClick: startDelete, role: 'menuitem', title: translate('mindmap.menu.deleteCard'), type: 'button' }, translate('mindmap.menu.deleteCard'))),
     document.body,
   ) : null
   const renameView = renameTarget !== null ? h(SessionRenameDialog, {
@@ -7686,66 +7686,66 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     title: translate('mindmap.rename.title'),
   }) : null
   const archiveView = archiveTarget !== null ? h('div', {
-    className: 'dsh-wel-dialog-backdrop',
+    className: 'dsh-ws-dialog-backdrop',
     onMouseDown: event => { if (event.target === event.currentTarget && !archiveBusy) closeArchive() },
   },
-    h('div', { 'aria-modal': true, className: 'dsh-wel-dialog', role: 'dialog' },
-      h('div', { className: 'dsh-wel-dialog-header' },
-        h('div', { className: 'dsh-wel-dialog-title' }, translate('mindmap.menu.archiveAll')),
-        h('button', { 'aria-label': translate('dialog.close'), className: 'dsh-wel-icon-button', disabled: archiveBusy, onClick: closeArchive, title: translate('dialog.close'), type: 'button' }, '×')),
-      h('div', { className: 'dsh-wel-dialog-body' },
-        h('div', { className: 'dsh-wel-dialog-message' },
+    h('div', { 'aria-modal': true, className: 'dsh-ws-dialog', role: 'dialog' },
+      h('div', { className: 'dsh-ws-dialog-header' },
+        h('div', { className: 'dsh-ws-dialog-title' }, translate('mindmap.menu.archiveAll')),
+        h('button', { 'aria-label': translate('dialog.close'), className: 'dsh-ws-icon-button', disabled: archiveBusy, onClick: closeArchive, title: translate('dialog.close'), type: 'button' }, '×')),
+      h('div', { className: 'dsh-ws-dialog-body' },
+        h('div', { className: 'dsh-ws-dialog-message' },
           translate('mindmap.archiveAll.message', { name: archiveTarget.title })),
-        archiveError !== null ? h('div', { className: 'dsh-wel-dialog-error', role: 'alert' }, archiveError) : null),
-      h('div', { className: 'dsh-wel-dialog-footer' },
-        h('button', { className: 'dsh-wel-text-button', disabled: archiveBusy, onClick: closeArchive, type: 'button' }, translate('dialog.cancel')),
-        h('button', { className: 'dsh-wel-text-button', disabled: archiveBusy, onClick: confirmArchive, type: 'button' }, archiveBusy ? translate('dialog.processing') : translate('mindmap.archive.action')))))
+        archiveError !== null ? h('div', { className: 'dsh-ws-dialog-error', role: 'alert' }, archiveError) : null),
+      h('div', { className: 'dsh-ws-dialog-footer' },
+        h('button', { className: 'dsh-ws-text-button', disabled: archiveBusy, onClick: closeArchive, type: 'button' }, translate('dialog.cancel')),
+        h('button', { className: 'dsh-ws-text-button', disabled: archiveBusy, onClick: confirmArchive, type: 'button' }, archiveBusy ? translate('dialog.processing') : translate('mindmap.archive.action')))))
     : null
   const deleteView = deleteTarget !== null ? h('div', {
-    className: 'dsh-wel-dialog-backdrop',
+    className: 'dsh-ws-dialog-backdrop',
     onMouseDown: event => { if (event.target === event.currentTarget && !deleteBusy) closeDelete() },
   },
-    h('div', { 'aria-modal': true, className: 'dsh-wel-dialog', role: 'dialog' },
-      h('div', { className: 'dsh-wel-dialog-header' },
-        h('div', { className: 'dsh-wel-dialog-title' }, translate('mindmap.delete.title')),
-        h('button', { 'aria-label': translate('dialog.close'), className: 'dsh-wel-icon-button', disabled: deleteBusy, onClick: closeDelete, title: translate('dialog.close'), type: 'button' }, '×')),
-      h('div', { className: 'dsh-wel-dialog-body' },
-        h('div', { className: 'dsh-wel-dialog-message' }, translate('mindmap.delete.message', { name: deleteTarget.label })),
-        deleteTarget.willArchiveCurrent ? h('div', { className: 'dsh-wel-dialog-warning', role: 'alert' }, translate('mindmap.delete.current')) : null,
-        deleteError !== null ? h('div', { className: 'dsh-wel-dialog-error', role: 'alert' }, deleteError) : null),
-      h('div', { className: 'dsh-wel-dialog-footer' },
-        h('button', { className: 'dsh-wel-text-button', disabled: deleteBusy, onClick: closeDelete, type: 'button' }, translate('dialog.cancel')),
-        h('button', { className: 'dsh-wel-text-button', disabled: deleteBusy, onClick: confirmDelete, type: 'button' }, deleteBusy ? translate('dialog.processing') : translate('mindmap.delete.action')))))
+    h('div', { 'aria-modal': true, className: 'dsh-ws-dialog', role: 'dialog' },
+      h('div', { className: 'dsh-ws-dialog-header' },
+        h('div', { className: 'dsh-ws-dialog-title' }, translate('mindmap.delete.title')),
+        h('button', { 'aria-label': translate('dialog.close'), className: 'dsh-ws-icon-button', disabled: deleteBusy, onClick: closeDelete, title: translate('dialog.close'), type: 'button' }, '×')),
+      h('div', { className: 'dsh-ws-dialog-body' },
+        h('div', { className: 'dsh-ws-dialog-message' }, translate('mindmap.delete.message', { name: deleteTarget.label })),
+        deleteTarget.willArchiveCurrent ? h('div', { className: 'dsh-ws-dialog-warning', role: 'alert' }, translate('mindmap.delete.current')) : null,
+        deleteError !== null ? h('div', { className: 'dsh-ws-dialog-error', role: 'alert' }, deleteError) : null),
+      h('div', { className: 'dsh-ws-dialog-footer' },
+        h('button', { className: 'dsh-ws-text-button', disabled: deleteBusy, onClick: closeDelete, type: 'button' }, translate('dialog.cancel')),
+        h('button', { className: 'dsh-ws-text-button', disabled: deleteBusy, onClick: confirmDelete, type: 'button' }, deleteBusy ? translate('dialog.processing') : translate('mindmap.delete.action')))))
     : null
 
   return h(Fragment, null,
-    h('div', { className: 'dsh-wel-mindmap', 'data-conversation-composer-overlay': '' },
-      h('div', { className: 'dsh-wel-mindmap-toolbar' },
+    h('div', { className: 'dsh-ws-mindmap', 'data-conversation-composer-overlay': '' },
+      h('div', { className: 'dsh-ws-mindmap-toolbar' },
         h('button', {
           'aria-pressed': overlay.scope === 'sidebar' ? 'true' : 'false',
-          className: 'dsh-wel-mindmap-toolbar-button dsh-wel-mindmap-scope-toggle',
+          className: 'dsh-ws-mindmap-toolbar-button dsh-ws-mindmap-scope-toggle',
           onClick: () => { mindmapOverlayStore.toggleScope() },
           title: translate('mindmap.scope.title'),
           type: 'button',
         }, translate(overlay.scope === 'sidebar' ? 'mindmap.scope.sidebar' : 'mindmap.scope.full')),
-        h('button', { className: 'dsh-wel-mindmap-toolbar-button', onClick: restoreView, title: translate('mindmap.view.restoreTitle'), type: 'button' }, translate('mindmap.view.restore')),
-        h('button', { className: 'dsh-wel-mindmap-toolbar-button', onClick: startArchiveAll, title: translate('mindmap.menu.archiveAll'), type: 'button' }, translate('mindmap.menu.archiveAll'))),
-      h('div', { className: 'dsh-wel-mindmap-bar' },
+        h('button', { className: 'dsh-ws-mindmap-toolbar-button', onClick: restoreView, title: translate('mindmap.view.restoreTitle'), type: 'button' }, translate('mindmap.view.restore')),
+        h('button', { className: 'dsh-ws-mindmap-toolbar-button', onClick: startArchiveAll, title: translate('mindmap.menu.archiveAll'), type: 'button' }, translate('mindmap.menu.archiveAll'))),
+      h('div', { className: 'dsh-ws-mindmap-bar' },
         translate('mindmap.rootLabel'),
-        h('span', { className: 'dsh-wel-mindmap-bar-title' }, rootTitle)),
+        h('span', { className: 'dsh-ws-mindmap-bar-title' }, rootTitle)),
       noticeView,
-      forkError !== null ? h('div', { className: 'dsh-wel-mindmap-fork-error' }, translate('mindmap.forkFailed', { message: forkError })) : null,
-      h('div', { className: 'dsh-wel-mindmap-viewport', 'data-dragging': dragging ? '' : undefined, onPointerCancel: endPan, onPointerDown: startPan, onPointerMove: movePan, onPointerUp: endPan, ref: viewportRef },
-        h('div', { className: 'dsh-wel-mindmap-canvas', ref: canvasRef, style: { height: layout.height, width: layout.width } },
-          h('svg', { className: 'dsh-wel-mindmap-edges', width: layout.width, height: layout.height },
+      forkError !== null ? h('div', { className: 'dsh-ws-mindmap-fork-error' }, translate('mindmap.forkFailed', { message: forkError })) : null,
+      h('div', { className: 'dsh-ws-mindmap-viewport', 'data-dragging': dragging ? '' : undefined, onPointerCancel: endPan, onPointerDown: startPan, onPointerMove: movePan, onPointerUp: endPan, ref: viewportRef },
+        h('div', { className: 'dsh-ws-mindmap-canvas', ref: canvasRef, style: { height: layout.height, width: layout.width } },
+          h('svg', { className: 'dsh-ws-mindmap-edges', width: layout.width, height: layout.height },
             edgeEdges.map((edge, index) => h('path', {
-              className: 'dsh-wel-mindmap-edge'
-                + (trace.activeEdgeKeys.has(`${edge.from}\u0000${edge.to}`) ? ' dsh-wel-mindmap-edge-active' : ''),
+              className: 'dsh-ws-mindmap-edge'
+                + (trace.activeEdgeKeys.has(`${edge.from}\u0000${edge.to}`) ? ' dsh-ws-mindmap-edge-active' : ''),
               d: edge.d,
               key: index,
             }))),
           frame !== null
-            ? h('div', { className: 'dsh-wel-mindmap-frame', style: { left: frame.left, top: frame.top, width: frame.width, height: frame.height } })
+            ? h('div', { className: 'dsh-ws-mindmap-frame', style: { left: frame.left, top: frame.top, width: frame.width, height: frame.height } })
             : null,
           nodeViews))),
     menuView,
@@ -7800,7 +7800,7 @@ function installMindmapBranchHider(getSessionList, getArchivedSessionIds) {
       for (const span of row.querySelectorAll('span')) {
         if (span.childElementCount === 0 && hideTitles.has(span.textContent ?? '')) { matched = true; break }
       }
-      row.classList.toggle('dsh-wel-mindmap-hidden-row', matched)
+      row.classList.toggle('dsh-ws-mindmap-hidden-row', matched)
     }
   }
   /* Time throttle: the observer fires per DOM mutation (streaming churn), and
@@ -7897,7 +7897,7 @@ function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, openSess
   /* In per-group mode an empty group renders nothing so the seat collapses
      (CSS :empty); only the region-area fallback shows the empty-state hint.
      The injected container is the styled seat, so this renders children
-     directly (Fragment) instead of a nested .dsh-wel-sidebar-mindmaps div. */
+     directly (Fragment) instead of a nested .dsh-ws-sidebar-mindmaps div. */
   /* NOTE: the early return below must come AFTER every hook (React #310
      "rendered more hooks than during the previous render" otherwise). */
   useEffect(() => {
@@ -8001,7 +8001,7 @@ function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, openSess
 
   const menuView = contextMenu !== null ? createPortal(
     h('div', {
-      className: 'dsh-wel-context-menu',
+      className: 'dsh-ws-context-menu',
       ref: menuRef,
       role: 'menu',
       style: {
@@ -8009,9 +8009,9 @@ function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, openSess
         top: Math.max(4, Math.min(contextMenu.y, window.innerHeight - 92)),
       },
     },
-      h('button', { className: 'dsh-wel-context-item', onClick: startRename, role: 'menuitem', type: 'button' }, translate('context.renameSession')),
-      h('div', { className: 'dsh-wel-context-separator', role: 'separator' }),
-      h('button', { className: 'dsh-wel-context-item', onClick: onReveal, role: 'menuitem', type: 'button' }, translate('context.reveal'))),
+      h('button', { className: 'dsh-ws-context-item', onClick: startRename, role: 'menuitem', type: 'button' }, translate('context.renameSession')),
+      h('div', { className: 'dsh-ws-context-separator', role: 'separator' }),
+      h('button', { className: 'dsh-ws-context-item', onClick: onReveal, role: 'menuitem', type: 'button' }, translate('context.reveal'))),
     document.body,
   ) : null
   const renameView = renameTarget !== null ? h(SessionRenameDialog, {
@@ -8026,9 +8026,9 @@ function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, openSess
 
   return h(Fragment, null,
     entries.length === 0
-      ? h('div', { className: 'dsh-wel-sidebar-mindmaps-empty' }, translate('mindmap.sidebar.empty'))
+      ? h('div', { className: 'dsh-ws-sidebar-mindmaps-empty' }, translate('mindmap.sidebar.empty'))
       : h('div', {
-        className: 'dsh-wel-sidebar-mindmaps-list',
+        className: 'dsh-ws-sidebar-mindmaps-list',
         onDragLeave: (event) => { if (!(event.currentTarget.contains(event.relatedTarget))) setDropTarget(null) },
         onDragOver: listDragOver,
         onDrop: (event) => { event.preventDefault(); commitDrop() },
@@ -8041,7 +8041,7 @@ function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, openSess
           const count = (doc.branchSessionIds ?? []).length
           const sid = String(doc.sessionId)
           return h('button', {
-            className: 'dsh-wel-sidebar-mindmaps-item',
+            className: 'dsh-ws-sidebar-mindmaps-item',
             'data-dragging': dragId === sid ? '' : undefined,
             'data-drop': dropTarget !== null && dropTarget.id === sid ? dropTarget.half : undefined,
             draggable: true,
@@ -8064,9 +8064,9 @@ function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, openSess
             title: translate('mindmap.sidebar.open'),
             type: 'button',
           },
-            h('svg', { 'aria-hidden': true, className: 'dsh-wel-sidebar-mindmaps-icon', fill: 'none', viewBox: '0 0 24 24' }, MINDMAP_ICON),
-            h('span', { className: 'dsh-wel-sidebar-mindmaps-label' }, label),
-            count > 0 ? h('span', { className: 'dsh-wel-sidebar-mindmaps-count' }, translate('mindmap.sidebar.branches', { n: count })) : null)
+            h('svg', { 'aria-hidden': true, className: 'dsh-ws-sidebar-mindmaps-icon', fill: 'none', viewBox: '0 0 24 24' }, MINDMAP_ICON),
+            h('span', { className: 'dsh-ws-sidebar-mindmaps-label' }, label),
+            count > 0 ? h('span', { className: 'dsh-ws-sidebar-mindmaps-count' }, translate('mindmap.sidebar.branches', { n: count })) : null)
         })),
     menuView,
     renameView)
@@ -8106,7 +8106,7 @@ function MindmapHeaderButton({ sessionId }) {
     mindmapOverlayStore.open(key)
   }
   /* Escape closes the confirm dialog. The overlay's own Escape handler defers
-     while any .dsh-wel-dialog-backdrop is in the DOM, so without this window
+     while any .dsh-ws-dialog-backdrop is in the DOM, so without this window
      listener the key would do nothing while the dialog is open. */
   useEffect(() => {
     if (confirmTarget === null) return undefined
@@ -8115,35 +8115,35 @@ function MindmapHeaderButton({ sessionId }) {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [confirmTarget])
   /* The confirm dialog must escape the session-header slot: its container
-     (.dsh-wel-chat) clips fixed-position descendants, so the modal would be
+     (.dsh-ws-chat) clips fixed-position descendants, so the modal would be
      cut to the chat column instead of covering the viewport. Portal it to
      body like every other floating overlay (context menus, etc.). */
   const confirmView = confirmTarget !== null ? createPortal(
     h('div', {
-      className: 'dsh-wel-dialog-backdrop',
+      className: 'dsh-ws-dialog-backdrop',
       onMouseDown: event => { if (event.target === event.currentTarget) closeConfirm() },
     },
-      h('div', { 'aria-modal': true, className: 'dsh-wel-dialog dsh-wel-mindmap-confirm-dialog', role: 'dialog' },
-        h('div', { className: 'dsh-wel-dialog-header' },
-          h('div', { className: 'dsh-wel-dialog-title' }, translate('mindmap.confirm.title')),
-          h('button', { 'aria-label': translate('dialog.close'), className: 'dsh-wel-icon-button', onClick: closeConfirm, title: translate('dialog.close'), type: 'button' }, '×')),
-        h('div', { className: 'dsh-wel-dialog-body' },
-          h('div', { className: 'dsh-wel-dialog-message' }, translate('mindmap.confirm.message'))),
-        h('div', { className: 'dsh-wel-dialog-footer' },
-          h('button', { className: 'dsh-wel-text-button dsh-wel-mindmap-confirm-button dsh-wel-mindmap-confirm-cancel', onClick: closeConfirm, type: 'button' }, translate('dialog.cancel')),
-          h('button', { className: 'dsh-wel-text-button dsh-wel-mindmap-confirm-button dsh-wel-mindmap-confirm-ok', onClick: confirmConvert, type: 'button' }, translate('mindmap.confirm.action'))))),
+      h('div', { 'aria-modal': true, className: 'dsh-ws-dialog dsh-ws-mindmap-confirm-dialog', role: 'dialog' },
+        h('div', { className: 'dsh-ws-dialog-header' },
+          h('div', { className: 'dsh-ws-dialog-title' }, translate('mindmap.confirm.title')),
+          h('button', { 'aria-label': translate('dialog.close'), className: 'dsh-ws-icon-button', onClick: closeConfirm, title: translate('dialog.close'), type: 'button' }, '×')),
+        h('div', { className: 'dsh-ws-dialog-body' },
+          h('div', { className: 'dsh-ws-dialog-message' }, translate('mindmap.confirm.message'))),
+        h('div', { className: 'dsh-ws-dialog-footer' },
+          h('button', { className: 'dsh-ws-text-button dsh-ws-mindmap-confirm-button dsh-ws-mindmap-confirm-cancel', onClick: closeConfirm, type: 'button' }, translate('dialog.cancel')),
+          h('button', { className: 'dsh-ws-text-button dsh-ws-mindmap-confirm-button dsh-ws-mindmap-confirm-ok', onClick: confirmConvert, type: 'button' }, translate('mindmap.confirm.action'))))),
     document.body) : null
   return h(Fragment, null,
     h('button', {
       'aria-label': label,
       'aria-pressed': active,
-      className: active ? 'dsh-wel-mindmap-header-button dsh-wel-mindmap-header-button-on' : 'dsh-wel-mindmap-header-button',
+      className: active ? 'dsh-ws-mindmap-header-button dsh-ws-mindmap-header-button-on' : 'dsh-ws-mindmap-header-button',
       onClick: onButtonClick,
       title: label,
       type: 'button',
     },
-      h('svg', { 'aria-hidden': true, className: 'dsh-wel-mindmap-header-icon', fill: 'none', viewBox: '0 0 24 24' }, MINDMAP_ICON),
-      h('span', { className: 'dsh-wel-mindmap-header-label' }, label)),
+      h('svg', { 'aria-hidden': true, className: 'dsh-ws-mindmap-header-icon', fill: 'none', viewBox: '0 0 24 24' }, MINDMAP_ICON),
+      h('span', { className: 'dsh-ws-mindmap-header-label' }, label)),
     confirmView)
 }
 /* The sidebar-footer mobile-mode toggle: a compact button that turns the
@@ -8156,17 +8156,17 @@ function MobileModeToggle(props) {
   return h('button', {
     'aria-label': label,
     'aria-pressed': on,
-    className: 'dsh-wel-mobile-toggle',
+    className: 'dsh-ws-mobile-toggle',
     'data-open': on || undefined,
     'data-rail': !props.wide || undefined,
     onClick: () => { setMobile(!on) },
     title: label,
     type: 'button',
   },
-    h('svg', { 'aria-hidden': true, className: 'dsh-wel-mobile-toggle-icon', fill: 'none', viewBox: '0 0 24 24' },
+    h('svg', { 'aria-hidden': true, className: 'dsh-ws-mobile-toggle-icon', fill: 'none', viewBox: '0 0 24 24' },
       h('rect', { x: 7, y: 2.5, width: 10, height: 19, rx: 2, stroke: 'currentColor', strokeWidth: 1.6 }),
       h('path', { d: 'M11 18.5h2', stroke: 'currentColor', strokeLinecap: 'round', strokeWidth: 1.6 })),
-    props.wide ? h('span', { className: 'dsh-wel-mobile-toggle-label' }, label) : null,
+    props.wide ? h('span', { className: 'dsh-ws-mobile-toggle-label' }, label) : null,
   )
 }
 /* The whale button that opens/closes the floating sidebar drawer in mobile
@@ -8176,7 +8176,7 @@ function MobileWhaleButton({ open, onToggle }) {
   return h('button', {
     'aria-expanded': open,
     'aria-label': label,
-    className: open ? 'dsh-wel-mobile-whale dsh-wel-mobile-active' : 'dsh-wel-mobile-whale',
+    className: open ? 'dsh-ws-mobile-whale dsh-ws-mobile-active' : 'dsh-ws-mobile-whale',
     onClick: onToggle,
     title: label,
     type: 'button',
@@ -8186,18 +8186,18 @@ function MobileWhaleButton({ open, onToggle }) {
 }
 /* The file-content-browsing button shared by the session header and the hero
    overlay: toggles file-fullscreen mode (setMobileFiles) and shows its active
-   state via dsh-wel-mobile-active. */
+   state via dsh-ws-mobile-active. */
 function MobileFilesButton() {
   const { files } = useMobile()
   return h('button', {
     'aria-label': translate('mobile.files'),
     'aria-pressed': files,
-    className: files ? 'dsh-wel-mobile-files dsh-wel-mobile-active' : 'dsh-wel-mobile-files',
+    className: files ? 'dsh-ws-mobile-files dsh-ws-mobile-active' : 'dsh-ws-mobile-files',
     onClick: () => setMobileFiles(!files),
     title: translate('mobile.files'),
     type: 'button',
   },
-    h('svg', { 'aria-hidden': true, className: 'dsh-wel-mobile-files-icon', fill: 'none', viewBox: '0 0 24 24' },
+    h('svg', { 'aria-hidden': true, className: 'dsh-ws-mobile-files-icon', fill: 'none', viewBox: '0 0 24 24' },
       h('path', { d: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z', stroke: 'currentColor', strokeLinejoin: 'round', strokeWidth: 1.6 }),
       h('path', { d: 'M14 2v6h6', stroke: 'currentColor', strokeLinejoin: 'round', strokeWidth: 1.6 })))
 }
@@ -8208,7 +8208,7 @@ function MobileFilesButton() {
    stacks between the page and the drawer. */
 function MobileHeaderControls() {
   const { drawerOpen } = useMobile()
-  return h('div', { className: 'dsh-wel-mobile-controls' },
+  return h('div', { className: 'dsh-ws-mobile-controls' },
     h(MobileWhaleButton, { onToggle: () => setDrawerOpen(!drawerOpen), open: drawerOpen }),
     h(MobileFilesButton))
 }
@@ -8218,7 +8218,7 @@ function MobileHeaderControls() {
    mobile-preview). */
 function MobileHeroControls() {
   const { drawerOpen } = useMobile()
-  return h('div', { className: 'dsh-wel-mobile-hero' },
+  return h('div', { className: 'dsh-ws-mobile-hero' },
     h(MobileWhaleButton, { onToggle: () => setDrawerOpen(!drawerOpen), open: drawerOpen }),
     h(MobileFilesButton))
 }
@@ -8243,16 +8243,16 @@ function MindmapOverlayHost({ sessionId, useSessions, actions, chatWidth, mobile
     const onKeyDown = event => {
       if (event.key !== 'Escape') return
       /* Let an open dialog/context menu inside the map handle Escape first. */
-      if (document.querySelector('.dsh-wel-dialog-backdrop, .dsh-wel-context-menu') !== null) return
+      if (document.querySelector('.dsh-ws-dialog-backdrop, .dsh-ws-context-menu') !== null) return
       mindmapOverlayStore.close()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
-  return h('div', { className: 'dsh-wel-mindmap-overlay', style: { width } },
+  return h('div', { className: 'dsh-ws-mindmap-overlay', style: { width } },
     h('button', {
       'aria-label': closeLabel,
-      className: 'dsh-wel-mindmap-overlay-close',
+      className: 'dsh-ws-mindmap-overlay-close',
       onClick: () => { mindmapOverlayStore.close() },
       title: closeLabel,
       type: 'button',
@@ -8290,7 +8290,7 @@ function AppFrame(props) {
     }
   }, [panels.sidebar, props.explorerPaneStore])
   // In mobile file-fullscreen the conversation header stays pinned above the
-  // file browsing page; its live height feeds --dsh-wel-mobile-header-h so the
+  // file browsing page; its live height feeds --dsh-ws-mobile-header-h so the
   // preview fills the phone column below it.
   const [mobileHeaderHeight, setMobileHeaderHeight] = useState(MOBILE_HEADER_FALLBACK_H)
   useLayoutEffect(() => {
@@ -8314,7 +8314,7 @@ function AppFrame(props) {
   // default inside the CSS rule's var() fallback (the value here is the
   // effective color either way, so the fallback is only a safety net).
   const fileColorVars = {}
-  for (const { group } of FILE_COLOR_GROUPS) fileColorVars[`--dsh-wel-file-${group}`] = fileColorOf(settings, group)
+  for (const { group } of FILE_COLOR_GROUPS) fileColorVars[`--dsh-ws-file-${group}`] = fileColorOf(settings, group)
   const currentSession = props.useSessions(state => state.current)
   const sessionIds = props.useSessions(state => state.ids)
   // The session rename dialog targets the current session id.
@@ -8626,10 +8626,10 @@ function AppFrame(props) {
     const ensure = () => {
       const rootDiv = aside.querySelector('[data-slot="sidebar"] > div')
       if (rootDiv === null) return null
-      let top = rootDiv.querySelector(':scope > .dsh-wel-sidebar-top-actions')
+      let top = rootDiv.querySelector(':scope > .dsh-ws-sidebar-top-actions')
       if (top === null) {
         top = document.createElement('div')
-        top.className = 'dsh-wel-sidebar-top-actions'
+        top.className = 'dsh-ws-sidebar-top-actions'
         rootDiv.insertBefore(top, rootDiv.querySelector(':scope > button'))
       }
       const workspacesOutlet = rootDiv.querySelector(':scope [data-slot="sidebar.workspaces"]')
@@ -8639,10 +8639,10 @@ function AppFrame(props) {
       if (workspacesOutlet !== null) {
         const regionArea = workspacesOutlet.parentElement
         if (regionArea !== null) {
-          files = regionArea.querySelector(':scope > .dsh-wel-sidebar-files')
+          files = regionArea.querySelector(':scope > .dsh-ws-sidebar-files')
           if (files === null) {
             files = document.createElement('div')
-            files.className = 'dsh-wel-sidebar-files'
+            files.className = 'dsh-ws-sidebar-files'
             regionArea.append(files)
           }
           /* Mind-map seats: one container appended to EACH workspace group
@@ -8655,10 +8655,10 @@ function AppFrame(props) {
           for (const header of workspacesOutlet.querySelectorAll('[role="treeitem"][aria-expanded]')) {
             const section = header.parentElement
             if (section === null) continue
-            let container = section.querySelector(':scope > .dsh-wel-sidebar-mindmaps')
+            let container = section.querySelector(':scope > .dsh-ws-sidebar-mindmaps')
             if (container === null) {
               container = document.createElement('div')
-              container.className = 'dsh-wel-sidebar-mindmaps'
+              container.className = 'dsh-ws-sidebar-mindmaps'
               section.append(container)
             }
             /* Keep the seat above the group's "show more sessions" button:
@@ -8671,16 +8671,16 @@ function AppFrame(props) {
             groups.push({ container, title: titleEl?.textContent?.trim() ?? '' })
           }
           if (groups.length === 0) {
-            fallback = regionArea.querySelector(':scope > .dsh-wel-sidebar-mindmaps-fallback')
+            fallback = regionArea.querySelector(':scope > .dsh-ws-sidebar-mindmaps-fallback')
             if (fallback === null) {
               fallback = document.createElement('div')
-              fallback.className = 'dsh-wel-sidebar-mindmaps dsh-wel-sidebar-mindmaps-fallback'
+              fallback.className = 'dsh-ws-sidebar-mindmaps dsh-ws-sidebar-mindmaps-fallback'
               regionArea.append(fallback)
             }
           } else {
             /* Grouped mode: drop any stale region-area seat from a previous
                flat / search pass. */
-            regionArea.querySelector(':scope > .dsh-wel-sidebar-mindmaps-fallback')?.remove()
+            regionArea.querySelector(':scope > .dsh-ws-sidebar-mindmaps-fallback')?.remove()
           }
         }
       }
@@ -8700,7 +8700,7 @@ function AppFrame(props) {
     return () => {
       observer.disconnect()
       setSidebarChrome(null)
-      aside.querySelectorAll('.dsh-wel-sidebar-top-actions, .dsh-wel-sidebar-files, .dsh-wel-sidebar-mindmaps').forEach(node => node.remove())
+      aside.querySelectorAll('.dsh-ws-sidebar-top-actions, .dsh-ws-sidebar-files, .dsh-ws-sidebar-mindmaps').forEach(node => node.remove())
     }
   }, [])
   const collapsed = panels.sidebar === 0
@@ -8906,7 +8906,7 @@ function AppFrame(props) {
     props.openSession(String(id))
     mindmapOverlayStore.open(String(id))
   }, [props.openSession])
-  return h('div',{ref:viewportRef,className:'dsh-wel-viewport'},h('main',{className:'dsh-wel-frame','data-explorer-closed':!panes.explorerOpen&&!filesActive||undefined,'data-sidebar-collapsed':collapsed||undefined,'data-sidebar-files':filesActive||undefined,'data-resizing':resizing||undefined,style:{'--dsh-wel-preview':`${preview}px`,'--dsh-wel-sidebar':`${sidebar}px`,'--dsh-wel-row-height':`${clamp(settings.rowHeight ?? ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MIN, ROW_HEIGHT_MAX)}px`,'--dsh-wel-chat-font-scale':String(chatFontScale),'--dsh-wel-mobile-header-h':`${mobileHeaderHeight}px`,...fileColorVars}},h('aside',{className:'dsh-wel-sidebar',ref:asideRef},props.renderSlot('sidebar',{collapsed,width:sidebar}),sidebarChrome?.top?createPortal(h(SidebarTopActions,{collapsed,view,width:sidebar,onSelectSessions:()=>{props.actions.setView('sessions')},onSelectFiles:()=>{if(collapsed)props.toggleSidebar();props.actions.setView('files')}}),sidebarChrome.top):null,sidebarChrome&&(sidebarChrome.groups.length>0?sidebarChrome.groups.map(group=>createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:group.title,openSession:openMindmapSession,revealSession:revealSessionById}),group.container)):sidebarChrome.fallback?createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:undefined,openSession:openMindmapSession,revealSession:revealSessionById}),sidebarChrome.fallback):null)),workspace?h(WorkspaceExplorer,{key:`${workspace.workspaceId}:${sessionId ?? 'workspace'}`,clearDraft:clearWorkspaceDraft,createEntry:props.createEntry,listDirectory:props.listDirectory,persistDraft:persistWorkspaceDraft,persistPreviewSession,publishEditorContext,readFile:props.readFile,renameEntry:props.renameEntry,saveFile:props.saveFile,loadDraft:props.loadDraft,persistDraftFile:props.persistDraftFile,removeDraftFile:props.removeDraftFile,draftTree:props.draftTree,settingsStore:props.settingsStore,storedDraft:panels.drafts[String(workspace.workspaceId)],storedPreviewSession,sessionTitle,sessionId,renameSession:props.renameSession,treePortalTarget,workspace}):h(EmptyWorkspaceExplorer,{sessionTitle,treePortalTarget}),h('section',{className:'dsh-wel-chat',ref:chatSectionRef},props.renderSlot('conversation',{}),chatDropActive?h('div',{className:'dsh-wel-chat-drop-mask',role:'presentation'},h('button',{'aria-label':translate('drop.closeAria'),className:'dsh-wel-chat-drop-close',onClick:()=>{chatDropSuppressed.current=true;setChatDropActive(false)},title:translate('drop.closeTitle'),type:'button'},'×'),h('div',{className:'dsh-wel-chat-drop-card'},translate('drop.releaseImages'))):null),!collapsed?h(ResizeHandle,{label:translate('resize.sidebar'),left:sidebar,max:sidebarMax,min:SIDEBAR_MIN,onDragging:setResizing,onResize:width=>props.actions.setSidebar(width,sidebarMax),value:sidebar}):null,(panes.explorerOpen||filesActive)?h(ResizeHandle,{label:translate('resize.preview'),left:previewBoundary,max:previewMax,min:PREVIEW_MIN,onDragging:setResizing,onResize:width=>props.explorerPaneStore.actions.setPreview(width,previewMax),value:preview}):null,h('aside',{className:'dsh-wel-details','data-closed':!panels.detailsOpen||!detailsCapable||undefined},props.renderSlot('details',{})),mobile.on&&mobile.drawerOpen?h('div',{className:'dsh-wel-mobile-scrim',onClick:()=>setDrawerOpen(false)}):null,h('div',{className:'dsh-wel-overlay','data-shell-overlay':true},props.renderSlot('shell.overlay',{})),sessionContextMenu?h('div',{className:'dsh-wel-context-menu',ref:sessionMenuRef,role:'menu',style:{left:Math.max(4,Math.min(sessionContextMenu.x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top:Math.max(4,Math.min(sessionContextMenu.y,window.innerHeight-52))}},h('button',{className:'dsh-wel-context-item',onClick:beginSessionInlineRename,role:'menuitem',type:'button'},translate('context.renameSession')),h('button',{className:'dsh-wel-context-item',onClick:archiveSessionFromMenu,role:'menuitem',type:'button'},translate('context.archiveSession')),h('div',{className:'dsh-wel-context-separator',role:'separator'}),h('button',{className:'dsh-wel-context-item',onClick:revealSessionFromMenu,role:'menuitem',type:'button'},translate('context.reveal'))):null,sessionInlineRename?h(SessionInlineRename,{busy:sessionInlineRenameBusy,error:sessionInlineRenameError,onCancel:cancelSessionInlineRename,onConfirm:confirmSessionInlineRename,row:sessionInlineRename.row,title:sessionInlineRename.title}):null,sessionNotice?h('div',{className:'dsh-wel-copy-notice','data-error':sessionNotice.error||undefined,role:'status'},sessionNotice.text):null),overlay.open?h(MindmapOverlayHost,{actions:props.mindmapActions,chatWidth,mobile:mobile.on,sessionId:overlay.sessionId,sidebarWidth:sidebar,useSessions:props.useSessions}):null)}
+  return h('div',{ref:viewportRef,className:'dsh-ws-viewport'},h('main',{className:'dsh-ws-frame','data-explorer-closed':!panes.explorerOpen&&!filesActive||undefined,'data-sidebar-collapsed':collapsed||undefined,'data-sidebar-files':filesActive||undefined,'data-resizing':resizing||undefined,style:{'--dsh-ws-preview':`${preview}px`,'--dsh-ws-sidebar':`${sidebar}px`,'--dsh-ws-row-height':`${clamp(settings.rowHeight ?? ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MIN, ROW_HEIGHT_MAX)}px`,'--dsh-ws-chat-font-scale':String(chatFontScale),'--dsh-ws-mobile-header-h':`${mobileHeaderHeight}px`,...fileColorVars}},h('aside',{className:'dsh-ws-sidebar',ref:asideRef},props.renderSlot('sidebar',{collapsed,width:sidebar}),sidebarChrome?.top?createPortal(h(SidebarTopActions,{collapsed,view,width:sidebar,onSelectSessions:()=>{props.actions.setView('sessions')},onSelectFiles:()=>{if(collapsed)props.toggleSidebar();props.actions.setView('files')}}),sidebarChrome.top):null,sidebarChrome&&(sidebarChrome.groups.length>0?sidebarChrome.groups.map(group=>createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:group.title,openSession:openMindmapSession,revealSession:revealSessionById}),group.container)):sidebarChrome.fallback?createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:undefined,openSession:openMindmapSession,revealSession:revealSessionById}),sidebarChrome.fallback):null)),workspace?h(WorkspaceExplorer,{key:`${workspace.workspaceId}:${sessionId ?? 'workspace'}`,clearDraft:clearWorkspaceDraft,createEntry:props.createEntry,listDirectory:props.listDirectory,persistDraft:persistWorkspaceDraft,persistPreviewSession,publishEditorContext,readFile:props.readFile,renameEntry:props.renameEntry,saveFile:props.saveFile,loadDraft:props.loadDraft,persistDraftFile:props.persistDraftFile,removeDraftFile:props.removeDraftFile,draftTree:props.draftTree,settingsStore:props.settingsStore,storedDraft:panels.drafts[String(workspace.workspaceId)],storedPreviewSession,sessionTitle,sessionId,renameSession:props.renameSession,treePortalTarget,workspace}):h(EmptyWorkspaceExplorer,{sessionTitle,treePortalTarget}),h('section',{className:'dsh-ws-chat',ref:chatSectionRef},props.renderSlot('conversation',{}),chatDropActive?h('div',{className:'dsh-ws-chat-drop-mask',role:'presentation'},h('button',{'aria-label':translate('drop.closeAria'),className:'dsh-ws-chat-drop-close',onClick:()=>{chatDropSuppressed.current=true;setChatDropActive(false)},title:translate('drop.closeTitle'),type:'button'},'×'),h('div',{className:'dsh-ws-chat-drop-card'},translate('drop.releaseImages'))):null),!collapsed?h(ResizeHandle,{label:translate('resize.sidebar'),left:sidebar,max:sidebarMax,min:SIDEBAR_MIN,onDragging:setResizing,onResize:width=>props.actions.setSidebar(width,sidebarMax),value:sidebar}):null,(panes.explorerOpen||filesActive)?h(ResizeHandle,{label:translate('resize.preview'),left:previewBoundary,max:previewMax,min:PREVIEW_MIN,onDragging:setResizing,onResize:width=>props.explorerPaneStore.actions.setPreview(width,previewMax),value:preview}):null,h('aside',{className:'dsh-ws-details','data-closed':!panels.detailsOpen||!detailsCapable||undefined},props.renderSlot('details',{})),mobile.on&&mobile.drawerOpen?h('div',{className:'dsh-ws-mobile-scrim',onClick:()=>setDrawerOpen(false)}):null,h('div',{className:'dsh-ws-overlay','data-shell-overlay':true},props.renderSlot('shell.overlay',{})),sessionContextMenu?h('div',{className:'dsh-ws-context-menu',ref:sessionMenuRef,role:'menu',style:{left:Math.max(4,Math.min(sessionContextMenu.x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top:Math.max(4,Math.min(sessionContextMenu.y,window.innerHeight-52))}},h('button',{className:'dsh-ws-context-item',onClick:beginSessionInlineRename,role:'menuitem',type:'button'},translate('context.renameSession')),h('button',{className:'dsh-ws-context-item',onClick:archiveSessionFromMenu,role:'menuitem',type:'button'},translate('context.archiveSession')),h('div',{className:'dsh-ws-context-separator',role:'separator'}),h('button',{className:'dsh-ws-context-item',onClick:revealSessionFromMenu,role:'menuitem',type:'button'},translate('context.reveal'))):null,sessionInlineRename?h(SessionInlineRename,{busy:sessionInlineRenameBusy,error:sessionInlineRenameError,onCancel:cancelSessionInlineRename,onConfirm:confirmSessionInlineRename,row:sessionInlineRename.row,title:sessionInlineRename.title}):null,sessionNotice?h('div',{className:'dsh-ws-copy-notice','data-error':sessionNotice.error||undefined,role:'status'},sessionNotice.text):null),overlay.open?h(MindmapOverlayHost,{actions:props.mindmapActions,chatWidth,mobile:mobile.on,sessionId:overlay.sessionId,sidebarWidth:sidebar,useSessions:props.useSessions}):null)}
 
 export const inject = ['slots', 'theme', 'sessions', 'workspaces']
 export function apply(ctx) {
@@ -8936,7 +8936,7 @@ export function apply(ctx) {
         localeFace = undefined
         translate = zhFallbackTranslate
       }
-    }, 'workspace-explorer-layout: locale dictionaries')
+    }, 'workspace-studio: locale dictionaries')
   }
   ctx.effect(() => {
     if (typeof document === 'undefined') return undefined
@@ -8947,7 +8947,7 @@ export function apply(ctx) {
     tag.textContent = styles
     document.head.append(tag)
     return () => tag.remove()
-  }, 'workspace-explorer-layout: styles')
+  }, 'workspace-studio: styles')
   ctx.effect(() => {
     if (typeof document === 'undefined') return undefined
     // Mobile mode is intentionally transient and the document classes are
@@ -8955,8 +8955,8 @@ export function apply(ctx) {
     // disposal so hot reload/uninstall cannot leak layout gates to the shell.
     setMobile(false)
     return () => { setMobile(false) }
-  }, 'workspace-explorer-layout: mobile class lifecycle')
-  ctx.effect(() => installEditorContextMessageCompactor(), 'workspace-explorer-layout: compact logged editor context')
+  }, 'workspace-studio: mobile class lifecycle')
+  ctx.effect(() => installEditorContextMessageCompactor(), 'workspace-studio: compact logged editor context')
   const listDirectory = (workspaceId, path, signal) => requestJson('tree', String(workspaceId), path, signal)
   const readFile = (workspaceId, path, signal, encoding) => requestJson('file', String(workspaceId), path, signal, encoding)
   const saveFile = (workspaceId, path, content, revision, signal, encoding) => putFile(workspaceId, path, content, revision, signal, encoding)
@@ -9057,12 +9057,12 @@ export function apply(ctx) {
       disposeRegistration()
       void disposeService()
     }
-  }, 'workspace-explorer-layout: service and root registration')
+  }, 'workspace-studio: service and root registration')
   const promptContextBridge = new PromptContextBridge(ctx, editorContexts)
   ctx.inject(['conversation'], scope => {
     scope.effect(
       () => promptContextBridge.install(),
-      'workspace-explorer-layout: prompt context bridge',
+      'workspace-studio: prompt context bridge',
     )
   })
   /* The /init slash command: a popupSelect contribution that resolves the
@@ -9110,7 +9110,7 @@ export function apply(ctx) {
         },
       })
       return dispose
-    }, 'workspace-explorer-layout: init command')
+    }, 'workspace-studio: init command')
   })
   ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
     name: 'conversation.input.dock',
@@ -9122,7 +9122,7 @@ export function apply(ctx) {
       ensureSession: id => { promptContextBridge.ensure(id) },
     }),
   }, EditorContextPrefix))
-  ctx.effect(() => () => { editorContexts.dispose() }, 'workspace-explorer-layout: editor context state')
+  ctx.effect(() => () => { editorContexts.dispose() }, 'workspace-studio: editor context state')
   /* Mobile mode entries: the sidebar-footer toggle, the session-header whale +
      file-content-browsing controls (declared by ui-conversation), and the
      hero-page whale (declared by this plugin's root, rendered into the
@@ -9155,13 +9155,13 @@ export function apply(ctx) {
   ctx.effect(() => installMindmapBranchHider(
     () => ctx.sessions.list.getSnapshot(),
     () => ctx.workspaces.list.getSnapshot().archivedSessionIds,
-  ), 'workspace-explorer-layout: mind-map branch hider')
+  ), 'workspace-studio: mind-map branch hider')
   /* Background mind-map doc index (feeds the sidebar entries and the hider). */
   ctx.effect(() => {
     if (typeof document === 'undefined') return undefined
     mindmapRegistry.start()
     return () => mindmapRegistry.stop()
-  }, 'workspace-explorer-layout: mind-map index registry')
+  }, 'workspace-studio: mind-map index registry')
   ctx.slots.inject('shell.overlay', () => ctx.slots.register({
     name: 'shell.overlay', id: 'workspace-mobile-hero', order: -100,
   }, MobileHeroControls))
@@ -9180,5 +9180,5 @@ export function apply(ctx) {
       off()
       presenter.dispose()
     }
-  }, 'workspace-explorer-layout: theme presenter')
+  }, 'workspace-studio: theme presenter')
 }

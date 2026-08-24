@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install the workspace explorer layout bundle into a DeepSeek Harness Web profile.
+# Install the workspace studio bundle into a DeepSeek Harness Web profile.
 # Usage: bash ./install.sh [profile]
 # Env:   PROFILE  default profile when no positional argument is supplied
 #        DSH_BIN  optional dsh executable path/name without extra arguments
@@ -35,7 +35,7 @@ else
 fi
 PROFILE_MANIFEST="$DSH_HOME_SHELL/profiles/$PROFILE/package.json"
 
-echo "==> adding @deepseek-ai/dsh-workspace-explorer-layout to profile '$PROFILE'"
+echo "==> adding @deepseek-ai/dsh-workspace-studio to profile '$PROFILE'"
 "${DSH_COMMAND[@]}" plugin --profile "$PROFILE" add "$BUNDLE_SPEC"
 
 echo

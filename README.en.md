@@ -1,4 +1,4 @@
-# 🗂️ DeepSeek Harness Four-Pane Workspace Layout Plugin
+# 🗂️ DeepSeek Harness Workspace Studio Plugin (Four-Pane Layout)
 
 English | [中文](README.md)
 
@@ -55,7 +55,7 @@ This bundle replaces the DeepSeek Harness Web root layout with four panes: **ses
 ### Editing & Saving
 
 - Editable files **open directly in edit mode** with **Save**, **Cancel**, and `Ctrl/Cmd+S`.
-- **Staging draft file**: editing takes one **snapshot** (the source content); all temporary edits are debounce-written to a **draft file** (`~/.dsh-plugin/dsh-workspace-explorer-layout/drafts/<workspaceId>/`, long-lived), and the **source file is never touched**; a page refresh restores from the draft file (draft + snapshot + encoding). Auto-save is not a "save", so the `·` stays until an explicit save. localStorage only keeps the dirty marker, not the edit content or snapshot.
+- **Staging draft file**: editing takes one **snapshot** (the source content); all temporary edits are debounce-written to a **draft file** (`~/.dsh-plugin/dsh-workspace-studio/drafts/<workspaceId>/`, long-lived), and the **source file is never touched**; a page refresh restores from the draft file (draft + snapshot + encoding). Auto-save is not a "save", so the `·` stays until an explicit save. localStorage only keeps the dirty marker, not the edit content or snapshot.
 - **Save (merge back to source)**: saving re-reads the source and compares it with the snapshot —
   - Source unchanged by other tools (= snapshot): silently write the staged content back to the source, then delete the draft file.
   - Source changed in different places than your edits: automatic three-way merge keeps both sides and writes back.
@@ -91,7 +91,7 @@ This bundle replaces the DeepSeek Harness Web root layout with four panes: **ses
 
 ### Mind Map (Conversation Branching)
 
-- The **Mind Map** button in the session header opens a **floating window on the left side of the page** (width = 100% − the chat column's current width, reflowing live as the splitter drags), while the **chat stays visible and usable on the right**; click the button again, the × in the corner, or press Esc to close. On first open, the plugin reverse-parses the session's **full event log into all its turns**, renders them as cards (trunk 1 → 2 → 3 → 4 → 5), and persists them to `~/.dsh-plugin/dsh-workspace-explorer-layout/mindmap/` — that persisted document is the mind map's **single source of truth**.
+- The **Mind Map** button in the session header opens a **floating window on the left side of the page** (width = 100% − the chat column's current width, reflowing live as the splitter drags), while the **chat stays visible and usable on the right**; click the button again, the × in the corner, or press Esc to close. On first open, the plugin reverse-parses the session's **full event log into all its turns**, renders them as cards (trunk 1 → 2 → 3 → 4 → 5), and persists them to `~/.dsh-plugin/dsh-workspace-studio/mindmap/` — that persisted document is the mind map's **single source of truth**.
 - After conversion the ordinary session is hidden from the sidebar session list and replaced by a self-drawn entry at the **end of the session list under its workspace group**; clicking it opens the session and pops the mind-map window. Every fork session derived from the map is hidden from the list too and managed from the map only.
 - Clicking a card is **switch-first, fork-as-fallback**: a card where a branch is parked (a chain-tail card) **switches to that branch** (the right-side chat follows, the highlight moves — free branch switching); a middle card with no parked branch (e.g. card 6 inside branch 6-7) **forks a new branch there** and enters chat, its new turns sitting beside its sibling (6 → 8, 9 beside 7). Every fork belongs to the **same main mind map** — a fork never creates a new map — and the new branch session stays hidden from the sidebar session list. The branch's new turns are folded back into the document by the Host sync from the branch session's full log.
 - Right-click a branch to **rename** it; the toolbar can **archive the entire mind map** (with all its branch sessions; the window closes after archiving the whole map). Right-click any card (trunk cards included) to **delete the card** (a true truncation): a new session is forked from the previous card and replaces the original — this card, the turns after it, and every branch derived from them are removed, and the original session is archived (currently no restore path), so the chat and the map both continue from the truncation point with matching numbering. The map supports **grab-pan, wheel zoom**, and **Restore view**.
@@ -113,7 +113,7 @@ Built in for **20+ languages**: JavaScript/JSX, TypeScript/TSX, JSON, HTML, CSS/
 
 One package ships three faces:
 
-- **Host entry** (`lib/index.js`) registers `/workspace-explorer-layout/api`: it lists directories by Workspace ID, reads bounded UTF-8 files, authorizes the current Session by membership or canonical cwd, and, when editing is explicitly enabled, saves existing regular files, creates files and folders, and renames entries through revision validation, single-segment name checks, and atomic replacement — refusing stale revisions instead of overwriting them. It also serves `/mindmap-doc` (read / write / delete) plus `/mindmap-doc/sync`, `/mindmap-doc/index`, and `/mindmap-doc/rename`, persisting per-session mind-map documents built by reverse-parsing full event logs, with renames updating only the map title instead of round-tripping the whole document.
+- **Host entry** (`lib/index.js`) registers `/workspace-studio/api`: it lists directories by Workspace ID, reads bounded UTF-8 files, authorizes the current Session by membership or canonical cwd, and, when editing is explicitly enabled, saves existing regular files, creates files and folders, and renames entries through revision validation, single-segment name checks, and atomic replacement — refusing stale revisions instead of overwriting them. It also serves `/mindmap-doc` (read / write / delete) plus `/mindmap-doc/sync`, `/mindmap-doc/index`, and `/mindmap-doc/rename`, persisting per-session mind-map documents built by reverse-parsing full event logs, with renames updating only the map title instead of round-tripping the whole document.
 - **Browser entry** (`lib/client.js`) provides the compatible `ctx.layout` service, occupies the root Slot, keeps declaring `sidebar`, `conversation`, `details`, and `shell.overlay`, and adds the file tree, the CodeMirror 6 browser/editor, the editor-context row, the Explorer settings tab, the `/init` command, and the conversation mind-map view.
 - **Shared invariants** (`lib/invariant.js`) back every Host request with path-containment and write-eligibility checks.
 
@@ -147,7 +147,7 @@ bash ./install.sh          # default target is the web profile
 bash ./install.sh web      # a profile can be supplied explicitly
 ```
 
-> In the sample path `C:/GreenSoftware/deepseek-harness/deepseek-harness-plugin/dsh-workspace-explorer-layout`
+> In the sample path `C:/GreenSoftware/deepseek-harness/deepseek-harness-plugin/dsh-workspace-studio`
 > the `deepseek-harness-plugin` segment is the author's custom plugin folder name, not a requirement.
 > `install.sh` resolves the Harness root as two levels above the bundle directory (for the
 > `pnpm --dir` fallback when `dsh` is not on PATH), so **the recommended layout is a plugin folder

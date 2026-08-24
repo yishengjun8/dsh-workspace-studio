@@ -1,6 +1,6 @@
 # Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
-#   pnpm run verify-translation-pairing --write deepseek-harness-plugin/dsh-workspace-explorer-layout/README.md
-README.md: 2436105687d1420de32e67b93a42d1919463d7f6
-README.en.md: 2d06c6cdc770747da1321a865ed13948cee2d563
+#   pnpm run verify-translation-pairing --write deepseek-harness-plugin/dsh-workspace-studio/README.md
+README.md: 86556267c668dbcbba7ed77cd1cc79b040e5f253
+README.en.md: 50705ae71cd5fa6dd87658fd3c2492ac0ac5a5b8

@@ -1,4 +1,4 @@
-# 🗂️ DeepSeek Harness 工作区四栏布局插件
+# 🗂️ DeepSeek Harness 工作区 Studio 插件（四栏布局）
 
 [English](README.en.md) | 中文
 
@@ -55,7 +55,7 @@
 ### 编辑与保存
 
 - 可编辑文件**打开即进入编辑模式**，提供“保存”“取消”与 `Ctrl/Cmd+S`。
-- **暂存盘（草稿文件）**：编辑时提取一次**快照**（源文件内容），所有临时修改防抖写入**暂存盘文件**（`~/.dsh-plugin/dsh-workspace-explorer-layout/drafts/<workspaceId>/`，长期留档），**源文件不被触碰**；刷新页面后从暂存盘文件恢复（草稿 + 快照 + 编码）。自动存盘不视为“保存”，`·` 仍保留直到显式保存。localStorage 只保留脏标记，不存编辑内容/快照。
+- **暂存盘（草稿文件）**：编辑时提取一次**快照**（源文件内容），所有临时修改防抖写入**暂存盘文件**（`~/.dsh-plugin/dsh-workspace-studio/drafts/<workspaceId>/`，长期留档），**源文件不被触碰**；刷新页面后从暂存盘文件恢复（草稿 + 快照 + 编码）。自动存盘不视为“保存”，`·` 仍保留直到显式保存。localStorage 只保留脏标记，不存编辑内容/快照。
 - **保存（合并回源文件）**：保存时重新读取源文件，与快照比较——
   - 源文件未被其他工具改动（= 快照）：把暂存内容**静默写回源文件**，成功后删除暂存盘文件。
   - 源文件被改动、且与你的修改不在同一位置：自动三方合并，双方修改都保留后写回。
@@ -92,7 +92,7 @@
 ### 导图（会话分支）
 
 - 会话头部「导图」按钮在页面**左侧弹出导图悬浮窗**（宽度 = 100% − 聊天栏宽度，拖拽分隔条调整聊天栏时实时联动），**右侧聊天保持可见可继续对话**；再点按钮 / 右上角 × / Esc 关闭。首次打开时，插件从会话的**完整事件日志反向解析全部轮次**，切成一张张卡片（主干 1 → 2 → 3 → 4 → 5），并持久化到
-  `~/.dsh-plugin/dsh-workspace-explorer-layout/mindmap/` —— 该持久化文档是导图的**唯一信息源**。
+  `~/.dsh-plugin/dsh-workspace-studio/mindmap/` —— 该持久化文档是导图的**唯一信息源**。
 - 转换后，这个普通会话从侧栏会话列表隐藏，改为**对应工作区分组下会话列表末尾**的一个自绘条目（点击条目会打开会话并弹出该导图悬浮窗）；凡由该导图派生出来的 fork 会话都会从列表隐藏，只在导图里管理。
 - 点击卡片 = **切换优先、新建兜底**：停在某卡片的分支（链尾卡片）点击即**切换到该分支**（右侧聊天跟随切换，导图内高亮跟随，可自由切换）；没有分支停靠的中间轮次卡片（如分支 6-7 里的 6）点击则**在该处 fork 新分支**并进入对话，新轮次与兄弟轮并列（6 → 8、9 与 7 并列）。所有 fork 都归**同一个主导图**，绝不新增导图；新分支会话也不出现在侧栏会话列表。分支的新轮次由 Host 在同步时从分支会话的完整日志折叠回文档。
 - 右键分支可**重命名**；工具栏可「归档整个导图」（连同全部分支会话，归档后悬浮窗自动关闭）。右键任意卡片（含主干卡）可**删除卡片**（**真截断**）：从上一张卡 fork 出截断后的新会话并归档原会话——该卡片及其后的轮次、由此衍生的所有分支一并移除（原会话归档后当前无恢复入口），聊天与导图从此从截断点重新开始、编号一致。导图支持**抓手平移、滚轮缩放**与「还原视图」。
@@ -114,7 +114,7 @@
 
 一个包内封装三个端面：
 
-- **Host 端**（`lib/index.js`）注册 `/workspace-explorer-layout/api`：按 Workspace ID 列目录、读取有上限的 UTF-8 文件，按 membership 或规范化 cwd 授权当前 Session；显式启用编辑时，通过修订版本校验、单段名称校验和原子替换保存已有普通文件、新建文件与文件夹、重命名已有条目，拒绝过期修订版本而不是静默覆盖。另提供 `/mindmap-doc`（读 / 写 / 删）与 `/mindmap-doc/sync`、`/mindmap-doc/index`、`/mindmap-doc/rename` 接口：按会话持久化导图文档，反向解析完整事件日志生成主干与分支轮次，重命名只更新导图标题而不整份往返。
+- **Host 端**（`lib/index.js`）注册 `/workspace-studio/api`：按 Workspace ID 列目录、读取有上限的 UTF-8 文件，按 membership 或规范化 cwd 授权当前 Session；显式启用编辑时，通过修订版本校验、单段名称校验和原子替换保存已有普通文件、新建文件与文件夹、重命名已有条目，拒绝过期修订版本而不是静默覆盖。另提供 `/mindmap-doc`（读 / 写 / 删）与 `/mindmap-doc/sync`、`/mindmap-doc/index`、`/mindmap-doc/rename` 接口：按会话持久化导图文档，反向解析完整事件日志生成主干与分支轮次，重命名只更新导图标题而不整份往返。
 - **Browser 端**（`lib/client.js`）提供兼容的 `ctx.layout` 服务，占用根 Slot，继续声明 `sidebar`、`conversation`、`details` 与 `shell.overlay`，并加入文件树、CodeMirror 6 浏览器/编辑器、编辑器上下文行、资源管理器设置页、`/init` 命令与会话分支导图。
 - **共享不变量**（`lib/invariant.js`）为每次 Host 请求提供路径包含与写入资格校验。
 
@@ -148,7 +148,7 @@ bash ./install.sh          # 默认安装到 web profile
 bash ./install.sh web      # 也可显式指定 profile
 ```
 
-> 示例路径 `C:/GreenSoftware/deepseek-harness/deepseek-harness-plugin/dsh-workspace-explorer-layout`
+> 示例路径 `C:/GreenSoftware/deepseek-harness/deepseek-harness-plugin/dsh-workspace-studio`
 > 中的 `deepseek-harness-plugin` 是作者自定义的插件目录名，不是固定要求。`install.sh` 以插件
 > 目录为基准向上两级解析 Harness 根目录（供 PATH 无 `dsh` 时的 `pnpm --dir` 回退使用），因此
 > **推荐把插件放在 Harness 根目录下两层的插件目录中**（与示例一致）；若 PATH 中已有 `dsh`，

@@ -4,8 +4,8 @@
   disabled: true
 
 - insert:
-    - id: workspace-explorer-layout
-      name: '@deepseek-ai/dsh-workspace-explorer-layout'
+    - id: workspace-studio
+      name: '@deepseek-ai/dsh-workspace-studio'
       config:
         enableEditing: true
         maxContextBytes: 65536
