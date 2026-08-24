@@ -19,6 +19,7 @@ This bundle replaces the DeepSeek Harness Web root layout with four panes: **ses
 | 🎯 **Editor context** | Open files / selections inject as `<opened_file>` / `<selection>` prefixes; history keeps a one-line summary |
 | 🧹 **File operations** | Right-click create / rename / copy / cut / paste / delete / copy path, with shortcuts |
 | 📱 **Mobile mode** | One-click switch to a centered phone column; file browsing can fill the phone column |
+| 🧭 **Mind map** | Conversation branch tree: reverse-parses the full session log into turn cards and persists them, forks a new branch at any card, rename / archive / delete cards, archive branches and the whole map |
 | 🔒 **Security boundary** | Workspace-confined read/write, path containment, revision conflict protection, symlink rejection |
 
 ## 🧩 Features
@@ -88,6 +89,14 @@ This bundle replaces the DeepSeek Harness Web root layout with four panes: **ses
 - The `/init` command (Claude Code style) generates or updates `AGENTS.md` at the current session's workspace root; when the file already exists a dialog offers **Update** or **Cancel**, and the current agent analyzes the workspace and generates it.
 - Drop external files into the preview pane to preview them as read-only tabs (session-only; nothing is written to the workspace). Only text files are accepted: images, folders, and other non-text content show a “cannot preview as text” notice (images belong to the chat composer — intentional).
 
+### Mind Map (Conversation Branching)
+
+- The **Mind Map** button in the session header opens a **floating window on the left side of the page** (width = 100% − the chat column's current width, reflowing live as the splitter drags), while the **chat stays visible and usable on the right**; click the button again, the × in the corner, or press Esc to close. On first open, the plugin reverse-parses the session's **full event log into all its turns**, renders them as cards (trunk 1 → 2 → 3 → 4 → 5), and persists them to `~/.dsh-plugin/dsh-workspace-explorer-layout/mindmap/` — that persisted document is the mind map's **single source of truth**.
+- After conversion the ordinary session is hidden from the sidebar session list and replaced by a self-drawn entry at the **end of the session list under its workspace group**; clicking it opens the session and pops the mind-map window. Every fork session derived from the map is hidden from the list too and managed from the map only.
+- Clicking a card is **switch-first, fork-as-fallback**: a card where a branch is parked (a chain-tail card) **switches to that branch** (the right-side chat follows, the highlight moves — free branch switching); a middle card with no parked branch (e.g. card 6 inside branch 6-7) **forks a new branch there** and enters chat, its new turns sitting beside its sibling (6 → 8, 9 beside 7). Every fork belongs to the **same main mind map** — a fork never creates a new map — and the new branch session stays hidden from the sidebar session list. The branch's new turns are folded back into the document by the Host sync from the branch session's full log.
+- Right-click a branch to **rename / archive** it (archiving its whole subtree); the toolbar can **archive the entire mind map** (with all its branch sessions; the window closes after archiving the whole map). Right-click any card (trunk cards included) to **delete the card** (a true truncation): a new session is forked from the previous card and replaces the original — this card, the turns after it, and every branch derived from them are removed, and the original session is archived (currently no restore path), so the chat and the map both continue from the truncation point with matching numbering. The map supports **grab-pan, wheel zoom**, and **Restore view**.
+- While a branch is **generating** (a question was submitted and the agent is streaming), the map shows a live "**Generating…**" card (pulsing border, carrying the in-flight question) framed together with its **parent card** inside one dashed **frame** as a unit; when the turn completes the card converts into a normal card and the frame disappears. The streaming card is not clickable (an unfinished turn cannot be a fork point).
+
 ### Appearance & Settings
 
 - Uses Harness semantic theme variables and supports light, dark, and system themes.
@@ -104,8 +113,8 @@ Built in for **20+ languages**: JavaScript/JSX, TypeScript/TSX, JSON, HTML, CSS/
 
 One package ships three faces:
 
-- **Host entry** (`lib/index.js`) registers `/workspace-explorer-layout/api`: it lists directories by Workspace ID, reads bounded UTF-8 files, authorizes the current Session by membership or canonical cwd, and, when editing is explicitly enabled, saves existing regular files, creates files and folders, and renames entries through revision validation, single-segment name checks, and atomic replacement — refusing stale revisions instead of overwriting them.
-- **Browser entry** (`lib/client.js`) provides the compatible `ctx.layout` service, occupies the root Slot, keeps declaring `sidebar`, `conversation`, `details`, and `shell.overlay`, and adds the file tree, the CodeMirror 6 browser/editor, the editor-context row, the Explorer settings tab, and the `/init` command.
+- **Host entry** (`lib/index.js`) registers `/workspace-explorer-layout/api`: it lists directories by Workspace ID, reads bounded UTF-8 files, authorizes the current Session by membership or canonical cwd, and, when editing is explicitly enabled, saves existing regular files, creates files and folders, and renames entries through revision validation, single-segment name checks, and atomic replacement — refusing stale revisions instead of overwriting them. It also serves `/mindmap-doc` (read / write / delete) plus `/mindmap-doc/sync` and `/mindmap-doc/index`, persisting per-session mind-map documents built by reverse-parsing full event logs.
+- **Browser entry** (`lib/client.js`) provides the compatible `ctx.layout` service, occupies the root Slot, keeps declaring `sidebar`, `conversation`, `details`, and `shell.overlay`, and adds the file tree, the CodeMirror 6 browser/editor, the editor-context row, the Explorer settings tab, the `/init` command, and the conversation mind-map view.
 - **Shared invariants** (`lib/invariant.js`) back every Host request with path-containment and write-eligibility checks.
 
 ### Activation Model
