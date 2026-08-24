@@ -312,6 +312,8 @@ const zh = {
   'editor.saveAsFailed': '无法另存为编码：{reason}',
   'editor.cancelRestored': '已取消编辑，已从磁盘重新读取源文件。',
   'editor.cancelFailed': '取消失败：{message}。草稿已保留。',
+  'editor.discardDraft': '丢弃草稿',
+  'editor.discardDraft.title': '丢弃暂存草稿并从磁盘重新读取（该文件当前不可编辑）',
   'editor.autosaveFailed': '自动保存失败：{message}。草稿已保留。',
   'editor.saveCancelled': '已取消保存，仍可继续编辑。',
   'dialog.saveConflictTitle': '保存冲突',
@@ -412,6 +414,17 @@ const zh = {
   'preset.cool': '冷色',
   'preset.mono': '单色',
   'preset.vscode-config': '配置（VS Code）',
+  'preset.vscode-xml': 'XML（VS Code）',
+  'preset.vscode-python': 'Python（VS Code）',
+  'preset.vscode-json': 'JSON（VS Code）',
+  'preset.vscode-typescript': 'TypeScript（VS Code）',
+  'preset.vscode-javascript': 'JavaScript（VS Code）',
+  'preset.vscode-css': 'CSS（VS Code）',
+  'preset.vscode-markdown': 'Markdown（VS Code）',
+  'preset.vscode-shell': 'Shell（VS Code）',
+  'preset.vscode-cpp': 'C/C++（VS Code）',
+  'preset.vscode-csharp': 'C#（VS Code）',
+  'preset.vs2022': 'Visual Studio 2022',
   'readonly.binary': '文件不是可编辑的文本文件',
   'readonly.encoding': '文件编码不支持编辑',
   'readonly.too_large': '文件过大，不能编辑',
@@ -692,6 +705,8 @@ const en = {
   'editor.saveAsFailed': 'Cannot save as encoding: {reason}',
   'editor.cancelRestored': 'Edit canceled; reloaded the source file from disk.',
   'editor.cancelFailed': 'Cancel failed: {message}. Your draft was kept.',
+  'editor.discardDraft': 'Discard draft',
+  'editor.discardDraft.title': 'Discard the staging draft and reload from disk (this file is not currently editable)',
   'editor.autosaveFailed': 'Auto-save failed: {message}. Your draft was kept.',
   'editor.saveCancelled': 'Save canceled; you can keep editing.',
   'dialog.saveConflictTitle': 'Save Conflict',
@@ -792,6 +807,17 @@ const en = {
   'preset.cool': 'Cool',
   'preset.mono': 'Monochrome',
   'preset.vscode-config': 'Config (VS Code)',
+  'preset.vscode-xml': 'XML (VS Code)',
+  'preset.vscode-python': 'Python (VS Code)',
+  'preset.vscode-json': 'JSON (VS Code)',
+  'preset.vscode-typescript': 'TypeScript (VS Code)',
+  'preset.vscode-javascript': 'JavaScript (VS Code)',
+  'preset.vscode-css': 'CSS (VS Code)',
+  'preset.vscode-markdown': 'Markdown (VS Code)',
+  'preset.vscode-shell': 'Shell (VS Code)',
+  'preset.vscode-cpp': 'C/C++ (VS Code)',
+  'preset.vscode-csharp': 'C# (VS Code)',
+  'preset.vs2022': 'Visual Studio 2022',
   'readonly.binary': 'The file is not editable text',
   'readonly.encoding': 'The file encoding cannot be edited',
   'readonly.too_large': 'The file is too large to edit',
@@ -1717,7 +1743,12 @@ function readOnlyReason(preview) {
 }
 
 const fileLabel = name => languageFor(name).label
-const clamp = (value, min, max) => Math.min(max, Math.max(min, Math.round(value)))
+const clamp = (value, min, max) => {
+  const rounded = Math.round(value)
+  // NaN (or non-finite) must not leak through Math.min/max into state; a
+  // non-numeric input resolves to the lower bound as a safe default.
+  return Number.isFinite(rounded) ? Math.min(max, Math.max(min, rounded)) : min
+}
 function formatBytes(bytes) { if (!Number.isFinite(bytes) || bytes < 0) return ''; if (bytes < 1024) return `${bytes} B`; if (bytes < 1048576) return `${(bytes / 1024).toFixed(bytes < 10240 ? 1 : 0)} KB`; return `${(bytes / 1048576).toFixed(1)} MB` }
 
 /* ---- Save-time three-way merge (Git-like conflict resolution) ----
@@ -1812,9 +1843,17 @@ function changesTouch(left, right) {
 }
 
 function changeTouchesSpan(change, start, end) {
-  return change.from === change.to
-    ? change.from >= start && change.from < end
-    : change.from < end && change.to > start
+  if (change.from === change.to) {
+    // A degenerate span (start === end, a same-point insertion conflict) is
+    // touched by insertions exactly at that point; a non-degenerate span
+    // keeps the half-open rule where an insertion landing exactly at the
+    // exclusive end stays disjoint (deleting the last line while the other
+    // side appends after it must merge cleanly).
+    return end === start
+      ? change.from === start
+      : change.from >= start && change.from < end
+  }
+  return change.from < end && change.to > start
 }
 
 function appendMergeText(parts, lines) {
@@ -1955,7 +1994,28 @@ function threeWayMerge(baseText, mineText, theirsText) {
   }
 
   appendMergeText(parts, base.slice(cursor))
-  if (conflicts.length > 0) return { status: 'conflict', conflicts, parts }
+  if (conflicts.length > 0) {
+    /* The conflict structure is only trustworthy when EACH side can be fully
+       reconstructed from it. A non-canonical Myers diff on repeated identical
+       lines can split one replacement into an insertion plus a remote deletion
+       whose coordinates collide with the other side's change; the walk then
+       applies one side's insertion as clean text and the structure cannot
+       reconstruct the other side. If either all-mine or all-theirs does not
+       round-trip to the actual side, fall back to the whole-file conflict
+       (both full sides, exact choice) instead of ever emitting a resolution
+       that contradicts the user's pick — a wrong save is worse than a manual
+       choice. */
+    try {
+      const allMine = resolveMergeParts(parts, conflicts, conflicts.map(() => 'mine'))
+      const allTheirs = resolveMergeParts(parts, conflicts, conflicts.map(() => 'theirs'))
+      if (allMine !== mineText || allTheirs !== theirsText) {
+        return wholeFileConflict(base, mine, theirs, 'unsound-cluster')
+      }
+    } catch {
+      return wholeFileConflict(base, mine, theirs, 'unsound-cluster')
+    }
+    return { status: 'conflict', conflicts, parts }
+  }
   return { status: 'clean', merged: resolveMergeParts(parts, [], []) }
 }
 
@@ -2129,7 +2189,7 @@ function createExplorerPaneStore() {
     actions: {
       setTree: (draft, width, max = TREE_MAX) => { draft.tree = clamp(width, TREE_MIN, max) },
       setPreview: (draft, width, max = PREVIEW_MAX) => { draft.preview = clamp(width, PREVIEW_MIN, max) },
-      setSidebar: (draft, width) => { draft.sidebar = width === 0 ? 0 : Math.max(SIDEBAR_MIN, Math.round(width)) },
+      setSidebar: (draft, width, max = SIDEBAR_MAX_FALLBACK) => { draft.sidebar = width === 0 ? 0 : clamp(width, SIDEBAR_MIN, max) },
       setExplorerOpen: (draft, open) => { draft.explorerOpen = open },
     },
   })
@@ -2142,6 +2202,9 @@ function createPreviewSessionStore() {
     persist: PREVIEW_SESSION_STORE_KEY,
     actions: {
       rememberPreviewSession: (draft, key, value) => {
+        // The persisted value is rehydrated wholesale from localStorage; a
+        // polluted or legacy key without the expected shape must not throw.
+        if (draft.previewSessions === undefined || draft.previewSessions === null || typeof draft.previewSessions !== 'object') draft.previewSessions = {}
         const normalized = normalizePreviewSession(value)
         if (normalized.tabs.length === 0 && (normalized.expanded ?? []).length === 0) delete draft.previewSessions[String(key)]
         else {
@@ -2354,17 +2417,35 @@ const SELECTION_CLOSE = '</selection>'
 const MESSAGE_CONTEXT_SELECTOR = '[data-chat-flow-kind="user"],[data-chat-flow-kind="steering"],[data-pending-steering]'
 const MESSAGE_CONTEXT_SUMMARY_ATTR = 'data-dsh-ws-message-context-summary'
 const pendingEditorContextDisplays = new Map()
+/* The queue is consumed only when the message actually mounts and is
+   compacted; a session switch, a rendered-text mismatch, or a skipped
+   fast-path can leave an entry pending forever. Bound the total so a long
+   session cannot grow this module-level map without limit — the oldest pending
+   display is dropped first (the envelope itself still renders; only the rich
+   summary is lost, which is the same outcome as a never-consumed entry). */
+const MAX_PENDING_CONTEXT_DISPLAYS = 256
+let pendingContextDisplayCount = 0
 
 function rememberEditorContextDisplay(text, display) {
+  if (pendingContextDisplayCount >= MAX_PENDING_CONTEXT_DISPLAYS && !pendingEditorContextDisplays.has(text)) {
+    const oldest = pendingEditorContextDisplays.keys().next().value
+    if (oldest !== undefined) {
+      const queue = pendingEditorContextDisplays.get(oldest)
+      pendingContextDisplayCount -= queue.length
+      pendingEditorContextDisplays.delete(oldest)
+    }
+  }
   const queue = pendingEditorContextDisplays.get(text)
   if (queue === undefined) pendingEditorContextDisplays.set(text, [display])
   else queue.push(display)
+  pendingContextDisplayCount += 1
 }
 
 function consumeEditorContextDisplay(text) {
   const queue = pendingEditorContextDisplays.get(text)
   if (queue === undefined || queue.length === 0) return null
   const display = queue.shift()
+  pendingContextDisplayCount -= 1
   if (queue.length === 0) pendingEditorContextDisplays.delete(text)
   return display ?? null
 }
@@ -2373,11 +2454,13 @@ function discardLastEditorContextDisplay(text) {
   const queue = pendingEditorContextDisplays.get(text)
   if (queue === undefined || queue.length === 0) return
   queue.pop()
+  pendingContextDisplayCount -= 1
   if (queue.length === 0) pendingEditorContextDisplays.delete(text)
 }
 
 function clearEditorContextDisplays() {
   pendingEditorContextDisplays.clear()
+  pendingContextDisplayCount = 0
 }
 
 function promptRemainder(text, end) {
@@ -2530,6 +2613,12 @@ function installEditorContextMessageCompactor() {
   }
   const compactAll = () => {
     for (const container of document.querySelectorAll(MESSAGE_CONTEXT_SELECTOR)) compactContainer(container)
+    /* Release bubbles that left the document (message cleared, session
+       removed): their DOM refs and full text must not accumulate until the
+       plugin is disposed. */
+    for (const bubble of originals.keys()) {
+      if (!bubble.isConnected) originals.delete(bubble)
+    }
   }
   let scheduled = false
   const schedule = () => {
@@ -3117,6 +3206,31 @@ const emergencyDraftTails = new Map()
 function emergencyDraftKey(workspaceId, scopeId, path) {
   return JSON.stringify([String(workspaceId), String(scopeId), path])
 }
+/* Tombstones (state: 'deleted') exist only to suppress restoring a discarded
+   draft; they are reclaimed after a retention window so the emergency IndexedDB
+   mirror cannot grow without bound. Live (non-deleted) draft records are the
+   user's unsaved work and are never pruned here. */
+const EMERGENCY_DRAFT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
+let emergencyDraftPruneScheduled = false
+async function pruneEmergencyDrafts() {
+  const db = await openEmergencyDraftDb()
+  if (db === undefined) return
+  const cutoff = Date.now() - EMERGENCY_DRAFT_RETENTION_MS
+  await new Promise((resolvePrune, reject) => {
+    const transaction = db.transaction(EMERGENCY_DRAFT_STORE, 'readwrite')
+    const store = transaction.objectStore(EMERGENCY_DRAFT_STORE)
+    const request = store.getAll()
+    request.onsuccess = () => {
+      for (const value of request.result ?? []) {
+        if (value?.state === 'deleted' && Number(value.updatedAt) < cutoff) store.delete(value.key)
+      }
+    }
+    request.onerror = () => { reject(request.error ?? new Error('IndexedDB draft prune failed')) }
+    transaction.oncomplete = () => { resolvePrune() }
+    transaction.onerror = () => { reject(transaction.error ?? new Error('IndexedDB draft prune failed')) }
+    transaction.onabort = () => { reject(transaction.error ?? new Error('IndexedDB draft prune aborted')) }
+  })
+}
 function openEmergencyDraftDb() {
   if (typeof indexedDB === 'undefined') return Promise.resolve(undefined)
   if (emergencyDraftDbPromise !== undefined) return emergencyDraftDbPromise
@@ -3133,7 +3247,15 @@ function openEmergencyDraftDb() {
         request.result.createObjectStore(EMERGENCY_DRAFT_STORE, { keyPath: 'key' })
       }
     }
-    request.onsuccess = () => { resolveDb(request.result) }
+    request.onsuccess = () => {
+      resolveDb(request.result)
+      /* One best-effort sweep per page load: reclaim expired tombstones without
+         touching live drafts. */
+      if (!emergencyDraftPruneScheduled) {
+        emergencyDraftPruneScheduled = true
+        void pruneEmergencyDrafts().catch(() => {})
+      }
+    }
     request.onerror = () => { reject(request.error ?? new Error('IndexedDB open failed')) }
     request.onblocked = () => { reject(new Error('IndexedDB upgrade blocked')) }
   }).catch(error => {
@@ -3426,38 +3548,37 @@ function normalizePreviewSession(value) {
   return { activePath, tabs, expanded }
 }
 function selectStoredPreviewSession(previewSessions, workspace, currentSession, workspaceId) {
+  /* Own-key lookup only: a bare `previewSessions[key]` would also match keys on
+     the Object prototype chain (constructor/toString), which are never real
+     snapshots. Session ids are UUIDs today, but the check is cheap insurance. */
+  const has = key => Object.prototype.hasOwnProperty.call(previewSessions, key)
   if (currentSession !== undefined) {
     const currentKey = String(currentSession)
-    const currentValue = previewSessions[currentKey]
-    if (currentValue !== undefined) return { key: currentKey, value: currentValue }
+    if (has(currentKey)) return { key: currentKey, value: previewSessions[currentKey] }
     // Restore priority ② (development-notes §2): the first snapshot of any
     // session in this workspace, so a session without its own snapshot still
     // restores the tabs its workspace previously had instead of an empty explorer.
     if (workspace !== undefined) {
       for (const sessionId of workspace.sessionIds) {
         const key = String(sessionId)
-        const value = previewSessions[key]
-        if (value !== undefined) return { key, value }
+        if (has(key)) return { key, value: previewSessions[key] }
       }
     }
     if (workspaceId !== undefined) {
       const workspaceKey = String(workspaceId)
-      const workspaceValue = previewSessions[workspaceKey]
-      if (workspaceValue !== undefined) return { key: workspaceKey, value: workspaceValue }
+      if (has(workspaceKey)) return { key: workspaceKey, value: previewSessions[workspaceKey] }
     }
     return { key: currentKey, value: undefined }
   }
   if (workspace !== undefined) {
     for (const sessionId of workspace.sessionIds) {
       const key = String(sessionId)
-      const value = previewSessions[key]
-      if (value !== undefined) return { key, value }
+      if (has(key)) return { key, value: previewSessions[key] }
     }
   }
   if (workspaceId !== undefined) {
     const workspaceKey = String(workspaceId)
-    const workspaceValue = previewSessions[workspaceKey]
-    if (workspaceValue !== undefined) return { key: workspaceKey, value: workspaceValue }
+    if (has(workspaceKey)) return { key: workspaceKey, value: previewSessions[workspaceKey] }
     return { key: workspaceKey, value: undefined }
   }
   return { key: undefined, value: undefined }
@@ -3588,7 +3709,7 @@ function TreeRenameRow({busy,depth,entry,expanded,error,onCancel,onConfirm,onDra
 const TreeStatus=({children,error})=>h('div',{className:'dsh-ws-tree-status','data-error':error||undefined},children)
 function TreeContextMenu({entry,menuRef,onRename,onCopyName,onCopyPath,onReveal,onCopy,onPaste,onCut,onDelete,pasteDisabled,pasteTitle,x,y}){const left=Math.max(4,Math.min(x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top=Math.max(4,Math.min(y,window.innerHeight-CONTEXT_MENU_HEIGHT-4));return h('div',{'aria-label':entry.path,className:'dsh-ws-context-menu',ref:menuRef,role:'menu',style:{left,top}},h('button',{className:'dsh-ws-context-item',onClick:()=>onRename(entry),role:'menuitem',title:translate('context.rename.title'),type:'button'},translate('context.rename')),h('button',{className:'dsh-ws-context-item',onClick:()=>onCopyName(entry),role:'menuitem',title:translate('context.copyName.title'),type:'button'},translate('context.copyName')),h('button',{className:'dsh-ws-context-item',onClick:()=>onCopyPath(entry,false),role:'menuitem',title:translate('context.copyPath.title'),type:'button'},translate('context.copyPath')),h('button',{className:'dsh-ws-context-item',onClick:()=>onCopyPath(entry,true),role:'menuitem',title:translate('context.copyRelative.title'),type:'button'},translate('context.copyRelative')),h('div',{className:'dsh-ws-context-separator',role:'separator'}),h('button',{className:'dsh-ws-context-item',onClick:()=>onReveal(entry),role:'menuitem',title:translate('context.reveal.title'),type:'button'},translate('context.reveal')),h('div',{className:'dsh-ws-context-separator',role:'separator'}),h('button',{className:'dsh-ws-context-item',onClick:()=>onCopy(entry),role:'menuitem',title:translate('context.copy.title'),type:'button'},translate('context.copy')),h('button',{className:'dsh-ws-context-item',disabled:pasteDisabled,onClick:()=>onPaste(entry),role:'menuitem',title:pasteDisabled?pasteTitle:translate('context.paste.title'),type:'button'},translate('context.paste')),h('button',{className:'dsh-ws-context-item',onClick:()=>onCut(entry),role:'menuitem',title:translate('context.cut.title'),type:'button'},translate('context.cut')),h('button',{className:'dsh-ws-context-item',onClick:()=>onDelete(entry),role:'menuitem',title:translate('context.delete.title'),type:'button'},translate('context.delete')))}
 function TabContextMenu({menuRef,onCloseOthers,onTogglePin,pinned,x,y}){const left=Math.max(4,Math.min(x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top=Math.max(4,Math.min(y,window.innerHeight-CONTEXT_MENU_HEIGHT-4));return h('div',{className:'dsh-ws-context-menu',ref:menuRef,role:'menu',style:{left,top}},h('button',{className:'dsh-ws-context-item',onClick:onTogglePin,role:'menuitem',title:pinned?translate('tab.unpin.title'):translate('tab.pin.title'),type:'button'},pinned?translate('tab.unpin'):translate('tab.pin')),h('button',{className:'dsh-ws-context-item',onClick:onCloseOthers,role:'menuitem',title:translate('tab.closeOthers.title'),type:'button'},translate('tab.closeOthers')))}
-function EntryDialog({dialog,draft,error,busy,blocked,composingRef,onCancel,onConfirm,onDraft}){if(!dialog)return null;const title=entryDialogTitle(dialog),action=entryDialogAction(dialog);return h('div',{className:'dsh-ws-dialog-backdrop',onMouseDown:e=>{if(e.target===e.currentTarget)onCancel()}},h('div',{'aria-modal':true,className:'dsh-ws-dialog',role:'dialog'},h('div',{className:'dsh-ws-dialog-header'},h('div',{className:'dsh-ws-dialog-title'},title),h('button',{'aria-label':translate('dialog.close'),className:'dsh-ws-icon-button',disabled:busy,onClick:onCancel,title:translate('dialog.close'),type:'button'},'×')),h('div',{className:'dsh-ws-dialog-body'},h('input',{'aria-label':translate('dialog.name'),autoFocus:true,className:'dsh-ws-dialog-input',disabled:busy,onChange:e=>onDraft(e.target.value),onCompositionEnd:()=>{composingRef.current=false},onCompositionStart:()=>{composingRef.current=true},onFocus:e=>e.target.select(),onKeyDown:e=>{if(e.key==='Escape'){e.preventDefault();onCancel()}else if(e.key==='Enter'&&!composingRef.current){e.preventDefault();onConfirm()}},value:draft}),error?h('div',{className:'dsh-ws-dialog-error',role:'alert'},error):null),h('div',{className:'dsh-ws-dialog-footer'},h('button',{className:'dsh-ws-text-button',disabled:busy,onClick:onCancel,type:'button'},translate('dialog.cancel')),h('button',{className:'dsh-ws-text-button',disabled:blocked,onClick:onConfirm,type:'button'},busy?translate('dialog.processing'):action))))}
+function EntryDialog({dialog,draft,error,busy,blocked,composingRef,onCancel,onConfirm,onDraft}){if(!dialog)return null;const title=entryDialogTitle(dialog),action=entryDialogAction(dialog);return h('div',{className:'dsh-ws-dialog-backdrop',onMouseDown:e=>{if(e.target===e.currentTarget&&!busy)onCancel()}},h('div',{'aria-modal':true,className:'dsh-ws-dialog',role:'dialog'},h('div',{className:'dsh-ws-dialog-header'},h('div',{className:'dsh-ws-dialog-title'},title),h('button',{'aria-label':translate('dialog.close'),className:'dsh-ws-icon-button',disabled:busy,onClick:onCancel,title:translate('dialog.close'),type:'button'},'×')),h('div',{className:'dsh-ws-dialog-body'},h('input',{'aria-label':translate('dialog.name'),autoFocus:true,className:'dsh-ws-dialog-input',disabled:busy,onChange:e=>onDraft(e.target.value),onCompositionEnd:()=>{composingRef.current=false},onCompositionStart:()=>{composingRef.current=true},onFocus:e=>e.target.select(),onKeyDown:e=>{if(e.key==='Escape'){e.preventDefault();if(!busy)onCancel()}else if(e.key==='Enter'&&!composingRef.current){e.preventDefault();if(!busy)onConfirm()}},value:draft}),error?h('div',{className:'dsh-ws-dialog-error',role:'alert'},error):null),h('div',{className:'dsh-ws-dialog-footer'},h('button',{className:'dsh-ws-text-button',disabled:busy,onClick:onCancel,type:'button'},translate('dialog.cancel')),h('button',{className:'dsh-ws-text-button',disabled:blocked,onClick:onConfirm,type:'button'},busy?translate('dialog.processing'):action))))}
 function EncodingMenu({menuRef,onOpen,onSave,canOpen,canSave,x,y}){const left=Math.max(4,Math.min(x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top=Math.max(4,Math.min(y,window.innerHeight-CONTEXT_MENU_HEIGHT-4));return h('div',{className:'dsh-ws-context-menu',ref:menuRef,role:'menu',style:{left,top}},h('button',{className:'dsh-ws-context-item',disabled:!canOpen,onClick:onOpen,role:'menuitem',title:canOpen?translate('encoding.open.title'):translate('encoding.open.titleDirty'),type:'button'},translate('encoding.open')),h('button',{className:'dsh-ws-context-item',disabled:!canSave,onClick:onSave,role:'menuitem',title:canSave?translate('encoding.save.title'):translate('encoding.save.titleReadonly'),type:'button'},translate('encoding.save')))}
 /* In-place session rename: an input overlaid exactly on the harness session
    row's title span. The row itself is harness-rendered, so the plugin never
@@ -5350,6 +5471,44 @@ function WorkspaceExplorer({
       if (mounted.current && activePathRef.current === path) setSaving(false)
     }
   }, [activeTab, clearDraftFile, dirty, draft, preview, saving, updateTab])
+  /* A NON-editable file (read-only reason, oversized, editing disabled) that
+     still carries a leftover draft has no save/cancel path — both are gated on
+     editability — so the tab would be stuck with a permanent dirty marker and
+     no way to close, save, or refresh. This is the escape: discard the staging
+     draft and re-read the source so the tab returns to a clean read-only
+     preview. The source file itself is never touched. */
+  const discardDraft = useCallback(async () => {
+    if (preview.state !== 'ready' || saving || activeTab === undefined || !dirty) return
+    const path = activeTab.path
+    const encoding = activeTab.encoding ?? preview.encoding ?? 'utf-8'
+    const lineEnding = activeTab.lineEnding ?? preview.lineEnding ?? 'none'
+    const bom = Boolean(activeTab.bom ?? preview.bom)
+    const revision = activeTab.revision ?? preview.revision ?? null
+    setSaving(true)
+    updateTab(path, { saving: true })
+    try {
+      await clearDraftFile(path, '', encoding, lineEnding, bom, revision)
+      if (!mounted.current) return
+      lastWriteRef.current.set(path, { generation: draftGenerationsRef.current.get(path) ?? 0, content: '' })
+      // Mark clean BEFORE the re-read so the read pass cannot resurrect the
+      // discarded draft from the tab (same ordering rule as cancel).
+      updateTab(path, { dirty: false, draft: '', editing: false, saving: false, status: { text: translate('editor.cancelRestored') } })
+      if (activePathRef.current === path) {
+        setDraft('')
+        setDirty(false)
+        cancelRestoreRef.current = path
+        setReloadToken(token => token + 1)
+      }
+    } catch (error) {
+      if (!mounted.current) return
+      const message = error instanceof Error ? error.message : String(error)
+      const failure = { error: true, text: translate('editor.cancelFailed', { message }) }
+      updateTab(path, { dirty: true, editing: false, saving: false, status: failure })
+      if (activePathRef.current === path) setStatus(failure)
+    } finally {
+      if (mounted.current && activePathRef.current === path) setSaving(false)
+    }
+  }, [activeTab, clearDraftFile, dirty, preview, saving, updateTab])
   const refresh=useCallback(()=>{if(hasDirtyTabs){setStatus({error:true,text:translate('tree.refreshBlocked')});return}abortDirectoryRequests();setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);composingRef.current=false;setDirectories(new Map());setExpanded(new Set(['']));setStatus(undefined);void loadDirectory('')},[abortDirectoryRequests,hasDirtyTabs,loadDirectory])
   const toggleDirectory=useCallback(entry=>{const path=entry.path;const opening=!expanded.has(path);setExpanded(cur=>{const next=new Set(cur);opening?next.add(path):next.delete(path);return next});if(opening){if(directories.get(path)?.state!=='ready')void loadDirectory(path);chooseDirectory(entry)}else setSelected(entry)},[chooseDirectory,directories,expanded,loadDirectory])
   const openContextMenu=useCallback((event,entry)=>{event.preventDefault();setSelected(entry);setContextMenu({entry,x:event.clientX,y:event.clientY})},[])
@@ -5394,7 +5553,15 @@ function WorkspaceExplorer({
       // exactly like the fs-operation failure path below.
       if (!mounted.current || mutationSeq !== mutationSeqRef.current) return
       setDeleteBusy(false)
-      for (const item of affected) if (item.dirty) scheduleAutosave(item.path, item.draft)
+      for (const item of affected) {
+        if (!item.dirty) continue
+        // Use the tab's CURRENT draft, not the stale snapshot taken when the
+        // dialog opened: the delete dialog keeps focus in the editor, so the
+        // user may have typed after `affected` was captured, and a failed
+        // delete must not roll the staging draft back to the older text.
+        const fresh = tabsRef.current.find(tab => tab.path === item.path)
+        scheduleAutosave(item.path, fresh?.draft ?? item.draft)
+      }
       if (error?.name === 'AbortError') return
       setCopyNotice(translate('status.deleteFailed', { message: error instanceof Error ? error.message : String(error) }))
       clearTimeout(copyNoticeTimer.current)
@@ -5428,7 +5595,15 @@ function WorkspaceExplorer({
     }).catch(error => {
       if (!mounted.current || mutationSeq !== mutationSeqRef.current) return
       setDeleteBusy(false)
-      for (const item of affected) if (item.dirty) scheduleAutosave(item.path, item.draft)
+      for (const item of affected) {
+        if (!item.dirty) continue
+        // Use the tab's CURRENT draft, not the stale snapshot taken when the
+        // dialog opened: the delete dialog keeps focus in the editor, so the
+        // user may have typed after `affected` was captured, and a failed
+        // delete must not roll the staging draft back to the older text.
+        const fresh = tabsRef.current.find(tab => tab.path === item.path)
+        scheduleAutosave(item.path, fresh?.draft ?? item.draft)
+      }
       if (error?.name === 'AbortError') return
       setCopyNotice(translate('status.deleteFailed', { message: error instanceof Error ? error.message : String(error) }))
       clearTimeout(copyNoticeTimer.current)
@@ -5536,11 +5711,21 @@ function WorkspaceExplorer({
     const index = current.findIndex(tab => tab.path === path)
     if (index < 0) return
     const closing = current[index]
-    if (closing.dirty || closing.saving) {
+    // A dirty tab is close-guarded only while it is EDITABLE: a non-editable
+    // file with a leftover draft cannot be saved or cancelled (those actions
+    // are gated on editability) and would otherwise be stuck forever — allow
+    // closing it and drop its staging draft below.
+    const nonEditableDirty = closing.dirty === true && closing.editing === false
+    if (closing.saving || (closing.dirty && !nonEditableDirty)) {
       const nextStatus = { error: true, text: translate('editor.unsavedTabClose') }
       if (activePathRef.current === path) setStatus(nextStatus)
       else updateTab(path, { status: nextStatus })
       return
+    }
+    if (nonEditableDirty) {
+      // Discard the orphaned staging draft so the next open does not restore a
+      // non-restorable state again. Best-effort: the tab is closing anyway.
+      void clearDraftFile(path, '', closing.encoding ?? 'utf-8', closing.lineEnding ?? 'none', Boolean(closing.bom), closing.revision ?? null).catch(() => {})
     }
     const nextTabs = current.filter(tab => tab.path !== path)
     const nextActivePath = activePathRef.current === path
@@ -5566,7 +5751,7 @@ function WorkspaceExplorer({
       setSelected(entry)
       revealPath(entry)
     }
-  }, [forgetPathRefs, publishEditorContext, revealPath, updateTab])
+  }, [clearDraftFile, forgetPathRefs, publishEditorContext, revealPath, updateTab])
   const closeOtherTabs = useCallback((keepPath) => {
     const current = tabsRef.current
     const keep = current.find(tab => tab.path === keepPath)
@@ -5979,7 +6164,9 @@ function WorkspaceExplorer({
                 h('button', { className: 'dsh-ws-text-button', disabled: !dirty || saving, onClick: cancel, type: 'button' }, translate('editor.cancel')),
                 h('button', { className: 'dsh-ws-text-button', disabled: !dirty || saving, onClick: () => void save(), type: 'button' }, saving ? translate('editor.saving') : translate('editor.save')),
               )
-              : null,
+              : dirty
+                ? h('button', { className: 'dsh-ws-text-button', disabled: saving, onClick: () => void discardDraft(), title: translate('editor.discardDraft.title'), type: 'button' }, translate('editor.discardDraft'))
+                : null,
           )
           : null,
       ),
@@ -6211,14 +6398,14 @@ function SessionSwitcherDropdown({ useSessions, useWorkspaces, sessionId, openSe
     return { left, top: rect.bottom + 6, width }
   }, [])
   const toggle = useCallback(() => {
-    setOpen(prev => {
-      if (prev) return false
-      const next = measurePos()
-      if (next === null) return false
-      setPos(next)
-      return true
-    })
-  }, [measurePos])
+    if (open) { setOpen(false); return }
+    // Measure OUTSIDE the setState updater: updaters must stay pure (StrictMode
+    // double-invokes them), and the DOM measurement is a side effect.
+    const next = measurePos()
+    if (next === null) return
+    setPos(next)
+    setOpen(true)
+  }, [measurePos, open])
   useEffect(() => {
     if (!open) return undefined
     const inside = event => {
@@ -6911,6 +7098,14 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       Promise.resolve(loadDocRef.current(id))
         .then((payload) => {
           if (cancelled) return
+          /* The root was archived by a path OUTSIDE the map (harness/sidebar
+             archive): the Host answers { exists: false } and never builds a doc
+             for an archived session. Close the floating window like the sync
+             path does, instead of polling an empty state forever. */
+          if (payload?.exists === false) {
+            mindmapOverlayStore.close()
+            return
+          }
           const loaded = payload?.doc
           if (loaded !== null && loaded !== undefined && (loaded.trunk ?? []).length > 0) {
             setRootId(loaded.rootSessionId)
@@ -7617,6 +7812,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       ? (list.titles[entry.sessionId] ?? '')
       : translate('mindmap.turnTag', { n: (isStreaming ? entry.turnN : entry.turn?.n) ?? '' })
     return h(MindMapCard, {
+      key: entry.key,
       entry,
       title,
       isCurrent: entry.key === currentKey,
@@ -7743,10 +7939,20 @@ function installMindmapBranchHider(getSessionList, getArchivedSessionIds) {
   const apply = () => {
     timer = 0
     lastRun = Date.now()
-    /* Nothing to hide when no mind-map doc exists: skip the session walk and
-       the DOM scan entirely (this observer fires on EVERY body mutation, so
-       the guard keeps idle streaming from re-scanning the whole sidebar). */
-    if (mindmapRegistry.getDocs().length === 0) return
+    /* Nothing to hide when no mind-map doc exists: skip the session walk (the
+       observer fires on EVERY body mutation, so this guard keeps idle streaming
+       from re-scanning the whole sidebar) — but STILL clear any previously
+       applied hidden class, so a wrongly hidden row self-heals the moment the
+       last doc disappears (the clearing pass must not be skipped). */
+    if (mindmapRegistry.getDocs().length === 0) {
+      const browser = document.querySelector('[data-slot="sidebar.workspaces"]')
+      if (browser !== null) {
+        for (const row of browser.querySelectorAll('[role="treeitem"].dsh-ws-mindmap-hidden-row')) {
+          row.classList.remove('dsh-ws-mindmap-hidden-row')
+        }
+      }
+      return
+    }
     const list = getSessionList()
     const archived = new Set((getArchivedSessionIds?.() ?? []).map(String))
     const byTitle = new Map()
@@ -7791,6 +7997,14 @@ function installMindmapBranchHider(getSessionList, getArchivedSessionIds) {
     observer.disconnect()
     unsubscribe()
     if (timer !== 0) { clearTimeout(timer); timer = 0 }
+    /* Restore every row this hider touched so a hot reload / uninstall cannot
+       leave the hidden class stuck on the DOM. */
+    const browser = document.querySelector('[data-slot="sidebar.workspaces"]')
+    if (browser !== null) {
+      for (const row of browser.querySelectorAll('[role="treeitem"].dsh-ws-mindmap-hidden-row')) {
+        row.classList.remove('dsh-ws-mindmap-hidden-row')
+      }
+    }
   }
 }
 
@@ -7832,6 +8046,11 @@ function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, openSess
   useMindmapRegistry()
   const list = useSessions(state => state)
   const workspaces = useWorkspaces(state => state.items)
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
   const menuRef = useRef(null)
   const lastDragEndRef = useRef(0)
   const [dragId, setDragId] = useState(null)
@@ -7958,11 +8177,16 @@ function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, openSess
     const sid = renameTarget.sessionId
     renameMindmapDoc(sid, trimmed)
       .then(() => {
+        if (!mountedRef.current) return
         setRenameBusy(false)
         setRenameTarget(null)
         mindmapRegistry.markDirty()
       })
-      .catch((error) => { setRenameBusy(false); setRenameError(error instanceof Error ? error.message : String(error)) })
+      .catch((error) => {
+        if (!mountedRef.current) return
+        setRenameBusy(false)
+        setRenameError(error instanceof Error ? error.message : String(error))
+      })
   }
   const onReveal = () => {
     if (contextMenu === null) return
@@ -8214,7 +8438,9 @@ function MindmapOverlayHost({ sessionId, useSessions, actions, chatWidth, mobile
   const width = mobile
     ? '100%'
     : overlay.scope === 'sidebar'
-      ? `${Math.max(0, sidebarWidth)}px`
+      /* A collapsed sidebar (width 0) must not leave an invisible-but-open
+         overlay: keep a usable minimum width in that state. */
+      ? `${Math.max(SIDEBAR_MIN, sidebarWidth)}px`
       : `calc(100% - ${Math.max(0, chatWidth)}px)`
   useEffect(() => {
     const onKeyDown = event => {
@@ -8261,16 +8487,32 @@ function AppFrame(props) {
   // layout store's init on the next load.
   const sidebarMirrorRef = useRef(null)
   useLayoutEffect(() => {
+    // In mobile mode the sidebar width is a transient force-expand (the mobile
+    // effect temporarily unfolds a collapsed sidebar so the drawer shows full
+    // content); mirroring that value into the PERSISTED pane store would make a
+    // refresh inside mobile mode lose the user's collapsed preference. While
+    // mobile, only track the value in the ref (no write); the exit render then
+    // compares against the restored desktop width and writes exactly once.
+    if (mobile.on) {
+      sidebarMirrorRef.current = panels.sidebar
+      return
+    }
     if (sidebarMirrorRef.current !== panels.sidebar) {
       sidebarMirrorRef.current = panels.sidebar
       props.explorerPaneStore.actions.setSidebar(panels.sidebar)
     }
-  }, [panels.sidebar, props.explorerPaneStore])
+  }, [mobile.on, panels.sidebar, props.explorerPaneStore])
   // In mobile file-fullscreen the conversation header stays pinned above the
   // file browsing page; its live height feeds --dsh-ws-mobile-header-h so the
   // preview fills the phone column below it.
+  const currentSession = props.useSessions(state => state.current)
+  const sessionIds = props.useSessions(state => state.ids)
   const [mobileHeaderHeight, setMobileHeaderHeight] = useState(MOBILE_HEADER_FALLBACK_H)
   useLayoutEffect(() => {
+    // A session switch may swap the header element (or blank it out entirely);
+    // reset to the fallback on every pass, then re-measure when present, so the
+    // pinned file page never sits under a stale or missing header height.
+    setMobileHeaderHeight(MOBILE_HEADER_FALLBACK_H)
     if (!mobile.on || !mobile.files) return undefined
     const section = chatSectionRef.current
     if (section === null) return undefined
@@ -8285,15 +8527,13 @@ function AppFrame(props) {
     const observer = new ResizeObserver(measure)
     observer.observe(header)
     return () => { observer.disconnect() }
-  }, [mobile.files, mobile.on])
+  }, [currentSession, mobile.files, mobile.on])
   const chatFontScale = clamp(settings.chatFontSize ?? CHAT_FONT_SIZE_DEFAULT, CHAT_FONT_SIZE_MIN, CHAT_FONT_SIZE_MAX) / CHAT_FONT_SIZE_DEFAULT
   // One accent custom property per color group; unset groups resolve to their
   // default inside the CSS rule's var() fallback (the value here is the
   // effective color either way, so the fallback is only a safety net).
   const fileColorVars = {}
   for (const { group } of FILE_COLOR_GROUPS) fileColorVars[`--dsh-ws-file-${group}`] = fileColorOf(settings, group)
-  const currentSession = props.useSessions(state => state.current)
-  const sessionIds = props.useSessions(state => state.ids)
   // The session rename dialog targets the current session id.
   const sessionId = currentSession
   // The workspace-files panel header names the current session (its durable
@@ -8321,7 +8561,10 @@ function AppFrame(props) {
   const [sessionNotice, setSessionNotice] = useState()
   const sessionNoticeTimerRef = useRef()
   const mountedRef = useRef(true)
-  useEffect(() => () => { mountedRef.current = false }, [])
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
   const [resizing, setResizing] = useState(false)
   const [chatDropActive, setChatDropActive] = useState(false)
   const workspace = useMemo(() => currentSession !== undefined
@@ -8346,15 +8589,19 @@ function AppFrame(props) {
   const lastPersistedSnapshotRef = useRef(new Map())
   const persistPreviewSession = useCallback((value) => {
     // Write the latest snapshot to every key the restore may pick: the current
-    // session key (highest restore priority), the selected key (which falls
-    // back to the workspace key when the session has no own snapshot yet), and
-    // the workspace anchor. Writing only the selected key left the session key
-    // stale once the workspace fallback took over, and the restore then
-    // preferred that stale session snapshot ("tabs reverted to old state").
+    // session key (highest restore priority) and the workspace anchor. The
+    // selected key joins them ONLY when it IS one of those two (a session that
+    // already owns a snapshot, or the workspace itself). When restore fell back
+    // to ANOTHER session's snapshot (priority ②), that key is a borrowed
+    // template, not a write target: persisting to it would silently overwrite
+    // (or delete, on an empty snapshot) that session's saved tabs.
     const keys = new Set()
-    if (previewSessionKey !== undefined) keys.add(previewSessionKey)
     if (currentSession !== undefined) keys.add(String(currentSession))
     if (workspaceId !== undefined) keys.add(String(workspaceId))
+    if (previewSessionKey !== undefined
+      && (previewSessionKey === String(currentSession) || previewSessionKey === String(workspaceId))) {
+      keys.add(previewSessionKey)
+    }
     if (keys.size === 0) return
     const keySet = [...keys].sort().join('|')
     const fingerprint = previewSnapshotFingerprint(value)
@@ -8874,20 +9121,24 @@ export function apply(ctx) {
   /* Follow the harness language setting (Settings -> General -> Language) when
      the locale plugin is present: register this plugin's dictionaries, bind
      the active-locale translator, and expose the locale face to useLocaleText.
-     Without the service everything stays on the zh dictionary. */
-  const locale = ctx.get('locale')
-  if (locale !== undefined) {
-    ctx.effect(() => {
-      const disposeDicts = locale.register(EXPLORER_LOCALE_NS, { zh, en })
-      translate = locale.bind(EXPLORER_LOCALE_NS)
-      localeFace = locale
+     Without the service everything stays on the zh dictionary. Registered via a
+     deferred inject (same pattern as the commandUi scope below) so a locale
+     service that activates AFTER this plugin still gets wired up — a one-shot
+     ctx.get('locale') at apply time would silently stay on zh forever. */
+  ctx.inject(['locale'], scope => {
+    scope.effect(() => {
+      const localeService = scope.get('locale')
+      if (localeService === undefined) return undefined
+      const disposeDicts = localeService.register(EXPLORER_LOCALE_NS, { zh, en })
+      translate = localeService.bind(EXPLORER_LOCALE_NS)
+      localeFace = localeService
       return () => {
         disposeDicts()
         localeFace = undefined
         translate = zhFallbackTranslate
       }
     }, 'workspace-studio: locale dictionaries')
-  }
+  })
   ctx.effect(() => {
     if (typeof document === 'undefined') return undefined
     for (const stale of document.querySelectorAll(`style[data-plugin-css="${PACKAGE_ID}/layout"]`)) stale.remove()
