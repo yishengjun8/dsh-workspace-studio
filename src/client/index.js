@@ -1804,14 +1804,19 @@ function changesTouch(left, right) {
   const leftInsertion = left.from === left.to
   const rightInsertion = right.from === right.to
   if (leftInsertion && rightInsertion) return left.from === right.from
-  if (leftInsertion) return left.from >= right.from && left.from <= right.to
-  if (rightInsertion) return right.from >= left.from && right.from <= left.to
+  // An insertion is "touching" a span only when it lands INSIDE [from, to):
+  // an insertion exactly at the exclusive end (right.to / left.to) is disjoint
+  // from the deletion (e.g. one side deletes the last line while the other
+  // appends a line after it) and must merge cleanly instead of forcing a
+  // spurious conflict dialog.
+  if (leftInsertion) return left.from >= right.from && left.from < right.to
+  if (rightInsertion) return right.from >= left.from && right.from < left.to
   return left.from < right.to && right.from < left.to
 }
 
 function changeTouchesSpan(change, start, end) {
   return change.from === change.to
-    ? change.from >= start && change.from <= end
+    ? change.from >= start && change.from < end
     : change.from < end && change.to > start
 }
 
@@ -3468,6 +3473,17 @@ function selectStoredPreviewSession(previewSessions, workspace, currentSession, 
     const currentKey = String(currentSession)
     const currentValue = previewSessions[currentKey]
     if (currentValue !== undefined) return { key: currentKey, value: currentValue }
+    // Restore priority ② (development-notes §2): the first snapshot of any
+    // session in this workspace, so a session that never established its own
+    // snapshot (legacy data, pruned workspace key) still restores the tabs its
+    // workspace previously had instead of an empty explorer.
+    if (workspace !== undefined) {
+      for (const sessionId of workspace.sessionIds) {
+        const key = String(sessionId)
+        const value = previewSessions[key]
+        if (value !== undefined) return { key, value }
+      }
+    }
     if (workspaceId !== undefined) {
       const workspaceKey = String(workspaceId)
       const workspaceValue = previewSessions[workspaceKey]
@@ -3520,7 +3536,12 @@ function serializePreviewSession(activePath, tabs, expanded) {
    explorer, aborting every in-flight request. */
 function previewSnapshotFingerprint(value) {
   const tabs = Array.isArray(value?.tabs) ? value.tabs : []
-  const tabPart = tabs.map(tab => `${tab.path}:${tab.dirty ? 1 : 0}:${tab.pinned ? 1 : 0}`).join(',')
+  // Encoding and the other restored-but-not-volatile metadata participate:
+  // switching the display encoding changes ONLY tab.encoding, and a dedup that
+  // ignored it would skip the write and revert the decode to the old encoding
+  // after a refresh. status/scrollTop/draft/baseText content stay excluded.
+  const tabPart = tabs.map(tab =>
+    `${tab.path}:${tab.dirty ? 1 : 0}:${tab.pinned ? 1 : 0}:${tab.encoding ?? ''}:${tab.editing ? 1 : 0}:${tab.lineEnding ?? ''}:${tab.bom ? 1 : 0}:${tab.baseRevision ?? ''}`).join(',')
   const expandedPart = Array.isArray(value?.expanded) ? value.expanded.join(',') : ''
   return `${value?.activePath ?? ''}|${tabPart}|${expandedPart}`
 }
@@ -3628,7 +3649,7 @@ function SessionInlineRename({busy,error,onCancel,onConfirm,row,title}){const co
 const WEL_TOAST_HOLD_MS = 3000
 const WEL_TOAST_FADE_MS = 1000
 const welToastIcon = h('svg',{fill:'none',height:16,viewBox:'0 0 16 16',width:16},h('circle',{cx:8,cy:8,r:6.5,stroke:'currentColor',strokeWidth:1.5}),h('path',{d:'M8 4.75v3.5',stroke:'currentColor',strokeLinecap:'round',strokeWidth:1.5}),h('circle',{cx:8,cy:11.25,fill:'currentColor',r:0.9}))
-function PreviewToast({text,onDone,headerRef}){const[top,setTop]=useState(null);useLayoutEffect(()=>{const header=headerRef?.current;if(header===null||header===undefined)return;const section=header.parentElement;if(section===null)return;const headerBottom=header.getBoundingClientRect().bottom;const sectionTop=section.getBoundingClientRect().top;setTop(headerBottom-sectionTop+8)},[headerRef]);useEffect(()=>{const timer=setTimeout(onDone,WEL_TOAST_HOLD_MS+WEL_TOAST_FADE_MS);return()=>clearTimeout(timer)},[onDone]);return h('div',{className:'dsh-ws-toast',role:'alert',style:top===null?undefined:{top}},h('span',{'aria-hidden':true,className:'dsh-ws-toast-icon'},welToastIcon),h('span',{className:'dsh-ws-toast-text'},text))}
+function PreviewToast({text,onDone,headerRef}){const[top,setTop]=useState(null);const onDoneRef=useRef(onDone);onDoneRef.current=onDone;useLayoutEffect(()=>{const header=headerRef?.current;if(header===null||header===undefined)return;const section=header.parentElement;if(section===null)return;const headerBottom=header.getBoundingClientRect().bottom;const sectionTop=section.getBoundingClientRect().top;setTop(headerBottom-sectionTop+8)},[headerRef]);useEffect(()=>{const timer=setTimeout(()=>{onDoneRef.current()},WEL_TOAST_HOLD_MS+WEL_TOAST_FADE_MS);return()=>clearTimeout(timer)},[]);return h('div',{className:'dsh-ws-toast',role:'alert',style:top===null?undefined:{top}},h('span',{'aria-hidden':true,className:'dsh-ws-toast-icon'},welToastIcon),h('span',{className:'dsh-ws-toast-text'},text))}
 function EncodingDialog({dialog,options,value,busy,onCancel,onPick,onConfirm}){if(dialog===undefined)return null;const title=dialog.mode==='open'?translate('encoding.dialog.open'):translate('encoding.dialog.save'),action=dialog.mode==='open'?translate('encoding.dialog.openAction'):translate('encoding.dialog.saveAction');return h('div',{className:'dsh-ws-dialog-backdrop',onMouseDown:e=>{if(e.target===e.currentTarget&&!busy)onCancel()}},h('div',{'aria-modal':true,className:'dsh-ws-dialog',role:'dialog'},h('div',{className:'dsh-ws-dialog-header'},h('div',{className:'dsh-ws-dialog-title'},title),h('button',{'aria-label':translate('dialog.close'),className:'dsh-ws-icon-button',disabled:busy,onClick:onCancel,title:translate('dialog.close'),type:'button'},'×')),h('div',{className:'dsh-ws-dialog-body'},h('label',{className:'dsh-ws-settings-label',htmlFor:'dsh-ws-encoding-select'},translate('encoding.badge')),h('select',{'aria-label':translate('encoding.badge'),className:'dsh-ws-highlight-preset-select',disabled:busy,id:'dsh-ws-encoding-select',onChange:e=>onPick(e.target.value),value},options.map(enc=>h('option',{key:enc.id,value:enc.id},encodingLabel(enc.id))))),h('div',{className:'dsh-ws-dialog-footer'},h('button',{className:'dsh-ws-text-button',disabled:busy,onClick:onCancel,type:'button'},translate('dialog.cancel')),h('button',{className:'dsh-ws-text-button',disabled:busy||options.length===0,onClick:onConfirm,type:'button'},busy?translate('dialog.processing'):action))))}
 function SessionRenameDialog({draft,busy,error,onCancel,onConfirm,onDraft,title}){const composingRef=useRef(false);return h('div',{className:'dsh-ws-dialog-backdrop',onMouseDown:e=>{if(e.target===e.currentTarget&&!busy)onCancel()}},h('div',{'aria-modal':true,className:'dsh-ws-dialog',role:'dialog'},h('div',{className:'dsh-ws-dialog-header'},h('div',{className:'dsh-ws-dialog-title'},title ?? translate('dialog.renameSession')),h('button',{'aria-label':translate('dialog.close'),className:'dsh-ws-icon-button',disabled:busy,onClick:onCancel,title:translate('dialog.close'),type:'button'},'×')),h('div',{className:'dsh-ws-dialog-body'},h('input',{'aria-label':translate('dialog.sessionName'),autoFocus:true,className:'dsh-ws-dialog-input',disabled:busy,onChange:e=>onDraft(e.target.value),onCompositionEnd:()=>{composingRef.current=false},onCompositionStart:()=>{composingRef.current=true},onFocus:e=>e.target.select(),onKeyDown:e=>{if(e.key==='Escape'){e.preventDefault();onCancel()}else if(e.key==='Enter'&&!composingRef.current){e.preventDefault();onConfirm()}},value:draft}),error?h('div',{className:'dsh-ws-dialog-error',role:'alert'},error):null),h('div',{className:'dsh-ws-dialog-footer'},h('button',{className:'dsh-ws-text-button',disabled:busy,onClick:onCancel,type:'button'},translate('dialog.cancel')),h('button',{className:'dsh-ws-text-button',disabled:busy||draft.trim()==='',onClick:onConfirm,type:'button'},busy?translate('dialog.processing'):translate('dialog.rename')))))}
 function DeleteDialog({entry,busy,dirtyWarning,onCancel,onConfirm}){if(entry===undefined)return null;return h('div',{className:'dsh-ws-dialog-backdrop',onMouseDown:e=>{if(e.target===e.currentTarget&&!busy)onCancel()}},h('div',{'aria-modal':true,className:'dsh-ws-dialog',role:'dialog'},h('div',{className:'dsh-ws-dialog-header'},h('div',{className:'dsh-ws-dialog-title'},translate('dialog.deleteTitle')),h('button',{'aria-label':translate('dialog.close'),className:'dsh-ws-icon-button',disabled:busy,onClick:onCancel,title:translate('dialog.close'),type:'button'},'×')),h('div',{className:'dsh-ws-dialog-body'},h('div',{className:'dsh-ws-dialog-message'},translate('dialog.deleteMessage',{name:entry.name})),dirtyWarning?h('div',{className:'dsh-ws-dialog-warning',role:'alert'},translate('dialog.deleteDirtyWarning')):null),h('div',{className:'dsh-ws-dialog-footer'},h('button',{className:'dsh-ws-text-button',disabled:busy,onClick:onCancel,type:'button'},translate('dialog.cancel')),h('button',{className:'dsh-ws-danger-button dsh-ws-text-button',disabled:busy,onClick:onConfirm,type:'button'},busy?translate('dialog.processing'):translate('dialog.deleteAction')))))}
@@ -3931,6 +3952,10 @@ function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShortcut, o
     const onKeyDown = (event) => {
       const view = editorRef.current
       if (view === undefined) return
+      // IME composition must never arm or complete the fold sequence (same
+      // rule the other shortcut paths honor): composing keystrokes are let
+      // through untouched.
+      if (event.isComposing) { cancel(); return }
       const target = event.target
       // Let text fields outside the editor (chat, rename, search, dialogs) keep
       // their keys; the editor's own contenteditable is inside host.
@@ -4028,6 +4053,7 @@ function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShortcut, o
   useEffect(() => {
     const container = searchPanelContainer?.current
     if (container === null || container === undefined) return undefined
+    let detach = undefined
     const enhance = () => {
       const input = container.querySelector('.cm-panel.cm-search [main-field]')
       if (input === null || input.dataset.dshWelResize === '1') return
@@ -4041,6 +4067,15 @@ function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShortcut, o
       wrap.append(input, handle)
       let startX = 0
       let startWidth = 0
+      let moveListener = undefined
+      let upListener = undefined
+      const detachPointer = () => {
+        if (moveListener !== undefined) window.removeEventListener('pointermove', moveListener)
+        if (upListener !== undefined) window.removeEventListener('pointerup', upListener)
+        moveListener = undefined
+        upListener = undefined
+      }
+      detach = detachPointer
       const onPointerDown = (event) => {
         event.preventDefault()
         startX = event.clientX
@@ -4048,10 +4083,14 @@ function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShortcut, o
         const onPointerMove = (moveEvent) => {
           input.style.width = `${Math.max(60, Math.min(480, startWidth + (moveEvent.clientX - startX)))}px`
         }
-        const onPointerUp = () => {
-          window.removeEventListener('pointermove', onPointerMove)
-          window.removeEventListener('pointerup', onPointerUp)
-        }
+        const onPointerUp = () => { detachPointer() }
+        // Replace any prior drag state so a second drag cannot leak a stale
+        // pair; the effect cleanup also detaches, so an unmount mid-drag (the
+        // editor rebuilds on path/encoding/readEpoch) never leaves window
+        // listeners bound to a detached input.
+        detachPointer()
+        moveListener = onPointerMove
+        upListener = onPointerUp
         window.addEventListener('pointermove', onPointerMove)
         window.addEventListener('pointerup', onPointerUp)
       }
@@ -4060,7 +4099,7 @@ function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShortcut, o
     enhance()
     const observer = new MutationObserver(enhance)
     observer.observe(container, { childList: true, subtree: true })
-    return () => observer.disconnect()
+    return () => { observer.disconnect(); detach?.() }
   }, [searchPanelContainer])
 
   return h('div', { className: 'dsh-ws-editor-host', 'data-highlight-preset': highlightPreset ?? HIGHLIGHT_PRESET_DEFAULT, ref: host })
@@ -6805,6 +6844,11 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   const [phase, setPhase] = useState({ status: 'loading' })
   const [doc, setDoc] = useState(null)
   const [rootId, setRootId] = useState(null)
+  // Latest root id as a ref: applySync guards in-flight responses against THIS
+  // (never the closure rootId), so a sync that started before a family switch
+  // cannot apply the previous family's doc after the switch.
+  const rootIdRef = useRef(null)
+  rootIdRef.current = rootId
   /* The doc family ids, kept current BEFORE the narrowed sessions subscription
      below runs (the selector cannot close over doc/rootId directly, and its
      getSnapshot must see the fresh family during this render). */
@@ -6867,7 +6911,10 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     }
   }, [])
   const showNotice = useCallback((text) => {
-    setNotice(text)
+    // The notice render expects the object shape ({ error, text }); a bare
+    // string rendered through notice.text/notice.error as an empty div, so
+    // every mind-map success toast was invisible.
+    setNotice({ error: false, text })
     if (noticeTimerRef.current !== 0) clearTimeout(noticeTimerRef.current)
     noticeTimerRef.current = window.setTimeout(() => {
       noticeTimerRef.current = 0
@@ -6968,7 +7015,14 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
      actually changed) and remember the live-turn info for the streaming card
      (identity-compared so a static question does not re-render the map). */
   const applySync = useCallback((payload, root) => {
-    if (!mountedRef.current || root !== rootId) return
+    /* A response is applied only when its request still matches the CURRENT
+       family (rootIdRef, not the closure rootId) AND no mutation is in flight:
+       - family switch: the closure rootId is stale, so `root === rootId` would
+         pass and setDoc the previous family's doc over the freshly loaded one;
+       - fork/delete/truncation: savingRef is set, so a sync that started before
+         the write must not overwrite the optimistic doc (the next sync after
+         the write re-fetches the persisted doc and stays consistent). */
+    if (!mountedRef.current || root !== rootIdRef.current || savingRef.current) return
     /* The doc's root was archived by a path OUTSIDE the map (the harness's own
        archive, the sidebar root archive): the Host answers { exists: false }.
        Close the floating window like the toolbar-archive path does instead of
@@ -6991,7 +7045,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
         && Number(prev.turn) === Number(liveNext.turn)
         && String(prev.question ?? '') === String(liveNext.question ?? ''))
       ? prev : liveNext)
-  }, [rootId])
+  }, [])
 
   /* The doc-family session that is currently running (at most one in
      practice): the live streaming card attaches to ITS chain regardless of
@@ -7603,9 +7657,11 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       .catch((error) => {
         /* Roll the in-memory doc back; nothing was archived yet. A fork that
            already happened but whose doc write failed must not outlive the
-           document: archive the freshly forked (empty) child. */
+           document: archive the freshly forked (empty) child. The rollback is
+           identity-checked (like forkBranchAt) so a doc a concurrent sync
+           advanced mid-operation is preserved instead of being reverted. */
         if (mountedRef.current) {
-          setDoc(currentDoc)
+          setDoc(prev => (prev === next ? currentDoc : prev))
           lastFingerprintRef.current = mindmapDocFingerprint(currentDoc)
           setDeleteError(error instanceof Error ? error.message : String(error))
         }
@@ -8081,6 +8137,19 @@ function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, openSess
 function MindmapHeaderButton({ sessionId }) {
   const overlay = useMindmapOverlay()
   const [confirmTarget, setConfirmTarget] = useState(null)
+  /* Escape closes the confirm dialog. The overlay's own Escape handler defers
+     while any .dsh-ws-dialog-backdrop is in the DOM, so without this window
+     listener the key would do nothing while the dialog is open. Declared
+     BEFORE the early return below: a same-instance transition from
+     sessionId===undefined to a defined id must not change the hook count
+     (React #310) — the exact pitfall fixed in MindmapSessionsPanel. closeConfirm
+     is referenced lazily from the effect body, so its later declaration is safe. */
+  useEffect(() => {
+    if (confirmTarget === null) return undefined
+    const onKeyDown = event => { if (event.key === 'Escape') closeConfirm() }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [confirmTarget])
   /* No current session (hero page / transient): nothing to map yet. */
   if (sessionId === undefined || sessionId === null) return null
   const key = String(sessionId)
@@ -8105,16 +8174,8 @@ function MindmapHeaderButton({ sessionId }) {
     setConfirmTarget(null)
     mindmapOverlayStore.open(key)
   }
-  /* Escape closes the confirm dialog. The overlay's own Escape handler defers
-     while any .dsh-ws-dialog-backdrop is in the DOM, so without this window
-     listener the key would do nothing while the dialog is open. */
-  useEffect(() => {
-    if (confirmTarget === null) return undefined
-    const onKeyDown = event => { if (event.key === 'Escape') closeConfirm() }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [confirmTarget])
-  /* The confirm dialog must escape the session-header slot: its container
+  /* Escape closes the confirm dialog (handled above the early return). The
+     confirm dialog must escape the session-header slot: its container
      (.dsh-ws-chat) clips fixed-position descendants, so the modal would be
      cut to the chat column instead of covering the viewport. Portal it to
      body like every other floating overlay (context menus, etc.). */
