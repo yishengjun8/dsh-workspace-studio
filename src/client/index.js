@@ -104,10 +104,18 @@ const MINDMAP_TEXT_MAX = 88
 const MINDMAP_FRAME_PAD = 14
 /* Mind-map viewport interaction bounds: wheel-zoom range, the overhang that
    keeps the map from being panned completely out of view, and the exponential
-   zoom step per wheel delta pixel. */
+   zoom step per wheel delta pixel. MINDMAP_PAN_MARGIN is the legacy fixed
+   overhang (still used by the fit view's top-left alignment); the pan clamp
+   itself is proportional to the map size via MINDMAP_PAN_OUT_MAX, so a map may
+   be dragged away by up to 80% of its own width/height (at least 20% of it
+   stays visible) instead of being pinned to a 48 px ledge. */
 const MINDMAP_ZOOM_MIN = 0.25
 const MINDMAP_ZOOM_MAX = 3
 const MINDMAP_PAN_MARGIN = 48
+/* Max fraction of the map (per axis, at the current zoom) that may be dragged
+   out of view: 0.8 = the map can go away by 80%, 20% of it must stay on
+   screen. Applies to grab-pan AND wheel-zoom anchoring alike. */
+const MINDMAP_PAN_OUT_MAX = 0.8
 const MINDMAP_WHEEL_STEP = 0.0016
 /* Background refresh interval of the mind-map doc index (the sidebar panel and
    the branch hider read it); the view also bumps it on every doc mutation. */
@@ -523,15 +531,10 @@ const zh = {
   'mindmap.rounds': '{n} 轮',
   'mindmap.moreRounds': '还有 {n} 轮历史',
   'mindmap.menu.rename': '重命名分支',
-  'mindmap.menu.archive': '归档分支',
   'mindmap.menu.archiveAll': '归档整个导图',
   'mindmap.rename.title': '重命名分支',
-  'mindmap.archive.title': '归档分支',
-  'mindmap.archive.message': '确定归档分支「{name}」吗？归档后该分支及其所有子分支将从导图与列表中移除。',
-  'mindmap.archive.current': '正在归档当前打开的分支，归档后将自动切回主会话。',
   'mindmap.archiveAll.message': '确定归档整个导图「{name}」吗？其所有分支会话也将一并归档并从列表中移除。',
   'mindmap.archive.action': '归档',
-  'mindmap.archived': '已归档分支。',
   'mindmap.archivedAll': '已归档整个导图。',
   'mindmap.renamed': '已重命名分支。',
   'mindmap.menu.deleteCard': '删除卡片',
@@ -545,11 +548,17 @@ const zh = {
   'mindmap.truncated': '已截断会话并归档原会话。',
   'mindmap.view.restore': '还原视图',
   'mindmap.view.restoreTitle': '将视图大小与位置还原',
+  'mindmap.scope.full': '当前填充模式：全部',
+  'mindmap.scope.sidebar': '当前填充模式：仅侧栏',
+  'mindmap.scope.title': '切换导图范围：填充（侧边栏 + 文件浏览） / 仅侧边栏',
   'mindmap.noticeFailed': '操作失败：{message}',
   'mindmap.sidebar.empty': '还没有导图会话。点击会话的「导图」标签即可创建。',
   'mindmap.sidebar.branches': '{n} 个分支',
   'mindmap.sidebar.open': '打开导图会话',
   'mindmap.sidebar.renameTitle': '重命名导图会话',
+  'mindmap.confirm.title': '创建导图会话',
+  'mindmap.confirm.message': '将当前会话转换为导图会话，并从左侧会话列表隐藏。确定转换吗？',
+  'mindmap.confirm.action': '转换',
   'switcher.aria': '切换会话',
   'switcher.trigger.title': '点击切换会话',
   'switcher.subagent': '子代理',
@@ -902,15 +911,10 @@ const en = {
   'mindmap.rounds': '{n} turns',
   'mindmap.moreRounds': '{n} more turns in history',
   'mindmap.menu.rename': 'Rename branch',
-  'mindmap.menu.archive': 'Archive branch',
   'mindmap.menu.archiveAll': 'Archive entire mind map',
   'mindmap.rename.title': 'Rename Branch',
-  'mindmap.archive.title': 'Archive Branch',
-  'mindmap.archive.message': 'Archive branch "{name}"? It and all its sub-branches will be removed from the mind map and all lists.',
-  'mindmap.archive.current': 'You are archiving the branch you are viewing; the app will switch back to the main session.',
   'mindmap.archiveAll.message': 'Archive the entire mind map "{name}"? All its branch sessions will be archived and removed from all lists too.',
   'mindmap.archive.action': 'Archive',
-  'mindmap.archived': 'Branch archived.',
   'mindmap.archivedAll': 'Mind map archived.',
   'mindmap.renamed': 'Branch renamed.',
   'mindmap.menu.deleteCard': 'Delete card',
@@ -924,11 +928,17 @@ const en = {
   'mindmap.truncated': 'Session truncated; the original was archived.',
   'mindmap.view.restore': 'Restore view',
   'mindmap.view.restoreTitle': 'Reset the view size and position',
+  'mindmap.scope.full': 'Current fill mode: Full',
+  'mindmap.scope.sidebar': 'Current fill mode: Sidebar only',
+  'mindmap.scope.title': 'Toggle mind-map scope: full (sidebar + file browser) / sidebar only',
   'mindmap.noticeFailed': 'Operation failed: {message}',
   'mindmap.sidebar.empty': 'No mind-map sessions yet. Click the "Mind map" tab of a session to create one.',
   'mindmap.sidebar.branches': '{n} branches',
   'mindmap.sidebar.open': 'Open mind-map session',
   'mindmap.sidebar.renameTitle': 'Rename mind-map session',
+  'mindmap.confirm.title': 'Create Mind Map Session',
+  'mindmap.confirm.message': 'This will convert the current session into a mind-map session and hide it from the sidebar session list. Convert now?',
+  'mindmap.confirm.action': 'Convert',
   'switcher.aria': 'Switch session',
   'switcher.trigger.title': 'Click to switch session',
   'switcher.subagent': 'subagent',
@@ -1054,7 +1064,7 @@ const styles = `
 .dsh-wel-chevron{display:inline-flex;align-items:center;justify-content:center;flex:0 0 12px;color:var(--dsw-alias-label-caption);font-size:10px}.dsh-wel-file-mark{display:inline-flex;align-items:center;justify-content:center;flex:0 0 16px;width:16px;height:16px;border-radius:4px;background:color-mix(in srgb,var(--dsh-wel-file-accent,var(--dsw-alias-label-tertiary)) 16%,transparent);color:var(--dsh-wel-file-accent,var(--dsw-alias-label-tertiary));font-size:8px;font-weight:600;text-transform:uppercase}.dsh-wel-file-mark[data-group='directory']{--dsh-wel-file-accent:var(--dsh-wel-file-directory,#3b82f6)}.dsh-wel-file-mark[data-group='typescript']{--dsh-wel-file-accent:var(--dsh-wel-file-typescript,#3178c6)}.dsh-wel-file-mark[data-group='javascript']{--dsh-wel-file-accent:var(--dsh-wel-file-javascript,#e5c158)}.dsh-wel-file-mark[data-group='json']{--dsh-wel-file-accent:var(--dsh-wel-file-json,#e07a3c)}.dsh-wel-file-mark[data-group='markup']{--dsh-wel-file-accent:var(--dsh-wel-file-markup,#e04a3c)}.dsh-wel-file-mark[data-group='style']{--dsh-wel-file-accent:var(--dsh-wel-file-style,#a855f7)}.dsh-wel-file-mark[data-group='markdown']{--dsh-wel-file-accent:var(--dsh-wel-file-markdown,#12a5a0)}.dsh-wel-file-mark[data-group='log']{--dsh-wel-file-accent:var(--dsh-wel-file-log,#d99a2b)}.dsh-wel-file-mark[data-group='python']{--dsh-wel-file-accent:var(--dsh-wel-file-python,#4b8bb8)}.dsh-wel-file-mark[data-group='shell']{--dsh-wel-file-accent:var(--dsh-wel-file-shell,#22a06b)}.dsh-wel-file-mark[data-group='config']{--dsh-wel-file-accent:var(--dsh-wel-file-config,#8a95a5)}.dsh-wel-file-mark[data-group='c-family']{--dsh-wel-file-accent:var(--dsh-wel-file-c-family,#5a7ba6)}.dsh-wel-file-mark[data-group='csharp']{--dsh-wel-file-accent:var(--dsh-wel-file-csharp,#a25fd0)}.dsh-wel-file-mark[data-group='other']{--dsh-wel-file-accent:var(--dsh-wel-file-other,#9aa3ad)}.dsh-wel-file-mark[data-group='blocked']{--dsh-wel-file-accent:var(--dsh-wel-file-blocked,#e5484d)}.dsh-wel-row-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-wel-symlink{margin-left:auto;color:var(--dsw-alias-label-caption);font-size:10px}.dsh-wel-tree-status{padding:8px 10px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.dsh-wel-tree-status[data-error]{color:var(--dsw-alias-state-error-primary)}.dsh-wel-empty{display:flex;flex:1;min-height:0;align-items:center;justify-content:center;padding:24px;color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:20px;text-align:center}
 .dsh-wel-preview-header-meta{display:flex;align-items:center;gap:6px;min-width:0}.dsh-wel-preview-header-meta>span:not(.dsh-wel-language):not(.dsh-wel-encoding){overflow:hidden;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:15px;text-overflow:ellipsis;white-space:nowrap}.dsh-wel-language{flex:0 0 auto;padding:1px 5px;border-radius:4px;background:var(--dsw-alias-markdown-tag);color:var(--dsw-alias-label-secondary);font-size:9px;font-weight:600;line-height:14px;text-transform:uppercase}.dsh-wel-encoding{flex:0 0 auto;padding:1px 5px;border-radius:4px;background:var(--dsw-alias-markdown-tag);color:var(--dsw-alias-label-secondary);font-size:9px;font-weight:600;line-height:14px;text-transform:uppercase}.dsh-wel-dirty{color:var(--dsw-alias-state-warn-label);font-size:12px}.dsh-wel-preview-tabs{display:flex;align-items:stretch;gap:4px;min-width:0;padding:6px 8px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-specific-sidebar-fill);overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}.dsh-wel-preview-tab{flex:none;display:flex;align-items:center;gap:5px;min-width:0;max-width:220px;height:28px;padding:0 5px 0 9px;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:18px;cursor:grab;box-sizing:border-box;white-space:nowrap}.dsh-wel-preview-tab:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.dsh-wel-preview-tab[data-active]{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary)}.dsh-wel-preview-tab[data-dragging]{opacity:.7}.dsh-wel-preview-drop-indicator{flex:none;width:3px;height:20px;border-radius:2px;background:var(--dsw-alias-state-business-primary);align-self:center;pointer-events:none}.dsh-wel-preview-tab-button{display:flex;flex:1;align-items:center;gap:5px;min-width:0;height:100%;padding:0;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}.dsh-wel-preview-tab-name{min-width:0;overflow:hidden;text-overflow:ellipsis}.dsh-wel-preview-tab-close{flex:none;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border:0;border-radius:4px;background:transparent;color:inherit;font-size:14px;line-height:1;cursor:pointer}.dsh-wel-preview-tab-close:hover{background:var(--dsw-alias-interactive-bg-hover-danger);color:var(--dsw-alias-state-error-primary)}.dsh-wel-preview-tab-close:disabled{cursor:not-allowed;opacity:.45}.dsh-wel-preview-body{position:relative;flex:1;min-height:0;overflow:hidden;background:var(--dsw-alias-markdown-code-block)}.dsh-wel-editor-host{height:100%;min-width:0}.dsh-wel-editor-host .cm-editor{height:100%;background:var(--dsw-alias-markdown-code-block);color:var(--dsw-alias-label-primary)}.dsh-wel-editor-host .cm-scroller{font-family:var(--dsw-font-family-code,ui-monospace,SFMono-Regular,Consolas,monospace);font-size:12px;line-height:19px;overflow:auto}.dsh-wel-editor-host .cm-gutters{background:var(--dsw-alias-markdown-code-block-banner);color:var(--dsw-alias-label-caption);border-right:1px solid var(--dsw-alias-border-l2)}.dsh-wel-editor-host .cm-activeLine,.dsh-wel-editor-host .cm-activeLineGutter{background:var(--dsw-alias-interactive-bg-hover)}.dsh-wel-editor-host .cm-selectionBackground,.dsh-wel-editor-host .cm-content ::selection{background:var(--dsw-alias-interactive-bg-active)!important}.dsh-wel-editor-host .cm-cursor{border-left-color:var(--dsw-alias-label-primary)}.dsh-wel-editor-host .cm-foldPlaceholder{background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary)}.dsh-wel-editor-host .cm-panels{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}.dsh-wel-editor-host .cm-panel input{background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary)}
 .dsh-wel-context-row{box-sizing:border-box;display:flex;align-items:center;gap:8px;flex:none;width:min(var(--dsh-composer-card-max-width),max(0px,calc(100% - (var(--dsh-composer-side-clearance) * 2))));margin:0 auto;padding:0}.dsh-wel-context-prefix{display:flex;flex:1;align-items:center;gap:6px;min-width:0;min-height:28px;padding:5px 8px 5px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:22px;background:var(--dsw-specific-input-major);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:16px;text-align:left;cursor:pointer}.dsh-wel-context-prefix:hover{color:var(--dsw-alias-label-primary)}.dsh-wel-context-prefix:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}.dsh-wel-context-prefix[data-inactive]{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-caption);filter:grayscale(1)}.dsh-wel-context-prefix-mark{flex:none;font-size:12px}.dsh-wel-context-prefix-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-wel-message-context-summary{box-sizing:border-box;display:flex;align-items:center;align-self:flex-end;gap:6px;max-width:100%;min-height:24px;padding:3px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:22px;background:var(--dsw-specific-input-major);color:var(--dsw-alias-label-secondary);font-size:11px;line-height:16px}.dsh-wel-message-context-summary-mark{flex:none;font-size:12px}.dsh-wel-message-context-summary-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-wel-message-context-summary-range{flex:none;color:var(--dsw-alias-label-caption)}.dsh-wel-message-context-bubble[data-dsh-wel-empty-prompt]{display:none}
-.dsh-wel-banner{padding:7px 12px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-state-warn-tertiary);color:var(--dsw-alias-state-warn-label);font-size:11px;line-height:16px}.dsh-wel-banner-actions{display:flex;gap:6px;margin-top:5px}.dsh-wel-status{padding:5px 12px;border-bottom:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-tertiary);font-size:11px}.dsh-wel-status[data-error]{color:var(--dsw-alias-state-error-primary)}.dsh-wel-error-card{max-width:300px;padding:14px 16px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:19px;text-align:left}.dsh-wel-dialog-backdrop{position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;padding:20px;background:var(--dsw-alias-bg-mask-1,rgba(0,0,0,.38));box-sizing:border-box}.dsh-wel-dialog{width:min(360px,100%);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-elevated,0 12px 36px rgba(0,0,0,.24));box-sizing:border-box}.dsh-wel-dialog-header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-bottom:1px solid var(--dsw-alias-border-l2)}.dsh-wel-dialog-title{min-width:0;overflow:hidden;color:var(--dsw-alias-label-primary);font-size:13px;font-weight:600;line-height:18px;text-overflow:ellipsis;white-space:nowrap}.dsh-wel-dialog-body{display:flex;flex-direction:column;gap:8px;padding:14px}.dsh-wel-dialog-input{width:100%;height:32px;padding:0 9px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;box-sizing:border-box}.dsh-wel-dialog-input:focus{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}.dsh-wel-dialog-error{color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px}.dsh-wel-dialog-message{color:var(--dsw-alias-label-primary);font-size:13px;line-height:20px}.dsh-wel-dialog-warning{color:var(--dsw-alias-state-warn-label);font-size:12px;line-height:18px}.dsh-wel-danger-button{color:var(--dsw-alias-state-error-primary)}.dsh-wel-dialog-footer{display:flex;justify-content:flex-end;gap:8px;padding:0 14px 14px}.dsh-wel-conflict-region{display:flex;flex-direction:column;gap:8px;min-height:0}.dsh-wel-conflict-region-title{display:flex;align-items:center;gap:8px;color:var(--dsw-alias-state-warn-label);font-size:12px;line-height:18px}.dsh-wel-conflict-cols{display:grid;grid-template-columns:1fr 1fr;gap:8px;min-height:0;flex:1}.dsh-wel-conflict-cols-final{border-top:1px solid var(--dsw-alias-border-l2);padding-top:8px}.dsh-wel-conflict-col{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;border:1px solid var(--dsw-alias-border-l2);border-radius:6px}.dsh-wel-conflict-col-label{padding:4px 8px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}.dsh-wel-conflict-mine .dsh-wel-conflict-col-label{color:var(--dsw-alias-state-warn-label)}.dsh-wel-conflict-theirs .dsh-wel-conflict-col-label{color:var(--dsw-alias-state-business-primary)}.dsh-wel-conflict-code{margin:0;min-height:0;flex:1;overflow:auto;padding:10px;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-mono,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace);font-size:var(--dsh-wel-conflict-font-size,12px);line-height:20px;white-space:pre;box-sizing:border-box}.dsh-wel-inline-add{color:var(--dsw-alias-state-success-primary);background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 14%,transparent);border-radius:3px;box-decoration-break:clone;-webkit-box-decoration-break:clone}.dsh-wel-inline-del{color:var(--dsw-alias-state-error-primary);text-decoration:line-through;text-decoration-thickness:1.5px;background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 12%,transparent);border-radius:3px;opacity:.9;box-decoration-break:clone;-webkit-box-decoration-break:clone}.dsh-wel-conflict-code-row{display:inline;border-radius:3px;box-decoration-break:clone;-webkit-box-decoration-break:clone}.dsh-wel-conflict-code-row[data-kind='add']{background:color-mix(in srgb,var(--dsw-alias-label-secondary) 16%,transparent)}.dsh-wel-conflict-mine .dsh-wel-conflict-code-row[data-kind='add']{background:color-mix(in srgb,var(--dsw-alias-state-warn-label) 20%,transparent);color:var(--dsw-alias-state-warn-label)}.dsh-wel-conflict-theirs .dsh-wel-conflict-code-row[data-kind='add']{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 20%,transparent);color:var(--dsw-alias-state-business-primary)}.dsh-wel-conflict-code-row[data-kind='del']{color:var(--dsw-alias-state-error-primary);text-decoration:line-through;text-decoration-thickness:1.5px;background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,transparent);opacity:.85}.dsh-wel-conflict-dialog{width:66vw;max-width:66vw;max-height:min(90vh,1000px);display:flex;flex-direction:column}.dsh-wel-conflict-dialog .dsh-wel-dialog-body{flex:1;min-height:0;overflow:auto}.dsh-wel-conflict-progress{margin-left:8px;padding:0 6px;border-radius:6px;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);font-size:11px;font-weight:600;line-height:18px;white-space:nowrap}
+.dsh-wel-banner{padding:7px 12px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-state-warn-tertiary);color:var(--dsw-alias-state-warn-label);font-size:11px;line-height:16px}.dsh-wel-banner-actions{display:flex;gap:6px;margin-top:5px}.dsh-wel-status{flex:none;box-sizing:border-box;width:100%;padding:4px 12px;border-top:1px solid var(--dsw-alias-border-l2);background:var(--dsw-specific-sidebar-fill);color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;text-align:right}.dsh-wel-status[data-error]{color:var(--dsw-alias-state-error-primary)}.dsh-wel-error-card{max-width:300px;padding:14px 16px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:19px;text-align:left}.dsh-wel-dialog-backdrop{position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;padding:20px;background:var(--dsw-alias-bg-mask-1,rgba(0,0,0,.38));box-sizing:border-box}.dsh-wel-dialog{width:min(360px,100%);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-elevated,0 12px 36px rgba(0,0,0,.24));box-sizing:border-box}.dsh-wel-dialog-header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-bottom:1px solid var(--dsw-alias-border-l2)}.dsh-wel-dialog-title{min-width:0;overflow:hidden;color:var(--dsw-alias-label-primary);font-size:13px;font-weight:600;line-height:18px;text-overflow:ellipsis;white-space:nowrap}.dsh-wel-dialog-body{display:flex;flex-direction:column;gap:8px;padding:14px}.dsh-wel-dialog-input{width:100%;height:32px;padding:0 9px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;box-sizing:border-box}.dsh-wel-dialog-input:focus{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}.dsh-wel-dialog-error{color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px}.dsh-wel-dialog-message{color:var(--dsw-alias-label-primary);font-size:13px;line-height:20px}.dsh-wel-dialog-warning{color:var(--dsw-alias-state-warn-label);font-size:12px;line-height:18px}.dsh-wel-danger-button{color:var(--dsw-alias-state-error-primary)}.dsh-wel-dialog-footer{display:flex;justify-content:flex-end;gap:8px;padding:0 14px 14px}.dsh-wel-conflict-region{display:flex;flex-direction:column;gap:8px;min-height:0}.dsh-wel-conflict-region-title{display:flex;align-items:center;gap:8px;color:var(--dsw-alias-state-warn-label);font-size:12px;line-height:18px}.dsh-wel-conflict-cols{display:grid;grid-template-columns:1fr 1fr;gap:8px;min-height:0;flex:1}.dsh-wel-conflict-cols-final{border-top:1px solid var(--dsw-alias-border-l2);padding-top:8px}.dsh-wel-conflict-col{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;border:1px solid var(--dsw-alias-border-l2);border-radius:6px}.dsh-wel-conflict-col-label{padding:4px 8px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}.dsh-wel-conflict-mine .dsh-wel-conflict-col-label{color:var(--dsw-alias-state-warn-label)}.dsh-wel-conflict-theirs .dsh-wel-conflict-col-label{color:var(--dsw-alias-state-business-primary)}.dsh-wel-conflict-code{margin:0;min-height:0;flex:1;overflow:auto;padding:10px;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-mono,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace);font-size:var(--dsh-wel-conflict-font-size,12px);line-height:20px;white-space:pre;box-sizing:border-box}.dsh-wel-inline-add{color:var(--dsw-alias-state-success-primary);background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 14%,transparent);border-radius:3px;box-decoration-break:clone;-webkit-box-decoration-break:clone}.dsh-wel-inline-del{color:var(--dsw-alias-state-error-primary);text-decoration:line-through;text-decoration-thickness:1.5px;background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 12%,transparent);border-radius:3px;opacity:.9;box-decoration-break:clone;-webkit-box-decoration-break:clone}.dsh-wel-conflict-code-row{display:inline;border-radius:3px;box-decoration-break:clone;-webkit-box-decoration-break:clone}.dsh-wel-conflict-code-row[data-kind='add']{background:color-mix(in srgb,var(--dsw-alias-label-secondary) 16%,transparent)}.dsh-wel-conflict-mine .dsh-wel-conflict-code-row[data-kind='add']{background:color-mix(in srgb,var(--dsw-alias-state-warn-label) 20%,transparent);color:var(--dsw-alias-state-warn-label)}.dsh-wel-conflict-theirs .dsh-wel-conflict-code-row[data-kind='add']{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 20%,transparent);color:var(--dsw-alias-state-business-primary)}.dsh-wel-conflict-code-row[data-kind='del']{color:var(--dsw-alias-state-error-primary);text-decoration:line-through;text-decoration-thickness:1.5px;background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,transparent);opacity:.85}.dsh-wel-conflict-dialog{width:66vw;max-width:66vw;max-height:min(90vh,1000px);display:flex;flex-direction:column}.dsh-wel-conflict-dialog .dsh-wel-dialog-body{flex:1;min-height:0;overflow:auto}.dsh-wel-conflict-progress{margin-left:8px;padding:0 6px;border-radius:6px;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);font-size:11px;font-weight:600;line-height:18px;white-space:nowrap}
 .dsh-wel-frame [data-slot='sidebar.footer.action']{display:flex!important;flex-direction:column;align-items:stretch;width:100%;min-width:0}
 .dsh-wel-splitter{position:absolute;top:0;bottom:0;z-index:8;width:8px;margin-left:-4px;border:0;background:transparent;cursor:col-resize;touch-action:none}.dsh-wel-splitter::after{content:'';position:absolute;top:0;bottom:0;left:3px;width:2px;background:transparent;transition:background var(--ds-transition-duration-fast) var(--ds-ease-in-out)}.dsh-wel-splitter:hover::after,.dsh-wel-splitter[data-dragging]::after,.dsh-wel-splitter:focus-visible::after{background:var(--dsw-alias-state-business-primary)}.dsh-wel-details{position:absolute;z-index:16;top:0;right:0;bottom:0;width:min(440px,45vw);overflow:hidden;border-left:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-elevated,0 12px 36px var(--dsw-alias-bg-mask-1));transform:translateX(0);opacity:1;transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out),opacity var(--ds-transition-duration-fast) var(--ds-ease-in-out)}.dsh-wel-details[data-closed]{pointer-events:none;visibility:hidden;transform:translateX(100%);opacity:0}.dsh-wel-overlay{position:absolute;inset:0;z-index:20;pointer-events:none}.dsh-wel-overlay>*{pointer-events:auto}.dsh-wel-tree{position:relative}.dsh-wel-context-menu{position:fixed;z-index:40;min-width:168px;padding:6px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-elevated,0 12px 36px rgba(0,0,0,.24));box-sizing:border-box}.dsh-wel-context-item{display:block;width:100%;height:30px;padding:0 10px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:30px;text-align:left;cursor:pointer;box-sizing:border-box}.dsh-wel-context-item:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.dsh-wel-context-item-danger{color:var(--dsw-alias-state-error-primary)}.dsh-wel-context-item-danger:hover{color:var(--dsw-alias-state-error-primary)}.dsh-wel-context-item:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}.dsh-wel-context-item:disabled{cursor:not-allowed;opacity:.5}.dsh-wel-context-item:disabled:hover{background:transparent;color:var(--dsw-alias-label-primary)}.dsh-wel-context-separator{height:1px;margin:4px 0;border:0;background:var(--dsw-alias-border-l2)}.dsh-wel-copy-notice{position:absolute;right:10px;bottom:10px;z-index:12;padding:5px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-size:11px;line-height:16px;box-shadow:var(--dsw-shadow-elevated,0 4px 12px rgba(0,0,0,.18))}@media(prefers-reduced-motion:reduce){.dsh-wel-frame,.dsh-wel-details,.dsh-wel-splitter::after{transition:none}}
 .dsh-wel-search-header{flex-direction:column;align-items:stretch;gap:8px;padding:8px}
@@ -1303,6 +1313,11 @@ html.dsh-wel-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal
 .dsh-wel-mindmap-toolbar{flex:none;display:flex;align-items:center;gap:8px;margin-bottom:8px}
 .dsh-wel-mindmap-toolbar-button{flex:none;padding:3px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:16px;cursor:pointer}
 .dsh-wel-mindmap-toolbar-button:hover{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary)}
+/* The window-scope toggle (full left area vs sidebar column only): pressed
+   state mirrors the session-header button pattern; hidden on mobile where the
+   overlay is always full screen. */
+.dsh-wel-mindmap-toolbar-button[aria-pressed='true']{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-interactive-bg-active)}
+html.dsh-wel-mobile-on .dsh-wel-mindmap-scope-toggle{display:none}
 .dsh-wel-mindmap-viewport{position:relative;flex:1;min-height:0;overflow:hidden;cursor:grab;touch-action:none}
 .dsh-wel-mindmap-viewport[data-dragging]{cursor:grabbing;user-select:none}
 /* The floating mind-map window: everything left of the chat column (width =
@@ -1311,6 +1326,18 @@ html.dsh-wel-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal
 .dsh-wel-mindmap-overlay .dsh-wel-mindmap{flex:1;min-height:0;padding-bottom:14px}
 .dsh-wel-mindmap-overlay-close{position:absolute;top:10px;right:10px;z-index:2;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0 0 2px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:16px;line-height:1;cursor:pointer;box-sizing:border-box}
 .dsh-wel-mindmap-overlay-close:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+/* The convert-to-mind-map confirm dialog: a roomier modal than the default
+   dialog (larger width, more padding) with pill buttons — the cancel button
+   gets a neutral border, the confirm button a primary-colored border. */
+.dsh-wel-mindmap-confirm-dialog{width:min(440px,100%)}
+.dsh-wel-mindmap-confirm-dialog .dsh-wel-dialog-body{padding:18px 20px}
+.dsh-wel-mindmap-confirm-dialog .dsh-wel-dialog-message{font-size:14px;line-height:22px}
+.dsh-wel-mindmap-confirm-dialog .dsh-wel-dialog-footer{padding:0 20px 18px;gap:10px}
+.dsh-wel-mindmap-confirm-button{height:34px;padding:0 18px;border-radius:999px;font-size:13px}
+.dsh-wel-mindmap-confirm-cancel{border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary)}
+.dsh-wel-mindmap-confirm-cancel:hover{border-color:var(--dsw-alias-label-secondary);color:var(--dsw-alias-label-primary)}
+.dsh-wel-mindmap-confirm-ok{border:1px solid var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent)}
+.dsh-wel-mindmap-confirm-ok:hover{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 16%,transparent);border-color:var(--dsw-alias-state-business-primary)}
 /* The session-header 导图 toggle button. */
 .dsh-wel-mindmap-header-button{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 9px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:1;cursor:pointer;box-sizing:border-box}
 .dsh-wel-mindmap-header-button:hover{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary)}
@@ -1366,6 +1393,14 @@ html.dsh-wel-mobile-on .dsh-wel-mindmap-header-button{display:none}
 .dsh-wel-mindmap-notice{margin-bottom:10px;padding:6px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:12px;line-height:17px}
 .dsh-wel-mindmap-notice-error{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}
 .dsh-wel-mindmap-node[data-branch]{border-style:solid}
+/* Selected-card ancestor trace: the current (solid-highlighted) card's chain
+   back to the root — every connecting edge turns into a dashed primary-blue
+   line, every parent node gets a dashed primary-blue border. The ancestor
+   selector is a two-class compound so it beats the branch node rule
+   dsh-wel-mindmap-node[data-branch] { border-style:solid } (same specificity,
+   later in source). */
+.dsh-wel-mindmap-edge-active{stroke:var(--dsw-alias-state-business-primary);stroke-dasharray:6 5;stroke-width:2;opacity:1}
+.dsh-wel-mindmap-node.dsh-wel-mindmap-node-ancestor{border-style:dashed;border-color:var(--dsw-alias-state-business-primary);box-shadow:0 0 0 1px color-mix(in srgb,var(--dsw-alias-state-business-primary) 18%,transparent)}
 .dsh-wel-mindmap-hidden-row{display:none!important}
 /* Sidebar mind-map session entries: rendered INSIDE each workspace group's
    session list (one container appended to its group section), so a mind map
@@ -2405,10 +2440,16 @@ function parseSelectionContext(text) {
   const header = text.slice(0, headerEnd).replace(/\r$/, '')
   const headerMatch = /^<selection>The user selected the lines (\d+) to (\d+) from (.*):$/.exec(header)
   if (headerMatch === null) return null
-  const closeAt = text.indexOf(SELECTION_CLOSE, headerEnd + 1)
-  if (closeAt < 0) return null
+  // The envelope ALWAYS closes with the trailer line directly before
+  // `</selection>`. Anchor on that exact pair instead of the first
+  // `</selection>` so a selected body that itself contains `</selection>`
+  // cannot truncate the fold/summary early.
+  const marker = `${SELECTION_TRAILER}${SELECTION_CLOSE}`
+  const markerAt = text.indexOf(marker, headerEnd + 1)
+  if (markerAt < 0) return null
+  const closeAt = markerAt + marker.length - SELECTION_CLOSE.length
   const body = text.slice(headerEnd + 1, closeAt)
-  if (!body.endsWith(`\n${SELECTION_TRAILER}`) && !body.endsWith(`\r\n${SELECTION_TRAILER}`)) return null
+  if (!body.endsWith(SELECTION_TRAILER) && !body.endsWith(`\r${SELECTION_TRAILER}`)) return null
   const startLine = Number(headerMatch[1])
   const endLine = Number(headerMatch[2])
   const path = headerMatch[3]
@@ -2833,6 +2874,14 @@ const syncMindmapDoc = (sessionId, liveSessionId, signal) => mindmapRequest('/sy
 })
 const fetchMindmapDocIndex = signal => mindmapRequest('/index', { method: 'GET', signal })
 const deleteMindmapDoc = (sessionId, signal) => mindmapRequest(`?sessionId=${encodeURIComponent(String(sessionId))}`, { method: 'DELETE', signal })
+/* Rename only the map's OWN title (doc.rootTitle) on the Host — a targeted
+   update instead of the GET-then-POST full-doc round trip, which could clobber
+   a turn a concurrent sync had just folded in the window between the two. */
+const renameMindmapDoc = (sessionId, title, signal) => mindmapRequest('/rename', {
+  method: 'POST',
+  body: { sessionId: String(sessionId), title },
+  signal,
+})
 
 /* Module-wide mind-map index registry: the sidebar mind-map session panel and
    the sidebar branch hider both need to know which sessions belong to a mind
@@ -2848,6 +2897,7 @@ const mindmapRegistry = {
   _listeners: new Set(),
   _timer: 0,
   _inflight: null,
+  _signature: undefined,
   subscribe(listener) {
     this._listeners.add(listener)
     return () => { this._listeners.delete(listener) }
@@ -2858,6 +2908,19 @@ const mindmapRegistry = {
   isBranch(id) { return this._branches.has(String(id)) },
   isMember(id) { const key = String(id); return this._roots.has(key) || this._branches.has(key) },
   _apply(docs) {
+    /* The 5 s poll returns the same index over and over; only a signature
+       change (a doc added/removed, a rootTitle rename, a fork changing the
+       branch set, or an updatedAt bump from a folded turn) must bump the
+       version and re-render the subscribers — an unconditional notify made
+       the sidebar panel and the hider re-run on every idle poll. The
+       updatedAt is included so a doc that just gained a turn re-sorts to the
+       top of its sidebar group instead of staying at a stale position. */
+    const signature = docs
+      .map(doc => `${String(doc.sessionId)}\u0001${String(doc.rootTitle ?? '')}\u0001${(doc.branchSessionIds ?? []).map(String).sort().join(',')}\u0001${Number(doc.updatedAt) || 0}`)
+      .sort()
+      .join('\u0002')
+    if (signature === this._signature) return
+    this._signature = signature
     this._docs = docs
     this._roots = new Set()
     this._branches = new Set()
@@ -2908,7 +2971,7 @@ function useMindmapRegistry() {
    snapshot object is replaced only on change so useSyncExternalStore sees a
    stable reference between updates. */
 const mindmapOverlayStore = {
-  _snapshot: { open: false, sessionId: null },
+  _snapshot: { open: false, sessionId: null, scope: 'full' },
   _listeners: new Set(),
   subscribe(listener) {
     this._listeners.add(listener)
@@ -2917,7 +2980,7 @@ const mindmapOverlayStore = {
   getSnapshot() { return this._snapshot },
   _set(open, sessionId) {
     if (this._snapshot.open === open && this._snapshot.sessionId === sessionId) return
-    this._snapshot = { open, sessionId }
+    this._snapshot = { open, sessionId, scope: this._snapshot.scope }
     for (const listener of [...this._listeners]) listener()
   },
   open(sessionId) { this._set(true, String(sessionId)) },
@@ -2932,6 +2995,17 @@ const mindmapOverlayStore = {
   setSession(sessionId) {
     if (!this._snapshot.open) return
     this._set(true, String(sessionId))
+  },
+  /* Window scope: 'full' covers everything left of the chat column (sidebar +
+     file browser), 'sidebar' covers only the sidebar column. A view
+     preference, kept across open/close and session switches while the app is
+     alive (not persisted). */
+  toggleScope() {
+    this._snapshot = {
+      ...this._snapshot,
+      scope: this._snapshot.scope === 'sidebar' ? 'full' : 'sidebar',
+    }
+    for (const listener of [...this._listeners]) listener()
   },
 }
 function useMindmapOverlay() {
@@ -5438,7 +5512,7 @@ function WorkspaceExplorer({
   const confirmSessionRename=useCallback(()=>{if(sessionRenameBusy||sessionId===undefined)return;const trimmed=sessionRenameDraft.trim();if(trimmed==='')return;setSessionRenameBusy(true);setSessionRenameError(undefined);renameSession(String(sessionId),trimmed).then(()=>{if(!mounted.current)return;setSessionRenameBusy(false);setSessionRenameOpen(false);setSessionRenameDraft('')}).catch(error=>{if(!mounted.current)return;setSessionRenameBusy(false);setSessionRenameError(error instanceof Error?error.message:String(error))})},[renameSession,sessionId,sessionRenameBusy,sessionRenameDraft])
   const runSearch=useCallback(async(query)=>{searchController.current?.abort();if(query.trim()===''){setSearchState({state:'idle'});setSearchExpanded(new Set());return}const controller=new AbortController();searchController.current=controller;setSearchState({state:'searching'});try{const result=await requestSearch(workspace.workspaceId,query,searchCaseSensitive,controller.signal);if(searchController.current===controller){setSearchState({state:'done',result});setSearchExpanded(new Set((settings.expandSearchMatches ?? SEARCH_MATCH_EXPAND_DEFAULT)?result.files.map(file=>file.path):[]))}}catch(error){if(error?.name==='AbortError')return;if(searchController.current===controller)setSearchState({state:'error',message:error instanceof Error?error.message:String(error)})}},[searchCaseSensitive,settings.expandSearchMatches,workspace.workspaceId])
   const closeSearch=useCallback(()=>{searchController.current?.abort();searchController.current=undefined;setSearchExpanded(new Set());setSearchOpen(false)},[])
-  const openSearchMatch=useCallback((file,match)=>{const entry={kind:'file',name:file.name,path:file.path,symlink:false};chooseFile(entry);searchRevealToken.current+=1;setSearchReveal({endColumn:match.endColumn,column:match.startColumn,line:match.line,path:file.path,token:searchRevealToken.current})},[chooseFile])
+  const openSearchMatch=useCallback((file,match)=>{const entry={kind:'file',name:file.name,path:file.path,symlink:false};chooseFile(entry);searchRevealToken.current+=1;setSearchReveal({column:match.startLineColumn??match.startColumn,endColumn:match.endLineColumn??match.endColumn,line:match.line,path:file.path,token:searchRevealToken.current})},[chooseFile])
   const toggleSearchFile=useCallback((path)=>{setSearchExpanded(prev=>{const next=new Set(prev);if(next.has(path))next.delete(path);else next.add(path);return next})},[])
   useEffect(()=>{if(!searchOpen)return undefined;const timer=setTimeout(()=>{void runSearch(searchQuery)},300);return()=>clearTimeout(timer)},[runSearch,searchOpen,searchQuery])
   useEffect(()=>{if(contextMenu===undefined)return undefined;const inside=event=>{const node=menuRef.current;return node!==null&&event.target instanceof Node&&node.contains(event.target)};const close=()=>setContextMenu(undefined);const onPointerDown=event=>{if(!inside(event))close()};const onContextMenu=event=>{if(!inside(event))close()};const onKeyDown=event=>{if(event.key==='Escape')close()};window.addEventListener('pointerdown',onPointerDown);window.addEventListener('contextmenu',onContextMenu,true);window.addEventListener('keydown',onKeyDown);window.addEventListener('resize',close);window.addEventListener('scroll',close,true);return()=>{window.removeEventListener('pointerdown',onPointerDown);window.removeEventListener('contextmenu',onContextMenu,true);window.removeEventListener('keydown',onKeyDown);window.removeEventListener('resize',close);window.removeEventListener('scroll',close,true)}},[contextMenu])
@@ -5671,7 +5745,6 @@ function WorkspaceExplorer({
     body = h(Fragment, null,
       preview.truncated ? h('div', { className: 'dsh-wel-banner' }, translate('editor.previewTruncated')) : null,
       previewReason && !preview.truncated ? h('div', { className: 'dsh-wel-banner' }, translate('editor.cannotEdit', { reason: previewReason })) : null,
-      status ? h('div', { className: 'dsh-wel-status', 'data-error': status.error || undefined }, status.text) : null,
       h('div', { className: 'dsh-wel-preview-search', ref: searchPanelContainerRef, onContextMenu: (event) => { if (event.button !== 2) event.preventDefault() } }),
       h('div', { className: 'dsh-wel-preview-body', onClick: () => { if (activePathRef.current !== null) scrollTabIntoView(activePathRef.current) } },
         h(CodeEditor, {
@@ -5709,7 +5782,10 @@ function WorkspaceExplorer({
             ? searchReveal
             : null,
           scrollTop: scrollTopRef.current.get(activePath) ?? activeTab?.scrollTop ?? 0,
-        })))
+        })),
+      // Bottom status bar: transient notices sit below the editor body at the
+      // panel's bottom edge (right-aligned), not above the search strip.
+      status ? h('div', { className: 'dsh-wel-status', 'data-error': status.error || undefined }, status.text) : null)
   }
   let searchBody
   if (searchState.state === 'idle') {
@@ -6439,13 +6515,15 @@ function mindmapDeletePlan(doc, ownerId, turnSeq, emptyCard) {
   }
 }
 
-/* Stable fingerprint of a doc's structure (turn seqs only), used to skip
-   redundant re-renders after a sync that changed nothing. */
+/* Stable fingerprint of a doc's structure (turn seqs + the map's own title),
+   used to skip redundant re-renders after a sync that changed nothing. The
+   rootTitle is included so a sidebar rename of the map title reaches an open
+   map on the next sync (a seq-only fingerprint skipped it). */
 function mindmapDocFingerprint(doc) {
   const trunk = (doc?.trunk ?? []).map(turn => turn?.seq).join(',')
   const branches = (doc?.branches ?? []).map(branch =>
     `${branch?.sessionId}:${(branch?.turns ?? []).map(turn => turn?.seq).join(',')}`).join(';')
-  return `${trunk}|${branches}`
+  return `${String(doc?.rootTitle ?? '')}|${trunk}|${branches}`
 }
 
 /* Doc layout: trunk turns are one left-to-right chain; each branch's turn
@@ -6606,14 +6684,25 @@ function mindmapDocLayout(doc, streaming) {
 
 const mindmapXOf = depth => MINDMAP_DEPTH_GAP + depth * (MINDMAP_NODE_W + MINDMAP_DEPTH_GAP)
 
-/* Clamp a view translation so the scaled world always overlaps the viewport:
-   an axis whose world fits centers it; a larger world may slide with a small
-   overhang so the map can never be lost entirely. */
+/* Clamp a view translation so the scaled world always keeps a MINIMUM fraction
+   on screen instead of a fixed pixel ledge: each axis may be dragged out by up
+   to MINDMAP_PAN_OUT_MAX of the world size (e.g. 80%), so the opposite 20% of
+   the map stays visible. Unlike the old clamp this also lets a map SMALLER
+   than the viewport slide around (it is no longer pinned to the center) —
+   panning up/down/left/right feels looser, and the "还原视图" button restores
+   the fitted position any time the map is pushed out of reach. */
 function mindmapClampView(view, worldW, worldH, vw, vh) {
   const sw = worldW * view.zoom
   const sh = worldH * view.zoom
-  const tx = sw <= vw ? (vw - sw) / 2 : Math.max(vw - sw - MINDMAP_PAN_MARGIN, Math.min(view.tx, MINDMAP_PAN_MARGIN))
-  const ty = sh <= vh ? (vh - sh) / 2 : Math.max(vh - sh - MINDMAP_PAN_MARGIN, Math.min(view.ty, MINDMAP_PAN_MARGIN))
+  const out = MINDMAP_PAN_OUT_MAX
+  /* x: from the world pushed left (its right 20% at the viewport's left edge)
+     to the world pushed right (its left 20% at the viewport's right edge). */
+  const tx = sw <= 0 || vw <= 0
+    ? view.tx
+    : Math.max(-out * sw, Math.min(view.tx, vw - (1 - out) * sw))
+  const ty = sh <= 0 || vh <= 0
+    ? view.ty
+    : Math.max(-out * sh, Math.min(view.ty, vh - (1 - out) * sh))
   return { zoom: view.zoom, tx, ty }
 }
 
@@ -6664,7 +6753,7 @@ function useMindmapSessionView(useSessions, familyIdsRef) {
    cards whose props are unchanged: a doc-triggered re-render only rebuilds the
    added / changed / current-badge-flipped cards. */
 const MindMapCard = memo(function MindMapCard({
-  entry, title, isCurrent, isStreaming, isFrameParent, onOpen, onMenu,
+  entry, title, isCurrent, isStreaming, isFrameParent, isAncestor, onOpen, onMenu,
 }) {
   const classes = (entry.branch !== undefined
     ? 'dsh-wel-mindmap-node dsh-wel-mindmap-branchcard'
@@ -6672,6 +6761,7 @@ const MindMapCard = memo(function MindMapCard({
     + (isCurrent ? ' dsh-wel-mindmap-node-current' : '')
     + (isStreaming ? ' dsh-wel-mindmap-node-streaming' : '')
     + (isFrameParent ? ' dsh-wel-mindmap-node-frame-parent' : '')
+    + (isAncestor ? ' dsh-wel-mindmap-node-ancestor' : '')
   const turn = entry.turn
   return h('div', {
     className: classes,
@@ -6711,6 +6801,7 @@ const MindMapCard = memo(function MindMapCard({
    rendered from the doc, with pan/zoom and per-card forking. Rendered inside
    the left-side overlay window; card clicks switch the right-side chat. */
 function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, deleteDoc, forkAt, openSession, renameSession, archiveSession }) {
+  const overlay = useMindmapOverlay()
   const [phase, setPhase] = useState({ status: 'loading' })
   const [doc, setDoc] = useState(null)
   const [rootId, setRootId] = useState(null)
@@ -6741,7 +6832,6 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   const menuRef = useRef(null)
   const mountedRef = useRef(true)
   const noticeTimerRef = useRef(0)
-  const syncTimerRef = useRef(0)
   const lastFingerprintRef = useRef('')
   const savingRef = useRef(false)
   const [forking, setForking] = useState(false)
@@ -6774,7 +6864,6 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     return () => {
       mountedRef.current = false
       if (noticeTimerRef.current !== 0) { clearTimeout(noticeTimerRef.current); noticeTimerRef.current = 0 }
-      if (syncTimerRef.current !== 0) { clearInterval(syncTimerRef.current); syncTimerRef.current = 0 }
     }
   }, [])
   const showNotice = useCallback((text) => {
@@ -6816,6 +6905,12 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     setLive(null)
     setPhase({ status: 'loading' })
     setForkError(null)
+    /* A full reload switches to a DIFFERENT document family (or a fresh doc):
+       reset the view so the new map is fitted on load instead of inheriting
+       the previous family's transform (fittedRef was only ever set, never
+       reset, so switching maps kept the old pan/zoom). */
+    fittedRef.current = false
+    viewRef.current = { tx: 0, ty: 0, zoom: 1 }
     const id = String(sessionId)
     Promise.resolve(loadDocRef.current(id))
       .then((payload) => {
@@ -6839,11 +6934,49 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     return () => { cancelled = true }
   }, [sessionId])
 
+  /* Empty-state refresh: when the map opened on a session with no completed
+     turn (phase 'empty'), rootId stays null and neither sync effect below can
+     run — poll loadDoc so the FIRST completed turn converts the document and
+     the cards appear without a reopen (the empty-state copy promises exactly
+     this). The probe is cheap: a session without turns answers { exists:
+     false } immediately, and the state is short-lived by nature. */
+  useEffect(() => {
+    if (phase.status !== 'empty') return undefined
+    let cancelled = false
+    const probe = () => {
+      const id = String(sessionId)
+      Promise.resolve(loadDocRef.current(id))
+        .then((payload) => {
+          if (cancelled) return
+          const loaded = payload?.doc
+          if (loaded !== null && loaded !== undefined && (loaded.trunk ?? []).length > 0) {
+            setRootId(loaded.rootSessionId)
+            setDoc(loaded)
+            lastFingerprintRef.current = mindmapDocFingerprint(loaded)
+            setPhase({ status: 'ready' })
+            mindmapRegistry.markDirty()
+            if (payload.created === true) showNotice(translate('mindmap.created'))
+          }
+        })
+        .catch(() => { /* transient: keep polling */ })
+    }
+    const timer = window.setInterval(probe, MINDMAP_SYNC_MS)
+    return () => { cancelled = true; window.clearInterval(timer) }
+  }, [phase.status, sessionId, showNotice])
+
   /* Apply one sync payload: fold the refreshed doc (only when the structure
      actually changed) and remember the live-turn info for the streaming card
      (identity-compared so a static question does not re-render the map). */
   const applySync = useCallback((payload, root) => {
     if (!mountedRef.current || root !== rootId) return
+    /* The doc's root was archived by a path OUTSIDE the map (the harness's own
+       archive, the sidebar root archive): the Host answers { exists: false }.
+       Close the floating window like the toolbar-archive path does instead of
+       leaving a stale map behind. */
+    if (payload?.exists === false) {
+      mindmapOverlayStore.close()
+      return
+    }
     const next = payload?.doc
     if (next === null || next === undefined) return
     const fp = mindmapDocFingerprint(next)
@@ -6926,7 +7059,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   const edgeView = useMemo(() => {
     const byKey = new Map()
     for (const node of layout.nodes) byKey.set(node.key, node)
-    const paths = []
+    const edges = []
     for (const edge of layout.edges) {
       const from = byKey.get(edge.from)
       const to = byKey.get(edge.to)
@@ -6936,7 +7069,9 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       const x2 = mindmapXOf(to.depth)
       const y2 = to.y + to.height / 2
       const mx = (x1 + x2) / 2
-      paths.push(`M ${x1} ${y1} H ${mx} V ${y2} H ${x2}`)
+      /* Keep the edge's from/to identities so the render pass can mark the
+         current card's ancestor-trace edges (from/to are strings). */
+      edges.push({ from: edge.from, to: edge.to, d: `M ${x1} ${y1} H ${mx} V ${y2} H ${x2}` })
     }
     /* The live streaming node (if any) and its parent card: the frame encloses
        exactly these two cards as one unit while a turn is in flight. */
@@ -6965,7 +7100,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
         height: bottom - top + MINDMAP_FRAME_PAD * 2,
       }
     }
-    return { paths, streamingEntry, streamingParentKey, frame }
+    return { edges, streamingEntry, streamingParentKey, frame }
   }, [layout])
 
   /* Viewport interaction: grab-pan on blank area + wheel zoom anchored at the
@@ -7080,10 +7215,17 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   }, [])
 
   /* Key of the current session's last card (root tail or branch tail), for
-     the "current" highlight. */
+     the "current" highlight. While the CURRENT session is generating, its
+     chain tail is the live streaming card (key `streaming:<sid>`): point the
+     badge at it — for an empty branch the placeholder card was replaced by
+     the streaming card, so a doc-derived key would match nothing and the
+     badge would vanish for the whole generation. */
   const currentKey = useMemo(() => {
     if (doc === null || rootId === null) return undefined
     const current = String(sessionId)
+    if (runningFamilyId !== undefined && String(runningFamilyId) === current) {
+      return `streaming:${current}`
+    }
     if (current === String(rootId)) {
       const trunk = doc.trunk ?? []
       const last = trunk[trunk.length - 1]
@@ -7094,7 +7236,32 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     const turns = branch.turns ?? []
     const last = turns[turns.length - 1]
     return last === undefined ? mindmapEmptyKey(branch.sessionId) : mindmapDocKey(branch.sessionId, last.seq)
-  }, [doc, rootId, sessionId])
+  }, [doc, rootId, runningFamilyId, sessionId])
+
+  /* Ancestor trace of the selected (current) card: walk the layout's edges
+     BACKWARD from currentKey (each edge's `to → from`) until the root (no
+     incoming edge). Yields the set of parent-node keys — the selected card
+     itself keeps the solid highlight and is therefore excluded — and the set
+     of edge identities on the path; the render marks those edges dashed
+     primary-blue and those parent nodes with dashed borders. Memoized on
+     [currentKey, layout] so a session switch inside the family re-traces
+     cheaply without touching the pan/zoom path; lookups are O(1) Set reads. */
+  const trace = useMemo(() => {
+    const ancestorSet = new Set()
+    const activeEdgeKeys = new Set()
+    if (currentKey === undefined) return { ancestorSet, activeEdgeKeys }
+    const parentOf = new Map()
+    for (const edge of layout.edges) parentOf.set(edge.to, edge.from)
+    let key = currentKey
+    while (key !== undefined && parentOf.has(key)) {
+      const parentKey = parentOf.get(key)
+      if (parentKey === undefined) break
+      ancestorSet.add(parentKey)
+      activeEdgeKeys.add(`${parentKey}\u0000${key}`)
+      key = parentKey
+    }
+    return { ancestorSet, activeEdgeKeys }
+  }, [currentKey, layout])
 
   /* Open a session inside the map: the wrapped openSession switches the
      right-side conversation to it and moves the "当前" highlight here; the
@@ -7138,6 +7305,12 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
              freshly forked (still empty) session so a failed write cannot
              leave an orphaned branch session behind. */
           try { await archiveSessionRef.current(String(childId)) } catch { /* best effort */ }
+          /* Roll the optimistic branch back (unless a concurrent sync has
+             since moved the doc on) so a failed fork never leaves a card
+             whose session was just archived in the map — the periodic sync
+             would otherwise keep showing a dead branch for up to 2.5 s. */
+          setDoc(prev => (prev === next ? currentDoc : prev))
+          lastFingerprintRef.current = mindmapDocFingerprint(currentDoc)
           throw error
         }
         if (!mountedRef.current) return
@@ -7252,26 +7425,12 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       })
   }, [renameBusy, renameTarget, showNotice])
 
-  const startArchive = useCallback(() => {
-    if (menu === null) return
-    setMenu(null)
-    setArchiveError(null)
-    setArchiveTarget({
-      sessionId: menu.sessionId,
-      title: list.titles[menu.sessionId] ?? '',
-      all: false,
-      isCurrent: String(menu.sessionId) === String(sessionId),
-    })
-  }, [menu, list, sessionId])
   const startArchiveAll = useCallback(() => {
     setArchiveError(null)
     setArchiveTarget({
-      sessionId: undefined,
       title: doc?.rootTitle
         || (rootId !== null ? (list.titles[rootId] ?? '') : '')
         || '',
-      all: true,
-      isCurrent: false,
     })
   }, [doc, list, rootId])
   const closeArchive = useCallback(() => {
@@ -7286,45 +7445,24 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     savingRef.current = true
     const run = async () => {
       const root = rootId
-      const all = archiveTarget.all === true
-      const ids = []
-      if (all) {
-        ids.push(root)
-        for (const branch of doc?.branches ?? []) ids.push(branch.sessionId)
-      } else {
-        const targetId = archiveTarget.sessionId
-        ids.push(targetId)
-        const parentOf = new Map()
-        for (const branch of doc?.branches ?? []) {
-          if (branch?.parentSessionId !== undefined) parentOf.set(String(branch.sessionId), String(branch.parentSessionId))
-        }
-        ids.push(...mindmapDescendantsOf(parentOf, String(targetId)))
-      }
+      const ids = [root]
+      for (const branch of doc?.branches ?? []) ids.push(branch.sessionId)
       const unique = [...new Set(ids)].filter(id => id !== undefined && id !== null && id !== '')
       if (unique.includes(String(sessionId))) openSessionRef.current(root)
       for (const id of unique) await archiveSessionRef.current(String(id))
-      if (all) {
-        if (root !== null && root !== undefined) await deleteDocRef.current(String(root))
-        mindmapRegistry.markDirty()
-        /* The document is gone: close the floating window instead of leaving
-           a stale map (a later sync could otherwise resurrect the doc from
-           the root's log). */
-        mindmapOverlayStore.close()
-      } else {
-        const removed = new Set(unique)
-        const next = { ...doc, branches: (doc?.branches ?? []).filter(b => !removed.has(String(b?.sessionId))), updatedAt: Date.now() }
-        setDoc(next)
-        lastFingerprintRef.current = mindmapDocFingerprint(next)
-        if (root !== null && root !== undefined) await saveDocRef.current(String(root), next)
-        mindmapRegistry.markDirty()
-      }
+      if (root !== null && root !== undefined) await deleteDocRef.current(String(root))
+      mindmapRegistry.markDirty()
+      /* The document is gone: close the floating window instead of leaving
+         a stale map (a later sync could otherwise resurrect the doc from
+         the root's log). */
+      mindmapOverlayStore.close()
     }
     run()
       .then(() => {
         if (!mountedRef.current) return
         setArchiveBusy(false)
         setArchiveTarget(null)
-        showNotice(archiveTarget.all ? translate('mindmap.archivedAll') : translate('mindmap.archived'))
+        showNotice(translate('mindmap.archivedAll'))
       })
       .catch((error) => {
         if (!mountedRef.current) return
@@ -7359,6 +7497,20 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     setDeleteTarget(null)
     setDeleteError(null)
   }, [deleteBusy])
+  /* Escape closes the archive / delete dialogs (the rename dialog and the
+     context menu already handle their own Escape). The overlay's own Escape
+     handler defers while any .dsh-wel-dialog-backdrop is in the DOM, so
+     without this the key would do nothing while one of these dialogs is open. */
+  useEffect(() => {
+    if (archiveTarget === null && deleteTarget === null) return undefined
+    const onKeyDown = event => {
+      if (event.key !== 'Escape') return
+      closeArchive()
+      closeDelete()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [archiveTarget, closeArchive, closeDelete, deleteTarget])
   const confirmDelete = useCallback(() => {
     if (deleteBusy || deleteTarget === null) return
     const root = rootId
@@ -7484,7 +7636,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   const rootTitle = doc?.rootTitle
     || (rootId !== null && rootId !== undefined ? (list.titles[rootId] ?? '') : '')
     || ''
-  const { paths: edgePaths, streamingEntry, streamingParentKey, frame } = edgeView
+  const { edges: edgeEdges, streamingEntry, streamingParentKey, frame } = edgeView
 
   const nodeViews = layout.nodes.map((entry) => {
     const isStreaming = entry.streaming === true
@@ -7498,6 +7650,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       isCurrent: entry.key === currentKey,
       isStreaming,
       isFrameParent: entry.key === streamingParentKey,
+      isAncestor: trace.ancestorSet.has(entry.key),
       onOpen: openCard,
       onMenu: openCardMenu,
     })
@@ -7519,8 +7672,6 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     },
       menu.isBranch ? h(Fragment, null,
         h('button', { className: 'dsh-wel-context-item', onClick: startRename, role: 'menuitem', title: translate('mindmap.menu.rename'), type: 'button' }, translate('mindmap.menu.rename')),
-        h('div', { className: 'dsh-wel-context-separator', role: 'separator' }),
-        h('button', { className: 'dsh-wel-context-item', onClick: startArchive, role: 'menuitem', title: translate('mindmap.menu.archive'), type: 'button' }, translate('mindmap.menu.archive')),
         h('div', { className: 'dsh-wel-context-separator', role: 'separator' })) : null,
       h('button', { className: 'dsh-wel-context-item dsh-wel-context-item-danger', onClick: startDelete, role: 'menuitem', title: translate('mindmap.menu.deleteCard'), type: 'button' }, translate('mindmap.menu.deleteCard'))),
     document.body,
@@ -7540,14 +7691,11 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   },
     h('div', { 'aria-modal': true, className: 'dsh-wel-dialog', role: 'dialog' },
       h('div', { className: 'dsh-wel-dialog-header' },
-        h('div', { className: 'dsh-wel-dialog-title' }, archiveTarget.all ? translate('mindmap.menu.archiveAll') : translate('mindmap.archive.title')),
+        h('div', { className: 'dsh-wel-dialog-title' }, translate('mindmap.menu.archiveAll')),
         h('button', { 'aria-label': translate('dialog.close'), className: 'dsh-wel-icon-button', disabled: archiveBusy, onClick: closeArchive, title: translate('dialog.close'), type: 'button' }, '×')),
       h('div', { className: 'dsh-wel-dialog-body' },
         h('div', { className: 'dsh-wel-dialog-message' },
-          archiveTarget.all
-            ? translate('mindmap.archiveAll.message', { name: archiveTarget.title })
-            : translate('mindmap.archive.message', { name: archiveTarget.title })),
-        archiveTarget.isCurrent ? h('div', { className: 'dsh-wel-dialog-warning', role: 'alert' }, translate('mindmap.archive.current')) : null,
+          translate('mindmap.archiveAll.message', { name: archiveTarget.title })),
         archiveError !== null ? h('div', { className: 'dsh-wel-dialog-error', role: 'alert' }, archiveError) : null),
       h('div', { className: 'dsh-wel-dialog-footer' },
         h('button', { className: 'dsh-wel-text-button', disabled: archiveBusy, onClick: closeArchive, type: 'button' }, translate('dialog.cancel')),
@@ -7573,6 +7721,13 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   return h(Fragment, null,
     h('div', { className: 'dsh-wel-mindmap', 'data-conversation-composer-overlay': '' },
       h('div', { className: 'dsh-wel-mindmap-toolbar' },
+        h('button', {
+          'aria-pressed': overlay.scope === 'sidebar' ? 'true' : 'false',
+          className: 'dsh-wel-mindmap-toolbar-button dsh-wel-mindmap-scope-toggle',
+          onClick: () => { mindmapOverlayStore.toggleScope() },
+          title: translate('mindmap.scope.title'),
+          type: 'button',
+        }, translate(overlay.scope === 'sidebar' ? 'mindmap.scope.sidebar' : 'mindmap.scope.full')),
         h('button', { className: 'dsh-wel-mindmap-toolbar-button', onClick: restoreView, title: translate('mindmap.view.restoreTitle'), type: 'button' }, translate('mindmap.view.restore')),
         h('button', { className: 'dsh-wel-mindmap-toolbar-button', onClick: startArchiveAll, title: translate('mindmap.menu.archiveAll'), type: 'button' }, translate('mindmap.menu.archiveAll'))),
       h('div', { className: 'dsh-wel-mindmap-bar' },
@@ -7583,7 +7738,12 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       h('div', { className: 'dsh-wel-mindmap-viewport', 'data-dragging': dragging ? '' : undefined, onPointerCancel: endPan, onPointerDown: startPan, onPointerMove: movePan, onPointerUp: endPan, ref: viewportRef },
         h('div', { className: 'dsh-wel-mindmap-canvas', ref: canvasRef, style: { height: layout.height, width: layout.width } },
           h('svg', { className: 'dsh-wel-mindmap-edges', width: layout.width, height: layout.height },
-            edgePaths.map((d, index) => h('path', { className: 'dsh-wel-mindmap-edge', d, key: index }))),
+            edgeEdges.map((edge, index) => h('path', {
+              className: 'dsh-wel-mindmap-edge'
+                + (trace.activeEdgeKeys.has(`${edge.from}\u0000${edge.to}`) ? ' dsh-wel-mindmap-edge-active' : ''),
+              d: edge.d,
+              key: index,
+            }))),
           frame !== null
             ? h('div', { className: 'dsh-wel-mindmap-frame', style: { left: frame.left, top: frame.top, width: frame.width, height: frame.height } })
             : null,
@@ -7824,12 +7984,7 @@ function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, openSess
     setRenameBusy(true)
     setRenameError(null)
     const sid = renameTarget.sessionId
-    fetchMindmapDoc(sid)
-      .then((payload) => {
-        const doc = payload?.doc
-        if (doc === null || doc === undefined) throw new Error('导图文档不存在')
-        return writeMindmapDoc(sid, { ...doc, rootTitle: trimmed })
-      })
+    renameMindmapDoc(sid, trimmed)
       .then(() => {
         setRenameBusy(false)
         setRenameTarget(null)
@@ -7919,23 +8074,77 @@ function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, openSess
 /* The session-header 导图 button: opens the floating mind-map overlay for
    the current session (the chat column stays visible on the right) instead
    of switching the conversation panel to a full-page map. Clicking it again
-   (or the overlay's close button / Escape) closes the window. */
+   (or the overlay's close button / Escape) closes the window. On a NORMAL
+   session (not yet a member of any mind map) the first click asks for
+   confirmation before the session is converted into a mind-map session;
+   only on "yes" does the conversion happen — otherwise nothing changes. */
 function MindmapHeaderButton({ sessionId }) {
   const overlay = useMindmapOverlay()
+  const [confirmTarget, setConfirmTarget] = useState(null)
   /* No current session (hero page / transient): nothing to map yet. */
   if (sessionId === undefined || sessionId === null) return null
-  const active = overlay.open && String(overlay.sessionId) === String(sessionId)
+  const key = String(sessionId)
+  const active = overlay.open && String(overlay.sessionId) === key
+  /* The background index may be a few seconds behind a fresh conversion, so
+     the "is this already a mind map" check uses the last known registry
+     membership (roots + documented branches). */
+  const member = mindmapRegistry.isMember(key)
   const label = translate('view.mindmap')
-  return h('button', {
-    'aria-label': label,
-    'aria-pressed': active,
-    className: active ? 'dsh-wel-mindmap-header-button dsh-wel-mindmap-header-button-on' : 'dsh-wel-mindmap-header-button',
-    onClick: () => { mindmapOverlayStore.toggle(String(sessionId)) },
-    title: label,
-    type: 'button',
-  },
-    h('svg', { 'aria-hidden': true, className: 'dsh-wel-mindmap-header-icon', fill: 'none', viewBox: '0 0 24 24' }, MINDMAP_ICON),
-    h('span', { className: 'dsh-wel-mindmap-header-label' }, label))
+  const onButtonClick = () => {
+    /* Already a mind-map member (root or branch): plain open/close toggle. */
+    if (member) { mindmapOverlayStore.toggle(key); return }
+    /* The overlay is open on this normal session (e.g. an empty session with
+       no turns yet, or the registry has not caught up after a conversion):
+       the button still acts as a close toggle. */
+    if (active) { mindmapOverlayStore.close(); return }
+    /* A normal session: ask before converting it into a mind map. */
+    setConfirmTarget(key)
+  }
+  const closeConfirm = () => setConfirmTarget(null)
+  const confirmConvert = () => {
+    setConfirmTarget(null)
+    mindmapOverlayStore.open(key)
+  }
+  /* Escape closes the confirm dialog. The overlay's own Escape handler defers
+     while any .dsh-wel-dialog-backdrop is in the DOM, so without this window
+     listener the key would do nothing while the dialog is open. */
+  useEffect(() => {
+    if (confirmTarget === null) return undefined
+    const onKeyDown = event => { if (event.key === 'Escape') closeConfirm() }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [confirmTarget])
+  /* The confirm dialog must escape the session-header slot: its container
+     (.dsh-wel-chat) clips fixed-position descendants, so the modal would be
+     cut to the chat column instead of covering the viewport. Portal it to
+     body like every other floating overlay (context menus, etc.). */
+  const confirmView = confirmTarget !== null ? createPortal(
+    h('div', {
+      className: 'dsh-wel-dialog-backdrop',
+      onMouseDown: event => { if (event.target === event.currentTarget) closeConfirm() },
+    },
+      h('div', { 'aria-modal': true, className: 'dsh-wel-dialog dsh-wel-mindmap-confirm-dialog', role: 'dialog' },
+        h('div', { className: 'dsh-wel-dialog-header' },
+          h('div', { className: 'dsh-wel-dialog-title' }, translate('mindmap.confirm.title')),
+          h('button', { 'aria-label': translate('dialog.close'), className: 'dsh-wel-icon-button', onClick: closeConfirm, title: translate('dialog.close'), type: 'button' }, '×')),
+        h('div', { className: 'dsh-wel-dialog-body' },
+          h('div', { className: 'dsh-wel-dialog-message' }, translate('mindmap.confirm.message'))),
+        h('div', { className: 'dsh-wel-dialog-footer' },
+          h('button', { className: 'dsh-wel-text-button dsh-wel-mindmap-confirm-button dsh-wel-mindmap-confirm-cancel', onClick: closeConfirm, type: 'button' }, translate('dialog.cancel')),
+          h('button', { className: 'dsh-wel-text-button dsh-wel-mindmap-confirm-button dsh-wel-mindmap-confirm-ok', onClick: confirmConvert, type: 'button' }, translate('mindmap.confirm.action'))))),
+    document.body) : null
+  return h(Fragment, null,
+    h('button', {
+      'aria-label': label,
+      'aria-pressed': active,
+      className: active ? 'dsh-wel-mindmap-header-button dsh-wel-mindmap-header-button-on' : 'dsh-wel-mindmap-header-button',
+      onClick: onButtonClick,
+      title: label,
+      type: 'button',
+    },
+      h('svg', { 'aria-hidden': true, className: 'dsh-wel-mindmap-header-icon', fill: 'none', viewBox: '0 0 24 24' }, MINDMAP_ICON),
+      h('span', { className: 'dsh-wel-mindmap-header-label' }, label)),
+    confirmView)
 }
 /* The sidebar-footer mobile-mode toggle: a compact button that turns the
    whole layout into the centered phone column. Entering mobile opens the
@@ -8019,9 +8228,17 @@ function MobileHeroControls() {
    mobile it takes the whole screen. The chat stays visible on the right, and
    card clicks inside the map switch the right-side conversation to the
    clicked session. */
-function MindmapOverlayHost({ sessionId, useSessions, actions, chatWidth, mobile }) {
+function MindmapOverlayHost({ sessionId, useSessions, actions, chatWidth, mobile, sidebarWidth }) {
+  const overlay = useMindmapOverlay()
   const closeLabel = translate('mindmap.overlay.close')
-  const width = mobile ? '100%' : `calc(100% - ${Math.max(0, chatWidth)}px)`
+  /* Scope 'full' (default) spans everything left of the chat column; scope
+     'sidebar' narrows the window to just the sidebar column (the file browser
+     area is left visible). On mobile the window is always full screen. */
+  const width = mobile
+    ? '100%'
+    : overlay.scope === 'sidebar'
+      ? `${Math.max(0, sidebarWidth)}px`
+      : `calc(100% - ${Math.max(0, chatWidth)}px)`
   useEffect(() => {
     const onKeyDown = event => {
       if (event.key !== 'Escape') return
@@ -8689,7 +8906,7 @@ function AppFrame(props) {
     props.openSession(String(id))
     mindmapOverlayStore.open(String(id))
   }, [props.openSession])
-  return h('div',{ref:viewportRef,className:'dsh-wel-viewport'},h('main',{className:'dsh-wel-frame','data-explorer-closed':!panes.explorerOpen&&!filesActive||undefined,'data-sidebar-collapsed':collapsed||undefined,'data-sidebar-files':filesActive||undefined,'data-resizing':resizing||undefined,style:{'--dsh-wel-preview':`${preview}px`,'--dsh-wel-sidebar':`${sidebar}px`,'--dsh-wel-row-height':`${clamp(settings.rowHeight ?? ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MIN, ROW_HEIGHT_MAX)}px`,'--dsh-wel-chat-font-scale':String(chatFontScale),'--dsh-wel-mobile-header-h':`${mobileHeaderHeight}px`,...fileColorVars}},h('aside',{className:'dsh-wel-sidebar',ref:asideRef},props.renderSlot('sidebar',{collapsed,width:sidebar}),sidebarChrome?.top?createPortal(h(SidebarTopActions,{collapsed,view,width:sidebar,onSelectSessions:()=>{props.actions.setView('sessions')},onSelectFiles:()=>{if(collapsed)props.toggleSidebar();props.actions.setView('files')}}),sidebarChrome.top):null,sidebarChrome&&(sidebarChrome.groups.length>0?sidebarChrome.groups.map(group=>createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:group.title,openSession:openMindmapSession,revealSession:revealSessionById}),group.container)):sidebarChrome.fallback?createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:undefined,openSession:openMindmapSession,revealSession:revealSessionById}),sidebarChrome.fallback):null)),workspace?h(WorkspaceExplorer,{key:`${workspace.workspaceId}:${sessionId ?? 'workspace'}`,clearDraft:clearWorkspaceDraft,createEntry:props.createEntry,listDirectory:props.listDirectory,persistDraft:persistWorkspaceDraft,persistPreviewSession,publishEditorContext,readFile:props.readFile,renameEntry:props.renameEntry,saveFile:props.saveFile,loadDraft:props.loadDraft,persistDraftFile:props.persistDraftFile,removeDraftFile:props.removeDraftFile,draftTree:props.draftTree,settingsStore:props.settingsStore,storedDraft:panels.drafts[String(workspace.workspaceId)],storedPreviewSession,sessionTitle,sessionId,renameSession:props.renameSession,treePortalTarget,workspace}):h(EmptyWorkspaceExplorer,{sessionTitle,treePortalTarget}),h('section',{className:'dsh-wel-chat',ref:chatSectionRef},props.renderSlot('conversation',{}),chatDropActive?h('div',{className:'dsh-wel-chat-drop-mask',role:'presentation'},h('button',{'aria-label':translate('drop.closeAria'),className:'dsh-wel-chat-drop-close',onClick:()=>{chatDropSuppressed.current=true;setChatDropActive(false)},title:translate('drop.closeTitle'),type:'button'},'×'),h('div',{className:'dsh-wel-chat-drop-card'},translate('drop.releaseImages'))):null),!collapsed?h(ResizeHandle,{label:translate('resize.sidebar'),left:sidebar,max:sidebarMax,min:SIDEBAR_MIN,onDragging:setResizing,onResize:width=>props.actions.setSidebar(width,sidebarMax),value:sidebar}):null,(panes.explorerOpen||filesActive)?h(ResizeHandle,{label:translate('resize.preview'),left:previewBoundary,max:previewMax,min:PREVIEW_MIN,onDragging:setResizing,onResize:width=>props.explorerPaneStore.actions.setPreview(width,previewMax),value:preview}):null,h('aside',{className:'dsh-wel-details','data-closed':!panels.detailsOpen||!detailsCapable||undefined},props.renderSlot('details',{})),mobile.on&&mobile.drawerOpen?h('div',{className:'dsh-wel-mobile-scrim',onClick:()=>setDrawerOpen(false)}):null,h('div',{className:'dsh-wel-overlay','data-shell-overlay':true},props.renderSlot('shell.overlay',{})),sessionContextMenu?h('div',{className:'dsh-wel-context-menu',ref:sessionMenuRef,role:'menu',style:{left:Math.max(4,Math.min(sessionContextMenu.x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top:Math.max(4,Math.min(sessionContextMenu.y,window.innerHeight-52))}},h('button',{className:'dsh-wel-context-item',onClick:beginSessionInlineRename,role:'menuitem',type:'button'},translate('context.renameSession')),h('button',{className:'dsh-wel-context-item',onClick:archiveSessionFromMenu,role:'menuitem',type:'button'},translate('context.archiveSession')),h('div',{className:'dsh-wel-context-separator',role:'separator'}),h('button',{className:'dsh-wel-context-item',onClick:revealSessionFromMenu,role:'menuitem',type:'button'},translate('context.reveal'))):null,sessionInlineRename?h(SessionInlineRename,{busy:sessionInlineRenameBusy,error:sessionInlineRenameError,onCancel:cancelSessionInlineRename,onConfirm:confirmSessionInlineRename,row:sessionInlineRename.row,title:sessionInlineRename.title}):null,sessionNotice?h('div',{className:'dsh-wel-copy-notice','data-error':sessionNotice.error||undefined,role:'status'},sessionNotice.text):null),overlay.open?h(MindmapOverlayHost,{actions:props.mindmapActions,chatWidth,mobile:mobile.on,sessionId:overlay.sessionId,useSessions:props.useSessions}):null)}
+  return h('div',{ref:viewportRef,className:'dsh-wel-viewport'},h('main',{className:'dsh-wel-frame','data-explorer-closed':!panes.explorerOpen&&!filesActive||undefined,'data-sidebar-collapsed':collapsed||undefined,'data-sidebar-files':filesActive||undefined,'data-resizing':resizing||undefined,style:{'--dsh-wel-preview':`${preview}px`,'--dsh-wel-sidebar':`${sidebar}px`,'--dsh-wel-row-height':`${clamp(settings.rowHeight ?? ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MIN, ROW_HEIGHT_MAX)}px`,'--dsh-wel-chat-font-scale':String(chatFontScale),'--dsh-wel-mobile-header-h':`${mobileHeaderHeight}px`,...fileColorVars}},h('aside',{className:'dsh-wel-sidebar',ref:asideRef},props.renderSlot('sidebar',{collapsed,width:sidebar}),sidebarChrome?.top?createPortal(h(SidebarTopActions,{collapsed,view,width:sidebar,onSelectSessions:()=>{props.actions.setView('sessions')},onSelectFiles:()=>{if(collapsed)props.toggleSidebar();props.actions.setView('files')}}),sidebarChrome.top):null,sidebarChrome&&(sidebarChrome.groups.length>0?sidebarChrome.groups.map(group=>createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:group.title,openSession:openMindmapSession,revealSession:revealSessionById}),group.container)):sidebarChrome.fallback?createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:undefined,openSession:openMindmapSession,revealSession:revealSessionById}),sidebarChrome.fallback):null)),workspace?h(WorkspaceExplorer,{key:`${workspace.workspaceId}:${sessionId ?? 'workspace'}`,clearDraft:clearWorkspaceDraft,createEntry:props.createEntry,listDirectory:props.listDirectory,persistDraft:persistWorkspaceDraft,persistPreviewSession,publishEditorContext,readFile:props.readFile,renameEntry:props.renameEntry,saveFile:props.saveFile,loadDraft:props.loadDraft,persistDraftFile:props.persistDraftFile,removeDraftFile:props.removeDraftFile,draftTree:props.draftTree,settingsStore:props.settingsStore,storedDraft:panels.drafts[String(workspace.workspaceId)],storedPreviewSession,sessionTitle,sessionId,renameSession:props.renameSession,treePortalTarget,workspace}):h(EmptyWorkspaceExplorer,{sessionTitle,treePortalTarget}),h('section',{className:'dsh-wel-chat',ref:chatSectionRef},props.renderSlot('conversation',{}),chatDropActive?h('div',{className:'dsh-wel-chat-drop-mask',role:'presentation'},h('button',{'aria-label':translate('drop.closeAria'),className:'dsh-wel-chat-drop-close',onClick:()=>{chatDropSuppressed.current=true;setChatDropActive(false)},title:translate('drop.closeTitle'),type:'button'},'×'),h('div',{className:'dsh-wel-chat-drop-card'},translate('drop.releaseImages'))):null),!collapsed?h(ResizeHandle,{label:translate('resize.sidebar'),left:sidebar,max:sidebarMax,min:SIDEBAR_MIN,onDragging:setResizing,onResize:width=>props.actions.setSidebar(width,sidebarMax),value:sidebar}):null,(panes.explorerOpen||filesActive)?h(ResizeHandle,{label:translate('resize.preview'),left:previewBoundary,max:previewMax,min:PREVIEW_MIN,onDragging:setResizing,onResize:width=>props.explorerPaneStore.actions.setPreview(width,previewMax),value:preview}):null,h('aside',{className:'dsh-wel-details','data-closed':!panels.detailsOpen||!detailsCapable||undefined},props.renderSlot('details',{})),mobile.on&&mobile.drawerOpen?h('div',{className:'dsh-wel-mobile-scrim',onClick:()=>setDrawerOpen(false)}):null,h('div',{className:'dsh-wel-overlay','data-shell-overlay':true},props.renderSlot('shell.overlay',{})),sessionContextMenu?h('div',{className:'dsh-wel-context-menu',ref:sessionMenuRef,role:'menu',style:{left:Math.max(4,Math.min(sessionContextMenu.x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top:Math.max(4,Math.min(sessionContextMenu.y,window.innerHeight-52))}},h('button',{className:'dsh-wel-context-item',onClick:beginSessionInlineRename,role:'menuitem',type:'button'},translate('context.renameSession')),h('button',{className:'dsh-wel-context-item',onClick:archiveSessionFromMenu,role:'menuitem',type:'button'},translate('context.archiveSession')),h('div',{className:'dsh-wel-context-separator',role:'separator'}),h('button',{className:'dsh-wel-context-item',onClick:revealSessionFromMenu,role:'menuitem',type:'button'},translate('context.reveal'))):null,sessionInlineRename?h(SessionInlineRename,{busy:sessionInlineRenameBusy,error:sessionInlineRenameError,onCancel:cancelSessionInlineRename,onConfirm:confirmSessionInlineRename,row:sessionInlineRename.row,title:sessionInlineRename.title}):null,sessionNotice?h('div',{className:'dsh-wel-copy-notice','data-error':sessionNotice.error||undefined,role:'status'},sessionNotice.text):null),overlay.open?h(MindmapOverlayHost,{actions:props.mindmapActions,chatWidth,mobile:mobile.on,sessionId:overlay.sessionId,sidebarWidth:sidebar,useSessions:props.useSessions}):null)}
 
 export const inject = ['slots', 'theme', 'sessions', 'workspaces']
 export function apply(ctx) {
