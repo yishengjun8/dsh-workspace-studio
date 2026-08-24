@@ -1,35 +1,35 @@
-# 🗂️ DeepSeek Harness Workspace Studio Plugin (Four-Pane Layout)
+# 🗂️ DeepSeek Harness Workspace Studio Plugin (Left–Center–Right Three-Pane Layout)
 
 English | [中文](README.md)
 
-This bundle replaces the DeepSeek Harness Web root layout with four panes: **session/workspace selector · current workspace file tree · highlighted file view and guarded editor · chat**. It preserves the existing sidebar, conversation, details, and global-overlay Slot contracts, so the built-in plugins keep owning new-session creation, workspace session lists, settings, chat, tool details, and approvals. Tool details open as a right-side drawer over the four-pane layout instead of consuming a permanent pane.
+This bundle replaces the DeepSeek Harness Web root layout with **three panes from left to right: a left sidebar (session/workspace selector + file-tree view switch) · a highlighted file view and guarded editor · chat**. The file tree no longer owns a pane of its own: it is fused into the left sidebar and toggled against the session list with the buttons at the top of the sidebar. It preserves the existing sidebar, conversation, details, and global-overlay Slot contracts, so the built-in plugins keep owning new-session creation, workspace session lists, settings, chat, tool details, and approvals. Tool details open as a right-side drawer over the three-pane layout instead of consuming a permanent pane. The session header offers a **Mind map** button that enters **mind-map mode** whenever you like: the left area becomes a conversation branch-tree canvas while the chat stays visible and usable on the right.
 
 ## 📸 Screenshots
 
-| ![Four-pane layout overview](image/image-1.png) | ![File view and editor](image/image-2.png) |
+| ![Three-pane layout overview](image/image-1.png) | ![File view and editor](image/image-2.png) |
 |---|---|
 
 ## ✨ Key Highlights
 
 | Capability | Description |
 |---|---|
-| 📁 **Workspace file tree** | Appears automatically when the session belongs to a Workspace; directories first, incremental expansion, and **expanded state and scroll position restore per session** after a reload |
+| 📁 **Workspace file tree** | Fused into the left sidebar's **File Explorer** view; directories first, incremental expansion, and **expanded state and scroll position restore per session** after a reload |
 | ⌨️ **CodeMirror 6 editor** | 20+ language syntax highlighting, line numbers, code folding, in-editor search, word wrap, and 14 text encodings |
 | 🗂️ **Preview tabs** | Persisted per session, survive reloads, drag reorder, pinned tabs, drafts never lost, conflict protection |
 | 🎯 **Editor context** | Open files / selections inject as `<opened_file>` / `<selection>` prefixes; history keeps a one-line summary |
 | 🧹 **File operations** | Right-click create / rename / copy / cut / paste / delete / copy path, with shortcuts |
+| 🧭 **Mind-map mode** | Conversation branch tree: the session header's **Mind map** button enters mind-map mode, reverse-parses the full session log into turn cards and persists them, forks a new branch at any card, rename / delete cards, archive the whole map |
 | 📱 **Mobile mode** | One-click switch to a centered phone column; file browsing can fill the phone column |
-| 🧭 **Mind map** | Conversation branch tree: reverse-parses the full session log into turn cards and persists them, forks a new branch at any card, rename / delete cards, archive the whole map |
 | 🔒 **Security boundary** | Workspace-confined read/write, path containment, revision conflict protection, symlink rejection |
 
 ## 🧩 Features
 
 ### File Tree
 
-- Automatically shows the Workspace file tree when the current Session belongs to a Workspace (also recognized when the Session `cwd` equals its path); directories sort before files, with incremental expansion, collapse, and manual refresh.
+- The file tree no longer owns a pane: it is fused into the **left sidebar**, whose top row switches between **Sessions / File Explorer** views. In the File Explorer view the Workspace file tree appears automatically when the current Session belongs to a Workspace (also recognized when the Session `cwd` equals its path); directories sort before files, with incremental expansion, collapse, and manual refresh.
 - Expanded folders persist per current session and re-expand after a reload; selecting a tab reveals it in the tree and restores the vertical scroll position.
-- The sidebar top row switches between **Sessions / File Explorer** views; right-clicking the session title renames the current session.
-- Drag-resize the session, tree, and editor panes (up to 80% of the layout while open); layout parameters persist globally in `localStorage`.
+- Right-clicking the session title renames the current session.
+- Both left panes are drag-resizable: a splitter on the sidebar boundary and another on the preview boundary (the two left panes together use at most 80% of the viewport); layout parameters persist globally in `localStorage`.
 
 ### Editor
 
@@ -89,10 +89,10 @@ This bundle replaces the DeepSeek Harness Web root layout with four panes: **ses
 - The `/init` command (Claude Code style) generates or updates `AGENTS.md` at the current session's workspace root; when the file already exists a dialog offers **Update** or **Cancel**, and the current agent analyzes the workspace and generates it.
 - Drop external files into the preview pane to preview them as read-only tabs (session-only; nothing is written to the workspace). Only text files are accepted: images, folders, and other non-text content show a “cannot preview as text” notice (images belong to the chat composer — intentional).
 
-### Mind Map (Conversation Branching)
+### Mind Map Mode (Conversation Branching)
 
-- The **Mind Map** button in the session header opens a **floating window on the left side of the page** (width = 100% − the chat column's current width, reflowing live as the splitter drags), while the **chat stays visible and usable on the right**; click the button again, the × in the corner, or press Esc to close. On first open, the plugin reverse-parses the session's **full event log into all its turns**, renders them as cards (trunk 1 → 2 → 3 → 4 → 5), and persists them to `~/.dsh-plugin/dsh-workspace-studio/mindmap/` — that persisted document is the mind map's **single source of truth**.
-- After conversion the ordinary session is hidden from the sidebar session list and replaced by a self-drawn entry at the **end of the session list under its workspace group**; clicking it opens the session and pops the mind-map window. Every fork session derived from the map is hidden from the list too and managed from the map only.
+- The **Mind Map** button in the session header enters **mind-map mode**: a floating window appears on the left side of the page covering everything left of the chat column (width = 100% − the chat column's current width, reflowing live as the splitter drags), while the **chat stays visible and usable on the right**; click the button again, the × in the corner, or press Esc to close. The toolbar toggles the **fill scope**: **Full** covers the sidebar + file browser, **Sidebar only** narrows the window to just the sidebar column (the file-browser area stays visible). On first entry, the plugin reverse-parses the session's **full event log into all its turns**, renders them as cards (trunk 1 → 2 → 3 → 4 → 5), and persists them to `~/.dsh-plugin/dsh-workspace-studio/mindmap/` — that persisted document is the mind map's **single source of truth**.
+- Entry asks for confirmation first: once the ordinary session is **converted** into a mind-map session, it is hidden from the sidebar session list and replaced by a self-drawn entry at the **end of the session list under its workspace group**; clicking it opens the session and pops the mind-map window. Every fork session derived from the map is hidden from the list too and managed from the map only.
 - Clicking a card is **switch-first, fork-as-fallback**: a card where a branch is parked (a chain-tail card) **switches to that branch** (the right-side chat follows, the highlight moves — free branch switching); a middle card with no parked branch (e.g. card 6 inside branch 6-7) **forks a new branch there** and enters chat, its new turns sitting beside its sibling (6 → 8, 9 beside 7). Every fork belongs to the **same main mind map** — a fork never creates a new map — and the new branch session stays hidden from the sidebar session list. The branch's new turns are folded back into the document by the Host sync from the branch session's full log.
 - Right-click a branch to **rename** it; the toolbar can **archive the entire mind map** (with all its branch sessions; the window closes after archiving the whole map). Right-click any card (trunk cards included) to **delete the card** (a true truncation): a new session is forked from the previous card and replaces the original — this card, the turns after it, and every branch derived from them are removed, and the original session is archived (currently no restore path), so the chat and the map both continue from the truncation point with matching numbering. The map supports **grab-pan, wheel zoom**, and **Restore view**.
 - While a branch is **generating** (a question was submitted and the agent is streaming), the map shows a live "**Generating…**" card (pulsing border, carrying the in-flight question) framed together with its **parent card** inside one dashed **frame** as a unit; when the turn completes the card converts into a normal card and the frame disappears. The streaming card is not clickable (an unfinished turn cannot be a fork point).
@@ -202,7 +202,7 @@ The plugin row in `cordis.patch.yml` accepts:
 ├── src/client/index.js                  # Browser source
 ├── lib/index.js                         # Host: bounded Workspace read, save, create, and rename API
 ├── lib/invariant.js                     # Shared Host invariants
-└── lib/client.js                        # Prebuilt four-pane layout, file tree, and editor
+└── lib/client.js                        # Prebuilt three-pane layout, file tree, and editor
 ```
 
 CodeMirror and its language modules are bundled into the prebuilt plain-JavaScript Client artifact, so installation runs no builds or tests. To maintain the source, run `pnpm install --config.auto-install-peers=false` in the repo root and then `npm run bundle` to regenerate `lib/client.js`.
