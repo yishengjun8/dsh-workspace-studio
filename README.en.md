@@ -36,7 +36,7 @@ This bundle replaces the DeepSeek Harness Web root layout with four panes: **ses
 - CodeMirror 6 shows line numbers and syntax highlighting based on filenames or extensions; unknown types use plain text. A fold gutter and in-editor search (`Ctrl/Cmd+F`, `F3`) are built in.
 - `Ctrl+K+J` unfolds every collapsed fold region; `Ctrl+K+1..9` folds code by nesting level (e.g. `Ctrl+K+2` folds every second-level fold region).
 - Editable files **open directly in edit mode** (no **Edit** button); the panel header offers **Cancel**, **Save**, **Word wrap**, and **Reload from disk** (refresh). Read-only files (dropped external files, oversized, truncated, mixed line endings, symlink paths, or editing disabled) show a read-only reason banner.
-- Each file-type group can pick an editor highlight preset (Default, Classic, Warm, Cool, Monochrome, XML (VS Code), and 10+ more) from the Explorer settings page, remembered per type in `localStorage`.
+- Each file-type group can pick an editor highlight preset (Default, Classic, Warm, Cool, Monochrome, XML (VS Code), and 10+ more) from the Workspace settings page, remembered per type in `localStorage`.
 
 ### Encodings
 
@@ -75,7 +75,7 @@ This bundle replaces the DeepSeek Harness Web root layout with four panes: **ses
 
 - Search results group by file: clicking a file header collapses / expands that file's matches, and clicking a match opens the file and jumps to the line.
 - Case-sensitive toggling is supported; files too large to be fully searched are marked **Partial**.
-- The Explorer settings page chooses whether search results default to expanded or collapsed.
+- The Workspace settings page chooses whether search results default to expanded or collapsed.
 
 ### Editor Context
 
@@ -85,7 +85,7 @@ This bundle replaces the DeepSeek Harness Web root layout with four panes: **ses
 ### Chat Experience
 
 - The UI language follows the Harness setting (Settings → General → Language; Chinese / English) and switches live, with no restart or reload.
-- The assistant's Think disclosure opens automatically while its reasoning streams and collapses after a configurable delay (0–10 s in 0.1 s steps, default 3 s; manual interaction during the window cancels the collapse), deferring to manual user interaction; the Explorer settings page can disable this and adjust the delay.
+- The assistant's Think disclosure opens automatically while its reasoning streams and collapses after a configurable delay (0–10 s in 0.1 s steps, default 3 s; manual interaction during the window cancels the collapse), deferring to manual user interaction; the Workspace settings page can disable this and adjust the delay.
 - The `/init` command (Claude Code style) generates or updates `AGENTS.md` at the current session's workspace root; when the file already exists a dialog offers **Update** or **Cancel**, and the current agent analyzes the workspace and generates it.
 - Drop external files into the preview pane to preview them as read-only tabs (session-only; nothing is written to the workspace). Only text files are accepted: images, folders, and other non-text content show a “cannot preview as text” notice (images belong to the chat composer — intentional).
 
@@ -100,7 +100,7 @@ This bundle replaces the DeepSeek Harness Web root layout with four panes: **ses
 ### Appearance & Settings
 
 - Uses Harness semantic theme variables and supports light, dark, and system themes.
-- Explorer settings page: tree row height, search result display, file icon badge colors, per-type highlight presets, save-conflict dialog font size, chat font size, and Think auto-expand / collapse delay.
+- Workspace settings page: tree row height, search result display, file icon badge colors, per-type highlight presets, save-conflict dialog font size, chat font size, and Think auto-expand / collapse delay.
 - A **Mobile mode** toggle in the sidebar footer (same approach as dsh-mobile-preview) collapses the layout into a centered phone column; the sidebar becomes a floating drawer opened by the whale at the top-left (session list and file tree stay inside it), and a **Browse files** button appears right of the whale in the conversation header to fill the phone column with file browsing while the header stays reachable. Mobile mode is transient, so a reload returns to the desktop layout.
 
 ## 🎨 Syntax Highlighting
@@ -114,7 +114,7 @@ Built in for **20+ languages**: JavaScript/JSX, TypeScript/TSX, JSON, HTML, CSS/
 One package ships three faces:
 
 - **Host entry** (`lib/index.js`) registers `/workspace-studio/api`: it lists directories by Workspace ID, reads bounded UTF-8 files, authorizes the current Session by membership or canonical cwd, and, when editing is explicitly enabled, saves existing regular files, creates files and folders, and renames entries through revision validation, single-segment name checks, and atomic replacement — refusing stale revisions instead of overwriting them. It also serves `/mindmap-doc` (read / write / delete) plus `/mindmap-doc/sync`, `/mindmap-doc/index`, and `/mindmap-doc/rename`, persisting per-session mind-map documents built by reverse-parsing full event logs, with renames updating only the map title instead of round-tripping the whole document.
-- **Browser entry** (`lib/client.js`) provides the compatible `ctx.layout` service, occupies the root Slot, keeps declaring `sidebar`, `conversation`, `details`, and `shell.overlay`, and adds the file tree, the CodeMirror 6 browser/editor, the editor-context row, the Explorer settings tab, the `/init` command, and the conversation mind-map view.
+- **Browser entry** (`lib/client.js`) provides the compatible `ctx.layout` service, occupies the root Slot, keeps declaring `sidebar`, `conversation`, `details`, and `shell.overlay`, and adds the file tree, the CodeMirror 6 browser/editor, the editor-context row, the Workspace settings tab, the `/init` command, and the conversation mind-map view.
 - **Shared invariants** (`lib/invariant.js`) back every Host request with path-containment and write-eligibility checks.
 
 ### Activation Model
