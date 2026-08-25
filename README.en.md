@@ -156,6 +156,19 @@ bash ./install.sh web      # a profile can be supplied explicitly
 
 The script first uses `dsh` from PATH; when the current directory belongs to a Harness checkout and PATH has no `dsh`, it uses `pnpm --dir <harness-root> dsh`, and `DSH_BIN` may name an executable. After installation, **stop and restart the existing Web process** (stop it first, then start it again so the bundle reloads into the Web process), then refresh `http://127.0.0.1:3080`; the script does not start a second server.
 
+### Install directly from Git
+
+Install straight from the plugin repository without a local checkout (the first install builds `lib/client.js` from `src/client/index.js` with tsdown at install time):
+
+```sh
+bash ./install.sh --git          # default target is the web profile
+bash ./install.sh --git web      # a profile can be supplied explicitly
+```
+
+The script resolves the git spec to this plugin's GitHub repository (override with the `GIT_SPEC` environment variable) and pins it to the current HEAD commit (`github:<owner>/<repo>#<commit>`), so a later push cannot silently change the installed code. pnpm ≥ 10 refuses to run a git dependency's `prepare` build by default, so the first `add` fails; the script parses pnpm's printed allowBuilds key, writes it into the profile's `pnpm-workspace.yaml`, and retries — no manual step.
+
+> ⚠️ Allowing the build means permitting the package's `prepare` script to run on your machine at install time (outside the agent sandbox). That is expected when installing from this plugin's official repository. The manual equivalent is `dsh plugin --profile web add github:yishengjun8/dsh-workspace-studio`: on failure, copy the allowBuilds key pnpm prints into the profile's `pnpm-workspace.yaml`, then re-run `add`.
+
 ## 🗑️ Uninstallation
 
 ```sh
@@ -205,7 +218,7 @@ The plugin row in `cordis.patch.yml` accepts:
 └── lib/client.js                        # Prebuilt three-pane layout, file tree, and editor
 ```
 
-CodeMirror and its language modules are bundled into the prebuilt plain-JavaScript Client artifact, so installation runs no builds or tests. To maintain the source, run `pnpm install --config.auto-install-peers=false` in the repo root and then `npm run bundle` to regenerate `lib/client.js`.
+CodeMirror and its language modules are bundled into the prebuilt plain-JavaScript Client artifact; a local `file:` install runs no builds, while a git install rebuilds it with tsdown through the `prepare` script. To maintain the source, run `pnpm install --config.auto-install-peers=false` in the repo root and then `npm run bundle` to regenerate `lib/client.js`.
 
 ## 🔄 Compatibility
 

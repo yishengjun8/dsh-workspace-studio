@@ -159,6 +159,25 @@ bash ./install.sh web      # 也可显式指定 profile
 Web 进程**（先停止再启动，让插件随 Web 进程重新加载生效），然后刷新 `http://127.0.0.1:3080`；
 脚本不会启动第二个服务器。
 
+### 从 Git 直接安装
+
+不依赖本地副本，直接从插件仓库安装（首次安装会用 tsdown 把 `src/client/index.js` 现场构建成 `lib/client.js`）：
+
+```sh
+bash ./install.sh --git          # 默认安装到 web profile
+bash ./install.sh --git web      # 也可显式指定 profile
+```
+
+脚本把 git 依赖 spec 解析为当前插件的 GitHub 仓库（可用 `GIT_SPEC` 环境变量覆盖），并锁定到
+当前 HEAD 提交（`github:<owner>/<repo>#<commit>`），因此后续推送不会悄悄改变已安装的代码。
+pnpm ≥ 10 默认拒绝执行 git 依赖的 `prepare` 构建脚本，首次 `add` 会失败；脚本会解析 pnpm 打印的
+allowBuilds 键、写入该 profile 的 `pnpm-workspace.yaml`，然后重试，无需手动干预。
+
+> ⚠️ 允许构建意味着允许该包的 `prepare` 脚本在安装时于你的机器上执行（不在 agent 沙箱内）。
+> 从本插件的官方仓库安装时这是预期行为。手动安装的等价命令是
+> `dsh plugin --profile web add github:yishengjun8/dsh-workspace-studio`：失败后按 pnpm 提示把
+> allowBuilds 键复制进该 profile 的 `pnpm-workspace.yaml`，再重跑 `add`。
+
 ## 🗑️ 卸载
 
 ```sh
@@ -208,7 +227,9 @@ bash ./uninstall.sh
 └── lib/client.js                        # 预构建三栏布局、文件树与编辑器
 ```
 
-CodeMirror 与语言模块已内联到预构建的普通 JavaScript Client bundle，安装时无需在项目内运行构建或测试。维护源码时，在仓库根目录执行 `pnpm install --config.auto-install-peers=false`，再运行 `npm run bundle` 重新生成 `lib/client.js`。
+CodeMirror 与语言模块已内联到预构建的普通 JavaScript Client bundle；本地 `file:` 安装无需构建，
+从 git 安装时 `prepare` 会用 tsdown 现场重新构建。维护源码时，在仓库根目录执行
+`pnpm install --config.auto-install-peers=false`，再运行 `npm run bundle` 重新生成 `lib/client.js`。
 
 ## 🔄 兼容性说明
 

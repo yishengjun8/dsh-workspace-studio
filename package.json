@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-workspace-studio",
   "description": "DeepSeek Harness single-package plugin: workspace-confined editable file API, CodeMirror 6 editor, and a four-pane workspace-studio Web layout",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "type": "module",
   "main": "./lib/index.js",
   "exports": {
@@ -27,7 +27,8 @@
   },
   "scripts": {
     "bundle": "tsdown",
-    "watch": "tsdown --watch"
+    "watch": "tsdown --watch",
+    "prepare": "tsdown"
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.0",
