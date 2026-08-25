@@ -1,6 +1,7 @@
 import React from 'react'
 import { createPortal } from 'react-dom'
 import { createSnapshotStore, defineStore } from '@deepseek-ai/dsh-client-runtime/client'
+import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import { EditorState, Compartment } from '@codemirror/state'
 import { EditorView, drawSelection, dropCursor, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers, panels } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
@@ -54,6 +55,27 @@ const THINK_COLLAPSE_DELAY_DEFAULT_S = 3
 const THINK_COLLAPSE_DELAY_MIN_S = 0
 const THINK_COLLAPSE_DELAY_MAX_S = 10
 const THINK_COLLAPSE_DELAY_STEP_S = 0.1
+/* Sidebar mind-map entry icon spin: speed multiplier over the base duration
+   (default 1.5x times the 0.8 s base = 1.2 s per revolution; larger = faster,
+   0 = no rotation), user-tunable in explorer settings under Session Browsing. */
+const MINDMAP_SPIN_BASE_DURATION_S = 0.8
+const MINDMAP_SPIN_SPEED_DEFAULT_X = 1.5
+const MINDMAP_SPIN_SPEED_MIN_X = 0
+const MINDMAP_SPIN_SPEED_MAX_X = 3
+/* Speed 0 would divide by zero: freeze the spin with a huge duration instead. */
+const MINDMAP_SPIN_STOP_DURATION_S = 1e6
+/* Fractional clamp for the spin speed multiplier. Unlike the shared clamp()
+   (which Math.round()s to integers for the integer settings), this preserves
+   the 0.1-granular decimals — the integer-snapping slider bug came from the
+   round-trip: drag to 1.1 -> store 1.1 -> re-render clamp() -> value snaps
+   back to 1 on the controlled input. */
+const clampSpinSpeed = (value) => {
+  const speed = Number(value ?? MINDMAP_SPIN_SPEED_DEFAULT_X)
+  const bounded = Number.isFinite(speed)
+    ? Math.min(MINDMAP_SPIN_SPEED_MAX_X, Math.max(MINDMAP_SPIN_SPEED_MIN_X, speed))
+    : MINDMAP_SPIN_SPEED_DEFAULT_X
+  return Math.round(bounded * 10) / 10
+}
 const EXPLORER_SETTINGS_STORE_KEY = 'dsh.workspace.studio.settings.v1'
 const EXPLORER_LAYOUT_STORE_KEY = 'dsh.workspace.studio.layout.v1'
 /* Debounce (ms) before a dirty tab's draft is auto-saved; restores edits after refresh but never clears the dirty marker. */
@@ -159,7 +181,6 @@ const zh = {
   'panel.previewHint': '在文件树中选择文件以预览内容',
   'tree.loading': '正在读取…',
   'tree.empty': '空目录',
-  'tree.truncated': '此目录条目过多，仅显示前一部分。',
   'tree.symlink': '（符号链接）',
   'tree.refresh': '刷新文件树',
   'search.toolbar': '搜索',
@@ -251,6 +272,9 @@ const zh = {
   'search.noResultsFor': '没有找到与“{query}”匹配的内容',
   'search.summary': '{matches} 个匹配项 · {files} 个文件',
   'search.summaryTruncated': '（结果过多，仅显示部分）',
+  'search.nameOnly': '仅搜索文件名称',
+  'search.nameOnly.title': '匹配文件或文件夹的名称，不搜索文件内容',
+  'search.summaryNameOnly': '找到 {files} 个匹配项',
   'search.partial': '部分',
   'search.partial.title': '文件较大，仅搜索了开头部分',
   'search.row.title': '{path} · 第 {line} 行',
@@ -266,6 +290,9 @@ const zh = {
   'editor.wrap.on.title': '开启自动换行',
   'editor.refresh': '刷新',
   'editor.refresh.title': '从磁盘重新读取当前文件',
+  'mdPreview.preview': '预览',
+  'mdPreview.preview.title': '以渲染后的 Markdown 预览当前文件',
+  'mdPreview.edit.title': '返回 Markdown 源码编辑',
   'editor.refreshBlocked': '存在未保存的更改，请先保存或取消后再刷新。',
   'editor.refreshed': '已从磁盘重新读取。',
   'editor.searchResize': '拖拽调整搜索框宽度',
@@ -345,6 +372,9 @@ const zh = {
   'settings.group.browse': '文件浏览设置',
   'settings.group.content': '内容浏览设置',
   'settings.group.dialog': '对话页面设置',
+  'settings.group.session': '会话浏览设置',
+  'settings.mindmapSpinSpeed': '导图图标旋转速度',
+  'settings.mindmapSpinSpeed.reset.title': '恢复默认旋转速度',
   'settings.rowHeight': '每行高度',
   'settings.rowHeight.reset.title': '恢复默认行高',
   'settings.searchResult': '搜索结果显示',
@@ -365,8 +395,9 @@ const zh = {
   'settings.conflictFontSize.reset.title': '恢复默认字号',
   'settings.autoExpandThink': '思考过程自动展开',
   'settings.thinkDelay': '思考收起延迟',
+  'settings.thinkDelay.reset.title': '恢复默认收起延迟',
   'settings.resetDefault': '恢复默认',
-  'settings.hint': '文件浏览设置：调整左侧文件树的行高、搜索结果显示方式与图标徽标配色；内容浏览设置：为每种文件类型选择编辑器代码高亮预设，并调整保存冲突弹窗中对比文本的字号；对话页面设置：调整对话文字大小，开启思考过程自动展开后，聊天中正在输出的思考内容会自动展开、结束后按设定延迟自动收起（0–10 秒，分度 0.1 秒），期间手动操作可取消；未修改的项使用默认值。',
+  'settings.hint': '会话浏览设置：调整侧栏导图条目流式输出时旋转图标的速度（倍速 0.0×–3.0×，数值越大越快，默认 1.5× 即 1.2 秒一圈，0 表示不旋转）；文件浏览设置：调整左侧文件树的行高、搜索结果显示方式与图标徽标配色；内容浏览设置：为每种文件类型选择编辑器代码高亮预设，并调整保存冲突弹窗中对比文本的字号；对话页面设置：调整对话文字大小，开启思考过程自动展开后，聊天中正在输出的思考内容会自动展开、结束后按设定延迟自动收起（0–10 秒，分度 0.1 秒），期间手动操作可取消；未修改的项使用默认值。',
   'fileColor.directory': '目录',
   'fileColor.style': '样式',
   'fileColor.log': '日志',
@@ -553,7 +584,6 @@ const en = {
   'panel.previewHint': 'Select a file in the tree to preview it',
   'tree.loading': 'Loading…',
   'tree.empty': 'Empty',
-  'tree.truncated': 'This directory has too many entries; only the first part is shown.',
   'tree.symlink': ' (symlink)',
   'tree.refresh': 'Refresh',
   'search.toolbar': 'Search',
@@ -645,6 +675,9 @@ const en = {
   'search.noResultsFor': 'No matches found for “{query}”',
   'search.summary': '{matches} matches · {files} files',
   'search.summaryTruncated': ' (too many results; only some are shown)',
+  'search.nameOnly': 'File names only',
+  'search.nameOnly.title': 'Match file or folder names only; do not search file contents',
+  'search.summaryNameOnly': '{files} matches found',
   'search.partial': 'Partial',
   'search.partial.title': 'The file is large; only the beginning was searched',
   'search.row.title': '{path} · line {line}',
@@ -660,6 +693,9 @@ const en = {
   'editor.wrap.on.title': 'Enable word wrap',
   'editor.refresh': 'Reload',
   'editor.refresh.title': 'Reload the current file from disk',
+  'mdPreview.preview': 'Preview',
+  'mdPreview.preview.title': 'View the current file as rendered Markdown',
+  'mdPreview.edit.title': 'Back to Markdown source editing',
   'editor.refreshBlocked': 'There are unsaved changes; save or cancel them before reloading.',
   'editor.refreshed': 'Reloaded from disk.',
   'editor.searchResize': 'Drag to resize the search box width',
@@ -739,6 +775,9 @@ const en = {
   'settings.group.browse': 'File Browsing',
   'settings.group.content': 'Content Browsing',
   'settings.group.dialog': 'Conversation Page Settings',
+  'settings.group.session': 'Session Browsing',
+  'settings.mindmapSpinSpeed': 'Mind-map icon spin speed',
+  'settings.mindmapSpinSpeed.reset.title': 'Reset spin speed',
   'settings.rowHeight': 'Row height',
   'settings.rowHeight.reset.title': 'Reset row height',
   'settings.searchResult': 'Search results',
@@ -759,8 +798,9 @@ const en = {
   'settings.conflictFontSize.reset.title': 'Reset font size',
   'settings.autoExpandThink': 'Auto-expand thinking',
   'settings.thinkDelay': 'Think collapse delay',
+  'settings.thinkDelay.reset.title': 'Reset collapse delay',
   'settings.resetDefault': 'Reset',
-  'settings.hint': 'File Browsing: adjust the tree row height, how search results are shown, and the file icon badge colors. Content Browsing: pick a highlight preset per file type, and adjust the save-conflict dialog comparison text size. Conversation Page Settings: adjust the chat font size; when auto-expand thinking is on, streaming thinking blocks expand automatically and collapse after the configured delay (0–10 s, 0.1 s steps), and manual interaction cancels a pending collapse. Unchanged items use their defaults.',
+  'settings.hint': 'Session Browsing: adjust the spin speed of the sidebar mind-map entry icon while the map is streaming (a 0.0x–3.0x speed multiplier, larger is faster; the default 1.5x means one 1.2 s revolution, and 0 means no rotation). File Browsing: adjust the tree row height, how search results are shown, and the file icon badge colors. Content Browsing: pick a highlight preset per file type, and adjust the save-conflict dialog comparison text size. Conversation Page Settings: adjust the chat font size; when auto-expand thinking is on, streaming thinking blocks expand automatically and collapse after the configured delay (0–10 s, 0.1 s steps), and manual interaction cancels a pending collapse. Unchanged items use their defaults.',
   'fileColor.directory': 'Directory',
   'fileColor.style': 'Style',
   'fileColor.log': 'Log',
@@ -1060,6 +1100,10 @@ const styles = `
 .dsh-ws-search-input:focus{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}
 .dsh-ws-search-input::placeholder{color:var(--dsw-alias-label-caption)}
 .dsh-ws-search-case{width:34px;padding:0;font-size:11px;font-weight:600}
+.dsh-ws-search-nameonly{display:flex;align-items:center;gap:6px;height:20px;color:var(--dsw-alias-label-secondary);font-size:12px;cursor:pointer;user-select:none}
+.dsh-ws-search-nameonly:hover{color:var(--dsw-alias-label-primary)}
+.dsh-ws-search-nameonly input{margin:0;accent-color:var(--dsw-alias-state-business-primary);cursor:pointer}
+.dsh-ws-search-kind{flex:none;display:inline-flex;width:16px;color:var(--dsw-alias-label-caption)}
 .dsh-ws-icon-button[data-active]{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary)}
 .dsh-ws-text-button[data-active]{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary)}
 .dsh-ws-search-summary{padding:8px 10px 2px;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}
@@ -1396,10 +1440,29 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-sidebar-mindmaps-item[data-drop="before"]{box-shadow:inset 0 2px 0 var(--dsw-alias-state-business-primary)}
 .dsh-ws-sidebar-mindmaps-item[data-drop="after"]{box-shadow:inset 0 -2px 0 var(--dsw-alias-state-business-primary)}
 .dsh-ws-sidebar-mindmaps-icon{flex:none;width:14px;height:14px;color:var(--dsw-alias-state-business-primary)}
+/* While any session in a mind map family is streaming (summary.running flips
+   at generation start, no sync wait), spin the entry's left icon so the
+   sidebar shows the live generation the hidden ordinary rows would have. */
+@keyframes dsh-ws-mindmap-spin{to{transform:rotate(360deg)}}
+.dsh-ws-sidebar-mindmaps-item[data-running] .dsh-ws-sidebar-mindmaps-icon{animation:dsh-ws-mindmap-spin var(--dsh-ws-mindmap-spin-duration,0.8s) linear infinite;transform-origin:center}
+@media (prefers-reduced-motion: reduce){.dsh-ws-sidebar-mindmaps-item[data-running] .dsh-ws-sidebar-mindmaps-icon{animation:none}}
 .dsh-ws-sidebar-mindmaps-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dsh-ws-sidebar-mindmaps-count{flex:none;color:var(--dsw-alias-label-secondary);font-size:10px;line-height:14px}
 .dsh-ws-frame[data-sidebar-files] .dsh-ws-sidebar-mindmaps{display:none}
 .dsh-ws-frame[data-sidebar-collapsed] .dsh-ws-sidebar-mindmaps{display:none}
+/* A collapsed workspace group renders no session rows (deriveGroups empties
+   them), but the injected mind-map seat is a foreign node React leaves in
+   place. Harness wraps the group header in a HoverCard span and the seat is
+   appended to that wrapper — so the seat and the collapsed header share the
+   same direct parent (the span for real workspaces, the group section div
+   for the ungrouped bucket). Fold the seat with the folder by matching
+   whatever element directly holds both; the group-collapse analogue of the
+   files / rail rules above. */
+[data-slot="sidebar.workspaces"] *:has(> [role="treeitem"][aria-expanded="false"]) > .dsh-ws-sidebar-mindmaps{display:none}
+/* Rendered-Markdown preview overlay inside the preview body: absolute so the
+   kept-mounted CodeMirror editor stays alive underneath, and scrollable so
+   long documents browse like the editor does. */
+.dsh-ws-md-preview{position:absolute;inset:0;overflow:auto;box-sizing:border-box;padding:16px 20px;background:var(--dsw-alias-bg-base)}
 `
 
 const tokenHighlight = HighlightStyle.define([
@@ -2175,6 +2238,7 @@ function createExplorerSettingsStore() {
       expandSearchMatches: SEARCH_MATCH_EXPAND_DEFAULT,
       autoExpandThink: AUTO_EXPAND_THINK_DEFAULT,
       thinkCollapseDelay: THINK_COLLAPSE_DELAY_DEFAULT_S,
+      mindmapSpinSpeed: MINDMAP_SPIN_SPEED_DEFAULT_X,
       fileColors: {},
       highlightPresets: {},
     }),
@@ -2192,6 +2256,13 @@ function createExplorerSettingsStore() {
           ? Math.min(THINK_COLLAPSE_DELAY_MAX_S, Math.max(THINK_COLLAPSE_DELAY_MIN_S, seconds))
           : THINK_COLLAPSE_DELAY_DEFAULT_S
         draft.thinkCollapseDelay = Math.round(bounded * 10) / 10
+      },
+      setMindmapSpinSpeed: (draft, value) => {
+        const speed = Number(value)
+        const bounded = Number.isFinite(speed)
+          ? Math.min(MINDMAP_SPIN_SPEED_MAX_X, Math.max(MINDMAP_SPIN_SPEED_MIN_X, speed))
+          : MINDMAP_SPIN_SPEED_DEFAULT_X
+        draft.mindmapSpinSpeed = Math.round(bounded * 10) / 10
       },
       setFileColor: (draft, group, value) => {
         if (draft.fileColors === undefined) draft.fileColors = {}
@@ -3378,8 +3449,8 @@ async function mutateEntry(method, workspaceId, path, payload, signal) {
   }
   return result
 }
-async function requestSearch(workspaceId, query, caseSensitive, signal) {
-  const params = new URLSearchParams({ workspaceId: String(workspaceId), q: query, caseSensitive: caseSensitive ? 'true' : 'false' })
+async function requestSearch(workspaceId, query, caseSensitive, nameOnly, signal) {
+  const params = new URLSearchParams({ workspaceId: String(workspaceId), q: query, caseSensitive: caseSensitive ? 'true' : 'false', nameOnly: nameOnly ? 'true' : 'false' })
   const response = await fetch(`${API_PREFIX}/search?${params}`, { method: 'GET', headers: { accept: 'application/json' }, credentials: 'same-origin', signal })
   let payload
   try {
@@ -4209,6 +4280,8 @@ function WorkspaceExplorer({
   const [dropIndex, setDropIndex] = useState(null)
   const [dropActive, setDropActive] = useState(false)
   const [previewToast, setPreviewToast] = useState()
+  // Markdown rendered-preview toggle (per-file; reset whenever the file changes).
+  const [mdPreview, setMdPreview] = useState(false)
   const [entryDialog, setEntryDialog] = useState()
   const [entryDraft, setEntryDraft] = useState('')
   const [entryBusy, setEntryBusy] = useState(false)
@@ -4230,6 +4303,7 @@ function WorkspaceExplorer({
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchCaseSensitive, setSearchCaseSensitive] = useState(false)
+  const [searchNameOnly, setSearchNameOnly] = useState(false)
   const [searchState, setSearchState] = useState({ state: 'idle' })
   const [searchExpanded, setSearchExpanded] = useState(() => new Set())
   const [searchReveal, setSearchReveal] = useState()
@@ -4499,14 +4573,14 @@ function WorkspaceExplorer({
     setDirectories(cur => {
       const next = new Map(cur)
       const prior = next.get(path)
-      next.set(path, { state: 'loading', entries: prior?.entries ?? [], truncated: false })
+      next.set(path, { state: 'loading', entries: prior?.entries ?? [] })
       return next
     })
     try {
       const result = await listDirectory(workspace.workspaceId, path, controller.signal)
       setDirectories(cur => {
         const next = new Map(cur)
-        next.set(path, { state: 'ready', entries: result.entries, truncated: result.truncated })
+        next.set(path, { state: 'ready', entries: result.entries })
         return next
       })
     } catch (error) {
@@ -4516,7 +4590,6 @@ function WorkspaceExplorer({
           next.set(path, {
             state: 'error',
             entries: [],
-            truncated: false,
             message: error instanceof Error ? error.message : String(error),
           })
           return next
@@ -4799,6 +4872,9 @@ function WorkspaceExplorer({
     composingRef.current = false
   }, [activePath, dirty])
   const closeEntryDialog=useCallback(()=>{if(entryBusy)return;setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);composingRef.current=false},[entryBusy])
+  // The markdown preview mode is scoped to one file: switching files always
+  // lands back in the source editor.
+  useEffect(() => { setMdPreview(false) }, [activePath])
   const rewriteRuntimePaths = useCallback((from, to) => {
     lastWriteRef.current = rewritePathMap(lastWriteRef.current, from, to)
     draftGenerationsRef.current = rewritePathMap(draftGenerationsRef.current, from, to)
@@ -5672,9 +5748,10 @@ function WorkspaceExplorer({
   const openSessionRename=useCallback(()=>{setTitleContextMenu(undefined);setSessionRenameDraft(sessionTitle ?? '');setSessionRenameError(undefined);setSessionRenameOpen(true)},[sessionTitle])
   const closeSessionRename=useCallback(()=>{if(sessionRenameBusy)return;setSessionRenameOpen(false);setSessionRenameDraft('');setSessionRenameError(undefined)},[sessionRenameBusy])
   const confirmSessionRename=useCallback(()=>{if(sessionRenameBusy||sessionId===undefined)return;const trimmed=sessionRenameDraft.trim();if(trimmed==='')return;setSessionRenameBusy(true);setSessionRenameError(undefined);renameSession(String(sessionId),trimmed).then(()=>{if(!mounted.current)return;setSessionRenameBusy(false);setSessionRenameOpen(false);setSessionRenameDraft('')}).catch(error=>{if(!mounted.current)return;setSessionRenameBusy(false);setSessionRenameError(error instanceof Error?error.message:String(error))})},[renameSession,sessionId,sessionRenameBusy,sessionRenameDraft])
-  const runSearch=useCallback(async(query)=>{searchController.current?.abort();if(query.trim()===''){setSearchState({state:'idle'});setSearchExpanded(new Set());return}const controller=new AbortController();searchController.current=controller;setSearchState({state:'searching'});try{const result=await requestSearch(workspace.workspaceId,query,searchCaseSensitive,controller.signal);if(searchController.current===controller){setSearchState({state:'done',result});setSearchExpanded(new Set((settings.expandSearchMatches ?? SEARCH_MATCH_EXPAND_DEFAULT)?result.files.map(file=>file.path):[]))}}catch(error){if(error?.name==='AbortError')return;if(searchController.current===controller)setSearchState({state:'error',message:error instanceof Error?error.message:String(error)})}},[searchCaseSensitive,settings.expandSearchMatches,workspace.workspaceId])
+  const runSearch=useCallback(async(query)=>{searchController.current?.abort();if(query.trim()===''){setSearchState({state:'idle'});setSearchExpanded(new Set());return}const controller=new AbortController();searchController.current=controller;setSearchState({state:'searching'});try{const result=await requestSearch(workspace.workspaceId,query,searchCaseSensitive,searchNameOnly,controller.signal);if(searchController.current===controller){setSearchState({state:'done',result});setSearchExpanded(new Set((settings.expandSearchMatches ?? SEARCH_MATCH_EXPAND_DEFAULT)?result.files.map(file=>file.path):[]))}}catch(error){if(error?.name==='AbortError')return;if(searchController.current===controller)setSearchState({state:'error',message:error instanceof Error?error.message:String(error)})}},[searchCaseSensitive,searchNameOnly,settings.expandSearchMatches,workspace.workspaceId])
   const closeSearch=useCallback(()=>{searchController.current?.abort();searchController.current=undefined;setSearchExpanded(new Set());setSearchOpen(false)},[])
   const openSearchMatch=useCallback((file,match)=>{const entry={kind:'file',name:file.name,path:file.path,symlink:false};chooseFile(entry);searchRevealToken.current+=1;setSearchReveal({column:match.startLineColumn??match.startColumn,endColumn:match.endLineColumn??match.endColumn,line:match.line,path:file.path,token:searchRevealToken.current})},[chooseFile])
+  const openSearchEntry=useCallback((file)=>{const entry={kind:file.kind==='directory'?'directory':'file',name:file.name,path:file.path,symlink:false};if(entry.kind==='directory'){chooseDirectory(entry);closeSearch()}else chooseFile(entry)},[chooseDirectory,chooseFile,closeSearch])
   const toggleSearchFile=useCallback((path)=>{setSearchExpanded(prev=>{const next=new Set(prev);if(next.has(path))next.delete(path);else next.add(path);return next})},[])
   useEffect(()=>{if(!searchOpen)return undefined;const timer=setTimeout(()=>{void runSearch(searchQuery)},300);return()=>clearTimeout(timer)},[runSearch,searchOpen,searchQuery])
   useEffect(()=>{if(contextMenu===undefined)return undefined;const inside=event=>{const node=menuRef.current;return node!==null&&event.target instanceof Node&&node.contains(event.target)};const close=()=>setContextMenu(undefined);const onPointerDown=event=>{if(!inside(event))close()};const onContextMenu=event=>{if(!inside(event))close()};const onKeyDown=event=>{if(event.key==='Escape')close()};window.addEventListener('pointerdown',onPointerDown);window.addEventListener('contextmenu',onContextMenu,true);window.addEventListener('keydown',onKeyDown);window.addEventListener('resize',close);window.addEventListener('scroll',close,true);return()=>{window.removeEventListener('pointerdown',onPointerDown);window.removeEventListener('contextmenu',onContextMenu,true);window.removeEventListener('keydown',onKeyDown);window.removeEventListener('resize',close);window.removeEventListener('scroll',close,true)}},[contextMenu])
@@ -5738,7 +5815,7 @@ function WorkspaceExplorer({
     window.addEventListener('scroll', close, true)
     return () => { window.removeEventListener('pointerdown', onPointerDown); window.removeEventListener('contextmenu', onContextMenu, true); window.removeEventListener('keydown', onKeyDown); window.removeEventListener('resize', close); window.removeEventListener('scroll', close, true) }
   }, [encodingMenu])
-  const renderDirectory=(path,depth)=>{const dir=directories.get(path);if(!dir||dir.state==='loading')return h(TreeStatus,{key:`${path}:loading`},translate('tree.loading'));if(dir.state==='error')return h(TreeStatus,{error:true,key:`${path}:error`},dir.message);const rows=dir.entries.map(entry=>{const open=expanded.has(entry.path);const renaming=entryDialog?.mode==='rename'&&entryDialog.entry.path===entry.path;return h(Fragment,{key:entry.path},renaming?h(TreeRenameRow,{busy:entryBusy,depth,entry,error:entryDraft.trim()===entry.name?undefined:entryDialogError,expanded:open,onCancel:closeEntryDialog,onConfirm:submitEntryDialog,onDraft:value=>{setEntryDraft(value);setEntryError(undefined)},value:entryDraft}):h(TreeRow,{cut:clipboard?.cut&&clipboard?.path===entry.path,depth,entry,expanded:open,onContextMenu:openContextMenu,onDirectory:toggleDirectory,onFile:chooseFile,onRename:beginRename,selected:selected?.path===entry.path}),entry.kind==='directory'&&open?renderDirectory(entry.path,depth+1):null)});if(dir.truncated)rows.push(h(TreeStatus,{key:`${path}:truncated`},translate('tree.truncated')));if(!rows.length)rows.push(h(TreeStatus,{key:`${path}:empty`},translate('tree.empty')));return rows}
+  const renderDirectory=(path,depth)=>{const dir=directories.get(path);if(!dir||dir.state==='loading')return h(TreeStatus,{key:`${path}:loading`},translate('tree.loading'));if(dir.state==='error')return h(TreeStatus,{error:true,key:`${path}:error`},dir.message);const rows=dir.entries.map(entry=>{const open=expanded.has(entry.path);const renaming=entryDialog?.mode==='rename'&&entryDialog.entry.path===entry.path;return h(Fragment,{key:entry.path},renaming?h(TreeRenameRow,{busy:entryBusy,depth,entry,error:entryDraft.trim()===entry.name?undefined:entryDialogError,expanded:open,onCancel:closeEntryDialog,onConfirm:submitEntryDialog,onDraft:value=>{setEntryDraft(value);setEntryError(undefined)},value:entryDraft}):h(TreeRow,{cut:clipboard?.cut&&clipboard?.path===entry.path,depth,entry,expanded:open,onContextMenu:openContextMenu,onDirectory:toggleDirectory,onFile:chooseFile,onRename:beginRename,selected:selected?.path===entry.path}),entry.kind==='directory'&&open?renderDirectory(entry.path,depth+1):null)});if(!rows.length)rows.push(h(TreeStatus,{key:`${path}:empty`},translate('tree.empty')));return rows}
   const closeTab = useCallback((path) => {
     const current = tabsRef.current
     const index = current.findIndex(tab => tab.path === path)
@@ -5904,6 +5981,9 @@ function WorkspaceExplorer({
     strip.addEventListener('wheel', onWheel, { passive: false })
     return () => { strip.removeEventListener('wheel', onWheel) }
   }, [tabs.length])
+  // Markdown files offer a rendered-preview toggle (same extension table as
+  // the tree badge and the editor highlighting).
+  const isMarkdown = preview.state === 'ready' && colorGroupOf({ kind: 'file', name: preview.name }) === 'markdown'
   let body
   if (preview.state === 'idle') {
     body = h('div', { className: 'dsh-ws-empty' }, translate('panel.previewHint'))
@@ -5955,7 +6035,12 @@ function WorkspaceExplorer({
             ? searchReveal
             : null,
           scrollTop: scrollTopRef.current.get(activePath) ?? activeTab?.scrollTop ?? 0,
-        })),
+        }),
+        // Rendered-Markdown overlay sits above the (kept-mounted) editor, so
+        // switching back never loses caret/undo state or an unsaved draft.
+        isMarkdown && mdPreview
+          ? h('div', { className: 'dsh-ws-md-preview' }, h(MarkdownText, { text: draft }))
+          : null),
       // Bottom status bar: transient notices sit below the editor body at the
       // panel's bottom edge (right-aligned), not above the search strip.
       status ? h('div', { className: 'dsh-ws-status', 'data-error': status.error || undefined }, status.text) : null)
@@ -5972,6 +6057,23 @@ function WorkspaceExplorer({
     searchBody = h(Fragment, null,
       h('div', { className: 'dsh-ws-search-summary' }, translate('search.noResults')),
       h('div', { className: 'dsh-ws-empty' }, translate('search.noResultsFor', { query: searchState.result.query })),
+    )
+  } else if (searchState.result.nameOnly === true) {
+    searchBody = h(Fragment, null,
+      h('div', { className: 'dsh-ws-search-summary' },
+        `${translate('search.summaryNameOnly', { files: searchState.result.fileCount })}${searchState.result.truncated ? translate('search.summaryTruncated') : ''}`),
+      searchState.result.files.map(file =>
+        h('button', {
+          className: 'dsh-ws-search-file-header',
+          key: file.path,
+          onClick: () => openSearchEntry(file),
+          title: file.path,
+          type: 'button',
+        },
+          file.kind === 'directory' ? h('span', { 'aria-hidden': true, className: 'dsh-ws-search-kind' }, h(IconFolder)) : null,
+          h('span', { className: 'dsh-ws-row-name' }, file.path),
+        ),
+      ),
     )
   } else {
     searchBody = h(Fragment, null,
@@ -6110,6 +6212,14 @@ function WorkspaceExplorer({
                 type: 'button',
               }, '×'),
             ),
+            h('label', { className: 'dsh-ws-search-nameonly', title: translate('search.nameOnly.title') },
+              h('input', {
+                checked: searchNameOnly,
+                onChange: e => setSearchNameOnly(e.target.checked),
+                type: 'checkbox',
+              }),
+              translate('search.nameOnly'),
+            ),
           ),
           h('div', { className: 'dsh-ws-tree-scroll' }, searchBody),
         )
@@ -6176,6 +6286,16 @@ function WorkspaceExplorer({
         ),
         preview.state === 'ready'
           ? h(Fragment, null,
+            isMarkdown
+              ? h('button', {
+                'aria-pressed': mdPreview,
+                className: 'dsh-ws-text-button',
+                'data-active': mdPreview || undefined,
+                onClick: () => setMdPreview(value => !value),
+                title: mdPreview ? translate('mdPreview.edit.title') : translate('mdPreview.preview.title'),
+                type: 'button',
+              }, mdPreview ? translate('editor.edit') : translate('mdPreview.preview'))
+              : null,
             h('button', {
               className: 'dsh-ws-text-button',
               disabled: Boolean(activeTab?.external),
@@ -6221,9 +6341,35 @@ function EmptyWorkspaceExplorer({ treePortalTarget, sessionTitle }) {
   const rowHeight = clamp(settings.rowHeight ?? ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MIN, ROW_HEIGHT_MAX)
   const chatFontSize = clamp(settings.chatFontSize ?? CHAT_FONT_SIZE_DEFAULT, CHAT_FONT_SIZE_MIN, CHAT_FONT_SIZE_MAX)
   const conflictFontSize = clamp(settings.conflictFontSize ?? CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MIN, CONFLICT_FONT_SIZE_MAX)
+  const mindmapSpinSpeed = clampSpinSpeed(settings.mindmapSpinSpeed)
   const customizedCount = Object.keys(settings.fileColors ?? {}).length
   const customizedPresetCount = Object.keys(settings.highlightPresets ?? {}).length
   return h('div', { className: 'dsh-ws-explorer-settings' },
+    h('div', { className: 'dsh-ws-settings-group' },
+      h('div', { className: 'dsh-ws-settings-group-title' }, translate('settings.group.session')),
+      h('div', { className: 'dsh-ws-settings-row' },
+        h('label', { className: 'dsh-ws-settings-label', htmlFor: 'dsh-ws-mindmap-spin-speed' }, translate('settings.mindmapSpinSpeed')),
+        h('input', {
+          'aria-label': translate('settings.mindmapSpinSpeed'),
+          className: 'dsh-ws-settings-slider',
+          id: 'dsh-ws-mindmap-spin-speed',
+          max: MINDMAP_SPIN_SPEED_MAX_X,
+          min: MINDMAP_SPIN_SPEED_MIN_X,
+          onChange: e => settingsStore.actions.setMindmapSpinSpeed(Number(e.target.value)),
+          step: 0.1,
+          type: 'range',
+          value: mindmapSpinSpeed,
+        }),
+        h('span', { className: 'dsh-ws-settings-value' }, `${mindmapSpinSpeed.toFixed(1)}×`),
+        h('button', {
+          className: 'dsh-ws-text-button',
+          disabled: mindmapSpinSpeed === MINDMAP_SPIN_SPEED_DEFAULT_X || undefined,
+          onClick: () => settingsStore.actions.setMindmapSpinSpeed(MINDMAP_SPIN_SPEED_DEFAULT_X),
+          title: translate('settings.mindmapSpinSpeed.reset.title'),
+          type: 'button',
+        }, translate('settings.resetDefault'))),
+    ),
+    h('div', { className: 'dsh-ws-explorer-divider' }),
     h('div', { className: 'dsh-ws-settings-group' },
       h('div', { className: 'dsh-ws-settings-group-title' }, translate('settings.group.browse')),
       h('div', { className: 'dsh-ws-settings-row' },
@@ -6384,7 +6530,14 @@ function EmptyWorkspaceExplorer({ treePortalTarget, sessionTitle }) {
           type: 'range',
           value: settings.thinkCollapseDelay ?? THINK_COLLAPSE_DELAY_DEFAULT_S,
         }),
-        h('span', { className: 'dsh-ws-settings-value' }, `${(settings.thinkCollapseDelay ?? THINK_COLLAPSE_DELAY_DEFAULT_S).toFixed(1)}s`)),
+        h('span', { className: 'dsh-ws-settings-value' }, `${(settings.thinkCollapseDelay ?? THINK_COLLAPSE_DELAY_DEFAULT_S).toFixed(1)}s`),
+        h('button', {
+          className: 'dsh-ws-text-button',
+          disabled: ((settings.autoExpandThink ?? AUTO_EXPAND_THINK_DEFAULT) !== true || (settings.thinkCollapseDelay ?? THINK_COLLAPSE_DELAY_DEFAULT_S) === THINK_COLLAPSE_DELAY_DEFAULT_S) || undefined,
+          onClick: () => settingsStore.actions.setThinkCollapseDelay(THINK_COLLAPSE_DELAY_DEFAULT_S),
+          title: translate('settings.thinkDelay.reset.title'),
+          type: 'button',
+        }, translate('settings.resetDefault'))),
     ),
     h('div', { className: 'dsh-ws-settings-hint' }, translate('settings.hint')),
   )
@@ -8308,10 +8461,15 @@ function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, openSess
           const label = doc.rootTitle ?? row?.displayTitle ?? ''
           const count = (doc.branchSessionIds ?? []).length
           const sid = String(doc.sessionId)
+          /* Any family member streaming (summary.running flips at generation
+             start, no sync wait) spins the entry's icon — the visible signal
+             the hidden ordinary rows would have shown. */
+          const running = [sid, ...(doc.branchSessionIds ?? [])].some(id => list.byId[id]?.running === true)
           return h('button', {
             className: 'dsh-ws-sidebar-mindmaps-item',
             'data-dragging': dragId === sid ? '' : undefined,
             'data-drop': dropTarget !== null && dropTarget.id === sid ? dropTarget.half : undefined,
+            'data-running': running ? '' : undefined,
             draggable: true,
             key: sid,
             /* A genuine drag ends with a click in some engines; suppress the
@@ -8609,6 +8767,13 @@ function AppFrame(props) {
     return () => { observer.disconnect() }
   }, [currentSession, mobile.files, mobile.on])
   const chatFontScale = clamp(settings.chatFontSize ?? CHAT_FONT_SIZE_DEFAULT, CHAT_FONT_SIZE_MIN, CHAT_FONT_SIZE_MAX) / CHAT_FONT_SIZE_DEFAULT
+  /* Sidebar mind-map entry icon spin: user speed multiplier (1.5x default times
+     the 0.8 s base = 1.2 s per revolution; larger = faster) becomes the
+     animation duration var; speed 0 freezes the spin. */
+  const mindmapSpinSpeed = clampSpinSpeed(settings.mindmapSpinSpeed)
+  const mindmapSpinDuration = mindmapSpinSpeed > 0
+    ? `${(MINDMAP_SPIN_BASE_DURATION_S / mindmapSpinSpeed).toFixed(3)}s`
+    : `${MINDMAP_SPIN_STOP_DURATION_S}s`
   // One accent custom property per color group; unset groups resolve to their
   // default inside the CSS rule's var() fallback (the value here is the
   // effective color either way, so the fallback is only a safety net).
@@ -9174,7 +9339,7 @@ function AppFrame(props) {
     props.openSession(String(id))
     mindmapOverlayStore.open(String(id))
   }, [props.openSession])
-  return h('div',{ref:viewportRef,className:'dsh-ws-viewport'},h('main',{className:'dsh-ws-frame','data-explorer-closed':!panes.explorerOpen&&!filesActive||undefined,'data-sidebar-collapsed':collapsed||undefined,'data-sidebar-files':filesActive||undefined,'data-resizing':resizing||undefined,style:{'--dsh-ws-preview':`${preview}px`,'--dsh-ws-sidebar':`${sidebar}px`,'--dsh-ws-row-height':`${clamp(settings.rowHeight ?? ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MIN, ROW_HEIGHT_MAX)}px`,'--dsh-ws-chat-font-scale':String(chatFontScale),'--dsh-ws-mobile-header-h':`${mobileHeaderHeight}px`,...fileColorVars}},h('aside',{className:'dsh-ws-sidebar',ref:asideRef},props.renderSlot('sidebar',{collapsed,width:sidebar}),sidebarChrome?.top?createPortal(h(SidebarTopActions,{collapsed,view,width:sidebar,onSelectSessions:()=>{props.actions.setView('sessions')},onSelectFiles:()=>{if(collapsed)props.toggleSidebar();props.actions.setView('files')}}),sidebarChrome.top):null,sidebarChrome&&(sidebarChrome.groups.length>0?sidebarChrome.groups.map(group=>createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:group.title,openSession:openMindmapSession,revealSession:revealSessionById}),group.container)):sidebarChrome.fallback?createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:undefined,openSession:openMindmapSession,revealSession:revealSessionById}),sidebarChrome.fallback):null)),workspace?h(WorkspaceExplorer,{key:`${workspace.workspaceId}:${sessionId ?? 'workspace'}`,createEntry:props.createEntry,listDirectory:props.listDirectory,persistPreviewSession,publishEditorContext,readFile:props.readFile,renameEntry:props.renameEntry,saveFile:props.saveFile,loadDraft:props.loadDraft,persistDraftFile:props.persistDraftFile,removeDraftFile:props.removeDraftFile,draftTree:props.draftTree,settingsStore:props.settingsStore,storedPreviewSession,sessionTitle,sessionId,renameSession:props.renameSession,treePortalTarget,workspace}):h(EmptyWorkspaceExplorer,{sessionTitle,treePortalTarget}),h('section',{className:'dsh-ws-chat',ref:chatSectionRef},props.renderSlot('conversation',{}),chatDropActive?h('div',{className:'dsh-ws-chat-drop-mask',role:'presentation'},h('button',{'aria-label':translate('drop.closeAria'),className:'dsh-ws-chat-drop-close',onClick:()=>{chatDropSuppressed.current=true;setChatDropActive(false)},title:translate('drop.closeTitle'),type:'button'},'×'),h('div',{className:'dsh-ws-chat-drop-card'},translate('drop.releaseImages'))):null),!collapsed?h(ResizeHandle,{label:translate('resize.sidebar'),left:sidebar,max:sidebarMax,min:SIDEBAR_MIN,onDragging:setResizing,onResize:width=>props.actions.setSidebar(width,sidebarMax),value:sidebar}):null,(panes.explorerOpen||filesActive)?h(ResizeHandle,{label:translate('resize.preview'),left:previewBoundary,max:previewMax,min:PREVIEW_MIN,onDragging:setResizing,onResize:width=>props.explorerPaneStore.actions.setPreview(width,previewMax),value:preview}):null,h('aside',{className:'dsh-ws-details','data-closed':!panels.detailsOpen||!detailsCapable||undefined},props.renderSlot('details',{})),mobile.on&&mobile.drawerOpen?h('div',{className:'dsh-ws-mobile-scrim',onClick:()=>setDrawerOpen(false)}):null,h('div',{className:'dsh-ws-overlay','data-shell-overlay':true},props.renderSlot('shell.overlay',{})),sessionContextMenu?h('div',{className:'dsh-ws-context-menu',ref:sessionMenuRef,role:'menu',style:{left:Math.max(4,Math.min(sessionContextMenu.x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top:Math.max(4,Math.min(sessionContextMenu.y,window.innerHeight-52))}},h('button',{className:'dsh-ws-context-item',onClick:beginSessionInlineRename,role:'menuitem',type:'button'},translate('context.renameSession')),h('button',{className:'dsh-ws-context-item',onClick:archiveSessionFromMenu,role:'menuitem',type:'button'},translate('context.archiveSession')),h('div',{className:'dsh-ws-context-separator',role:'separator'}),h('button',{className:'dsh-ws-context-item',onClick:revealSessionFromMenu,role:'menuitem',type:'button'},translate('context.reveal'))):null,sessionInlineRename?h(SessionInlineRename,{busy:sessionInlineRenameBusy,error:sessionInlineRenameError,onCancel:cancelSessionInlineRename,onConfirm:confirmSessionInlineRename,row:sessionInlineRename.row,title:sessionInlineRename.title}):null,sessionNotice?h('div',{className:'dsh-ws-copy-notice','data-error':sessionNotice.error||undefined,role:'status'},sessionNotice.text):null),overlay.open?h(MindmapOverlayHost,{actions:props.mindmapActions,chatWidth,mobile:mobile.on,sessionId:overlay.sessionId,sidebarWidth:sidebar,useSessions:props.useSessions}):null)}
+  return h('div',{ref:viewportRef,className:'dsh-ws-viewport'},h('main',{className:'dsh-ws-frame','data-explorer-closed':!panes.explorerOpen&&!filesActive||undefined,'data-sidebar-collapsed':collapsed||undefined,'data-sidebar-files':filesActive||undefined,'data-resizing':resizing||undefined,style:{'--dsh-ws-preview':`${preview}px`,'--dsh-ws-sidebar':`${sidebar}px`,'--dsh-ws-row-height':`${clamp(settings.rowHeight ?? ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MIN, ROW_HEIGHT_MAX)}px`,'--dsh-ws-chat-font-scale':String(chatFontScale),'--dsh-ws-mobile-header-h':`${mobileHeaderHeight}px`,'--dsh-ws-mindmap-spin-duration':mindmapSpinDuration,...fileColorVars}},h('aside',{className:'dsh-ws-sidebar',ref:asideRef},props.renderSlot('sidebar',{collapsed,width:sidebar}),sidebarChrome?.top?createPortal(h(SidebarTopActions,{collapsed,view,width:sidebar,onSelectSessions:()=>{props.actions.setView('sessions')},onSelectFiles:()=>{if(collapsed)props.toggleSidebar();props.actions.setView('files')}}),sidebarChrome.top):null,sidebarChrome&&(sidebarChrome.groups.length>0?sidebarChrome.groups.map(group=>createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:group.title,openSession:openMindmapSession,revealSession:revealSessionById}),group.container)):sidebarChrome.fallback?createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:undefined,openSession:openMindmapSession,revealSession:revealSessionById}),sidebarChrome.fallback):null)),workspace?h(WorkspaceExplorer,{key:`${workspace.workspaceId}:${sessionId ?? 'workspace'}`,createEntry:props.createEntry,listDirectory:props.listDirectory,persistPreviewSession,publishEditorContext,readFile:props.readFile,renameEntry:props.renameEntry,saveFile:props.saveFile,loadDraft:props.loadDraft,persistDraftFile:props.persistDraftFile,removeDraftFile:props.removeDraftFile,draftTree:props.draftTree,settingsStore:props.settingsStore,storedPreviewSession,sessionTitle,sessionId,renameSession:props.renameSession,treePortalTarget,workspace}):h(EmptyWorkspaceExplorer,{sessionTitle,treePortalTarget}),h('section',{className:'dsh-ws-chat',ref:chatSectionRef},props.renderSlot('conversation',{}),chatDropActive?h('div',{className:'dsh-ws-chat-drop-mask',role:'presentation'},h('button',{'aria-label':translate('drop.closeAria'),className:'dsh-ws-chat-drop-close',onClick:()=>{chatDropSuppressed.current=true;setChatDropActive(false)},title:translate('drop.closeTitle'),type:'button'},'×'),h('div',{className:'dsh-ws-chat-drop-card'},translate('drop.releaseImages'))):null),!collapsed?h(ResizeHandle,{label:translate('resize.sidebar'),left:sidebar,max:sidebarMax,min:SIDEBAR_MIN,onDragging:setResizing,onResize:width=>props.actions.setSidebar(width,sidebarMax),value:sidebar}):null,(panes.explorerOpen||filesActive)?h(ResizeHandle,{label:translate('resize.preview'),left:previewBoundary,max:previewMax,min:PREVIEW_MIN,onDragging:setResizing,onResize:width=>props.explorerPaneStore.actions.setPreview(width,previewMax),value:preview}):null,h('aside',{className:'dsh-ws-details','data-closed':!panels.detailsOpen||!detailsCapable||undefined},props.renderSlot('details',{})),mobile.on&&mobile.drawerOpen?h('div',{className:'dsh-ws-mobile-scrim',onClick:()=>setDrawerOpen(false)}):null,h('div',{className:'dsh-ws-overlay','data-shell-overlay':true},props.renderSlot('shell.overlay',{})),sessionContextMenu?h('div',{className:'dsh-ws-context-menu',ref:sessionMenuRef,role:'menu',style:{left:Math.max(4,Math.min(sessionContextMenu.x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top:Math.max(4,Math.min(sessionContextMenu.y,window.innerHeight-52))}},h('button',{className:'dsh-ws-context-item',onClick:beginSessionInlineRename,role:'menuitem',type:'button'},translate('context.renameSession')),h('button',{className:'dsh-ws-context-item',onClick:archiveSessionFromMenu,role:'menuitem',type:'button'},translate('context.archiveSession')),h('div',{className:'dsh-ws-context-separator',role:'separator'}),h('button',{className:'dsh-ws-context-item',onClick:revealSessionFromMenu,role:'menuitem',type:'button'},translate('context.reveal'))):null,sessionInlineRename?h(SessionInlineRename,{busy:sessionInlineRenameBusy,error:sessionInlineRenameError,onCancel:cancelSessionInlineRename,onConfirm:confirmSessionInlineRename,row:sessionInlineRename.row,title:sessionInlineRename.title}):null,sessionNotice?h('div',{className:'dsh-ws-copy-notice','data-error':sessionNotice.error||undefined,role:'status'},sessionNotice.text):null),overlay.open?h(MindmapOverlayHost,{actions:props.mindmapActions,chatWidth,mobile:mobile.on,sessionId:overlay.sessionId,sidebarWidth:sidebar,useSessions:props.useSessions}):null)}
 
 export const inject = ['slots', 'theme', 'sessions', 'workspaces']
 export function apply(ctx) {

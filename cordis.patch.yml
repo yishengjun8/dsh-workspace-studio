@@ -12,5 +12,4 @@
         maxPromptContextBytes: 69632
         maxContextSourceBytes: 10485760
         maxEditableBytes: 1048576
-        maxEntriesPerDirectory: 1000
         maxPreviewBytes: 1048576

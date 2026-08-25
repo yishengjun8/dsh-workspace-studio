@@ -5,6 +5,7 @@ const EXTERNALS = [
   'react',
   'react-dom',
   '@deepseek-ai/dsh-client-runtime/client',
+  '@deepseek-ai/dsh-client-ui-primitives',
 ]
 
 export default defineConfig({

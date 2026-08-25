@@ -100,7 +100,7 @@ This bundle replaces the DeepSeek Harness Web root layout with **three panes fro
 ### Appearance & Settings
 
 - Uses Harness semantic theme variables and supports light, dark, and system themes.
-- Workspace settings page: tree row height, search result display, file icon badge colors, per-type highlight presets, save-conflict dialog font size, chat font size, and Think auto-expand / collapse delay.
+- Workspace settings page: session browsing (the spin speed of the sidebar mind-map entry icon while the map streams, a 0–3x multiplier where larger is faster and the default is 1.5x), tree row height, search result display, file icon badge colors, per-type highlight presets, save-conflict dialog font size, chat font size, and Think auto-expand / collapse delay.
 - A **Mobile mode** toggle in the sidebar footer (same approach as dsh-mobile-preview) collapses the layout into a centered phone column; the sidebar becomes a floating drawer opened by the whale at the top-left (session list and file tree stay inside it), and a **Browse files** button appears right of the whale in the conversation header to fill the phone column with file browsing while the header stays reachable. Mobile mode is transient, so a reload returns to the desktop layout.
 
 ## 🎨 Syntax Highlighting
@@ -189,7 +189,6 @@ The plugin row in `cordis.patch.yml` accepts:
 | `maxContextSourceBytes` | `10485760` | Maximum raw source bytes read for clean revision verification (1024–104857600). |
 | `maxEditableBytes` | `1048576` | Maximum UTF-8 bytes saved for one file (1024–10485760). |
 | `maxEntryNameBytes` | `255` | Maximum UTF-8 bytes allowed for one entry name (1–1024). |
-| `maxEntriesPerDirectory` | `1000` | Maximum entries returned for one directory (1–10000). |
 | `maxMutationBodyBytes` | `4096` | Maximum JSON bytes accepted by create and rename requests (128–65536). |
 | `maxPreviewBytes` | `1048576` | Maximum bytes read and returned for one file (1024–10485760). |
 
