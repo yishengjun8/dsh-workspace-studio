@@ -493,6 +493,7 @@ const zh = {
   'mindmap.current': '当前',
   'mindmap.pending': '等待新问题…',
   'mindmap.streaming': '生成中…',
+  'mindmap.streaming.click': '查看生成中的会话',
   'mindmap.thinking': '正在思考…',
   'mindmap.done': '已完成',
   'mindmap.emptyRound': '（本轮无文本）',
@@ -886,6 +887,7 @@ const en = {
   'mindmap.current': 'Current',
   'mindmap.pending': 'Awaiting a new question…',
   'mindmap.streaming': 'Generating…',
+  'mindmap.streaming.click': 'View the generating session',
   'mindmap.thinking': 'Thinking…',
   'mindmap.done': 'Done',
   'mindmap.emptyRound': '(no text this round)',
@@ -1345,7 +1347,7 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 /* The live streaming card (a turn in flight, ephemeral UI — replaced by the
    normal card once the turn completes) and the frame enclosing it with its
    parent card as one unit. */
-.dsh-ws-mindmap-node-streaming{border-color:var(--dsw-alias-state-business-primary);cursor:default;animation:dsh-ws-mindmap-node-streaming-pulse 1.6s ease-in-out infinite}
+.dsh-ws-mindmap-node-streaming{border-color:var(--dsw-alias-state-business-primary);cursor:pointer;animation:dsh-ws-mindmap-node-streaming-pulse 1.6s ease-in-out infinite}
 .dsh-ws-mindmap-node-frame-parent{border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 55%,var(--dsw-alias-border-l2));box-shadow:0 0 0 1px color-mix(in srgb,var(--dsw-alias-state-business-primary) 22%,transparent)}
 .dsh-ws-mindmap-node-streaming-status{display:flex;align-items:center;gap:6px;color:var(--dsw-alias-state-business-primary)}
 .dsh-ws-mindmap-node-streaming-dot{width:7px;height:7px;border-radius:50%;background:var(--dsw-alias-state-business-primary);animation:dsh-ws-mindmap-dot-pulse 1s ease-in-out infinite}
@@ -6966,7 +6968,7 @@ const MindMapCard = memo(function MindMapCard({
     role: 'button',
     tabIndex: 0,
     style: { left: mindmapXOf(entry.depth), top: entry.y, width: MINDMAP_NODE_W, height: entry.height },
-    title: isStreaming ? translate('mindmap.streaming') : translate('mindmap.open.hint'),
+    title: isStreaming ? translate('mindmap.streaming.click') : translate('mindmap.open.hint'),
   },
     isCurrent ? h('span', { className: 'dsh-ws-mindmap-node-current-badge' }, translate('mindmap.current')) : null,
     h('div', { className: 'dsh-ws-mindmap-node-title' },
@@ -7554,11 +7556,19 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
      parked — the session's chain tail — opens that session (the right-side
      chat follows, the "当前" highlight moves here, the overlay stays); an
      empty branch card is the tail of a forked session waiting for its first
-     question, so it follows the same path; any other (middle) card forks a
-     NEW branch at this card, which joins the SAME document — never a new
-     mind map — and its session stays hidden from the sidebar list. */
+     question, so it follows the same path; the last completed card of a
+     session that is CURRENTLY generating counts as a middle card (its real
+     tail is the streaming card), so it forks too; any other (middle) card
+     forks a NEW branch at this card, which joins the SAME document — never a
+     new mind map — and its session stays hidden from the sidebar list. */
   const openCard = useCallback((node) => {
-    if (node === undefined || forking || node.streaming === true) return
+    if (node === undefined || forking) return
+    /* The live streaming card is its session's chain tail (a turn in flight):
+       switch the chat to that session so the user can watch it generate. A
+       switch, never a fork — the unfinished turn has no turn/end seq, so it
+       cannot anchor a branch; the right-click menu stays disabled too (the
+       card is ephemeral UI, not part of the doc). */
+    if (node.streaming === true) { openBranch(node.sessionId); return }
     /* An empty branch card is that session's tail too (parked awaiting a new
        question): follow the same switch-first path as any tail card — open
        the session and keep the map up, so the "当前" badge lights this card
@@ -7570,6 +7580,15 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       : ((doc?.branches ?? []).find(b => String(b?.sessionId) === String(owner))?.turns ?? [])
     const last = chain[chain.length - 1]
     if (last !== undefined && last.seq === node.turn?.seq) {
+      /* Tail card of a session that is CURRENTLY generating: the real chain
+         tail is the streaming card (not part of the doc), so this last
+         completed card is semantically a middle card — click forks a new
+         branch at it instead of switching into the running session (a switch
+         would jump the highlight onto the streaming card). */
+      if (String(owner) === String(runningFamilyId)) {
+        forkBranchAt(owner, node.turn)
+        return
+      }
       /* The owner session is parked at this card: switch to it (stay on the
          mind-map tab so branches are switched freely from the map). */
       openBranch(owner)
@@ -7577,7 +7596,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     }
     /* Middle card (or a card of a session that moved on): fork a new branch. */
     forkBranchAt(owner, node.turn)
-  }, [doc, forking, forkBranchAt, openBranch])
+  }, [doc, forking, runningFamilyId, forkBranchAt, openBranch])
 
   /* Right-click a card: remember WHICH card (not just its session) so the
      menu can rename/archive a branch card or delete any card (the trunk cards
