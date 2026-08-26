@@ -2,7 +2,7 @@
 
 English | [中文](README.md)
 
-This bundle replaces the DeepSeek Harness Web root layout with **three panes from left to right: a left sidebar (session/workspace selector + file-tree view switch) · a highlighted file view and guarded editor · chat**. The file tree no longer owns a pane of its own: it is fused into the left sidebar and toggled against the session list with the buttons at the top of the sidebar. It preserves the existing sidebar, conversation, details, and global-overlay Slot contracts, so the built-in plugins keep owning new-session creation, workspace session lists, settings, chat, tool details, and approvals. Tool details open as a right-side drawer over the three-pane layout instead of consuming a permanent pane. The session header offers a **Mind map** button that enters **mind-map mode** whenever you like: the left area becomes a conversation branch-tree canvas while the chat stays visible and usable on the right.
+This bundle replaces the DeepSeek Harness Web root layout with **three panes from left to right: a left sidebar (session/workspace selector + file-tree view switch) · a highlighted file view and guarded editor · chat**. The file browser pane sits left of the chat by default and can be switched to its right in Workspace Settings → Content Browsing. The file tree no longer owns a pane of its own: it is fused into the left sidebar and toggled against the session list with the buttons at the top of the sidebar. It preserves the existing sidebar, conversation, details, and global-overlay Slot contracts, so the built-in plugins keep owning new-session creation, workspace session lists, settings, chat, tool details, and approvals. Tool details open as a right-side drawer over the three-pane layout instead of consuming a permanent pane. The session header offers a **Mind map** button that enters **mind-map mode** whenever you like: the left area becomes a conversation branch-tree canvas while the chat stays visible and usable on the right.
 
 ## 📸 Screenshots
 
@@ -100,7 +100,7 @@ This bundle replaces the DeepSeek Harness Web root layout with **three panes fro
 ### Appearance & Settings
 
 - Uses Harness semantic theme variables and supports light, dark, and system themes.
-- Workspace settings page: session browsing (the spin speed of the sidebar mind-map entry icon while the map streams, a 0–3x multiplier where larger is faster and the default is 1.5x), tree row height, search result display, file icon badge colors, per-type highlight presets, save-conflict dialog font size, chat font size, and Think auto-expand / collapse delay.
+- Workspace settings page: session browsing (the spin speed of the sidebar mind-map entry icon while the map streams, a 0–3x multiplier where larger is faster and the default is 1.5x), tree row height, search result display, file icon badge colors, per-type highlight presets, save-conflict dialog font size, chat font size, Think auto-expand / collapse delay, and whether the file browser pane sits left or right of the conversation column (default: left).
 - A **Mobile mode** toggle in the sidebar footer (same approach as dsh-mobile-preview) collapses the layout into a centered phone column; the sidebar becomes a floating drawer opened by the whale at the top-left (session list and file tree stay inside it), and a **Browse files** button appears right of the whale in the conversation header to fill the phone column with file browsing while the header stays reachable. Mobile mode is transient, so a reload returns to the desktop layout.
 
 ## 🎨 Syntax Highlighting

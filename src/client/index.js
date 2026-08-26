@@ -41,13 +41,15 @@ const SIDEBAR_DEFAULT = 280, SIDEBAR_COLLAPSED = 56, SIDEBAR_MIN = 240, SIDEBAR_
 const EXPLORER_MAX_RATIO = 0.8
 const TREE_DEFAULT = 280, TREE_MIN = 220, TREE_MAX = 520
 const PREVIEW_DEFAULT = 420, PREVIEW_MIN = 280, PREVIEW_MAX = 760, RESIZE_STEP = 12
-const CONTEXT_MENU_WIDTH = 176, CONTEXT_MENU_HEIGHT = 280
+const CONTEXT_MENU_WIDTH = 176, CONTEXT_MENU_HEIGHT = 280, COMPACT_MENU_HEIGHT = 72
 const ROW_HEIGHT_DEFAULT = 20, ROW_HEIGHT_MIN = 12, ROW_HEIGHT_MAX = 36
 const CHAT_FONT_SIZE_DEFAULT = 16, CHAT_FONT_SIZE_MIN = 13, CHAT_FONT_SIZE_MAX = 20
 /* Save-conflict dialog comparison text size (px); default matches .dsh-ws-conflict-code. */
 const CONFLICT_FONT_SIZE_DEFAULT = 12, CONFLICT_FONT_SIZE_MIN = 6, CONFLICT_FONT_SIZE_MAX = 24
 /* Search-result rows expanded by default (user-tunable in explorer settings). */
 const SEARCH_MATCH_EXPAND_DEFAULT = true
+/* File-browser pane sits on the right side of the conversation column instead of the left (user-tunable). */
+const PREVIEW_RIGHT_DEFAULT = false
 /* Auto-open streaming Think disclosures and close them when done (user-tunable). */
 const AUTO_EXPAND_THINK_DEFAULT = true
 /* Delay (s) before an auto-expanded Think disclosure collapses; user-tunable (0-10 s, 0.1 s steps), manual interaction cancels. */
@@ -301,6 +303,7 @@ const zh = {
   'editor.savedAs': '已保存为 {encoding}。',
   'editor.saveConflict': '保存冲突：文件已在磁盘上被其他工具修改。草稿已保留，请重新读取或选择保留版本。',
   'editor.saveFailed': '保存失败：{message}。草稿已保留。',
+  'editor.saveTypedDuringMerge': '已保存，但保存期间产生了新的输入，已保留在编辑器中，请再次保存。',
   'editor.saveAsFailed': '无法另存为编码：{reason}',
   'editor.cancelRestored': '已取消编辑，已从磁盘重新读取源文件。',
   'editor.cancelFailed': '取消失败：{message}。草稿已保留。',
@@ -396,8 +399,9 @@ const zh = {
   'settings.autoExpandThink': '思考过程自动展开',
   'settings.thinkDelay': '思考收起延迟',
   'settings.thinkDelay.reset.title': '恢复默认收起延迟',
+  'settings.previewRight': '文件浏览页面显示在右侧',
   'settings.resetDefault': '恢复默认',
-  'settings.hint': '会话浏览设置：调整侧栏导图条目流式输出时旋转图标的速度（倍速 0.0×–3.0×，数值越大越快，默认 1.5× 即 1.2 秒一圈，0 表示不旋转）；文件浏览设置：调整左侧文件树的行高、搜索结果显示方式与图标徽标配色；内容浏览设置：为每种文件类型选择编辑器代码高亮预设，并调整保存冲突弹窗中对比文本的字号；对话页面设置：调整对话文字大小，开启思考过程自动展开后，聊天中正在输出的思考内容会自动展开、结束后按设定延迟自动收起（0–10 秒，分度 0.1 秒），期间手动操作可取消；未修改的项使用默认值。',
+  'settings.hint': '会话浏览设置：调整侧栏导图条目流式输出时旋转图标的速度（倍速 0.0×–3.0×，数值越大越快，默认 1.5× 即 1.2 秒一圈，0 表示不旋转）；文件浏览设置：调整左侧文件树的行高、搜索结果显示方式与图标徽标配色；内容浏览设置：为每种文件类型选择编辑器代码高亮预设、调整保存冲突弹窗中对比文本的字号、并可选择是否将文件浏览页面显示在对话页面的右侧；对话页面设置：调整对话文字大小，开启思考过程自动展开后，聊天中正在输出的思考内容会自动展开、结束后按设定延迟自动收起（0–10 秒，分度 0.1 秒），期间手动操作可取消；未修改的项使用默认值。',
   'fileColor.directory': '目录',
   'fileColor.style': '样式',
   'fileColor.log': '日志',
@@ -559,7 +563,10 @@ const zh = {
   'mindmap.view.restoreTitle': '将视图大小与位置还原',
   'mindmap.scope.full': '当前填充模式：全部',
   'mindmap.scope.sidebar': '当前填充模式：仅侧栏',
+  'mindmap.scope.full.right': '当前填充模式：填充右侧',
+  'mindmap.scope.sidebar.right': '当前填充模式：填充左侧',
   'mindmap.scope.title': '切换导图范围：填充（侧边栏 + 文件浏览） / 仅侧边栏',
+  'mindmap.scope.title.right': '切换导图范围：填充左侧（侧边栏） / 填充右侧（文件浏览）',
   'mindmap.noticeFailed': '操作失败：{message}',
   'mindmap.sidebar.empty': '还没有导图会话。点击会话的「导图」标签即可创建。',
   'mindmap.sidebar.branches': '{n} 个分支',
@@ -704,6 +711,7 @@ const en = {
   'editor.savedAs': 'Saved as {encoding}.',
   'editor.saveConflict': 'Save conflict: the file was changed on disk by another tool. Your draft was kept; reload or pick which version to keep.',
   'editor.saveFailed': 'Save failed: {message}. Your draft was kept.',
+  'editor.saveTypedDuringMerge': 'Saved, but new input arrived during the merge; it was kept in the editor — save again.',
   'editor.saveAsFailed': 'Cannot save as encoding: {reason}',
   'editor.cancelRestored': 'Edit canceled; reloaded the source file from disk.',
   'editor.cancelFailed': 'Cancel failed: {message}. Your draft was kept.',
@@ -799,8 +807,9 @@ const en = {
   'settings.autoExpandThink': 'Auto-expand thinking',
   'settings.thinkDelay': 'Think collapse delay',
   'settings.thinkDelay.reset.title': 'Reset collapse delay',
+  'settings.previewRight': 'Show the file browser pane on the right',
   'settings.resetDefault': 'Reset',
-  'settings.hint': 'Session Browsing: adjust the spin speed of the sidebar mind-map entry icon while the map is streaming (a 0.0x–3.0x speed multiplier, larger is faster; the default 1.5x means one 1.2 s revolution, and 0 means no rotation). File Browsing: adjust the tree row height, how search results are shown, and the file icon badge colors. Content Browsing: pick a highlight preset per file type, and adjust the save-conflict dialog comparison text size. Conversation Page Settings: adjust the chat font size; when auto-expand thinking is on, streaming thinking blocks expand automatically and collapse after the configured delay (0–10 s, 0.1 s steps), and manual interaction cancels a pending collapse. Unchanged items use their defaults.',
+  'settings.hint': 'Session Browsing: adjust the spin speed of the sidebar mind-map entry icon while the map is streaming (a 0.0x–3.0x speed multiplier, larger is faster; the default 1.5x means one 1.2 s revolution, and 0 means no rotation). File Browsing: adjust the tree row height, how search results are shown, and the file icon badge colors. Content Browsing: pick a highlight preset per file type, adjust the save-conflict dialog comparison text size, and choose whether the file browser pane sits on the right side of the conversation column. Conversation Page Settings: adjust the chat font size; when auto-expand thinking is on, streaming thinking blocks expand automatically and collapse after the configured delay (0–10 s, 0.1 s steps), and manual interaction cancels a pending collapse. Unchanged items use their defaults.',
   'fileColor.directory': 'Directory',
   'fileColor.style': 'Style',
   'fileColor.log': 'Log',
@@ -962,7 +971,10 @@ const en = {
   'mindmap.view.restoreTitle': 'Reset the view size and position',
   'mindmap.scope.full': 'Current fill mode: Full',
   'mindmap.scope.sidebar': 'Current fill mode: Sidebar only',
+  'mindmap.scope.full.right': 'Current fill mode: Fill right',
+  'mindmap.scope.sidebar.right': 'Current fill mode: Fill left',
   'mindmap.scope.title': 'Toggle mind-map scope: full (sidebar + file browser) / sidebar only',
+  'mindmap.scope.title.right': 'Toggle mind-map scope: fill left (sidebar) / fill right (file browser)',
   'mindmap.noticeFailed': 'Operation failed: {message}',
   'mindmap.sidebar.empty': 'No mind-map sessions yet. Click the "Mind map" tab of a session to create one.',
   'mindmap.sidebar.branches': '{n} branches',
@@ -1080,18 +1092,18 @@ function highlightPresetLabel(id) {
 const styles = `
 .dsh-ws-viewport{position:relative;height:100%;min-width:0;overflow:auto;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary)}
 .dsh-ws-frame{--dsh-ws-sidebar:280px;--dsh-ws-preview:420px;position:relative;display:grid;grid-template-columns:var(--dsh-ws-sidebar) var(--dsh-ws-preview) minmax(0,1fr);grid-template-rows:100%;width:100%;min-width:0;height:100%;overflow:hidden;background:var(--dsw-alias-bg-base);transition:grid-template-columns var(--ds-transition-duration-slow) var(--ds-ease-in-out)}
-.dsh-ws-frame[data-resizing]{transition:none;user-select:none}.dsh-ws-sidebar,.dsh-ws-tree,.dsh-ws-preview,.dsh-ws-chat{min-width:0;height:100%;overflow:hidden}.dsh-ws-sidebar{background:var(--dsw-specific-sidebar-fill);border-right:1px solid var(--dsw-alias-border-l1)}
+.dsh-ws-frame[data-resizing]{transition:none;user-select:none}.dsh-ws-sidebar,.dsh-ws-tree,.dsh-ws-preview,.dsh-ws-chat{min-width:0;height:100%;overflow:hidden}.dsh-ws-sidebar{background:var(--dsw-specific-sidebar-fill);border-right:1px solid var(--dsw-alias-border-l1)}html:not(.dsh-ws-mobile-on) .dsh-ws-frame[data-preview-right]{grid-template-columns:var(--dsh-ws-sidebar) minmax(0,1fr) var(--dsh-ws-preview)}html:not(.dsh-ws-mobile-on) .dsh-ws-frame[data-preview-right] .dsh-ws-sidebar{grid-column:1;grid-row:1}html:not(.dsh-ws-mobile-on) .dsh-ws-frame[data-preview-right] .dsh-ws-chat{grid-column:2;grid-row:1}html:not(.dsh-ws-mobile-on) .dsh-ws-frame[data-preview-right] .dsh-ws-preview{grid-column:3;grid-row:1;border-right:0;border-left:1px solid var(--dsw-alias-border-l2)}
 .dsh-ws-tree,.dsh-ws-preview{display:flex;flex-direction:column;position:relative;background:var(--dsw-alias-bg-layer-1);border-right:1px solid var(--dsw-alias-border-l2)}.dsh-ws-frame[data-explorer-closed] .dsh-ws-tree,.dsh-ws-frame[data-explorer-closed] .dsh-ws-preview{visibility:hidden;pointer-events:none;border-right:0}.dsh-ws-chat{display:flex;flex-direction:column;position:relative;background:var(--dsw-alias-bg-base)}
 .dsh-ws-panel-header{display:flex;align-items:center;gap:8px;min-height:52px;padding:0 12px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);box-sizing:border-box}.dsh-ws-panel-title{min-width:0;display:flex;flex:1;flex-direction:column;gap:2px}.dsh-ws-panel-title strong{overflow:hidden;color:var(--dsw-alias-label-primary);font-size:13px;line-height:18px;text-overflow:ellipsis;white-space:nowrap}.dsh-ws-panel-title>span{overflow:hidden;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:15px;text-overflow:ellipsis;white-space:nowrap}
 /* Preview page top rows (file tabs + active-file name) share the sidebar fill
    so the file browsing page reads as one band with the sidebar. */
-.dsh-ws-preview .dsh-ws-panel-header{background:var(--dsw-specific-sidebar-fill)}
+.dsh-ws-preview .dsh-ws-panel-header{background:var(--dsw-specific-sidebar-fill)}.dsh-ws-preview .dsh-ws-preview-file-header{min-height:26px;gap:4px;padding:0 8px}.dsh-ws-preview-file-path{flex:1;min-width:0;overflow:hidden;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:15px;text-overflow:ellipsis;white-space:nowrap}.dsh-ws-preview-file-header .dsh-ws-icon-button{width:22px;height:22px}.dsh-ws-preview-file-header .dsh-ws-icon-button svg{width:14px;height:14px}.dsh-ws-preview-file-header .dsh-ws-text-button{height:22px;padding:0 6px;font-size:11px}
 .dsh-ws-panel-actions{display:flex;flex:none;align-items:center;gap:2px}.dsh-ws-icon-button,.dsh-ws-text-button{display:inline-flex;align-items:center;justify-content:center;height:30px;padding:0 8px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}.dsh-ws-icon-button{width:30px;padding:0;font-size:18px}.dsh-ws-icon-button svg{display:block;width:16px;height:16px}.dsh-ws-icon-button:hover,.dsh-ws-text-button:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.dsh-ws-icon-button:disabled,.dsh-ws-text-button:disabled{cursor:not-allowed;opacity:.55}
 .dsh-ws-icon-button:focus-visible,.dsh-ws-text-button:focus-visible,.dsh-ws-tree-row:focus-visible,.dsh-ws-preview-tab-button:focus-visible,.dsh-ws-preview-tab-close:focus-visible,.dsh-ws-splitter:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}.dsh-ws-tree-scroll{flex:1;min-height:0;overflow:auto;padding:8px 6px 16px}.dsh-ws-tree-row{display:flex;align-items:center;gap:5px;width:100%;height:var(--dsh-ws-row-height,28px);padding:0 7px 0 calc(7px + var(--dsh-ws-depth,0) * 15px);border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:18px;text-align:left;cursor:pointer;box-sizing:border-box}.dsh-ws-tree-row:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.dsh-ws-tree-row[data-selected]{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary)}.dsh-ws-tree-row:disabled{cursor:not-allowed;opacity:.55}.dsh-ws-tree-row[data-cut]{opacity:.55}
 .dsh-ws-chevron{display:inline-flex;align-items:center;justify-content:center;flex:0 0 12px;color:var(--dsw-alias-label-caption);font-size:10px}.dsh-ws-file-mark{display:inline-flex;align-items:center;justify-content:center;flex:0 0 16px;width:16px;height:16px;border-radius:4px;background:color-mix(in srgb,var(--dsh-ws-file-accent,var(--dsw-alias-label-tertiary)) 16%,transparent);color:var(--dsh-ws-file-accent,var(--dsw-alias-label-tertiary));font-size:8px;font-weight:600;text-transform:uppercase}.dsh-ws-file-mark[data-group='directory']{--dsh-ws-file-accent:var(--dsh-ws-file-directory,#3b82f6)}.dsh-ws-file-mark[data-group='typescript']{--dsh-ws-file-accent:var(--dsh-ws-file-typescript,#3178c6)}.dsh-ws-file-mark[data-group='javascript']{--dsh-ws-file-accent:var(--dsh-ws-file-javascript,#e5c158)}.dsh-ws-file-mark[data-group='json']{--dsh-ws-file-accent:var(--dsh-ws-file-json,#e07a3c)}.dsh-ws-file-mark[data-group='markup']{--dsh-ws-file-accent:var(--dsh-ws-file-markup,#e04a3c)}.dsh-ws-file-mark[data-group='style']{--dsh-ws-file-accent:var(--dsh-ws-file-style,#a855f7)}.dsh-ws-file-mark[data-group='markdown']{--dsh-ws-file-accent:var(--dsh-ws-file-markdown,#12a5a0)}.dsh-ws-file-mark[data-group='log']{--dsh-ws-file-accent:var(--dsh-ws-file-log,#d99a2b)}.dsh-ws-file-mark[data-group='python']{--dsh-ws-file-accent:var(--dsh-ws-file-python,#4b8bb8)}.dsh-ws-file-mark[data-group='shell']{--dsh-ws-file-accent:var(--dsh-ws-file-shell,#22a06b)}.dsh-ws-file-mark[data-group='config']{--dsh-ws-file-accent:var(--dsh-ws-file-config,#8a95a5)}.dsh-ws-file-mark[data-group='c-family']{--dsh-ws-file-accent:var(--dsh-ws-file-c-family,#5a7ba6)}.dsh-ws-file-mark[data-group='csharp']{--dsh-ws-file-accent:var(--dsh-ws-file-csharp,#a25fd0)}.dsh-ws-file-mark[data-group='other']{--dsh-ws-file-accent:var(--dsh-ws-file-other,#9aa3ad)}.dsh-ws-file-mark[data-group='blocked']{--dsh-ws-file-accent:var(--dsh-ws-file-blocked,#e5484d)}.dsh-ws-row-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-ws-symlink{margin-left:auto;color:var(--dsw-alias-label-caption);font-size:10px}.dsh-ws-tree-status{padding:8px 10px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.dsh-ws-tree-status[data-error]{color:var(--dsw-alias-state-error-primary)}.dsh-ws-empty{display:flex;flex:1;min-height:0;align-items:center;justify-content:center;padding:24px;color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:20px;text-align:center}
-.dsh-ws-preview-header-meta{display:flex;align-items:center;gap:6px;min-width:0}.dsh-ws-preview-header-meta>span:not(.dsh-ws-language):not(.dsh-ws-encoding){overflow:hidden;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:15px;text-overflow:ellipsis;white-space:nowrap}.dsh-ws-language{flex:0 0 auto;padding:1px 5px;border-radius:4px;background:var(--dsw-alias-markdown-tag);color:var(--dsw-alias-label-secondary);font-size:9px;font-weight:600;line-height:14px;text-transform:uppercase}.dsh-ws-encoding{flex:0 0 auto;padding:1px 5px;border-radius:4px;background:var(--dsw-alias-markdown-tag);color:var(--dsw-alias-label-secondary);font-size:9px;font-weight:600;line-height:14px;text-transform:uppercase}.dsh-ws-dirty{color:var(--dsw-alias-state-warn-label);font-size:12px}.dsh-ws-preview-tabs{display:flex;align-items:stretch;gap:4px;min-width:0;padding:6px 8px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-specific-sidebar-fill);overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}.dsh-ws-preview-tab{flex:none;display:flex;align-items:center;gap:5px;min-width:0;max-width:220px;height:28px;padding:0 5px 0 9px;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:18px;cursor:grab;box-sizing:border-box;white-space:nowrap}.dsh-ws-preview-tab:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.dsh-ws-preview-tab[data-active]{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary)}.dsh-ws-preview-tab[data-dragging]{opacity:.7}.dsh-ws-preview-drop-indicator{flex:none;width:3px;height:20px;border-radius:2px;background:var(--dsw-alias-state-business-primary);align-self:center;pointer-events:none}.dsh-ws-preview-tab-button{display:flex;flex:1;align-items:center;gap:5px;min-width:0;height:100%;padding:0;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}.dsh-ws-preview-tab-name{min-width:0;overflow:hidden;text-overflow:ellipsis}.dsh-ws-preview-tab-close{flex:none;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border:0;border-radius:4px;background:transparent;color:inherit;font-size:14px;line-height:1;cursor:pointer}.dsh-ws-preview-tab-close:hover{background:var(--dsw-alias-interactive-bg-hover-danger);color:var(--dsw-alias-state-error-primary)}.dsh-ws-preview-tab-close:disabled{cursor:not-allowed;opacity:.45}.dsh-ws-preview-body{position:relative;flex:1;min-height:0;overflow:hidden;background:var(--dsw-alias-markdown-code-block)}.dsh-ws-editor-host{height:100%;min-width:0}.dsh-ws-editor-host .cm-editor{height:100%;background:var(--dsw-alias-markdown-code-block);color:var(--dsw-alias-label-primary)}.dsh-ws-editor-host .cm-scroller{font-family:var(--dsw-font-family-code,ui-monospace,SFMono-Regular,Consolas,monospace);font-size:12px;line-height:19px;overflow:auto}.dsh-ws-editor-host .cm-gutters{background:var(--dsw-alias-markdown-code-block-banner);color:var(--dsw-alias-label-caption);border-right:1px solid var(--dsw-alias-border-l2)}.dsh-ws-editor-host .cm-activeLine,.dsh-ws-editor-host .cm-activeLineGutter{background:var(--dsw-alias-interactive-bg-hover)}.dsh-ws-editor-host .cm-selectionBackground,.dsh-ws-editor-host .cm-content ::selection{background:var(--dsw-alias-interactive-bg-active)!important}.dsh-ws-editor-host .cm-cursor{border-left-color:var(--dsw-alias-label-primary)}.dsh-ws-editor-host .cm-foldPlaceholder{background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary)}.dsh-ws-editor-host .cm-panels{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}.dsh-ws-editor-host .cm-panel input{background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary)}
+.dsh-ws-preview-header-meta{display:flex;align-items:center;gap:6px;min-width:0}.dsh-ws-preview-header-meta>span:not(.dsh-ws-language):not(.dsh-ws-encoding){overflow:hidden;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:15px;text-overflow:ellipsis;white-space:nowrap}.dsh-ws-language{flex:0 0 auto;padding:1px 5px;border-radius:4px;background:var(--dsw-alias-markdown-tag);color:var(--dsw-alias-label-secondary);font-size:9px;font-weight:600;line-height:14px;text-transform:uppercase}.dsh-ws-encoding{flex:0 0 auto;padding:1px 5px;border-radius:4px;background:var(--dsw-alias-markdown-tag);color:var(--dsw-alias-label-secondary);font-size:9px;font-weight:600;line-height:14px;text-transform:uppercase}.dsh-ws-dirty{color:var(--dsw-alias-state-warn-label);font-size:12px}.dsh-ws-preview-tabs{display:flex;align-items:stretch;gap:0;min-width:0;height:29px;padding:0;box-sizing:border-box;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-specific-sidebar-fill);overflow-x:auto;overflow-y:hidden}.dsh-ws-preview-tab{flex:none;display:flex;align-items:center;gap:5px;min-width:0;max-width:220px;padding:0 5px 0 9px;border-radius:0;border:1px solid transparent;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:18px;cursor:grab;box-sizing:border-box;white-space:nowrap}.dsh-ws-preview-tab:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.dsh-ws-preview-tab[data-active]{border-bottom:2px solid var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 7%,transparent);color:var(--dsw-alias-state-business-primary)}.dsh-ws-preview-tab[data-dragging]{opacity:.7}.dsh-ws-preview-tabs::-webkit-scrollbar{height:0;background:transparent}@supports not selector(::-webkit-scrollbar){.dsh-ws-preview-tabs{scrollbar-width:none}}.dsh-ws-preview-scrollbar{position:absolute;top:29px;left:0;right:0;height:4px;border-radius:2px;opacity:0;pointer-events:none;transition:opacity var(--ds-transition-duration-fast) var(--ds-ease-in-out);touch-action:none;z-index:3}.dsh-ws-preview-scrollbar[data-visible='true']{opacity:1;pointer-events:auto}.dsh-ws-preview-scrollbar-thumb{height:100%;min-width:24px;border-radius:2px;background:var(--dsw-alias-scrollbar-bg-l1)}.dsh-ws-preview-scrollbar-thumb:hover{background:var(--dsw-alias-scrollbar-hover-l1)}.dsh-ws-preview-drop-indicator{flex:none;width:3px;height:20px;border-radius:2px;background:var(--dsw-alias-state-business-primary);align-self:center;pointer-events:none}.dsh-ws-preview-tab-button{display:flex;flex:1;align-items:center;gap:5px;min-width:0;height:100%;padding:0;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}.dsh-ws-preview-tab-name{min-width:0;overflow:hidden;text-overflow:ellipsis}.dsh-ws-preview-tab-close{flex:none;display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border:0;border-radius:2px;background:transparent;color:inherit;font-size:14px;line-height:1;cursor:pointer}.dsh-ws-preview-tab-close svg{display:block;flex:none;width:16px;height:16px}.dsh-ws-preview-tab-close:hover{background:var(--dsw-alias-interactive-bg-hover-danger);color:var(--dsw-alias-state-error-primary)}.dsh-ws-preview-tab-close:disabled{cursor:not-allowed;opacity:.45}.dsh-ws-preview-body{position:relative;flex:1;min-height:0;overflow:hidden;background:var(--dsw-alias-markdown-code-block)}.dsh-ws-editor-host{height:100%;min-width:0}.dsh-ws-editor-host .cm-editor{height:100%;background:var(--dsw-alias-markdown-code-block);color:var(--dsw-alias-label-primary)}.dsh-ws-editor-host .cm-scroller{font-family:var(--dsw-font-family-code,ui-monospace,SFMono-Regular,Consolas,monospace);font-size:12px;line-height:19px;overflow:auto}.dsh-ws-editor-host .cm-gutters{background:var(--dsw-alias-markdown-code-block-banner);color:var(--dsw-alias-label-caption);border-right:1px solid var(--dsw-alias-border-l2)}.dsh-ws-editor-host .cm-activeLine,.dsh-ws-editor-host .cm-activeLineGutter{background:var(--dsw-alias-interactive-bg-hover)}.dsh-ws-editor-host .cm-selectionBackground,.dsh-ws-editor-host .cm-content ::selection{background:var(--dsw-alias-interactive-bg-active)!important}.dsh-ws-editor-host .cm-cursor{border-left-color:var(--dsw-alias-label-primary)}.dsh-ws-editor-host .cm-foldPlaceholder{background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary)}.dsh-ws-editor-host .cm-panels{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}.dsh-ws-editor-host .cm-panel input{background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary)}
 .dsh-ws-context-row{box-sizing:border-box;display:flex;align-items:center;gap:8px;flex:none;width:min(var(--dsh-composer-card-max-width),max(0px,calc(100% - (var(--dsh-composer-side-clearance) * 2))));margin:0 auto;padding:0}.dsh-ws-context-prefix{display:flex;flex:1;align-items:center;gap:6px;min-width:0;min-height:28px;padding:5px 8px 5px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:22px;background:var(--dsw-specific-input-major);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:16px;text-align:left;cursor:pointer}.dsh-ws-context-prefix:hover{color:var(--dsw-alias-label-primary)}.dsh-ws-context-prefix:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}.dsh-ws-context-prefix[data-inactive]{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-caption);filter:grayscale(1)}.dsh-ws-context-prefix-mark{flex:none;font-size:12px}.dsh-ws-context-prefix-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-ws-message-context-summary{box-sizing:border-box;display:flex;align-items:center;align-self:flex-end;gap:6px;max-width:100%;min-height:24px;padding:3px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:22px;background:var(--dsw-specific-input-major);color:var(--dsw-alias-label-secondary);font-size:11px;line-height:16px}.dsh-ws-message-context-summary-mark{flex:none;font-size:12px}.dsh-ws-message-context-summary-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-ws-message-context-summary-range{flex:none;color:var(--dsw-alias-label-caption)}.dsh-ws-message-context-bubble[data-dsh-ws-empty-prompt]{display:none}
-.dsh-ws-banner{padding:7px 12px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-state-warn-tertiary);color:var(--dsw-alias-state-warn-label);font-size:11px;line-height:16px}.dsh-ws-banner-actions{display:flex;gap:6px;margin-top:5px}.dsh-ws-status{flex:none;box-sizing:border-box;width:100%;padding:4px 12px;border-top:1px solid var(--dsw-alias-border-l2);background:var(--dsw-specific-sidebar-fill);color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;text-align:right}.dsh-ws-status[data-error]{color:var(--dsw-alias-state-error-primary)}.dsh-ws-error-card{max-width:300px;padding:14px 16px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:19px;text-align:left}.dsh-ws-dialog-backdrop{position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;padding:20px;background:var(--dsw-alias-bg-mask-1,rgba(0,0,0,.38));box-sizing:border-box}.dsh-ws-dialog{width:min(360px,100%);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-elevated,0 12px 36px rgba(0,0,0,.24));box-sizing:border-box}.dsh-ws-dialog-header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-bottom:1px solid var(--dsw-alias-border-l2)}.dsh-ws-dialog-title{min-width:0;overflow:hidden;color:var(--dsw-alias-label-primary);font-size:13px;font-weight:600;line-height:18px;text-overflow:ellipsis;white-space:nowrap}.dsh-ws-dialog-body{display:flex;flex-direction:column;gap:8px;padding:14px}.dsh-ws-dialog-input{width:100%;height:32px;padding:0 9px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;box-sizing:border-box}.dsh-ws-dialog-input:focus{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}.dsh-ws-dialog-error{color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px}.dsh-ws-dialog-message{color:var(--dsw-alias-label-primary);font-size:13px;line-height:20px}.dsh-ws-dialog-warning{color:var(--dsw-alias-state-warn-label);font-size:12px;line-height:18px}.dsh-ws-danger-button{color:var(--dsw-alias-state-error-primary)}.dsh-ws-dialog-footer{display:flex;justify-content:flex-end;gap:8px;padding:0 14px 14px}.dsh-ws-conflict-region{display:flex;flex-direction:column;gap:8px;min-height:0}.dsh-ws-conflict-region-title{display:flex;align-items:center;gap:8px;color:var(--dsw-alias-state-warn-label);font-size:12px;line-height:18px}.dsh-ws-conflict-cols{display:grid;grid-template-columns:1fr 1fr;gap:8px;min-height:0;flex:1}.dsh-ws-conflict-cols-final{border-top:1px solid var(--dsw-alias-border-l2);padding-top:8px}.dsh-ws-conflict-col{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;border:1px solid var(--dsw-alias-border-l2);border-radius:6px}.dsh-ws-conflict-col-label{padding:4px 8px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}.dsh-ws-conflict-mine .dsh-ws-conflict-col-label{color:var(--dsw-alias-state-warn-label)}.dsh-ws-conflict-theirs .dsh-ws-conflict-col-label{color:var(--dsw-alias-state-business-primary)}.dsh-ws-conflict-code{margin:0;min-height:0;flex:1;overflow:auto;padding:10px;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-mono,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace);font-size:var(--dsh-ws-conflict-font-size,12px);line-height:20px;white-space:pre;box-sizing:border-box}.dsh-ws-inline-add{color:var(--dsw-alias-state-success-primary);background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 14%,transparent);border-radius:3px;box-decoration-break:clone;-webkit-box-decoration-break:clone}.dsh-ws-inline-del{color:var(--dsw-alias-state-error-primary);text-decoration:line-through;text-decoration-thickness:1.5px;background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 12%,transparent);border-radius:3px;opacity:.9;box-decoration-break:clone;-webkit-box-decoration-break:clone}.dsh-ws-conflict-code-row{display:inline;border-radius:3px;box-decoration-break:clone;-webkit-box-decoration-break:clone}.dsh-ws-conflict-code-row[data-kind='add']{background:color-mix(in srgb,var(--dsw-alias-label-secondary) 16%,transparent)}.dsh-ws-conflict-mine .dsh-ws-conflict-code-row[data-kind='add']{background:color-mix(in srgb,var(--dsw-alias-state-warn-label) 20%,transparent);color:var(--dsw-alias-state-warn-label)}.dsh-ws-conflict-theirs .dsh-ws-conflict-code-row[data-kind='add']{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 20%,transparent);color:var(--dsw-alias-state-business-primary)}.dsh-ws-conflict-code-row[data-kind='del']{color:var(--dsw-alias-state-error-primary);text-decoration:line-through;text-decoration-thickness:1.5px;background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,transparent);opacity:.85}.dsh-ws-conflict-dialog{width:66vw;max-width:66vw;max-height:min(90vh,1000px);display:flex;flex-direction:column}.dsh-ws-conflict-dialog .dsh-ws-dialog-body{flex:1;min-height:0;overflow:auto}.dsh-ws-conflict-progress{margin-left:8px;padding:0 6px;border-radius:6px;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);font-size:11px;font-weight:600;line-height:18px;white-space:nowrap}
+.dsh-ws-banner{padding:7px 12px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-state-warn-tertiary);color:var(--dsw-alias-state-warn-label);font-size:11px;line-height:16px}.dsh-ws-banner-actions{display:flex;gap:6px;margin-top:5px}.dsh-ws-status{flex:none;display:flex;align-items:center;gap:8px;min-width:0;box-sizing:border-box;width:100%;padding:3px 12px;border-top:1px solid var(--dsw-alias-border-l2);background:var(--dsw-specific-sidebar-fill);color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}.dsh-ws-preview-status-actions{flex:none;display:flex;align-items:center;gap:2px;min-width:0}.dsh-ws-preview-status-actions .dsh-ws-text-button{height:22px;padding:0 6px;font-size:11px}.dsh-ws-preview-status-meta{flex:none;display:flex;align-items:center;gap:6px;min-width:0}.dsh-ws-preview-status-meta>span:not(.dsh-ws-language):not(.dsh-ws-encoding){overflow:hidden;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:15px;text-overflow:ellipsis;white-space:nowrap}.dsh-ws-preview-status-msg{flex:1;min-width:0;overflow:hidden;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;text-align:right;text-overflow:ellipsis;white-space:nowrap}.dsh-ws-preview-status-msg[data-error]{color:var(--dsw-alias-state-error-primary)}.dsh-ws-error-card{max-width:300px;padding:14px 16px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:19px;text-align:left}.dsh-ws-dialog-backdrop{position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;padding:20px;background:var(--dsw-alias-bg-mask-1,rgba(0,0,0,.38));box-sizing:border-box}.dsh-ws-dialog{width:min(360px,100%);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-elevated,0 12px 36px rgba(0,0,0,.24));box-sizing:border-box}.dsh-ws-dialog-header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-bottom:1px solid var(--dsw-alias-border-l2)}.dsh-ws-dialog-title{min-width:0;overflow:hidden;color:var(--dsw-alias-label-primary);font-size:13px;font-weight:600;line-height:18px;text-overflow:ellipsis;white-space:nowrap}.dsh-ws-dialog-body{display:flex;flex-direction:column;gap:8px;padding:14px}.dsh-ws-dialog-input{width:100%;height:32px;padding:0 9px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;box-sizing:border-box}.dsh-ws-dialog-input:focus{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}.dsh-ws-dialog-error{color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px}.dsh-ws-dialog-message{color:var(--dsw-alias-label-primary);font-size:13px;line-height:20px}.dsh-ws-dialog-warning{color:var(--dsw-alias-state-warn-label);font-size:12px;line-height:18px}.dsh-ws-danger-button{color:var(--dsw-alias-state-error-primary)}.dsh-ws-dialog-footer{display:flex;justify-content:flex-end;gap:8px;padding:0 14px 14px}.dsh-ws-conflict-region{display:flex;flex-direction:column;gap:8px;min-height:0}.dsh-ws-conflict-region-title{display:flex;align-items:center;gap:8px;color:var(--dsw-alias-state-warn-label);font-size:12px;line-height:18px}.dsh-ws-conflict-cols{display:grid;grid-template-columns:1fr 1fr;gap:8px;min-height:0;flex:1}.dsh-ws-conflict-cols-final{border-top:1px solid var(--dsw-alias-border-l2);padding-top:8px}.dsh-ws-conflict-col{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;border:1px solid var(--dsw-alias-border-l2);border-radius:6px}.dsh-ws-conflict-col-label{padding:4px 8px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}.dsh-ws-conflict-mine .dsh-ws-conflict-col-label{color:var(--dsw-alias-state-warn-label)}.dsh-ws-conflict-theirs .dsh-ws-conflict-col-label{color:var(--dsw-alias-state-business-primary)}.dsh-ws-conflict-code{margin:0;min-height:0;flex:1;overflow:auto;padding:10px;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-mono,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace);font-size:var(--dsh-ws-conflict-font-size,12px);line-height:20px;white-space:pre;box-sizing:border-box}.dsh-ws-inline-add{color:var(--dsw-alias-state-success-primary);background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 14%,transparent);border-radius:3px;box-decoration-break:clone;-webkit-box-decoration-break:clone}.dsh-ws-inline-del{color:var(--dsw-alias-state-error-primary);text-decoration:line-through;text-decoration-thickness:1.5px;background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 12%,transparent);border-radius:3px;opacity:.9;box-decoration-break:clone;-webkit-box-decoration-break:clone}.dsh-ws-conflict-code-row{display:inline;border-radius:3px;box-decoration-break:clone;-webkit-box-decoration-break:clone}.dsh-ws-conflict-code-row[data-kind='add']{background:color-mix(in srgb,var(--dsw-alias-label-secondary) 16%,transparent)}.dsh-ws-conflict-mine .dsh-ws-conflict-code-row[data-kind='add']{background:color-mix(in srgb,var(--dsw-alias-state-warn-label) 20%,transparent);color:var(--dsw-alias-state-warn-label)}.dsh-ws-conflict-theirs .dsh-ws-conflict-code-row[data-kind='add']{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 20%,transparent);color:var(--dsw-alias-state-business-primary)}.dsh-ws-conflict-code-row[data-kind='del']{color:var(--dsw-alias-state-error-primary);text-decoration:line-through;text-decoration-thickness:1.5px;background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,transparent);opacity:.85}.dsh-ws-conflict-dialog{width:66vw;max-width:66vw;max-height:min(90vh,1000px);display:flex;flex-direction:column}.dsh-ws-conflict-dialog .dsh-ws-dialog-body{flex:1;min-height:0;overflow:auto}.dsh-ws-conflict-progress{margin-left:8px;padding:0 6px;border-radius:6px;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);font-size:11px;font-weight:600;line-height:18px;white-space:nowrap}
 .dsh-ws-frame [data-slot='sidebar.footer.action']{display:flex!important;flex-direction:column;align-items:stretch;width:100%;min-width:0}
 .dsh-ws-splitter{position:absolute;top:0;bottom:0;z-index:8;width:8px;margin-left:-4px;border:0;background:transparent;cursor:col-resize;touch-action:none}.dsh-ws-splitter::after{content:'';position:absolute;top:0;bottom:0;left:3px;width:2px;background:transparent;transition:background var(--ds-transition-duration-fast) var(--ds-ease-in-out)}.dsh-ws-splitter:hover::after,.dsh-ws-splitter[data-dragging]::after,.dsh-ws-splitter:focus-visible::after{background:var(--dsw-alias-state-business-primary)}.dsh-ws-details{position:absolute;z-index:16;top:0;right:0;bottom:0;width:min(440px,45vw);overflow:hidden;border-left:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-elevated,0 12px 36px var(--dsw-alias-bg-mask-1));transform:translateX(0);opacity:1;transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out),opacity var(--ds-transition-duration-fast) var(--ds-ease-in-out)}.dsh-ws-details[data-closed]{pointer-events:none;visibility:hidden;transform:translateX(100%);opacity:0}.dsh-ws-overlay{position:absolute;inset:0;z-index:20;pointer-events:none}.dsh-ws-overlay>*{pointer-events:auto}.dsh-ws-tree{position:relative}.dsh-ws-context-menu{position:fixed;z-index:40;min-width:168px;padding:6px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-elevated,0 12px 36px rgba(0,0,0,.24));box-sizing:border-box}.dsh-ws-context-item{display:block;width:100%;height:30px;padding:0 10px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:30px;text-align:left;cursor:pointer;box-sizing:border-box}.dsh-ws-context-item:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.dsh-ws-context-item-danger{color:var(--dsw-alias-state-error-primary)}.dsh-ws-context-item-danger:hover{color:var(--dsw-alias-state-error-primary)}.dsh-ws-context-item:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}.dsh-ws-context-item:disabled{cursor:not-allowed;opacity:.5}.dsh-ws-context-item:disabled:hover{background:transparent;color:var(--dsw-alias-label-primary)}.dsh-ws-context-separator{height:1px;margin:4px 0;border:0;background:var(--dsw-alias-border-l2)}.dsh-ws-copy-notice{position:absolute;right:10px;bottom:10px;z-index:12;padding:5px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-size:11px;line-height:16px;box-shadow:var(--dsw-shadow-elevated,0 4px 12px rgba(0,0,0,.18))}@media(prefers-reduced-motion:reduce){.dsh-ws-frame,.dsh-ws-details,.dsh-ws-splitter::after{transition:none}}
 .dsh-ws-search-header{flex-direction:column;align-items:stretch;gap:8px;padding:8px}
@@ -1131,7 +1143,7 @@ const styles = `
 .dsh-ws-chat [data-chat-flow-kind='assistant-step'] li:not(:first-child){margin-top:calc(4px * var(--dsh-ws-chat-font-scale,1))}
 .dsh-ws-chat [data-chat-flow-kind='assistant-step'] li > p{margin:calc(6px * var(--dsh-ws-chat-font-scale,1)) 0}
 .dsh-ws-preview-tab-close[data-pinned]{color:var(--dsw-alias-state-business-primary);width:22px;height:22px}
-.dsh-ws-preview-tab-close[data-pinned] svg{display:block;width:18px;height:18px}
+.dsh-ws-preview-tab-close[data-pinned] svg{display:block;width:16px;height:16px;transform:translateY(1px) rotate(-45deg)}
 .dsh-ws-highlight-preset-select{flex:1;min-width:0;height:30px;padding:0 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;box-sizing:border-box}.dsh-ws-highlight-preset-select:focus{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}
 .dsh-ws-editor-host[data-highlight-preset='classic']{--shiki-token-constant:#0451a5;--shiki-token-string:#a31515;--shiki-token-comment:#008000;--shiki-token-keyword:#0000ff;--shiki-token-parameter:#001080;--shiki-token-function:#795e26;--shiki-token-string-expression:#a31515;--shiki-token-punctuation:#000000;--shiki-token-link:#0000ff}
 body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='classic']{--shiki-token-constant:#4ec9b0;--shiki-token-string:#ce9178;--shiki-token-comment:#6a9955;--shiki-token-keyword:#569cd6;--shiki-token-parameter:#9cdcfe;--shiki-token-function:#dcdcaa;--shiki-token-string-expression:#ce9178;--shiki-token-punctuation:#d4d4d4;--shiki-token-link:#569cd6}
@@ -1343,9 +1355,11 @@ html.dsh-ws-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal=
 html.dsh-ws-mobile-on .dsh-ws-mindmap-scope-toggle{display:none}
 .dsh-ws-mindmap-viewport{position:relative;flex:1;min-height:0;overflow:hidden;cursor:grab;touch-action:none}
 .dsh-ws-mindmap-viewport[data-dragging]{cursor:grabbing;user-select:none}
-/* The floating mind-map window: everything left of the chat column (width =
-   100% - chat width, tracked live), the chat stays visible on the right. */
-.dsh-ws-mindmap-overlay{position:fixed;top:0;bottom:0;left:0;z-index:30;display:flex;flex-direction:column;min-width:0;background:var(--dsw-alias-bg-layer-1);border-right:1px solid var(--dsw-alias-border-l2);box-shadow:var(--dsw-shadow-elevated,0 12px 36px rgba(0,0,0,.24))}
+/* The floating mind-map window: by default everything left of the chat column
+   (width = 100% - chat width, tracked live), the chat stays visible on the
+   right; with the file browser on the right, data-side='right' anchors the
+   window over the file browser instead. */
+.dsh-ws-mindmap-overlay{position:fixed;top:0;bottom:0;left:0;z-index:30;display:flex;flex-direction:column;min-width:0;background:var(--dsw-alias-bg-layer-1);border-right:1px solid var(--dsw-alias-border-l2);box-shadow:var(--dsw-shadow-elevated,0 12px 36px rgba(0,0,0,.24))}.dsh-ws-mindmap-overlay[data-side='right']{left:auto;right:0;border-right:0;border-left:1px solid var(--dsw-alias-border-l2)}
 .dsh-ws-mindmap-overlay .dsh-ws-mindmap{flex:1;min-height:0;padding-bottom:14px}
 .dsh-ws-mindmap-overlay-close{position:absolute;top:10px;right:10px;z-index:2;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0 0 2px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:16px;line-height:1;cursor:pointer;box-sizing:border-box}
 .dsh-ws-mindmap-overlay-close:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
@@ -2241,6 +2255,7 @@ function createExplorerSettingsStore() {
       mindmapSpinSpeed: MINDMAP_SPIN_SPEED_DEFAULT_X,
       fileColors: {},
       highlightPresets: {},
+      previewRight: PREVIEW_RIGHT_DEFAULT,
     }),
     persist: EXPLORER_SETTINGS_STORE_KEY,
     actions: {
@@ -2278,6 +2293,7 @@ function createExplorerSettingsStore() {
       },
       resetHighlightPreset: (draft, group) => { if (draft.highlightPresets !== undefined) delete draft.highlightPresets[group] },
       resetHighlightPresets: (draft) => { draft.highlightPresets = {} },
+      setPreviewRight: (draft, value) => { draft.previewRight = Boolean(value) },
     },
   })
 }
@@ -3727,7 +3743,9 @@ function IconRefresh(){return h('svg',{'aria-hidden':true,fill:'none',stroke:'cu
 function IconNewFile(){return h('svg',{'aria-hidden':true,fill:'none',viewBox:'0 0 16 16'},h('path',{d:'M4 1.8h5.4L13 5.4v8.8H4z',stroke:'currentColor',strokeLinejoin:'round',strokeWidth:1.3}),h('path',{d:'M9.2 1.8v3.8H13M8.5 7.4v4.2M6.4 9.5h4.2',stroke:'currentColor',strokeLinecap:'round',strokeLinejoin:'round',strokeWidth:1.3}))}
 function IconNewFolder(){return h('svg',{'aria-hidden':true,fill:'none',viewBox:'0 0 16 16'},h('path',{d:'M1.8 4.3h4l1.2 1.4h7.2v6.8a1.2 1.2 0 0 1-1.2 1.2H3a1.2 1.2 0 0 1-1.2-1.2z',stroke:'currentColor',strokeLinejoin:'round',strokeWidth:1.3}),h('path',{d:'M8 7.5v3.8M6.1 9.4h3.8',stroke:'currentColor',strokeLinecap:'round',strokeWidth:1.3}))}
 function IconSearch(){return h('svg',{'aria-hidden':true,fill:'none',viewBox:'0 0 16 16'},h('circle',{cx:6.9,cy:6.9,r:4.4,stroke:'currentColor',strokeWidth:1.3}),h('path',{d:'M10.3 10.3 14 14',stroke:'currentColor',strokeLinecap:'round',strokeWidth:1.3}))}
-function IconPin(){return h('svg',{'aria-hidden':true,fill:'none',stroke:'currentColor',strokeLinecap:'round',strokeLinejoin:'round',strokeWidth:1.8,viewBox:'5 2 14 19'},h('line',{x1:12,x2:12,y1:17,y2:21}),h('path',{d:'M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z'}))}
+function IconCloseWin10(){return h('svg',{'aria-hidden':true,fill:'none',stroke:'currentColor',strokeLinecap:'square',strokeWidth:1.75,viewBox:'0 0 16 16'},h('path',{d:'M3.5 3.5L12.5 12.5M12.5 3.5L3.5 12.5'}))}
+// VS Code codicon "pin" — official path from microsoft/vscode-codicons.
+function IconPinVscode(){return h('svg',{'aria-hidden':true,fill:'currentColor',viewBox:'0 0 16 16'},h('path',{d:'M13.5 3C13.303 3 13.109 3.038 12.923 3.114L8.481 4.967L5.659 4.026C5.505 3.976 5.339 4.001 5.209 4.095C5.078 4.189 5.001 4.339 5.001 4.5V7H1.257L0.5 7.5L1.257 8H5V10.5C5 10.661 5.077 10.812 5.208 10.905C5.338 11 5.504 11.023 5.658 10.974L8.48 10.033L12.925 11.887C13.109 11.962 13.302 12 13.499 12C14.326 12 14.999 11.327 14.999 10.5V4.5C14.999 3.673 14.326 3 13.499 3H13.5ZM14 10.5C14 10.843 13.615 11.09 13.308 10.962L8.693 9.038C8.631 9.013 8.566 9 8.501 9C8.447 9 8.395 9.009 8.343 9.025L6.001 9.806V5.193L8.343 5.974C8.457 6.011 8.581 6.007 8.694 5.961L13.306 4.038C13.629 3.902 14.001 4.156 14.001 4.499V10.499L14 10.5Z'}))}
 function IconFolder(){return h('svg',{'aria-hidden':true,fill:'none',viewBox:'0 0 16 16'},h('path',{d:'M1.8 4.3h4l1.2 1.4h7.2v6.8a1.2 1.2 0 0 1-1.2 1.2H3a1.2 1.2 0 0 1-1.2-1.2z',stroke:'currentColor',strokeLinejoin:'round',strokeWidth:1.3}))}
 function IconSessionList(){return h('svg',{'aria-hidden':true,fill:'none',viewBox:'0 0 16 16'},h('path',{d:'M2.5 3.2h11M2.5 8h11M2.5 12.8h7',stroke:'currentColor',strokeLinecap:'round',strokeWidth:1.3}))}
 /* The sidebar's two-button segment replacing the harness New Session button:
@@ -3759,7 +3777,7 @@ function SidebarTopActions({ collapsed, view, width, onSelectSessions, onSelectF
   )
 }
 
-function ResizeHandle({label,left,value,min,max,onResize,onDragging}){const[dragging,setDragging]=useState(false),origin=useRef(0),base=useRef(0);const start=useCallback(e=>{e.preventDefault();e.currentTarget.setPointerCapture(e.pointerId);origin.current=e.clientX;base.current=value;setDragging(true);onDragging(true)},[onDragging,value]);const move=useCallback(e=>{if(e.currentTarget.hasPointerCapture(e.pointerId))onResize(clamp(base.current+e.clientX-origin.current,min,max))},[max,min,onResize]);const end=useCallback(e=>{if(!e.currentTarget.hasPointerCapture(e.pointerId))return;e.currentTarget.releasePointerCapture(e.pointerId);onResize(clamp(base.current+e.clientX-origin.current,min,max));setDragging(false);onDragging(false)},[max,min,onDragging,onResize]);return h('div',{'aria-label':label,'aria-orientation':'vertical','aria-valuemax':max,'aria-valuemin':min,'aria-valuenow':value,className:'dsh-ws-splitter','data-dragging':dragging||undefined,onKeyDown:e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();onResize(clamp(value+(e.key==='ArrowLeft'?-RESIZE_STEP:RESIZE_STEP),min,max))}},onLostPointerCapture:()=>{setDragging(false);onDragging(false)},onPointerCancel:end,onPointerDown:start,onPointerMove:move,onPointerUp:end,role:'separator',style:{left},tabIndex:0})}
+function ResizeHandle({label,left,value,min,max,onResize,onDragging,invert}){const sign=invert?-1:1;const[dragging,setDragging]=useState(false),origin=useRef(0),base=useRef(0);const start=useCallback(e=>{e.preventDefault();e.currentTarget.setPointerCapture(e.pointerId);origin.current=e.clientX;base.current=value;setDragging(true);onDragging(true)},[onDragging,value]);const move=useCallback(e=>{if(e.currentTarget.hasPointerCapture(e.pointerId))onResize(clamp(base.current+sign*(e.clientX-origin.current),min,max))},[max,min,onResize,sign]);const end=useCallback(e=>{if(!e.currentTarget.hasPointerCapture(e.pointerId))return;e.currentTarget.releasePointerCapture(e.pointerId);onResize(clamp(base.current+sign*(e.clientX-origin.current),min,max));setDragging(false);onDragging(false)},[max,min,onDragging,onResize,sign]);return h('div',{'aria-label':label,'aria-orientation':'vertical','aria-valuemax':max,'aria-valuemin':min,'aria-valuenow':value,className:'dsh-ws-splitter','data-dragging':dragging||undefined,onKeyDown:e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();onResize(clamp(value+sign*(e.key==='ArrowLeft'?-RESIZE_STEP:RESIZE_STEP),min,max))}},onLostPointerCapture:()=>{setDragging(false);onDragging(false)},onPointerCancel:end,onPointerDown:start,onPointerMove:move,onPointerUp:end,role:'separator',style:{left},tabIndex:0})}
 function HeaderAction({action}){return h('button',{'aria-label':action.label,className:'dsh-ws-icon-button','data-active':action.active||undefined,disabled:action.disabled||undefined,onClick:action.onClick,title:action.title??action.label,type:'button'},action.icon)}
 function PanelHeader({title,subtitle,action,actionLabel,actions=[],onContextMenu}){const items=[...actions];if(action)items.push({label:actionLabel,onClick:action,icon:h(IconRefresh)});return h('header',{className:'dsh-ws-panel-header'},h('div',{className:'dsh-ws-panel-title',onContextMenu},h('strong',{title},title),subtitle?h('span',{title:subtitle},subtitle):null),items.length?h('div',{className:'dsh-ws-panel-actions'},items.map(item=>h(HeaderAction,{action:item,key:item.label}))):null)}
 /* Memoized: the tree re-renders when tabs change (typing, tab drags), but a
@@ -3774,9 +3792,9 @@ const TreeRow = memo(function TreeRow({entry,depth,expanded,selected,cut,onConte
 function TreeRenameRow({busy,depth,entry,expanded,error,onCancel,onConfirm,onDraft,value}){const composingRef=useRef(false),inputRef=useRef(null);const directory=entry.kind==='directory',label=directory?'dir':fileLabel(entry.name);useEffect(()=>{const input=inputRef.current;if(input!==null){input.focus();input.select()}},[]);return h('div',{className:'dsh-ws-tree-rename',style:{'--dsh-ws-depth':depth}},h('div',{className:'dsh-ws-tree-rename-row'},h('span',{className:'dsh-ws-chevron'},directory?(expanded?'▼':'▶'):''),h('span',{className:'dsh-ws-file-mark','data-kind':entry.kind,'data-group':colorGroupOf(entry)},label.slice(0,3)),h('input',{'aria-label':translate('dialog.name'),autoFocus:true,className:'dsh-ws-tree-rename-input',disabled:busy,onBlur:()=>{if(!busy)onCancel()},onChange:event=>onDraft(event.target.value),onCompositionEnd:()=>{composingRef.current=false},onCompositionStart:()=>{composingRef.current=true},onKeyDown:event=>{if(event.key==='Escape'){event.preventDefault();if(!busy)onCancel()}else if(event.key==='Enter'&&!composingRef.current){event.preventDefault();if(value.trim()===entry.name){onCancel();return}onConfirm()}},ref:inputRef,value})),error?h('div',{className:'dsh-ws-tree-rename-error',role:'alert'},error):null)}
 const TreeStatus=({children,error})=>h('div',{className:'dsh-ws-tree-status','data-error':error||undefined},children)
 function TreeContextMenu({entry,menuRef,onRename,onCopyName,onCopyPath,onReveal,onCopy,onPaste,onCut,onDelete,pasteDisabled,pasteTitle,x,y}){const left=Math.max(4,Math.min(x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top=Math.max(4,Math.min(y,window.innerHeight-CONTEXT_MENU_HEIGHT-4));return h('div',{'aria-label':entry.path,className:'dsh-ws-context-menu',ref:menuRef,role:'menu',style:{left,top}},h('button',{className:'dsh-ws-context-item',onClick:()=>onRename(entry),role:'menuitem',title:translate('context.rename.title'),type:'button'},translate('context.rename')),h('button',{className:'dsh-ws-context-item',onClick:()=>onCopyName(entry),role:'menuitem',title:translate('context.copyName.title'),type:'button'},translate('context.copyName')),h('button',{className:'dsh-ws-context-item',onClick:()=>onCopyPath(entry,false),role:'menuitem',title:translate('context.copyPath.title'),type:'button'},translate('context.copyPath')),h('button',{className:'dsh-ws-context-item',onClick:()=>onCopyPath(entry,true),role:'menuitem',title:translate('context.copyRelative.title'),type:'button'},translate('context.copyRelative')),h('div',{className:'dsh-ws-context-separator',role:'separator'}),h('button',{className:'dsh-ws-context-item',onClick:()=>onReveal(entry),role:'menuitem',title:translate('context.reveal.title'),type:'button'},translate('context.reveal')),h('div',{className:'dsh-ws-context-separator',role:'separator'}),h('button',{className:'dsh-ws-context-item',onClick:()=>onCopy(entry),role:'menuitem',title:translate('context.copy.title'),type:'button'},translate('context.copy')),h('button',{className:'dsh-ws-context-item',disabled:pasteDisabled,onClick:()=>onPaste(entry),role:'menuitem',title:pasteDisabled?pasteTitle:translate('context.paste.title'),type:'button'},translate('context.paste')),h('button',{className:'dsh-ws-context-item',onClick:()=>onCut(entry),role:'menuitem',title:translate('context.cut.title'),type:'button'},translate('context.cut')),h('button',{className:'dsh-ws-context-item',onClick:()=>onDelete(entry),role:'menuitem',title:translate('context.delete.title'),type:'button'},translate('context.delete')))}
-function TabContextMenu({menuRef,onCloseOthers,onTogglePin,pinned,x,y}){const left=Math.max(4,Math.min(x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top=Math.max(4,Math.min(y,window.innerHeight-CONTEXT_MENU_HEIGHT-4));return h('div',{className:'dsh-ws-context-menu',ref:menuRef,role:'menu',style:{left,top}},h('button',{className:'dsh-ws-context-item',onClick:onTogglePin,role:'menuitem',title:pinned?translate('tab.unpin.title'):translate('tab.pin.title'),type:'button'},pinned?translate('tab.unpin'):translate('tab.pin')),h('button',{className:'dsh-ws-context-item',onClick:onCloseOthers,role:'menuitem',title:translate('tab.closeOthers.title'),type:'button'},translate('tab.closeOthers')))}
+function TabContextMenu({menuRef,onCloseOthers,onTogglePin,pinned,x,y}){const left=Math.max(4,Math.min(x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top=Math.max(4,Math.min(y,window.innerHeight-COMPACT_MENU_HEIGHT-4));return h('div',{className:'dsh-ws-context-menu',ref:menuRef,role:'menu',style:{left,top}},h('button',{className:'dsh-ws-context-item',onClick:onTogglePin,role:'menuitem',title:pinned?translate('tab.unpin.title'):translate('tab.pin.title'),type:'button'},pinned?translate('tab.unpin'):translate('tab.pin')),h('button',{className:'dsh-ws-context-item',onClick:onCloseOthers,role:'menuitem',title:translate('tab.closeOthers.title'),type:'button'},translate('tab.closeOthers')))}
 function EntryDialog({dialog,draft,error,busy,blocked,composingRef,onCancel,onConfirm,onDraft}){if(!dialog)return null;const title=entryDialogTitle(dialog),action=entryDialogAction(dialog);return h('div',{className:'dsh-ws-dialog-backdrop',onMouseDown:e=>{if(e.target===e.currentTarget&&!busy)onCancel()}},h('div',{'aria-modal':true,className:'dsh-ws-dialog',role:'dialog'},h('div',{className:'dsh-ws-dialog-header'},h('div',{className:'dsh-ws-dialog-title'},title),h('button',{'aria-label':translate('dialog.close'),className:'dsh-ws-icon-button',disabled:busy,onClick:onCancel,title:translate('dialog.close'),type:'button'},'×')),h('div',{className:'dsh-ws-dialog-body'},h('input',{'aria-label':translate('dialog.name'),autoFocus:true,className:'dsh-ws-dialog-input',disabled:busy,onChange:e=>onDraft(e.target.value),onCompositionEnd:()=>{composingRef.current=false},onCompositionStart:()=>{composingRef.current=true},onFocus:e=>e.target.select(),onKeyDown:e=>{if(e.key==='Escape'){e.preventDefault();if(!busy)onCancel()}else if(e.key==='Enter'&&!composingRef.current){e.preventDefault();if(!busy)onConfirm()}},value:draft}),error?h('div',{className:'dsh-ws-dialog-error',role:'alert'},error):null),h('div',{className:'dsh-ws-dialog-footer'},h('button',{className:'dsh-ws-text-button',disabled:busy,onClick:onCancel,type:'button'},translate('dialog.cancel')),h('button',{className:'dsh-ws-text-button',disabled:blocked,onClick:onConfirm,type:'button'},busy?translate('dialog.processing'):action))))}
-function EncodingMenu({menuRef,onOpen,onSave,canOpen,canSave,x,y}){const left=Math.max(4,Math.min(x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top=Math.max(4,Math.min(y,window.innerHeight-CONTEXT_MENU_HEIGHT-4));return h('div',{className:'dsh-ws-context-menu',ref:menuRef,role:'menu',style:{left,top}},h('button',{className:'dsh-ws-context-item',disabled:!canOpen,onClick:onOpen,role:'menuitem',title:canOpen?translate('encoding.open.title'):translate('encoding.open.titleDirty'),type:'button'},translate('encoding.open')),h('button',{className:'dsh-ws-context-item',disabled:!canSave,onClick:onSave,role:'menuitem',title:canSave?translate('encoding.save.title'):translate('encoding.save.titleReadonly'),type:'button'},translate('encoding.save')))}
+function EncodingMenu({menuRef,onOpen,onSave,canOpen,canSave,x,y}){const left=Math.max(4,Math.min(x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top=Math.max(4,Math.min(y,window.innerHeight-COMPACT_MENU_HEIGHT-4));return h('div',{className:'dsh-ws-context-menu',ref:menuRef,role:'menu',style:{left,top}},h('button',{className:'dsh-ws-context-item',disabled:!canOpen,onClick:onOpen,role:'menuitem',title:canOpen?translate('encoding.open.title'):translate('encoding.open.titleDirty'),type:'button'},translate('encoding.open')),h('button',{className:'dsh-ws-context-item',disabled:!canSave,onClick:onSave,role:'menuitem',title:canSave?translate('encoding.save.title'):translate('encoding.save.titleReadonly'),type:'button'},translate('encoding.save')))}
 /* In-place session rename: an input overlaid on the harness row's title span
    (harness-rendered, so the plugin never mutates its DOM), fixed-positioned at
    the span's rect. Enter confirms (IME-safe), Escape/blur cancels; a row that
@@ -3802,6 +3820,17 @@ function DeleteDialog({entry,busy,dirtyWarning,onCancel,onConfirm}){if(entry===u
 function SaveConflictDialog({conflict,fontSize,onResolve}) {
   const [index, setIndex] = useState(0)
   const [choices, setChoices] = useState([])
+  // Escape cancels the whole save, same as the backdrop / × button. The dialog
+  // is modal, so its own window-level Escape must not leak to the mind-map
+  // overlay's Escape-to-close (that listener already yields to any open
+  // .dsh-ws-dialog-backdrop).
+  useEffect(() => {
+    const onKeyDown = event => {
+      if (event.key === 'Escape') onResolve('cancel')
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onResolve])
   if (conflict === undefined) return null
   const total = conflict.conflicts.length
   const current = Math.min(index, total - 1)
@@ -4323,6 +4352,11 @@ function WorkspaceExplorer({
   const cancelRestoreRef = useRef(null)
   const previewTabsRef = useRef(null)
   const previewSectionRef = useRef(null)
+  const previewScrollbarRef = useRef(null)
+  const previewScrollThumbRef = useRef(null)
+  const tabsHoveredRef = useRef(false)
+  const scrollbarHoveredRef = useRef(false)
+  const scrollbarDragRef = useRef(null)
   const previewHeaderRef = useRef(null)
   const dropSuppressedRef = useRef(false)
   const toastSeqRef = useRef(0)
@@ -4990,14 +5024,21 @@ function WorkspaceExplorer({
         }
         const hasTabDraft = tabDraft !== undefined && typeof tabDraft.draft === 'string'
           && tabDraft.draft !== '' && tabDraft.draft !== result.content
-        const restored = hasDiskDraft
-          ? {
-              content: draftData.draft,
-              baseText: typeof draftData.baseText === 'string' ? draftData.baseText : result.content,
-              baseRevision: typeof draftData.baseRevision === 'string' ? draftData.baseRevision : result.revision,
-            }
-          : hasTabDraft
-            ? { content: tabDraft.draft, baseText: tabDraft.baseText, baseRevision: tabDraft.revision }
+        /* In-session the in-memory tab draft is ALWAYS at least as new as any
+           disk draft (the host draft and the emergency mirror are only debounced
+           copies of it), so prefer it whenever present. Choosing a stale disk
+           draft over the live tab draft would roll the editor back and, on the
+           next save, write the older text over the source. On a cold restore
+           (refresh) the tab is clean, so the disk draft is still the fallback
+           that rehydrates the editing session. */
+        const restored = hasTabDraft
+          ? { content: tabDraft.draft, baseText: tabDraft.baseText, baseRevision: tabDraft.revision }
+          : hasDiskDraft
+            ? {
+                content: draftData.draft,
+                baseText: typeof draftData.baseText === 'string' ? draftData.baseText : result.content,
+                baseRevision: typeof draftData.baseRevision === 'string' ? draftData.baseRevision : result.revision,
+              }
             : { content: result.content, baseText: result.content, baseRevision: result.revision }
         const content = restored.content
         const hasRestoredContent = hasDiskDraft || hasTabDraft
@@ -5262,9 +5303,9 @@ function WorkspaceExplorer({
     }
   }, [enqueueDraftOperation, persistDraftFile, workspace.workspaceId])
 
-  const scheduleAutosave = useCallback((path, text) => {
+  const scheduleAutosave = useCallback((path, text, force = false) => {
     const tab = tabsRef.current.find(item => item.path === path)
-    if (tab === undefined || tab.external || tab.saving || tab.editing !== true) return
+    if (tab === undefined || tab.external || tab.saving || (!force && tab.editing !== true)) return
     // Drop the pending timer first: an edit that reverts to the last-written
     // text must not let an earlier (different-content) timer fire afterwards;
     // the dedup return below skips the generation bump, so the stale timer
@@ -5454,10 +5495,25 @@ function WorkspaceExplorer({
       if (merged.status === 'clean') {
         const ok = await commitTab(path, merged.merged, diskRevision ?? sourceRevision, encoding, savedStatusText)
         if (ok && activePathRef.current === path) {
-          // Show the merged result (it differs from both sides).
+          // Show the merged result (it differs from both sides) — but only when
+          // no keystroke landed while the merge ran: dispatching the merged doc
+          // would silently wipe text typed against the pre-merge document, the
+          // same window preservePostSaveKeystrokes covers on the write-back
+          // branches. When the live doc diverged, keep it (nothing dropped) and
+          // mark the tab dirty again; commitTab already wrote merged.merged, so
+          // the next save re-merges against that newer source.
           const view = editorRef.current
           if (view !== undefined) {
-            view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: merged.merged } })
+            const liveBefore = view.state.sliceDoc()
+            if (liveBefore === text) {
+              view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: merged.merged } })
+            } else {
+              setDraft(liveBefore)
+              setDirty(true)
+              updateTab(path, { draft: liveBefore, dirty: true })
+              scheduleAutosave(path, liveBefore)
+              setStatus({ error: true, text: translate('editor.saveTypedDuringMerge') })
+            }
           }
         }
         return ok
@@ -5488,7 +5544,7 @@ function WorkspaceExplorer({
         if (activePathRef.current === path) setSaving(false)
       }
     }
-  }, [activeTab, baseText, commitTab, dirty, draft, preview, preservePostSaveKeystrokes, readFile, saving, updateTab, workspace.workspaceId])
+  }, [activeTab, baseText, commitTab, dirty, draft, preview, preservePostSaveKeystrokes, readFile, scheduleAutosave, saving, updateTab, workspace.workspaceId])
 
   /* Resolve the pending save conflict. The dialog walks conflicts one at a
      time and calls back with { choices } ('mine'/'theirs' per conflict, in
@@ -5665,9 +5721,11 @@ function WorkspaceExplorer({
         // Use the tab's CURRENT draft, not the stale `affected` snapshot: the
         // delete dialog keeps focus in the editor, so the user may have typed
         // after capture, and a failed delete must not roll the staging draft
-        // back to older text.
+        // back to older text. force=true also re-writes staging drafts of
+        // NON-editable dirty tabs (their scheduleAutosave gate would skip them
+        // otherwise), so a failed delete never destroys an orphaned draft.
         const fresh = tabsRef.current.find(tab => tab.path === item.path)
-        scheduleAutosave(item.path, fresh?.draft ?? item.draft)
+        scheduleAutosave(item.path, fresh?.draft ?? item.draft, true)
       }
       if (error?.name === 'AbortError') return
       setCopyNotice(translate('status.deleteFailed', { message: error instanceof Error ? error.message : String(error) }))
@@ -5707,9 +5765,11 @@ function WorkspaceExplorer({
         // Use the tab's CURRENT draft, not the stale `affected` snapshot: the
         // delete dialog keeps focus in the editor, so the user may have typed
         // after capture, and a failed delete must not roll the staging draft
-        // back to older text.
+        // back to older text. force=true also re-writes staging drafts of
+        // NON-editable dirty tabs (their scheduleAutosave gate would skip them
+        // otherwise), so a failed delete never destroys an orphaned draft.
         const fresh = tabsRef.current.find(tab => tab.path === item.path)
-        scheduleAutosave(item.path, fresh?.draft ?? item.draft)
+        scheduleAutosave(item.path, fresh?.draft ?? item.draft, true)
       }
       if (error?.name === 'AbortError') return
       setCopyNotice(translate('status.deleteFailed', { message: error instanceof Error ? error.message : String(error) }))
@@ -5780,7 +5840,7 @@ function WorkspaceExplorer({
     setEncodingPick(preview.encoding ?? 'utf-8')
     void fetchEncodings().then(list => {
       if (mounted.current) setEncodingOptions(list.length > 0 ? list : ENCODING_FALLBACK)
-    })
+    }).catch(() => {})
     setEncodingDialog({ mode })
   }, [preview.encoding])
   const closeEncodingDialog = useCallback(() => {
@@ -5937,6 +5997,91 @@ function WorkspaceExplorer({
     setDraggingPath(null)
     setDropIndex(null)
   }, [dropTabAt])
+  // Custom floating scrollbar for the tab strip: the native bar is hidden and
+  // this thin overlay renders below the tabs (over the panel header) only
+  // while the strip is hovered AND has overflow. Pure refs — no state writes.
+  const syncPreviewScrollbar = useCallback(() => {
+    const strip = previewTabsRef.current
+    const track = previewScrollbarRef.current
+    const thumb = previewScrollThumbRef.current
+    if (strip === null || track === null || thumb === null) return
+    const canScroll = strip.scrollWidth > strip.clientWidth + 1
+    const visible = canScroll && (tabsHoveredRef.current || scrollbarHoveredRef.current || scrollbarDragRef.current !== null)
+    track.dataset.visible = visible ? 'true' : 'false'
+    if (!canScroll) return
+    const trackWidth = track.clientWidth
+    const thumbWidth = Math.max(24, Math.round((trackWidth * strip.clientWidth) / strip.scrollWidth))
+    thumb.style.width = `${thumbWidth}px`
+    const maxScroll = strip.scrollWidth - strip.clientWidth
+    const maxThumb = trackWidth - thumbWidth
+    thumb.style.transform = maxScroll > 0 ? `translateX(${(strip.scrollLeft / maxScroll) * maxThumb}px)` : 'translateX(0px)'
+  }, [])
+  const handleTabsMouseEnter = useCallback(() => {
+    tabsHoveredRef.current = true
+    syncPreviewScrollbar()
+  }, [syncPreviewScrollbar])
+  const handleTabsMouseLeave = useCallback(() => {
+    tabsHoveredRef.current = false
+    syncPreviewScrollbar()
+  }, [syncPreviewScrollbar])
+  const handleTabsScroll = useCallback(() => { syncPreviewScrollbar() }, [syncPreviewScrollbar])
+  const handleScrollbarMouseEnter = useCallback(() => {
+    scrollbarHoveredRef.current = true
+    syncPreviewScrollbar()
+  }, [syncPreviewScrollbar])
+  const handleScrollbarMouseLeave = useCallback(() => {
+    scrollbarHoveredRef.current = false
+    syncPreviewScrollbar()
+  }, [syncPreviewScrollbar])
+  const handleScrollbarPointerDown = useCallback((event) => {
+    const strip = previewTabsRef.current
+    const track = previewScrollbarRef.current
+    if (strip === null || track === null || strip.scrollWidth <= strip.clientWidth + 1) return
+    event.preventDefault()
+    scrollbarDragRef.current = { pointerId: event.pointerId, startX: event.clientX, startScrollLeft: strip.scrollLeft }
+    try { track.setPointerCapture(event.pointerId) } catch { /* already released */ }
+    syncPreviewScrollbar()
+  }, [syncPreviewScrollbar])
+  const handleScrollbarPointerMove = useCallback((event) => {
+    const drag = scrollbarDragRef.current
+    const strip = previewTabsRef.current
+    const track = previewScrollbarRef.current
+    if (drag === null || strip === null || track === null) return
+    const trackWidth = track.clientWidth
+    const thumbWidth = Math.max(24, Math.round((trackWidth * strip.clientWidth) / strip.scrollWidth))
+    const maxScroll = strip.scrollWidth - strip.clientWidth
+    const maxThumb = trackWidth - thumbWidth
+    if (maxScroll <= 0 || maxThumb <= 0) return
+    strip.scrollLeft = drag.startScrollLeft + ((event.clientX - drag.startX) * maxScroll) / maxThumb
+    syncPreviewScrollbar()
+  }, [syncPreviewScrollbar])
+  const handleScrollbarPointerEnd = useCallback((event) => {
+    if (scrollbarDragRef.current === null) return
+    const track = previewScrollbarRef.current
+    if (track !== null && event.pointerId !== undefined) {
+      try { if (track.hasPointerCapture(event.pointerId)) track.releasePointerCapture(event.pointerId) } catch { /* ignore */ }
+    }
+    scrollbarDragRef.current = null
+    syncPreviewScrollbar()
+  }, [syncPreviewScrollbar])
+  // Refresh the floating scrollbar when the strip's box resizes (panel width)
+  // and after every render (tab add/close, pin reorder change scrollWidth).
+  useEffect(() => {
+    const strip = previewTabsRef.current
+    if (strip === null) return undefined
+    if (typeof ResizeObserver !== 'function') {
+      const frame = requestAnimationFrame(syncPreviewScrollbar)
+      return () => cancelAnimationFrame(frame)
+    }
+    const observer = new ResizeObserver(() => { syncPreviewScrollbar() })
+    observer.observe(strip)
+    syncPreviewScrollbar()
+    return () => { observer.disconnect() }
+  }, [syncPreviewScrollbar])
+  useEffect(() => {
+    const frame = requestAnimationFrame(syncPreviewScrollbar)
+    return () => cancelAnimationFrame(frame)
+  })
   // Scroll the tab strip so a target tab is fully visible. The target is the
   // tab requested by pin/unpin or a preview-body click; otherwise it is the
   // newly activated tab. One-shot: the requested path is consumed after the
@@ -5952,7 +6097,13 @@ function WorkspaceExplorer({
         break
       }
     }
-    if (tabNode === null) return
+    if (tabNode === null) {
+      // The requested tab is not (yet) rendered — a pinned tab scrolled for
+      // right after closing. Consume a one-shot scroll request so a later
+      // unrelated activePath change does not re-target the stale path.
+      if (tabScrollPathRef.current === target) tabScrollPathRef.current = null
+      return
+    }
     const stripRect = strip.getBoundingClientRect()
     const nodeRect = tabNode.getBoundingClientRect()
     if (nodeRect.left >= stripRect.left - 1 && nodeRect.right <= stripRect.right + 1) {
@@ -6041,9 +6192,7 @@ function WorkspaceExplorer({
         isMarkdown && mdPreview
           ? h('div', { className: 'dsh-ws-md-preview' }, h(MarkdownText, { text: draft }))
           : null),
-      // Bottom status bar: transient notices sit below the editor body at the
-      // panel's bottom edge (right-aligned), not above the search strip.
-      status ? h('div', { className: 'dsh-ws-status', 'data-error': status.error || undefined }, status.text) : null)
+      )
   }
   let searchBody
   if (searchState.state === 'idle') {
@@ -6165,7 +6314,7 @@ function WorkspaceExplorer({
           onClick: event => { event.stopPropagation(); unpinTab(tab.path) },
           title: translate('tab.unpin'),
           type: 'button',
-        }, h(IconPin))
+        }, h(IconPinVscode))
         : h('button', {
           'aria-label': translate('tab.closeAria', { name: tab.name }),
           className: 'dsh-ws-preview-tab-close',
@@ -6173,7 +6322,7 @@ function WorkspaceExplorer({
           onClick: event => { event.stopPropagation(); closeTab(tab.path) },
           title: tab.dirty || tab.saving ? translate('tab.close.title') : translate('tab.close'),
           type: 'button',
-        }, '×'),
+        }, h(IconCloseWin10)),
     ))
   }
   if (draggingPath !== null && dropIndex === tabs.length) previewTabNodes.push(h('div', { 'aria-hidden': true, className: 'dsh-ws-preview-drop-indicator', key: 'drop:end' }))
@@ -6268,22 +6417,16 @@ function WorkspaceExplorer({
     }) : null,
     treePortalTarget ? createPortal(treeSection, treePortalTarget) : null,
     h('section', { 'data-drop-active': dropActive || undefined, className: 'dsh-ws-preview', ref: previewSectionRef },
-      tabs.length ? h('div', { ref: previewTabsRef, className: 'dsh-ws-preview-tabs', role: 'tablist', 'aria-label': translate('tab.list'), onDragLeave: handleTabsDragLeave, onDragOver: updateDropIndex, onDrop: handleTabsDrop }, previewTabNodes) : null,
+      tabs.length ? h('div', { ref: previewTabsRef, className: 'dsh-ws-preview-tabs', role: 'tablist', 'aria-label': translate('tab.list'), onDragLeave: handleTabsDragLeave, onDragOver: updateDropIndex, onDrop: handleTabsDrop, onMouseEnter: handleTabsMouseEnter, onMouseLeave: handleTabsMouseLeave, onScroll: handleTabsScroll }, previewTabNodes) : null,
+      tabs.length ? h('div', { className: 'dsh-ws-preview-scrollbar', onMouseEnter: handleScrollbarMouseEnter, onMouseLeave: handleScrollbarMouseLeave, onPointerCancel: handleScrollbarPointerEnd, onPointerDown: handleScrollbarPointerDown, onPointerMove: handleScrollbarPointerMove, onPointerUp: handleScrollbarPointerEnd, ref: previewScrollbarRef }, h('div', { className: 'dsh-ws-preview-scrollbar-thumb', ref: previewScrollThumbRef })) : null,
       tabContextMenu ? h(TabContextMenu, { menuRef: tabMenuRef, onCloseOthers: () => { setTabContextMenu(undefined); closeOtherTabs(tabContextMenu.path) }, onTogglePin: () => { setTabContextMenu(undefined); if (tabMenuTarget?.pinned) unpinTab(tabContextMenu.path); else pinTab(tabContextMenu.path) }, pinned: Boolean(tabMenuTarget?.pinned), x: tabContextMenu.x, y: tabContextMenu.y }) : null,
-      h('header', { className: 'dsh-ws-panel-header', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) }, ref: previewHeaderRef },
-        h('div', { className: 'dsh-ws-panel-title' },
-          h('strong', { title: activeTab?.external ? activeTab.name : (activeTab?.path ?? translate('panel.filePreview')) }, activeTab?.name ?? translate('panel.filePreview'), dirty ? h('span', { className: 'dsh-ws-dirty', title: translate('tab.dirty') }, '·') : null),
-          h('div', { className: 'dsh-ws-preview-header-meta' },
-            activeTab
-              ? (activeTab.external
-                  ? h('span', { title: translate('external.externalFile.title') }, translate('external.externalFile', { name: activeTab.name }))
-                  : h('span', { title: activeTab.path }, activeTab.path))
-              : h('span', null, workspace.title),
-            activeTab ? h('span', { className: 'dsh-ws-language' }, fileLabel(activeTab.name)) : null,
-            size ? h('span', null, size) : null,
-            preview.state === 'ready' && preview.encoding ? h('span', { className: 'dsh-ws-encoding', title: translate('encoding.badge') }, encodingLabel(preview.encoding)) : null,
-          ),
-        ),
+      h('header', { className: 'dsh-ws-panel-header dsh-ws-preview-file-header', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) }, ref: previewHeaderRef },
+        h('span', { className: 'dsh-ws-preview-file-path', title: activeTab === undefined ? undefined : (activeTab.external ? translate('external.externalFile.title') : activeTab.path) },
+          activeTab
+            ? (activeTab.external
+                ? translate('external.externalFile', { name: activeTab.name })
+                : activeTab.path)
+            : workspace.title),
         preview.state === 'ready'
           ? h(Fragment, null,
             isMarkdown
@@ -6297,32 +6440,50 @@ function WorkspaceExplorer({
               }, mdPreview ? translate('editor.edit') : translate('mdPreview.preview'))
               : null,
             h('button', {
-              className: 'dsh-ws-text-button',
+              'aria-label': translate('editor.refresh'),
+              className: 'dsh-ws-icon-button',
               disabled: Boolean(activeTab?.external),
               onClick: refreshFile,
               title: translate('editor.refresh.title'),
               type: 'button',
-            }, translate('editor.refresh')),
-            h('button', {
-              'aria-pressed': settings.wrap === true,
-              className: 'dsh-ws-text-button',
-              'data-active': settings.wrap === true || undefined,
-              onClick: () => settingsStore.actions.setWrap(settings.wrap !== true),
-              title: settings.wrap === true ? translate('editor.wrap.off.title') : translate('editor.wrap.on.title'),
-              type: 'button',
-            }, translate('editor.wrap')),
-            reason === null
-              ? h(Fragment, null,
-                h('button', { className: 'dsh-ws-text-button', disabled: !dirty || saving, onClick: cancel, type: 'button' }, translate('editor.cancel')),
-                h('button', { className: 'dsh-ws-text-button', disabled: !dirty || saving, onClick: () => void save(), type: 'button' }, saving ? translate('editor.saving') : translate('editor.save')),
-              )
-              : dirty
-                ? h('button', { className: 'dsh-ws-text-button', disabled: saving, onClick: () => void discardDraft(), title: translate('editor.discardDraft.title'), type: 'button' }, translate('editor.discardDraft'))
-                : null,
+            }, h(IconRefresh)),
           )
           : null,
       ),
       body,
+      // Merged bottom status bar: an always-visible band holding the action
+      // buttons + file meta info (left) and the transient status notice (right).
+      h('div', { className: 'dsh-ws-status', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) } },
+        h('div', { className: 'dsh-ws-preview-status-actions' },
+          preview.state === 'ready'
+            ? h(Fragment, null,
+              h('button', {
+                'aria-pressed': settings.wrap === true,
+                className: 'dsh-ws-text-button',
+                'data-active': settings.wrap === true || undefined,
+                onClick: () => settingsStore.actions.setWrap(settings.wrap !== true),
+                title: settings.wrap === true ? translate('editor.wrap.off.title') : translate('editor.wrap.on.title'),
+                type: 'button',
+              }, translate('editor.wrap')),
+              reason === null
+                ? h(Fragment, null,
+                  h('button', { className: 'dsh-ws-text-button', disabled: !dirty || saving, onClick: cancel, type: 'button' }, translate('editor.cancel')),
+                  h('button', { className: 'dsh-ws-text-button', disabled: !dirty || saving, onClick: () => void save(), type: 'button' }, saving ? translate('editor.saving') : translate('editor.save')),
+                )
+                : dirty
+                  ? h('button', { className: 'dsh-ws-text-button', disabled: saving, onClick: () => void discardDraft(), title: translate('editor.discardDraft.title'), type: 'button' }, translate('editor.discardDraft'))
+                  : null,
+            )
+            : null,
+        ),
+        h('div', { className: 'dsh-ws-preview-status-meta' },
+          activeTab ? h('span', { className: 'dsh-ws-language' }, fileLabel(activeTab.name)) : null,
+          size ? h('span', null, size) : null,
+          preview.state === 'ready' && preview.encoding ? h('span', { className: 'dsh-ws-encoding', title: translate('encoding.badge') }, encodingLabel(preview.encoding)) : null,
+          preview.state === 'ready' && reason ? h('span', { title: reason }, reason) : null,
+        ),
+        h('span', { className: 'dsh-ws-preview-status-msg', 'data-error': status?.error || undefined }, status?.text ?? ''),
+      ),
       dropActive ? h('div', { className: 'dsh-ws-drop-overlay', role: 'presentation' },
         h('button', { 'aria-label': translate('drop.closeAria'), className: 'dsh-ws-drop-close', onClick: () => { dropSuppressedRef.current = true; setDropActive(false) }, title: translate('drop.closeTitle'), type: 'button' }, '×'),
         h('div', { className: 'dsh-ws-drop-hint' }, translate('drop.releaseFiles'))) : null,
@@ -6481,6 +6642,16 @@ function EmptyWorkspaceExplorer({ treePortalTarget, sessionTitle }) {
           title: translate('settings.conflictFontSize.reset.title'),
           type: 'button',
         }, translate('settings.resetDefault'))),
+      h('div', { className: 'dsh-ws-settings-row' },
+        h('label', { className: 'dsh-ws-settings-label', htmlFor: 'dsh-ws-preview-right' }, translate('settings.previewRight')),
+        h('input', {
+          'aria-label': translate('settings.previewRight'),
+          checked: (settings.previewRight ?? PREVIEW_RIGHT_DEFAULT) === true,
+          className: 'dsh-ws-settings-checkbox',
+          id: 'dsh-ws-preview-right',
+          onChange: e => settingsStore.actions.setPreviewRight(e.target.checked),
+          type: 'checkbox',
+        })),
     ),
     h('div', { className: 'dsh-ws-explorer-divider' }),
     h('div', { className: 'dsh-ws-settings-group' },
@@ -7078,8 +7249,15 @@ function useMindmapSessionView(useSessions, familyIdsRef) {
     const family = familyIdsRef.current
     const runningKey = family.map(id => (byId[id]?.running === true ? '1' : '0')).join('|')
     const titlesKey = family.map(id => byId[id]?.displayTitle ?? '').join('\u0001')
+    /* The cache key must also cover the FAMILY MEMBERSHIP itself: a root
+       replacement (trunk truncation) swaps the root session id while keeping
+       the same titles and running bits, so runningKey+titlesKey alone would
+       serve a stale projection whose `titles` still keys the archived root —
+       leaving the new root's cards with empty titles until the next store
+       change. */
+    const familyKey = family.join('\u0002')
     const cache = cacheRef.current
-    if (cache !== null && cache.runningKey === runningKey && cache.titlesKey === titlesKey) {
+    if (cache !== null && cache.familyKey === familyKey && cache.runningKey === runningKey && cache.titlesKey === titlesKey) {
       cache.view.byId = byId
       return cache.view
     }
@@ -7088,7 +7266,7 @@ function useMindmapSessionView(useSessions, familyIdsRef) {
       runningIds: new Set(family.filter(id => byId[id]?.running === true)),
       titles: Object.fromEntries(family.map(id => [id, byId[id]?.displayTitle ?? ''])),
     }
-    cacheRef.current = { runningKey, titlesKey, view }
+    cacheRef.current = { familyKey, runningKey, titlesKey, view }
     return view
   })
 }
@@ -7144,7 +7322,7 @@ const MindMapCard = memo(function MindMapCard({
 /* The floating mind map: a persisted turn tree (trunk + fork branches)
    rendered from the doc, with pan/zoom and per-card forking. Rendered inside
    the left-side overlay window; card clicks switch the right-side chat. */
-function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, deleteDoc, forkAt, openSession, renameSession, archiveSession }) {
+function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, deleteDoc, forkAt, openSession, renameSession, archiveSession, previewRight }) {
   const overlay = useMindmapOverlay()
   const [phase, setPhase] = useState({ status: 'loading' })
   const [doc, setDoc] = useState(null)
@@ -8116,9 +8294,11 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
           'aria-pressed': overlay.scope === 'sidebar' ? 'true' : 'false',
           className: 'dsh-ws-mindmap-toolbar-button dsh-ws-mindmap-scope-toggle',
           onClick: () => { mindmapOverlayStore.toggleScope() },
-          title: translate('mindmap.scope.title'),
+          title: translate(previewRight ? 'mindmap.scope.title.right' : 'mindmap.scope.title'),
           type: 'button',
-        }, translate(overlay.scope === 'sidebar' ? 'mindmap.scope.sidebar' : 'mindmap.scope.full')),
+        }, translate(overlay.scope === 'sidebar'
+          ? (previewRight ? 'mindmap.scope.sidebar.right' : 'mindmap.scope.sidebar')
+          : (previewRight ? 'mindmap.scope.full.right' : 'mindmap.scope.full'))),
         h('button', { className: 'dsh-ws-mindmap-toolbar-button', onClick: restoreView, title: translate('mindmap.view.restoreTitle'), type: 'button' }, translate('mindmap.view.restore')),
         h('button', { className: 'dsh-ws-mindmap-toolbar-button', onClick: startArchiveAll, title: translate('mindmap.menu.archiveAll'), type: 'button' }, translate('mindmap.menu.archiveAll'))),
       h('div', { className: 'dsh-ws-mindmap-bar' },
@@ -8294,7 +8474,12 @@ function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, openSess
     const docTitle = item?.title
     /* A doc without a resolvable workspace lives in the ungrouped bucket:
        the group whose title is not any real workspace's title. */
-    if (docTitle !== undefined) return docTitle === groupTitle
+    if (docTitle !== undefined && docTitle === groupTitle) return true
+    /* A doc whose workspace title does not match THIS group is not dropped: it
+       lands in the ungrouped bucket — the group whose title is not any real
+       workspace's title (or the flat fallback seat). Exact-match-only grouping
+       would make a doc vanish entirely when a harness group header text differs
+       from the workspace's canonical title (truncation, count suffix). */
     return !workspaces.some(w => w.title === groupTitle)
   })
   const groupKey = groupTitle === undefined ? MINDMAP_ORDER_ALL_KEY : groupTitle
@@ -8656,19 +8841,31 @@ function MobileHeroControls() {
    tracked live so resizing the chat reflows the window); on mobile it takes
    the whole screen. The chat stays visible on the right; card clicks inside
    the map switch the conversation to the clicked session. */
-function MindmapOverlayHost({ sessionId, useSessions, actions, chatWidth, mobile, sidebarWidth }) {
+function MindmapOverlayHost({ sessionId, useSessions, actions, chatWidth, mobile, previewRight, previewWidth, sidebarWidth }) {
   const overlay = useMindmapOverlay()
   const closeLabel = translate('mindmap.overlay.close')
   /* Scope 'full' (default) spans everything left of the chat column; scope
      'sidebar' narrows the window to just the sidebar column (the file browser
-     area is left visible). On mobile the window is always full screen. */
+     area is left visible). When the file browser sits on the RIGHT of the
+     conversation column, the window switches sides instead: 'sidebar' fills
+     the left sidebar, 'full' fills the right file browser, keeping the chat
+     column visible and interactive in the middle. On mobile the window is
+     always full screen. */
+  const rightPanel = !mobile && previewRight === true && overlay.scope === 'full' && previewWidth > 0
   const width = mobile
     ? '100%'
-    : overlay.scope === 'sidebar'
-      /* A collapsed sidebar (width 0) must not leave an invisible-but-open
-         overlay: keep a usable minimum width in that state. */
-      ? `${Math.max(SIDEBAR_MIN, sidebarWidth)}px`
-      : `calc(100% - ${Math.max(0, chatWidth)}px)`
+    : rightPanel
+      ? `${Math.max(PREVIEW_MIN, previewWidth)}px`
+      : previewRight === true
+        /* Right-side layout: 'sidebar' fills the left sidebar; with no visible
+           file-browser pane there is nothing on the right to fill, so the full
+           window stays on the left column too. */
+        ? `${Math.max(SIDEBAR_MIN, sidebarWidth)}px`
+        : overlay.scope === 'sidebar'
+          /* A collapsed sidebar (width 0) must not leave an invisible-but-open
+             overlay: keep a usable minimum width in that state. */
+          ? `${Math.max(SIDEBAR_MIN, sidebarWidth)}px`
+          : `calc(100% - ${Math.max(0, chatWidth)}px)`
   useEffect(() => {
     const onKeyDown = event => {
       if (event.key !== 'Escape') return
@@ -8679,7 +8876,7 @@ function MindmapOverlayHost({ sessionId, useSessions, actions, chatWidth, mobile
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
-  return h('div', { className: 'dsh-ws-mindmap-overlay', style: { width } },
+  return h('div', { className: 'dsh-ws-mindmap-overlay', 'data-side': rightPanel ? 'right' : undefined, style: { width } },
     h('button', {
       'aria-label': closeLabel,
       className: 'dsh-ws-mindmap-overlay-close',
@@ -8693,6 +8890,7 @@ function MindmapOverlayHost({ sessionId, useSessions, actions, chatWidth, mobile
       forkAt: actions.forkAt,
       loadDoc: actions.loadDoc,
       openSession: id => { actions.openSession(String(id)); mindmapOverlayStore.setSession(String(id)) },
+      previewRight: previewRight === true,
       renameSession: actions.renameSession,
       saveDoc: actions.saveDoc,
       sessionId: String(sessionId),
@@ -8949,6 +9147,11 @@ function AppFrame(props) {
   // interaction wins: a row collapsed during streaming is not re-opened, a
   // click/keypress cancels a pending auto-collapse, and manually opened rows
   // are never auto-collapsed.
+  /* Roots this behavior has already seen persist across effect re-runs (the
+     delay slider / feature toggle change the deps): re-mounting must not
+     re-open a running block the user already collapsed, only genuinely new
+     blocks. */
+  const thinkAutoOpenedKnownRef = useRef(new WeakSet())
   useEffect(() => {
     if ((settings.autoExpandThink ?? AUTO_EXPAND_THINK_DEFAULT) === false) return undefined
     const section = chatSectionRef.current
@@ -8972,6 +9175,7 @@ function AppFrame(props) {
       // row already opened by the user remains user-owned and is never closed
       // automatically.
       if (row === null || row.getAttribute('aria-expanded') === 'true') return
+      thinkAutoOpenedKnownRef.current.add(root)
       autoOpened.add(root)
       clickRow(row)
     }
@@ -9038,8 +9242,12 @@ function AppFrame(props) {
       }
     })
     observer.observe(section, { attributes: true, attributeFilter: ['data-state'], childList: true, subtree: true })
-    // Catch a block already streaming when the observer attached.
-    for (const root of section.querySelectorAll('[data-variant="think"][data-state="running"]')) openRow(root)
+    // Catch a block already streaming when the observer attached — but only
+    // blocks this behavior has never seen: a re-run (delay slider change) must
+    // not re-open a running block the user already collapsed.
+    for (const root of section.querySelectorAll('[data-variant="think"][data-state="running"]')) {
+      if (!thinkAutoOpenedKnownRef.current.has(root)) openRow(root)
+    }
     return () => {
       observer.disconnect()
       section.removeEventListener('click', onSectionClick, true)
@@ -9172,7 +9380,9 @@ function AppFrame(props) {
   // tree always portals into the sidebar seat (hidden in the sessions view)
   // and never displaces the preview.
   const tree = 0
-  const previewMax = Math.max(PREVIEW_MIN, explorerMax - tree)
+  const previewMax = settings.previewRight === true
+    ? Math.max(PREVIEW_MIN, viewportWidth > 0 ? Math.floor(viewportWidth * EXPLORER_MAX_RATIO) : PREVIEW_MAX)
+    : Math.max(PREVIEW_MIN, explorerMax - tree)
   const preview = filesActive || panes.explorerOpen ? clamp(panes.preview ?? PREVIEW_DEFAULT, PREVIEW_MIN, previewMax) : 0
   const previewBoundary = sidebar + preview
   const treePortalTarget = sidebarChrome?.files ?? null
@@ -9339,7 +9549,7 @@ function AppFrame(props) {
     props.openSession(String(id))
     mindmapOverlayStore.open(String(id))
   }, [props.openSession])
-  return h('div',{ref:viewportRef,className:'dsh-ws-viewport'},h('main',{className:'dsh-ws-frame','data-explorer-closed':!panes.explorerOpen&&!filesActive||undefined,'data-sidebar-collapsed':collapsed||undefined,'data-sidebar-files':filesActive||undefined,'data-resizing':resizing||undefined,style:{'--dsh-ws-preview':`${preview}px`,'--dsh-ws-sidebar':`${sidebar}px`,'--dsh-ws-row-height':`${clamp(settings.rowHeight ?? ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MIN, ROW_HEIGHT_MAX)}px`,'--dsh-ws-chat-font-scale':String(chatFontScale),'--dsh-ws-mobile-header-h':`${mobileHeaderHeight}px`,'--dsh-ws-mindmap-spin-duration':mindmapSpinDuration,...fileColorVars}},h('aside',{className:'dsh-ws-sidebar',ref:asideRef},props.renderSlot('sidebar',{collapsed,width:sidebar}),sidebarChrome?.top?createPortal(h(SidebarTopActions,{collapsed,view,width:sidebar,onSelectSessions:()=>{props.actions.setView('sessions')},onSelectFiles:()=>{if(collapsed)props.toggleSidebar();props.actions.setView('files')}}),sidebarChrome.top):null,sidebarChrome&&(sidebarChrome.groups.length>0?sidebarChrome.groups.map(group=>createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:group.title,openSession:openMindmapSession,revealSession:revealSessionById}),group.container)):sidebarChrome.fallback?createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:undefined,openSession:openMindmapSession,revealSession:revealSessionById}),sidebarChrome.fallback):null)),workspace?h(WorkspaceExplorer,{key:`${workspace.workspaceId}:${sessionId ?? 'workspace'}`,createEntry:props.createEntry,listDirectory:props.listDirectory,persistPreviewSession,publishEditorContext,readFile:props.readFile,renameEntry:props.renameEntry,saveFile:props.saveFile,loadDraft:props.loadDraft,persistDraftFile:props.persistDraftFile,removeDraftFile:props.removeDraftFile,draftTree:props.draftTree,settingsStore:props.settingsStore,storedPreviewSession,sessionTitle,sessionId,renameSession:props.renameSession,treePortalTarget,workspace}):h(EmptyWorkspaceExplorer,{sessionTitle,treePortalTarget}),h('section',{className:'dsh-ws-chat',ref:chatSectionRef},props.renderSlot('conversation',{}),chatDropActive?h('div',{className:'dsh-ws-chat-drop-mask',role:'presentation'},h('button',{'aria-label':translate('drop.closeAria'),className:'dsh-ws-chat-drop-close',onClick:()=>{chatDropSuppressed.current=true;setChatDropActive(false)},title:translate('drop.closeTitle'),type:'button'},'×'),h('div',{className:'dsh-ws-chat-drop-card'},translate('drop.releaseImages'))):null),!collapsed?h(ResizeHandle,{label:translate('resize.sidebar'),left:sidebar,max:sidebarMax,min:SIDEBAR_MIN,onDragging:setResizing,onResize:width=>props.actions.setSidebar(width,sidebarMax),value:sidebar}):null,(panes.explorerOpen||filesActive)?h(ResizeHandle,{label:translate('resize.preview'),left:previewBoundary,max:previewMax,min:PREVIEW_MIN,onDragging:setResizing,onResize:width=>props.explorerPaneStore.actions.setPreview(width,previewMax),value:preview}):null,h('aside',{className:'dsh-ws-details','data-closed':!panels.detailsOpen||!detailsCapable||undefined},props.renderSlot('details',{})),mobile.on&&mobile.drawerOpen?h('div',{className:'dsh-ws-mobile-scrim',onClick:()=>setDrawerOpen(false)}):null,h('div',{className:'dsh-ws-overlay','data-shell-overlay':true},props.renderSlot('shell.overlay',{})),sessionContextMenu?h('div',{className:'dsh-ws-context-menu',ref:sessionMenuRef,role:'menu',style:{left:Math.max(4,Math.min(sessionContextMenu.x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top:Math.max(4,Math.min(sessionContextMenu.y,window.innerHeight-52))}},h('button',{className:'dsh-ws-context-item',onClick:beginSessionInlineRename,role:'menuitem',type:'button'},translate('context.renameSession')),h('button',{className:'dsh-ws-context-item',onClick:archiveSessionFromMenu,role:'menuitem',type:'button'},translate('context.archiveSession')),h('div',{className:'dsh-ws-context-separator',role:'separator'}),h('button',{className:'dsh-ws-context-item',onClick:revealSessionFromMenu,role:'menuitem',type:'button'},translate('context.reveal'))):null,sessionInlineRename?h(SessionInlineRename,{busy:sessionInlineRenameBusy,error:sessionInlineRenameError,onCancel:cancelSessionInlineRename,onConfirm:confirmSessionInlineRename,row:sessionInlineRename.row,title:sessionInlineRename.title}):null,sessionNotice?h('div',{className:'dsh-ws-copy-notice','data-error':sessionNotice.error||undefined,role:'status'},sessionNotice.text):null),overlay.open?h(MindmapOverlayHost,{actions:props.mindmapActions,chatWidth,mobile:mobile.on,sessionId:overlay.sessionId,sidebarWidth:sidebar,useSessions:props.useSessions}):null)}
+  return h('div',{ref:viewportRef,className:'dsh-ws-viewport'},h('main',{className:'dsh-ws-frame','data-explorer-closed':!panes.explorerOpen&&!filesActive||undefined,'data-sidebar-collapsed':collapsed||undefined,'data-sidebar-files':filesActive||undefined,'data-resizing':resizing||undefined,'data-preview-right':settings.previewRight===true||undefined,style:{'--dsh-ws-preview':`${preview}px`,'--dsh-ws-sidebar':`${sidebar}px`,'--dsh-ws-row-height':`${clamp(settings.rowHeight ?? ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MIN, ROW_HEIGHT_MAX)}px`,'--dsh-ws-chat-font-scale':String(chatFontScale),'--dsh-ws-mobile-header-h':`${mobileHeaderHeight}px`,'--dsh-ws-mindmap-spin-duration':mindmapSpinDuration,...fileColorVars}},h('aside',{className:'dsh-ws-sidebar',ref:asideRef},props.renderSlot('sidebar',{collapsed,width:sidebar}),sidebarChrome?.top?createPortal(h(SidebarTopActions,{collapsed,view,width:sidebar,onSelectSessions:()=>{props.actions.setView('sessions')},onSelectFiles:()=>{if(collapsed)props.toggleSidebar();props.actions.setView('files')}}),sidebarChrome.top):null,sidebarChrome&&(sidebarChrome.groups.length>0?sidebarChrome.groups.map(group=>createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:group.title,openSession:openMindmapSession,revealSession:revealSessionById}),group.container)):sidebarChrome.fallback?createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:undefined,openSession:openMindmapSession,revealSession:revealSessionById}),sidebarChrome.fallback):null)),workspace?h(WorkspaceExplorer,{key:`${workspace.workspaceId}:${sessionId ?? 'workspace'}`,createEntry:props.createEntry,listDirectory:props.listDirectory,persistPreviewSession,publishEditorContext,readFile:props.readFile,renameEntry:props.renameEntry,saveFile:props.saveFile,loadDraft:props.loadDraft,persistDraftFile:props.persistDraftFile,removeDraftFile:props.removeDraftFile,draftTree:props.draftTree,settingsStore:props.settingsStore,storedPreviewSession,sessionTitle,sessionId,renameSession:props.renameSession,treePortalTarget,workspace}):h(EmptyWorkspaceExplorer,{sessionTitle,treePortalTarget}),h('section',{className:'dsh-ws-chat',ref:chatSectionRef},props.renderSlot('conversation',{}),chatDropActive?h('div',{className:'dsh-ws-chat-drop-mask',role:'presentation'},h('button',{'aria-label':translate('drop.closeAria'),className:'dsh-ws-chat-drop-close',onClick:()=>{chatDropSuppressed.current=true;setChatDropActive(false)},title:translate('drop.closeTitle'),type:'button'},'×'),h('div',{className:'dsh-ws-chat-drop-card'},translate('drop.releaseImages'))):null),!collapsed?h(ResizeHandle,{label:translate('resize.sidebar'),left:sidebar,max:sidebarMax,min:SIDEBAR_MIN,onDragging:setResizing,onResize:width=>props.actions.setSidebar(width,sidebarMax),value:sidebar}):null,(panes.explorerOpen||filesActive)?h(ResizeHandle,{label:translate('resize.preview'),left:settings.previewRight===true?Math.max(0,viewportWidth-preview):previewBoundary,max:previewMax,min:PREVIEW_MIN,onDragging:setResizing,onResize:width=>props.explorerPaneStore.actions.setPreview(width,previewMax),value:preview,invert:settings.previewRight===true||undefined}):null,h('aside',{className:'dsh-ws-details','data-closed':!panels.detailsOpen||!detailsCapable||undefined},props.renderSlot('details',{})),mobile.on&&mobile.drawerOpen?h('div',{className:'dsh-ws-mobile-scrim',onClick:()=>setDrawerOpen(false)}):null,h('div',{className:'dsh-ws-overlay','data-shell-overlay':true},props.renderSlot('shell.overlay',{})),sessionContextMenu?h('div',{className:'dsh-ws-context-menu',ref:sessionMenuRef,role:'menu',style:{left:Math.max(4,Math.min(sessionContextMenu.x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top:Math.max(4,Math.min(sessionContextMenu.y,window.innerHeight-52))}},h('button',{className:'dsh-ws-context-item',onClick:beginSessionInlineRename,role:'menuitem',type:'button'},translate('context.renameSession')),h('button',{className:'dsh-ws-context-item',onClick:archiveSessionFromMenu,role:'menuitem',type:'button'},translate('context.archiveSession')),h('div',{className:'dsh-ws-context-separator',role:'separator'}),h('button',{className:'dsh-ws-context-item',onClick:revealSessionFromMenu,role:'menuitem',type:'button'},translate('context.reveal'))):null,sessionInlineRename?h(SessionInlineRename,{busy:sessionInlineRenameBusy,error:sessionInlineRenameError,onCancel:cancelSessionInlineRename,onConfirm:confirmSessionInlineRename,row:sessionInlineRename.row,title:sessionInlineRename.title}):null,sessionNotice?h('div',{className:'dsh-ws-copy-notice','data-error':sessionNotice.error||undefined,role:'status'},sessionNotice.text):null),overlay.open?h(MindmapOverlayHost,{actions:props.mindmapActions,chatWidth,mobile:mobile.on,previewRight:settings.previewRight===true,previewWidth:preview,sessionId:overlay.sessionId,sidebarWidth:sidebar,useSessions:props.useSessions}):null)}
 
 export const inject = ['slots', 'theme', 'sessions', 'workspaces']
 export function apply(ctx) {
