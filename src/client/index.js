@@ -57,20 +57,17 @@ const THINK_COLLAPSE_DELAY_DEFAULT_S = 3
 const THINK_COLLAPSE_DELAY_MIN_S = 0
 const THINK_COLLAPSE_DELAY_MAX_S = 10
 const THINK_COLLAPSE_DELAY_STEP_S = 0.1
-/* Sidebar mind-map entry icon spin: speed multiplier over the base duration
-   (default 1.5x times the 0.8 s base = 1.2 s per revolution; larger = faster,
-   0 = no rotation), user-tunable in explorer settings under Session Browsing. */
+/* Sidebar mind-map icon spin: speed multiplier over the 0.8 s base (default
+   1.5x = 1.2 s per revolution; larger = faster, 0 = no rotation). */
 const MINDMAP_SPIN_BASE_DURATION_S = 0.8
 const MINDMAP_SPIN_SPEED_DEFAULT_X = 1.5
 const MINDMAP_SPIN_SPEED_MIN_X = 0
 const MINDMAP_SPIN_SPEED_MAX_X = 3
 /* Speed 0 would divide by zero: freeze the spin with a huge duration instead. */
 const MINDMAP_SPIN_STOP_DURATION_S = 1e6
-/* Fractional clamp for the spin speed multiplier. Unlike the shared clamp()
-   (which Math.round()s to integers for the integer settings), this preserves
-   the 0.1-granular decimals — the integer-snapping slider bug came from the
-   round-trip: drag to 1.1 -> store 1.1 -> re-render clamp() -> value snaps
-   back to 1 on the controlled input. */
+/* Fractional clamp for the spin speed: preserves 0.1-granular decimals,
+   unlike the shared clamp() which rounds to integers (the round-trip would
+   snap 1.1 back to 1 on the controlled input). */
 const clampSpinSpeed = (value) => {
   const speed = Number(value ?? MINDMAP_SPIN_SPEED_DEFAULT_X)
   const bounded = Number.isFinite(speed)
@@ -79,6 +76,52 @@ const clampSpinSpeed = (value) => {
   return Math.round(bounded * 10) / 10
 }
 const EXPLORER_SETTINGS_STORE_KEY = 'dsh.workspace.studio.settings.v1'
+/* Mind-map highlight colors (hover / selected): user-chosen hex, or unset
+   (undefined) = the harness theme default. The theme CSS variables resolve to
+   concrete hexes for the settings color picker; the effective values are
+   published as document-wide custom properties (--dsh-ws-mindmap-hover /
+   --dsh-ws-mindmap-selected) that the highlight CSS rules consume, so the
+   defaults stay theme-adaptive (light/dark) until the user overrides them. */
+const MINDMAP_HOVER_THEME_VAR = '--dsw-alias-state-warn-primary'
+const MINDMAP_SELECTED_THEME_VAR = '--dsw-alias-state-business-primary'
+const MINDMAP_HOVER_COLOR_FALLBACK = '#f59e0b'
+const MINDMAP_SELECTED_COLOR_FALLBACK = '#4176e6'
+const cssColorToHex = (color) => {
+  if (typeof color !== 'string') return null
+  const text = color.trim()
+  const shortHex = text.match(/^#([0-9a-fA-F]{3,4})$/)
+  if (shortHex !== null) return `#${shortHex[1].slice(0, 3).split('').map(part => `${part}${part}`).join('').toLowerCase()}`
+  if (/^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$/.test(text)) return `#${text.slice(1, 7).toLowerCase()}`
+  const rgb = text.match(/^rgba?\(\s*([0-9.]+)(?:\s*,\s*|\s+)([0-9.]+)(?:\s*,\s*|\s+)([0-9.]+)(?:\s*(?:,|\/)\s*[^)]+)?\s*\)$/i)
+  if (rgb === null) return null
+  const to2 = value => Math.max(0, Math.min(255, Math.round(Number(value)))).toString(16).padStart(2, '0')
+  return `#${to2(rgb[1])}${to2(rgb[2])}${to2(rgb[3])}`
+}
+const resolveCssColorToHex = (value) => {
+  const direct = cssColorToHex(value)
+  if (direct !== null) return direct
+  if (typeof document === 'undefined' || typeof getComputedStyle !== 'function' || document.body === null || typeof value !== 'string') return null
+  const probe = document.createElement('span')
+  probe.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none'
+  probe.style.color = value
+  if (probe.style.color === '') return null
+  document.body.append(probe)
+  try {
+    return cssColorToHex(getComputedStyle(probe).color)
+  } finally {
+    probe.remove()
+  }
+}
+const mindmapEffectiveColor = (value, themeVar, fallback) => {
+  const hex = resolveCssColorToHex(value)
+  if (hex !== null) return hex
+  if (typeof document !== 'undefined' && typeof getComputedStyle === 'function' && document.body !== null) {
+    const resolved = getComputedStyle(document.body).getPropertyValue(themeVar).trim()
+    const themeHex = resolveCssColorToHex(resolved)
+    if (themeHex !== null) return themeHex
+  }
+  return fallback
+}
 const EXPLORER_LAYOUT_STORE_KEY = 'dsh.workspace.studio.layout.v1'
 /* Debounce (ms) before a dirty tab's draft is auto-saved; restores edits after refresh but never clears the dirty marker. */
 const AUTOSAVE_DELAY_MS = 1000
@@ -101,12 +144,9 @@ const MINDMAP_NODE_H = 124
 const MINDMAP_DEPTH_GAP = 64
 const MINDMAP_ROW_GAP = 12
 const MINDMAP_TEXT_MAX = 88
-/* Padding around the live-streaming frame (streaming card + its parent card). */
-const MINDMAP_FRAME_PAD = 14
 /* Mind-map viewport interaction bounds: wheel-zoom range, the pan overhang
-   (MINDMAP_PAN_MARGIN, the fixed margin the fit view aligns to; the
-   proportional clamp MINDMAP_PAN_OUT_MAX below), and the zoom step per wheel
-   delta pixel. */
+   (MINDMAP_PAN_MARGIN, the margin the fit view aligns to; the proportional
+   clamp MINDMAP_PAN_OUT_MAX below), and the wheel zoom step. */
 const MINDMAP_ZOOM_MIN = 0.25
 const MINDMAP_ZOOM_MAX = 3
 const MINDMAP_PAN_MARGIN = 48
@@ -376,6 +416,11 @@ const zh = {
   'settings.group.content': '内容浏览设置',
   'settings.group.dialog': '对话页面设置',
   'settings.group.session': '会话浏览设置',
+  'settings.group.mindmap': '导图浏览设置',
+  'settings.mindmapHoverColor': '悬浮高亮颜色',
+  'settings.mindmapHoverColor.reset.title': '恢复默认悬浮高亮颜色',
+  'settings.mindmapSelectedColor': '选中高亮颜色',
+  'settings.mindmapSelectedColor.reset.title': '恢复默认选中高亮颜色',
   'settings.mindmapSpinSpeed': '导图图标旋转速度',
   'settings.mindmapSpinSpeed.reset.title': '恢复默认旋转速度',
   'settings.rowHeight': '每行高度',
@@ -401,7 +446,7 @@ const zh = {
   'settings.thinkDelay.reset.title': '恢复默认收起延迟',
   'settings.previewRight': '文件浏览页面显示在右侧',
   'settings.resetDefault': '恢复默认',
-  'settings.hint': '会话浏览设置：调整侧栏导图条目流式输出时旋转图标的速度（倍速 0.0×–3.0×，数值越大越快，默认 1.5× 即 1.2 秒一圈，0 表示不旋转）；文件浏览设置：调整左侧文件树的行高、搜索结果显示方式与图标徽标配色；内容浏览设置：为每种文件类型选择编辑器代码高亮预设、调整保存冲突弹窗中对比文本的字号、并可选择是否将文件浏览页面显示在对话页面的右侧；对话页面设置：调整对话文字大小，开启思考过程自动展开后，聊天中正在输出的思考内容会自动展开、结束后按设定延迟自动收起（0–10 秒，分度 0.1 秒），期间手动操作可取消；未修改的项使用默认值。',
+  'settings.hint': '会话浏览设置：调整侧栏导图条目流式输出时旋转图标的速度（倍速 0.0×–3.0×，数值越大越快，默认 1.5× 即 1.2 秒一圈，0 表示不旋转）；导图浏览设置：调整导图视图中悬浮高亮与选中高亮的颜色（默认分别为琥珀与主题蓝，可分别恢复默认）；文件浏览设置：调整左侧文件树的行高、搜索结果显示方式与图标徽标配色；内容浏览设置：为每种文件类型选择编辑器代码高亮预设、调整保存冲突弹窗中对比文本的字号、并可选择是否将文件浏览页面显示在对话页面的右侧；对话页面设置：调整对话文字大小，开启思考过程自动展开后，聊天中正在输出的思考内容会自动展开、结束后按设定延迟自动收起（0–10 秒，分度 0.1 秒），期间手动操作可取消；未修改的项使用默认值。',
   'fileColor.directory': '目录',
   'fileColor.style': '样式',
   'fileColor.log': '日志',
@@ -533,6 +578,8 @@ const zh = {
   'mindmap.done': '已完成',
   'mindmap.emptyRound': '（本轮无文本）',
   'mindmap.open.hint': '从这张卡片创建分支并继续对话',
+  'mindmap.hint.fork': '点击分支',
+  'mindmap.hint.switch': '点击跳转',
   'mindmap.empty': '该会话还没有可展示的对话轮次。完成一轮对话后，可在此将全部轮次切成卡片，并从任意卡片创建分支。',
   'mindmap.loading': '正在加载导图会话…',
   'mindmap.error': '加载导图会话失败：{message}',
@@ -784,6 +831,11 @@ const en = {
   'settings.group.content': 'Content Browsing',
   'settings.group.dialog': 'Conversation Page Settings',
   'settings.group.session': 'Session Browsing',
+  'settings.group.mindmap': 'Mind Map Browsing',
+  'settings.mindmapHoverColor': 'Hover highlight color',
+  'settings.mindmapHoverColor.reset.title': 'Reset hover highlight color',
+  'settings.mindmapSelectedColor': 'Selected highlight color',
+  'settings.mindmapSelectedColor.reset.title': 'Reset selected highlight color',
   'settings.mindmapSpinSpeed': 'Mind-map icon spin speed',
   'settings.mindmapSpinSpeed.reset.title': 'Reset spin speed',
   'settings.rowHeight': 'Row height',
@@ -809,7 +861,7 @@ const en = {
   'settings.thinkDelay.reset.title': 'Reset collapse delay',
   'settings.previewRight': 'Show the file browser pane on the right',
   'settings.resetDefault': 'Reset',
-  'settings.hint': 'Session Browsing: adjust the spin speed of the sidebar mind-map entry icon while the map is streaming (a 0.0x–3.0x speed multiplier, larger is faster; the default 1.5x means one 1.2 s revolution, and 0 means no rotation). File Browsing: adjust the tree row height, how search results are shown, and the file icon badge colors. Content Browsing: pick a highlight preset per file type, adjust the save-conflict dialog comparison text size, and choose whether the file browser pane sits on the right side of the conversation column. Conversation Page Settings: adjust the chat font size; when auto-expand thinking is on, streaming thinking blocks expand automatically and collapse after the configured delay (0–10 s, 0.1 s steps), and manual interaction cancels a pending collapse. Unchanged items use their defaults.',
+  'settings.hint': 'Session Browsing: adjust the spin speed of the sidebar mind-map entry icon while the map is streaming (a 0.0x–3.0x speed multiplier, larger is faster; the default 1.5x means one 1.2 s revolution, and 0 means no rotation). Mind Map Browsing: adjust the hover and selected highlight colors in the mind-map view (amber and the theme blue by default; each can be reset). File Browsing: adjust the tree row height, how search results are shown, and the file icon badge colors. Content Browsing: pick a highlight preset per file type, adjust the save-conflict dialog comparison text size, and choose whether the file browser pane sits on the right side of the conversation column. Conversation Page Settings: adjust the chat font size; when auto-expand thinking is on, streaming thinking blocks expand automatically and collapse after the configured delay (0–10 s, 0.1 s steps), and manual interaction cancels a pending collapse. Unchanged items use their defaults.',
   'fileColor.directory': 'Directory',
   'fileColor.style': 'Style',
   'fileColor.log': 'Log',
@@ -941,6 +993,8 @@ const en = {
   'mindmap.done': 'Done',
   'mindmap.emptyRound': '(no text this round)',
   'mindmap.open.hint': 'Create a branch from this card and keep chatting',
+  'mindmap.hint.fork': 'Click to fork a branch',
+  'mindmap.hint.switch': 'Click to switch',
   'mindmap.empty': 'This session has no turns to show yet. Once a turn completes, you can split all turns into cards here and branch from any card.',
   'mindmap.loading': 'Loading mind-map session…',
   'mindmap.error': 'Failed to load mind-map session: {message}',
@@ -1383,11 +1437,15 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-scope-toggle{display:none}
 html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-mindmap-canvas{position:absolute;left:0;top:0;transform-origin:0 0}
 .dsh-ws-mindmap-edges{position:absolute;inset:0;pointer-events:none;overflow:visible}
-.dsh-ws-mindmap-edge{fill:none;stroke:var(--dsw-alias-border-l2,#8a8f98);stroke-width:1.5;opacity:.85}
+.dsh-ws-mindmap-edge:not(.dsh-ws-mindmap-edge-flow){fill:none;stroke:var(--dsw-alias-border-l2,#8a8f98);stroke-width:1.5;opacity:.85}
+.dsh-ws-mindmap-edge.dsh-ws-mindmap-edge-flow-under{fill:none;stroke-width:3;stroke-linecap:round;opacity:.9}
+.dsh-ws-mindmap-edge-flow{fill:none;stroke-width:3;stroke-linecap:round;stroke-dasharray:10 8;opacity:1;animation:dsh-ws-mindmap-edge-flow 1.1s linear infinite}
+@keyframes dsh-ws-mindmap-edge-flow{to{stroke-dashoffset:-18}}
 .dsh-ws-mindmap-node{position:absolute;box-sizing:border-box;display:flex;flex-direction:column;gap:4px;padding:8px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:12px;line-height:17px;text-align:left;cursor:pointer;overflow:hidden;transition:border-color .12s ease,box-shadow .12s ease}
 .dsh-ws-mindmap-node:hover{border-color:var(--dsw-alias-state-business-primary)}
-.dsh-ws-mindmap-node-current{border-color:var(--dsw-alias-state-business-primary);box-shadow:0 0 0 1px var(--dsw-alias-state-business-primary)}
-.dsh-ws-mindmap-node-title{flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:15px}
+.dsh-ws-mindmap-node-current{border-color:var(--dsh-ws-mindmap-selected,var(--dsw-alias-state-business-primary));box-shadow:0 0 0 1px var(--dsh-ws-mindmap-selected,var(--dsw-alias-state-business-primary))}
+.dsh-ws-mindmap-node-title{flex:none;display:flex;align-items:center;gap:8px;min-width:0;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:15px}
+.dsh-ws-mindmap-node-title-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transform:translateY(-1px)}
 .dsh-ws-mindmap-node-q{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;font-weight:600;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--dsw-alias-label-primary);flex:1;min-height:0}
 .dsh-ws-mindmap-node-status{flex:none;font-size:11px;line-height:15px}
 .dsh-ws-mindmap-node-thinking{color:var(--dsw-alias-state-business-primary)}
@@ -1396,24 +1454,31 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-mindmap-branch{flex:none;padding:2px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:16px;cursor:pointer}
 .dsh-ws-mindmap-branch:hover{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary)}
 .dsh-ws-mindmap-branch:disabled{opacity:.55;cursor:not-allowed}
-.dsh-ws-mindmap-node-current-badge{position:absolute;top:3px;right:8px;padding:1px 7px;border-radius:999px;background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-primary-inverted);font-size:10px;line-height:14px}
+.dsh-ws-mindmap-node-current-badge{position:absolute;top:3px;right:8px;padding:1px 7px;border-radius:999px;background:var(--dsh-ws-mindmap-selected,var(--dsw-alias-state-business-primary));color:var(--dsw-alias-label-primary-inverted);font-size:10px;line-height:14px}
 /* Branch cards: fork children that cannot overlap the shared trunk window
    render as their own card (always visible), with a head row (tag + branch
    title) and, when the branch has visible rounds, a per-round preview list. */
 .dsh-ws-mindmap-pending{border-style:dashed;cursor:pointer;justify-content:flex-start;align-items:stretch}
 .dsh-ws-mindmap-branchcard{border-style:dashed;cursor:pointer;justify-content:flex-start;align-items:stretch;gap:6px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 88%,var(--dsw-alias-state-business-primary) 6%)}
-/* The live streaming card (a turn in flight, ephemeral UI — replaced by the
-   normal card once the turn completes) and the frame enclosing it with its
-   parent card as one unit. */
-.dsh-ws-mindmap-node-streaming{border-color:var(--dsw-alias-state-business-primary);cursor:pointer;animation:dsh-ws-mindmap-node-streaming-pulse 1.6s ease-in-out infinite}
-.dsh-ws-mindmap-node-frame-parent{border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 55%,var(--dsw-alias-border-l2));box-shadow:0 0 0 1px color-mix(in srgb,var(--dsw-alias-state-business-primary) 22%,transparent)}
-.dsh-ws-mindmap-node-streaming-status{display:flex;align-items:center;gap:6px;color:var(--dsw-alias-state-business-primary)}
-.dsh-ws-mindmap-node-streaming-dot{width:7px;height:7px;border-radius:50%;background:var(--dsw-alias-state-business-primary);animation:dsh-ws-mindmap-dot-pulse 1s ease-in-out infinite}
-.dsh-ws-mindmap-frame{position:absolute;border:1.5px dashed var(--dsw-alias-state-business-primary);border-radius:16px;background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 5%,transparent);pointer-events:none}
-@keyframes dsh-ws-mindmap-node-streaming-pulse{0%,100%{box-shadow:0 0 0 1px var(--dsw-alias-state-business-primary)}50%{box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-state-business-primary) 30%,transparent)}}
+/* Live streaming cards (turns in flight, ephemeral UI — replaced by normal
+   cards once their turns complete): instead of an enclosing frame, each
+   streaming card AND its parent card get a colorful flowing gradient ring
+   (conic gradient clipped to the border box, rotating through the registered
+   --dsw-ws-mm-angle), and the edge between them flows with the same palette.
+   Palette colors arrive as inline --dsw-ws-mm-c1..c3; the 2px transparent
+   border plus compensated padding keep content from shifting when the ring
+   appears. The compound selectors beat the ancestor / branch border rules. */
+@property --dsw-ws-mm-angle{syntax:'<angle>';initial-value:0deg;inherits:false}
+.dsh-ws-mindmap-node.dsh-ws-mindmap-node-ring{border:2px solid transparent;padding:7px 9px;border-radius:12px;background:linear-gradient(var(--dsw-alias-bg-layer-1),var(--dsw-alias-bg-layer-1)) padding-box,conic-gradient(from var(--dsw-ws-mm-angle),var(--dsw-ws-mm-c1),var(--dsw-ws-mm-c2),var(--dsw-ws-mm-c3),var(--dsw-ws-mm-c1)) border-box;animation:dsh-ws-mindmap-ring-spin 2.4s linear infinite}
+.dsh-ws-mindmap-node.dsh-ws-mindmap-node-ring.dsh-ws-mindmap-node-streaming{box-shadow:0 0 14px color-mix(in srgb,var(--dsw-ws-mm-c1) 22%,transparent)}
+.dsh-ws-mindmap-node-streaming-status{display:flex;align-items:center;gap:6px;color:var(--dsw-ws-mm-c1,var(--dsw-alias-state-business-primary))}
+.dsh-ws-mindmap-node-streaming-dot{width:7px;height:7px;border-radius:50%;background:var(--dsw-ws-mm-c1,var(--dsw-alias-state-business-primary));animation:dsh-ws-mindmap-dot-pulse 1s ease-in-out infinite}
+@keyframes dsh-ws-mindmap-ring-spin{to{--dsw-ws-mm-angle:360deg}}
 @keyframes dsh-ws-mindmap-dot-pulse{0%,100%{opacity:1}50%{opacity:.25}}
+@media (prefers-reduced-motion: reduce){.dsh-ws-mindmap-node.dsh-ws-mindmap-node-ring{animation:none}.dsh-ws-mindmap-edge-flow{animation:none}.dsh-ws-mindmap-node-streaming-dot{animation:none}}
 .dsh-ws-mindmap-pending-head{display:flex;align-items:center;gap:6px;min-width:0}
-.dsh-ws-mindmap-pending-label{flex:none;padding:1px 7px;border:1px solid var(--dsw-alias-state-business-primary);border-radius:999px;color:var(--dsw-alias-state-business-primary);font-size:10px;line-height:14px}
+.dsh-ws-mindmap-pending-label{flex:none;display:inline-flex;align-items:center;gap:2px;padding:1px 6px 1px 5px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 28%,transparent);border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent);color:var(--dsw-alias-state-business-primary);font-size:10px;line-height:14px}
+.dsh-ws-mindmap-pending-icon{flex:none;display:block}
 .dsh-ws-mindmap-pending-title{flex:1;min-width:0;color:var(--dsw-alias-label-primary);font-weight:600;font-size:12px;line-height:17px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dsh-ws-mindmap-pending-count{color:var(--dsw-alias-label-secondary);font-size:10px;line-height:14px}
 .dsh-ws-mindmap-branch-round{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;column-gap:8px;row-gap:1px;align-items:center;padding:5px 7px;border:1px solid var(--dsw-alias-border-l1,transparent);border-radius:8px;background:var(--dsw-alias-bg-base)}
@@ -1429,13 +1494,30 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-mindmap-notice{margin-bottom:10px;padding:6px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:12px;line-height:17px}
 .dsh-ws-mindmap-notice-error{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}
 .dsh-ws-mindmap-node[data-branch]{border-style:solid}
-/* Selected-card ancestor trace: the current (solid-highlighted) card's chain
-   back to the root — every connecting edge turns into a dashed primary-blue
-   line, every parent node gets a dashed primary-blue border. The two-class
-   compound selector beats the branch-node rule [data-branch] { border-style:
-   solid } (equal specificity, later in source). */
-.dsh-ws-mindmap-edge-active{stroke:var(--dsw-alias-state-business-primary);stroke-dasharray:6 5;stroke-width:2;opacity:1}
-.dsh-ws-mindmap-node.dsh-ws-mindmap-node-ancestor{border-style:dashed;border-color:var(--dsw-alias-state-business-primary);box-shadow:0 0 0 1px color-mix(in srgb,var(--dsw-alias-state-business-primary) 18%,transparent)}
+/* Selected-card ancestor trace: the current card's chain back to the root —
+   edges turn dashed primary-blue, parent nodes get a dashed primary-blue
+   border. The compound selector beats the base rules (equal specificity,
+   later in source), so the trace keeps its stroke. */
+.dsh-ws-mindmap-edge.dsh-ws-mindmap-edge-active{stroke:var(--dsh-ws-mindmap-selected,var(--dsw-alias-state-business-primary));stroke-dasharray:6 5;stroke-width:2;opacity:1}
+.dsh-ws-mindmap-node.dsh-ws-mindmap-node-ancestor{border-style:dashed;border-color:var(--dsh-ws-mindmap-selected,var(--dsw-alias-state-business-primary));box-shadow:0 0 0 1px color-mix(in srgb,var(--dsh-ws-mindmap-selected,var(--dsw-alias-state-business-primary)) 18%,transparent)}
+/* Hover ancestor trace: the card under the pointer gets a solid amber border
+   + soft glow, its ancestors and path edges go amber dashed — visually
+   distinct from the selected card's primary-blue chain (blue = persistent
+   selection, amber = transient hover preview). Each hover class sits AFTER
+   its blue counterpart (equal specificity, later wins), so when a card or
+   edge is on BOTH the selection and the hover path, the hover (the pointer's
+   current focus) wins. Ring (streaming) cards are excluded: their flowing
+   ring is already the stronger signal and a border-color override would
+   erase it. */
+.dsh-ws-mindmap-edge.dsh-ws-mindmap-edge-hover-active{stroke:var(--dsh-ws-mindmap-hover,var(--dsw-alias-state-warn-primary));stroke-dasharray:6 5;stroke-width:2;opacity:1}
+.dsh-ws-mindmap-node.dsh-ws-mindmap-node-hover-ancestor{border-style:dashed;border-color:var(--dsh-ws-mindmap-hover,var(--dsw-alias-state-warn-primary));box-shadow:0 0 0 1px color-mix(in srgb,var(--dsh-ws-mindmap-hover,var(--dsw-alias-state-warn-primary)) 22%,transparent)}
+.dsh-ws-mindmap-node.dsh-ws-mindmap-node-hover:not(.dsh-ws-mindmap-node-ring){border-style:solid;border-color:var(--dsh-ws-mindmap-hover,var(--dsw-alias-state-warn-primary));box-shadow:0 0 0 1px color-mix(in srgb,var(--dsh-ws-mindmap-hover,var(--dsw-alias-state-warn-primary)) 35%,transparent),0 0 14px color-mix(in srgb,var(--dsh-ws-mindmap-hover,var(--dsw-alias-state-warn-primary)) 22%,transparent)}
+/* Settings color swatch for the mind-map highlight pickers. */
+.dsh-ws-mindmap-node-hint{position:absolute;right:5px;bottom:5px;z-index:1;max-width:calc(100% - 10px);padding:1px 7px;border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 24%,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-state-business-primary);border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 45%,transparent);font-size:10px;line-height:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;box-sizing:border-box}
+.dsh-ws-settings-color{flex:none;width:40px;height:26px;padding:2px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);cursor:pointer;box-sizing:border-box}
+.dsh-ws-settings-color::-webkit-color-swatch-wrapper{padding:0}
+.dsh-ws-settings-color::-webkit-color-swatch{border:0;border-radius:3px}
+.dsh-ws-settings-color::-moz-color-swatch{border:0;border-radius:3px}
 .dsh-ws-mindmap-hidden-row{display:none!important}
 /* Sidebar mind-map session entries: rendered INSIDE each workspace group's
    session list (one container appended to its group section), so a mind map
@@ -2126,11 +2208,10 @@ function diffSideLines(baseLines, sideLines) {
   return rows
 }
 
-// Whether a dropped File is an image. Images belong to the chat composer, not
-// the preview pane: the drag highlight is withheld, but an actual drop still
-// reaches the upload endpoint and the server rejects it as binary, so the user
-// gets an explicit "cannot preview as text" toast — intentional (development-
-// notes §17). Empty MIME types are treated as normal files.
+// Whether a dropped File is an image. Images go to the chat composer, not the
+// preview: the drop highlight is withheld and an actual drop is rejected by
+// the server with a clear "cannot preview as text" toast (development-notes
+// §17). Empty MIME types count as normal files.
 function isImageFile(file) {
   const type = typeof file?.type === 'string' ? file.type : ''
   return type.startsWith('image/')
@@ -2148,11 +2229,10 @@ function hasDraggedFiles(event) {
     return false
   }
 }
-// Whether the drag carries at least one non-image file. This only controls the
-// drop HIGHLIGHT: during dragover the File objects may not be inspectable yet,
-// so any file drag counts as "normal". The drop itself does NOT filter images
-// (see isImageFile / handlePreviewDrop) — they are uploaded and rejected by
-// the server with an explicit toast, by design (development-notes §17).
+// Whether the drag carries a non-image file. Controls only the drop highlight:
+// during dragover File objects may not be inspectable yet, so any file drag
+// counts as "normal". The drop itself does not filter images — the server
+// rejects them with a toast (development-notes §17).
 function hasNormalFile(event) {
   if (!hasDraggedFiles(event)) return false
   const files = event.dataTransfer?.files
@@ -2253,6 +2333,8 @@ function createExplorerSettingsStore() {
       autoExpandThink: AUTO_EXPAND_THINK_DEFAULT,
       thinkCollapseDelay: THINK_COLLAPSE_DELAY_DEFAULT_S,
       mindmapSpinSpeed: MINDMAP_SPIN_SPEED_DEFAULT_X,
+      mindmapHoverColor: undefined,
+      mindmapSelectedColor: undefined,
       fileColors: {},
       highlightPresets: {},
       previewRight: PREVIEW_RIGHT_DEFAULT,
@@ -2279,6 +2361,22 @@ function createExplorerSettingsStore() {
           : MINDMAP_SPIN_SPEED_DEFAULT_X
         draft.mindmapSpinSpeed = Math.round(bounded * 10) / 10
       },
+      setMindmapHoverColor: (draft, value) => {
+        const hex = cssColorToHex(value)
+        if (hex === null) return
+        const defaultHex = mindmapEffectiveColor(undefined, MINDMAP_HOVER_THEME_VAR, MINDMAP_HOVER_COLOR_FALLBACK)
+        if (hex === defaultHex) delete draft.mindmapHoverColor
+        else draft.mindmapHoverColor = hex
+      },
+      resetMindmapHoverColor: (draft) => { delete draft.mindmapHoverColor },
+      setMindmapSelectedColor: (draft, value) => {
+        const hex = cssColorToHex(value)
+        if (hex === null) return
+        const defaultHex = mindmapEffectiveColor(undefined, MINDMAP_SELECTED_THEME_VAR, MINDMAP_SELECTED_COLOR_FALLBACK)
+        if (hex === defaultHex) delete draft.mindmapSelectedColor
+        else draft.mindmapSelectedColor = hex
+      },
+      resetMindmapSelectedColor: (draft) => { delete draft.mindmapSelectedColor },
       setFileColor: (draft, group, value) => {
         if (draft.fileColors === undefined) draft.fileColors = {}
         if (String(value).toLowerCase() === fileColorDefault(group).toLowerCase()) delete draft.fileColors[group]
@@ -2983,13 +3081,18 @@ const writeMindmapDoc = (sessionId, doc, signal, prevSessionId) => mindmapReques
     : { sessionId: String(sessionId), doc, prevSessionId: String(prevSessionId) },
   signal,
 })
-const syncMindmapDoc = (sessionId, liveSessionId, signal) => mindmapRequest('/sync', {
-  method: 'POST',
-  body: liveSessionId === undefined || liveSessionId === null
-    ? { sessionId: String(sessionId) }
-    : { sessionId: String(sessionId), liveSessionId: String(liveSessionId) },
-  signal,
-})
+const syncMindmapDoc = (sessionId, liveSessionIds, signal) => {
+  const ids = Array.isArray(liveSessionIds) ? liveSessionIds.map(String) : []
+  return mindmapRequest('/sync', {
+    method: 'POST',
+    // The singular field lets an older Host serve the first live card during a
+    // rolling update; the current Host prefers the plural field below.
+    body: ids.length > 0
+      ? { sessionId: String(sessionId), liveSessionIds: ids, liveSessionId: ids[0] }
+      : { sessionId: String(sessionId) },
+    signal,
+  })
+}
 const fetchMindmapDocIndex = signal => mindmapRequest('/index', { method: 'GET', signal })
 const deleteMindmapDoc = (sessionId, signal) => mindmapRequest(`?sessionId=${encodeURIComponent(String(sessionId))}`, { method: 'DELETE', signal })
 /* Rename only the map's OWN title (doc.rootTitle) on the Host — a targeted
@@ -3547,6 +3650,9 @@ function clonePreviewTab(tab) {
     bom: Boolean(tab.bom),
     dirty: Boolean(tab.dirty),
     draft: typeof tab.draft === 'string' ? tab.draft : '',
+    // True only when this browser instance holds the tab's actual draft text.
+    // Serialized snapshots deliberately reset it because they omit all content.
+    draftKnown: Boolean(tab.draftKnown),
     editing: Boolean(tab.editing),
     encoding: typeof tab.encoding === 'string' && tab.encoding !== '' ? tab.encoding : 'utf-8',
     external: Boolean(tab.external),
@@ -3586,8 +3692,11 @@ function serializePreviewTab(tab) {
   // localStorage keeps ONLY the dirty marker and tab metadata, never file
   // content or the snapshot (which live in the draft file and are re-read on
   // restore) — dropping content from every tab also keeps the value small.
+  // An empty draft can be real user input, so the runtime-only marker tells a
+  // live tab apart from this content-free persisted representation.
   clone.baseText = ''
   clone.draft = ''
+  clone.draftKnown = false
   return clone
 }
 /* Cap the stored session count: the freshest key always survives; others keep
@@ -4705,6 +4814,7 @@ function WorkspaceExplorer({
           baseText: '',
           dirty: false,
           draft: '',
+          draftKnown: false,
           editing: false,
           name: entry.name,
           path: entry.path,
@@ -5022,8 +5132,13 @@ function WorkspaceExplorer({
             void deleteEmergencyDraft(workspace.workspaceId, draftScopeId, activePath, Math.max(hostGeneration, emergencyGeneration)).catch(() => {})
           }
         }
-        const hasTabDraft = tabDraft !== undefined && typeof tabDraft.draft === 'string'
-          && tabDraft.draft !== '' && tabDraft.draft !== result.content
+        /* A live tab knows whether its in-memory draft text is materialized.
+           This keeps a deliberate empty edit distinct from a content-free dirty
+           marker restored from localStorage; cold restores still wait for the
+           durable Host/IndexedDB draft instead of treating their empty field as
+           a request to erase the source. */
+        const hasTabDraft = tabDraft !== undefined && tabDraft.draftKnown === true
+          && typeof tabDraft.draft === 'string' && tabDraft.draft !== result.content
         /* In-session the in-memory tab draft is ALWAYS at least as new as any
            disk draft (the host draft and the emergency mirror are only debounced
            copies of it), so prefer it whenever present. Choosing a stale disk
@@ -5102,6 +5217,7 @@ function WorkspaceExplorer({
           bom: Boolean(result.bom),
           dirty: restoredDirty,
           draft: content,
+          draftKnown: true,
           editing: editable,
           encoding: result.encoding ?? effectiveEncoding,
           lineEnding: result.lineEnding ?? 'none',
@@ -5258,6 +5374,7 @@ function WorkspaceExplorer({
         bom: savedBom,
         dirty: false,
         draft: content,
+        draftKnown: true,
         editing: true,
         encoding: savedEncoding,
         lineEnding: tab.lineEnding ?? 'none',
@@ -5444,7 +5561,7 @@ function WorkspaceExplorer({
     if (liveText === committedText) return
     setDraft(liveText)
     setDirty(true)
-    updateTab(path, { draft: liveText, dirty: true })
+    updateTab(path, { draft: liveText, draftKnown: true, dirty: true })
     scheduleAutosave(path, liveText)
   }, [scheduleAutosave, updateTab])
 
@@ -5468,7 +5585,7 @@ function WorkspaceExplorer({
     const savingStatus = { text: forceSaveAs ? translate('editor.savingWith', { encoding: encodingLabel(encoding) }) : translate('editor.saving') }
     setSaving(true)
     setStatus(savingStatus)
-    updateTab(path, { draft: text, dirty: true, saving: true, status: savingStatus })
+    updateTab(path, { draft: text, draftKnown: true, dirty: true, saving: true, status: savingStatus })
     const savedStatusText = forceSaveAs ? translate('editor.savedAs', { encoding: encodingLabel(encoding) }) : translate('editor.saved')
     try {
       // Authoritative current disk state: re-read before deciding how to write.
@@ -5510,7 +5627,7 @@ function WorkspaceExplorer({
             } else {
               setDraft(liveBefore)
               setDirty(true)
-              updateTab(path, { draft: liveBefore, dirty: true })
+              updateTab(path, { draft: liveBefore, draftKnown: true, dirty: true })
               scheduleAutosave(path, liveBefore)
               setStatus({ error: true, text: translate('editor.saveTypedDuringMerge') })
             }
@@ -5533,7 +5650,7 @@ function WorkspaceExplorer({
       const failure = error?.status === 409 || error?.status === 412
         ? translate('editor.saveConflict')
         : translate('editor.saveFailed', { message: error instanceof Error ? error.message : String(error) })
-      updateTab(path, { dirty: true, draft: text, editing: true, saving: false, status: { error: true, text: failure } })
+      updateTab(path, { dirty: true, draft: text, draftKnown: true, editing: true, saving: false, status: { error: true, text: failure } })
       if (activePathRef.current === path) setStatus({ error: true, text: failure })
       return false
     } finally {
@@ -5614,7 +5731,7 @@ function WorkspaceExplorer({
       await clearDraftFile(path, diskContent, encoding, lineEnding, bom, revision)
       if (!mounted.current) return
       lastWriteRef.current.set(path, { generation: draftGenerationsRef.current.get(path) ?? 0, content: diskContent })
-      updateTab(path, { dirty: false, draft: '', editing: true, saving: false, status: { text: translate('editor.cancelRestored') } })
+      updateTab(path, { dirty: false, draft: '', draftKnown: false, editing: true, saving: false, status: { text: translate('editor.cancelRestored') } })
       if (activePathRef.current === path) {
         setDraft('')
         setDirty(false)
@@ -5625,7 +5742,7 @@ function WorkspaceExplorer({
       if (!mounted.current) return
       const message = error instanceof Error ? error.message : String(error)
       const failure = { error: true, text: translate('editor.cancelFailed', { message }) }
-      updateTab(path, { dirty: true, draft: discardedText, editing: true, saving: false, status: failure })
+      updateTab(path, { dirty: true, draft: discardedText, draftKnown: true, editing: true, saving: false, status: failure })
       if (activePathRef.current === path) {
         setDraft(discardedText)
         setDirty(true)
@@ -5655,7 +5772,7 @@ function WorkspaceExplorer({
       lastWriteRef.current.set(path, { generation: draftGenerationsRef.current.get(path) ?? 0, content: '' })
       // Mark clean BEFORE the re-read so the read pass cannot resurrect the
       // discarded draft from the tab (same ordering rule as cancel).
-      updateTab(path, { dirty: false, draft: '', editing: false, saving: false, status: { text: translate('editor.cancelRestored') } })
+      updateTab(path, { dirty: false, draft: '', draftKnown: false, editing: false, saving: false, status: { text: translate('editor.cancelRestored') } })
       if (activePathRef.current === path) {
         setDraft('')
         setDirty(false)
@@ -5724,7 +5841,12 @@ function WorkspaceExplorer({
         // back to older text. force=true also re-writes staging drafts of
         // NON-editable dirty tabs (their scheduleAutosave gate would skip them
         // otherwise), so a failed delete never destroys an orphaned draft.
+        // Drop the autosave dedup for this path FIRST: draftTree already
+        // tombstoned these drafts, yet lastWriteRef still records the same
+        // text, so scheduleAutosave's content-dedup would skip the re-write
+        // and the orphaned draft would stay lost until the next edit.
         const fresh = tabsRef.current.find(tab => tab.path === item.path)
+        lastWriteRef.current.delete(item.path)
         scheduleAutosave(item.path, fresh?.draft ?? item.draft, true)
       }
       if (error?.name === 'AbortError') return
@@ -5768,7 +5890,12 @@ function WorkspaceExplorer({
         // back to older text. force=true also re-writes staging drafts of
         // NON-editable dirty tabs (their scheduleAutosave gate would skip them
         // otherwise), so a failed delete never destroys an orphaned draft.
+        // Drop the autosave dedup for this path FIRST: draftTree already
+        // tombstoned these drafts, yet lastWriteRef still records the same
+        // text, so scheduleAutosave's content-dedup would skip the re-write
+        // and the orphaned draft would stay lost until the next edit.
         const fresh = tabsRef.current.find(tab => tab.path === item.path)
+        lastWriteRef.current.delete(item.path)
         scheduleAutosave(item.path, fresh?.draft ?? item.draft, true)
       }
       if (error?.name === 'AbortError') return
@@ -6170,7 +6297,7 @@ function WorkspaceExplorer({
             const nextDirty = text !== baseText.current
             setDraft(text)
             setDirty(nextDirty)
-            updateActiveTab({ dirty: nextDirty, draft: text })
+            updateActiveTab({ dirty: nextDirty, draft: text, draftKnown: nextDirty })
             if (nextDirty) {
               scheduleAutosave(activePath, text)
             } else {
@@ -6503,6 +6630,18 @@ function EmptyWorkspaceExplorer({ treePortalTarget, sessionTitle }) {
   const chatFontSize = clamp(settings.chatFontSize ?? CHAT_FONT_SIZE_DEFAULT, CHAT_FONT_SIZE_MIN, CHAT_FONT_SIZE_MAX)
   const conflictFontSize = clamp(settings.conflictFontSize ?? CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MIN, CONFLICT_FONT_SIZE_MAX)
   const mindmapSpinSpeed = clampSpinSpeed(settings.mindmapSpinSpeed)
+  /* Effective mind-map highlight colors: the user's hex or the theme default
+     resolved to a concrete hex (for the color input), plus whether the value
+     is customized (drives each reset button's disabled state). */
+  const mindmapHoverColorHex = mindmapEffectiveColor(settings.mindmapHoverColor, MINDMAP_HOVER_THEME_VAR, MINDMAP_HOVER_COLOR_FALLBACK)
+  const mindmapSelectedColorHex = mindmapEffectiveColor(settings.mindmapSelectedColor, MINDMAP_SELECTED_THEME_VAR, MINDMAP_SELECTED_COLOR_FALLBACK)
+  /* "Customized" means the user stored a non-default hex (the store deletes
+     the entry when the picked color equals the theme default). Comparing the
+     stored value against the EFFECTIVE hex was always true — the store's
+     undefined value never equals a hex string — which left both reset buttons
+     permanently disabled. */
+  const mindmapHoverColorCustom = settings.mindmapHoverColor !== undefined
+  const mindmapSelectedColorCustom = settings.mindmapSelectedColor !== undefined
   const customizedCount = Object.keys(settings.fileColors ?? {}).length
   const customizedPresetCount = Object.keys(settings.highlightPresets ?? {}).length
   return h('div', { className: 'dsh-ws-explorer-settings' },
@@ -6527,6 +6666,44 @@ function EmptyWorkspaceExplorer({ treePortalTarget, sessionTitle }) {
           disabled: mindmapSpinSpeed === MINDMAP_SPIN_SPEED_DEFAULT_X || undefined,
           onClick: () => settingsStore.actions.setMindmapSpinSpeed(MINDMAP_SPIN_SPEED_DEFAULT_X),
           title: translate('settings.mindmapSpinSpeed.reset.title'),
+          type: 'button',
+        }, translate('settings.resetDefault'))),
+    ),
+    h('div', { className: 'dsh-ws-explorer-divider' }),
+    h('div', { className: 'dsh-ws-settings-group' },
+      h('div', { className: 'dsh-ws-settings-group-title' }, translate('settings.group.mindmap')),
+      h('div', { className: 'dsh-ws-settings-row' },
+        h('label', { className: 'dsh-ws-settings-label', htmlFor: 'dsh-ws-mindmap-hover-color' }, translate('settings.mindmapHoverColor')),
+        h('input', {
+          'aria-label': translate('settings.mindmapHoverColor'),
+          className: 'dsh-ws-settings-color',
+          id: 'dsh-ws-mindmap-hover-color',
+          onChange: e => settingsStore.actions.setMindmapHoverColor(e.target.value),
+          type: 'color',
+          value: mindmapHoverColorHex,
+        }),
+        h('button', {
+          className: 'dsh-ws-text-button',
+          disabled: !mindmapHoverColorCustom,
+          onClick: () => settingsStore.actions.resetMindmapHoverColor(),
+          title: translate('settings.mindmapHoverColor.reset.title'),
+          type: 'button',
+        }, translate('settings.resetDefault'))),
+      h('div', { className: 'dsh-ws-settings-row' },
+        h('label', { className: 'dsh-ws-settings-label', htmlFor: 'dsh-ws-mindmap-selected-color' }, translate('settings.mindmapSelectedColor')),
+        h('input', {
+          'aria-label': translate('settings.mindmapSelectedColor'),
+          className: 'dsh-ws-settings-color',
+          id: 'dsh-ws-mindmap-selected-color',
+          onChange: e => settingsStore.actions.setMindmapSelectedColor(e.target.value),
+          type: 'color',
+          value: mindmapSelectedColorHex,
+        }),
+        h('button', {
+          className: 'dsh-ws-text-button',
+          disabled: !mindmapSelectedColorCustom,
+          onClick: () => settingsStore.actions.resetMindmapSelectedColor(),
+          title: translate('settings.mindmapSelectedColor.reset.title'),
           type: 'button',
         }, translate('settings.resetDefault'))),
     ),
@@ -6800,6 +6977,12 @@ function SessionSwitcherDropdown({ useSessions, useWorkspaces, sessionId, openSe
     ? undefined
     : (list.byId[sessionId]?.displayTitle ?? String(sessionId))
   const rows = useMemo(() => {
+    /* The full session list is only needed while the panel is open. The store
+       subscription re-renders this header slot on every session change
+       (streaming churn included), so skip building the sorted rows while
+       closed — the trigger only needs the current title, which the
+       subscription already delivers. */
+    if (!open) return []
     const workspaceTitleBySession = new Map()
     for (const item of workspaces) {
       for (const id of item.sessionIds) {
@@ -6811,7 +6994,7 @@ function SessionSwitcherDropdown({ useSessions, useWorkspaces, sessionId, openSe
       .map(id => ({ summary: list.byId[id], workspaceTitle: workspaceTitleBySession.get(id) }))
       .sort((a, b) => (b.summary.updatedAt ?? 0) - (a.summary.updatedAt ?? 0))
     return ordered
-  }, [list, workspaces])
+  }, [list, open, workspaces])
   const trigger = h('button', {
     'aria-expanded': open,
     'aria-haspopup': 'listbox',
@@ -7042,7 +7225,64 @@ function mindmapDocFingerprint(doc) {
    Returns { nodes, edges, width, height } — nodes carry key/sessionId/turn/
    branch/empty/streaming/depth/row/y/height, edges are { from, to } key
    pairs. */
-function mindmapDocLayout(doc, streaming) {
+/* Deterministic per-session color palette for a streaming card + parent pair
+   (the flowing gradient ring on both cards and the flowing edge between
+   them): a hash of the session id seeds a PRNG that picks ONE coherent 3-color
+   scheme from the curated pool, so every pair looks different while staying
+   stable across renders (no per-frame re-rolls). Returns a FLAT 3-color array
+   (c1, c2, c3) — a buggy earlier version returned an array of whole palettes,
+   which made every stroke/stop an invalid color list and rendered the edge
+   black. Palettes are cached by session id so the array identity survives
+   layout recomputes and React.memo comparisons. */
+const MINDMAP_STREAM_PALETTE = [
+  ['#22d3ee', '#818cf8', '#a78bfa'],
+  ['#fb923c', '#f472b6', '#e11d48'],
+  ['#a3e635', '#34d399', '#2dd4bf'],
+  ['#fde047', '#f97316', '#ef4444'],
+  ['#38bdf8', '#2dd4bf', '#a3e635'],
+  ['#e879f9', '#818cf8', '#38bdf8'],
+]
+const mindmapStreamPaletteCache = new Map()
+const mindmapStreamHash = (text) => {
+  let h = 2166136261
+  for (let i = 0; i < text.length; i += 1) {
+    h ^= text.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return h >>> 0
+}
+const mindmapMulberry32 = (seed) => () => {
+  seed |= 0
+  seed = (seed + 0x6D2B79F5) | 0
+  let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+}
+const mindmapGradientId = (sessionId) => {
+  const codePoints = [...String(sessionId)].map(char => char.codePointAt(0).toString(16)).join('_')
+  return `dsh-ws-mm-grad-${codePoints}`
+}
+const mindmapStreamPalette = (sessionId) => {
+  const sid = String(sessionId)
+  const hit = mindmapStreamPaletteCache.get(sid)
+  if (hit !== undefined) {
+    // Refresh insertion order so the bounded cache evicts the least recently
+    // used session without changing a live session's deterministic palette.
+    mindmapStreamPaletteCache.delete(sid)
+    mindmapStreamPaletteCache.set(sid, hit)
+    return hit
+  }
+  const rng = mindmapMulberry32(mindmapStreamHash(sid))
+  const out = MINDMAP_STREAM_PALETTE[Math.floor(rng() * MINDMAP_STREAM_PALETTE.length)].slice()
+  if (mindmapStreamPaletteCache.size >= 128) {
+    const oldest = mindmapStreamPaletteCache.keys().next().value
+    if (oldest !== undefined) mindmapStreamPaletteCache.delete(oldest)
+  }
+  mindmapStreamPaletteCache.set(sid, out)
+  return out
+}
+
+function mindmapDocLayout(doc, streamingList) {
   const nodes = []
   const edges = []
   const rootId = doc?.rootSessionId
@@ -7133,12 +7373,14 @@ function mindmapDocLayout(doc, streaming) {
       prevKey = key
     })
   })
-  /* Live streaming card: the doc family's running session has a turn in
-     flight — append a card to its chain tail (a branch awaiting its first
-     turn gets its placeholder replaced instead). The card is ephemeral UI,
-     never part of the doc: the next sync folds the completed turn into a
-     normal card. */
-  if (streaming !== null && streaming !== undefined) {
+  /* Live streaming cards: every running doc-family session has a turn in
+     flight — append a card to each one's chain tail (a branch awaiting its
+     first turn gets its placeholder replaced instead). The cards are
+     ephemeral UI, never part of the doc: the next sync folds each completed
+     turn into a normal card. */
+  const streamingItems = Array.isArray(streamingList) ? streamingList : []
+  for (const streaming of streamingItems) {
+    if (streaming === null || streaming === undefined) continue
     const sid = String(streaming.sessionId)
     const isRoot = sid === String(rootId)
     const branch = isRoot
@@ -7168,7 +7410,7 @@ function mindmapDocLayout(doc, streaming) {
       }
       if (replaceEmpty) {
         /* Replace the placeholder card of a branch awaiting its first turn;
-           the parent of the frame is the card the placeholder hung off. */
+           the parent of the ring is the card the placeholder hung off. */
         const index = nodes.indexOf(last)
         const edge = edges.find(e => e.to === last.key)
         streamingNode.parentKey = edge === undefined ? undefined : edge.from
@@ -7199,6 +7441,27 @@ function mindmapDocLayout(doc, streaming) {
 }
 
 const mindmapXOf = depth => MINDMAP_DEPTH_GAP + depth * (MINDMAP_NODE_W + MINDMAP_DEPTH_GAP)
+
+/* The action a click on a layout node performs — 'fork' (create a new branch
+   at this card) or 'switch' (jump the right-side chat to this card's own
+   session). Exact mirror of the openCard decision tree; the hover hint and
+   the click handler share it so the hint can never drift from the real
+   behavior. A generating session's last completed card is semantically a
+   middle card (its real tail is the streaming card), hence it forks. */
+const mindmapCardClickAction = (node, doc, runningFamilyIds) => {
+  if (node === undefined) return undefined
+  if (node.streaming === true) return 'switch'
+  if (node.empty) return 'switch'
+  const owner = node.sessionId
+  const chain = String(owner) === String(doc?.rootSessionId)
+    ? (doc?.trunk ?? [])
+    : ((doc?.branches ?? []).find(b => String(b?.sessionId) === String(owner))?.turns ?? [])
+  const last = chain[chain.length - 1]
+  if (last !== undefined && last.seq === node.turn?.seq) {
+    return runningFamilyIds.includes(String(owner)) ? 'fork' : 'switch'
+  }
+  return 'fork'
+}
 
 /* Clamp the view translation so the scaled world always keeps a MINIMUM
    fraction on screen instead of a fixed pixel ledge: each axis may be dragged
@@ -7275,21 +7538,43 @@ function useMindmapSessionView(useSessions, familyIdsRef) {
    cards whose props are unchanged: a doc-triggered re-render only rebuilds the
    added / changed / current-badge-flipped cards. */
 const MindMapCard = memo(function MindMapCard({
-  entry, title, isCurrent, isStreaming, isFrameParent, isAncestor, onOpen, onMenu,
+  entry, title, isCurrent, isStreaming, isAncestor, isHover, isHoverAncestor, hintAction, ringPalette, onOpen, onMenu, onHover,
 }) {
+  /* Ring cards (the streaming card and its parent, both wearing the flowing
+     gradient ring) are the pair's single visual signal: the selection (blue)
+     and hover (amber) border/glow effect classes are suppressed on BOTH cards
+     so a dashed blue/amber border can never overwrite the ring. The ancestors
+     ABOVE the pair and their edges still trace normally — the immunity is
+     purely presentational and stops at these two cards. The "当前" badge is
+     kept (informational only, no border interference). */
+  const ringed = ringPalette !== undefined
   const classes = (entry.branch !== undefined
     ? 'dsh-ws-mindmap-node dsh-ws-mindmap-branchcard'
     : 'dsh-ws-mindmap-node')
-    + (isCurrent ? ' dsh-ws-mindmap-node-current' : '')
+    + (isCurrent && !ringed ? ' dsh-ws-mindmap-node-current' : '')
     + (isStreaming ? ' dsh-ws-mindmap-node-streaming' : '')
-    + (isFrameParent ? ' dsh-ws-mindmap-node-frame-parent' : '')
-    + (isAncestor ? ' dsh-ws-mindmap-node-ancestor' : '')
+    + (ringed ? ' dsh-ws-mindmap-node-ring' : '')
+    + (isAncestor && !ringed ? ' dsh-ws-mindmap-node-ancestor' : '')
+    + (isHoverAncestor && !ringed ? ' dsh-ws-mindmap-node-hover-ancestor' : '')
+    + (isHover && !ringed ? ' dsh-ws-mindmap-node-hover' : '')
   const turn = entry.turn
+  const style = { left: mindmapXOf(entry.depth), top: entry.y, width: MINDMAP_NODE_W, height: entry.height }
+  if (ringPalette !== undefined) {
+    style['--dsw-ws-mm-c1'] = ringPalette[0]
+    style['--dsw-ws-mm-c2'] = ringPalette[1]
+    style['--dsw-ws-mm-c3'] = ringPalette[2]
+  }
   return h('div', {
     className: classes,
     'data-branch': entry.branch !== undefined ? '' : undefined,
     key: entry.key,
     onClick: () => { onOpen(entry) },
+    /* Hover drives the additive ancestor trace: entering a card traces its
+       chain to the root on top of the selection's; leaving clears it. React's
+       mouseenter/mouseleave semantics fire only on boundary crossing, so
+       moving within a card does not churn the state. */
+    onMouseEnter: () => { onHover(entry.key) },
+    onMouseLeave: () => { onHover(undefined) },
     onContextMenu: !isStreaming
       ? (event) => { event.preventDefault(); event.stopPropagation(); onMenu(entry, event.clientX, event.clientY) }
       : undefined,
@@ -7298,13 +7583,32 @@ const MindMapCard = memo(function MindMapCard({
     },
     role: 'button',
     tabIndex: 0,
-    style: { left: mindmapXOf(entry.depth), top: entry.y, width: MINDMAP_NODE_W, height: entry.height },
+    style,
     title: isStreaming ? translate('mindmap.streaming.click') : translate('mindmap.open.hint'),
   },
     isCurrent ? h('span', { className: 'dsh-ws-mindmap-node-current-badge' }, translate('mindmap.current')) : null,
     h('div', { className: 'dsh-ws-mindmap-node-title' },
-      entry.branch !== undefined ? h('span', { className: 'dsh-ws-mindmap-pending-label' }, translate('mindmap.branchTag')) : null,
-      title),
+      entry.branch !== undefined
+        ? h('span', { className: 'dsh-ws-mindmap-pending-label' },
+          /* A small fork glyph makes the branch chip's meaning self-evident. */
+          h('svg', {
+            className: 'dsh-ws-mindmap-pending-icon',
+            fill: 'none',
+            height: '11',
+            stroke: 'currentColor',
+            strokeLinecap: 'round',
+            strokeWidth: 1.3,
+            viewBox: '0 0 14 14',
+            width: '11',
+          },
+            h('path', { d: 'M1.5 7 H4.5' }),
+            h('path', { d: 'M4.5 7 C5.8 2.6 10.6 3 11.4 3.2' }),
+            h('path', { d: 'M4.5 7 C5.8 11.4 10.6 11 11.4 10.8' }),
+            h('circle', { cx: 11.4, cy: 3.2, fill: 'currentColor', r: 1.4, stroke: 'none' }),
+            h('circle', { cx: 11.4, cy: 10.8, fill: 'currentColor', r: 1.4, stroke: 'none' })),
+          translate('mindmap.branchTag'))
+        : null,
+      h('span', { className: 'dsh-ws-mindmap-node-title-text' }, title)),
     entry.empty
       ? h('div', { className: 'dsh-ws-mindmap-pending-title' }, translate('mindmap.pending'))
       : isStreaming
@@ -7316,7 +7620,13 @@ const MindMapCard = memo(function MindMapCard({
         ? h('div', { className: 'dsh-ws-mindmap-node-status dsh-ws-mindmap-node-streaming-status' },
             h('span', { className: 'dsh-ws-mindmap-node-streaming-dot' }),
             h('span', null, translate('mindmap.streaming')))
-        : h('div', { className: 'dsh-ws-mindmap-node-status dsh-ws-mindmap-node-done' }, translate('mindmap.done')))
+        : h('div', { className: 'dsh-ws-mindmap-node-status dsh-ws-mindmap-node-done' }, translate('mindmap.done')),
+    /* Hover-only click-action hint chip: tells the user what a click will do
+       ('点击分支' / '点击跳转'). pointer-events:none so it never intercepts
+       the card's hover or click; absolute so it never shifts the layout. */
+    isHover && hintAction !== undefined
+      ? h('span', { className: 'dsh-ws-mindmap-node-hint' }, translate(`mindmap.hint.${hintAction}`))
+      : null)
 })
 
 /* The floating mind map: a persisted turn tree (trunk + fork branches)
@@ -7379,11 +7689,16 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [deleteError, setDeleteError] = useState(null)
   const [notice, setNotice] = useState(null)
-  /* Live-turn info from the latest sync payload ({ sessionId, turn, question }
-     or null), for the doc family's running session — drives the streaming
-     card. */
-  const [live, setLive] = useState(null)
+  /* Live-turn info from the latest sync payload: one { sessionId, turn,
+     question } per doc-family session with a turn in flight — drives the
+     streaming cards. */
+  const [live, setLive] = useState([])
   const [dragging, setDragging] = useState(false)
+  /* Key of the card currently under the pointer (undefined when none): drives
+     the hover ancestor trace — the same highlight as the selected card's
+     chain, but for the hovered card, rendered additively on top of the
+     selection trace. */
+  const [hoverKey, setHoverKey] = useState(undefined)
   const viewportRef = useRef(null)
   const canvasRef = useRef(null)
   const viewRef = useRef({ tx: 0, ty: 0, zoom: 1 })
@@ -7437,9 +7752,13 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     let cancelled = false
     setDoc(null)
     setRootId(null)
-    setLive(null)
+    setLive([])
     setPhase({ status: 'loading' })
     setForkError(null)
+    /* A different family loads: drop any hover from the previous map (a stale
+       key would match no node in the new layout anyway, but resetting keeps
+       the state honest). In-family switches skip this branch on purpose. */
+    setHoverKey(undefined)
     /* Switching to a DIFFERENT family (or a fresh doc): reset the view so the
        new map is fitted on load instead of inheriting the old transform
        (fittedRef was only ever set, never reset, so switching maps kept the
@@ -7452,6 +7771,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
         if (cancelled) return
         const loaded = payload?.doc
         if (loaded === null || loaded === undefined || (loaded.trunk ?? []).length === 0) {
+          mindmapConvertedSessions.delete(id)
           setPhase({ status: 'empty' })
           return
         }
@@ -7464,6 +7784,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       })
       .catch((error) => {
         if (cancelled) return
+        mindmapConvertedSessions.delete(id)
         setPhase({ status: 'error', message: error instanceof Error ? error.message : String(error) })
       })
     return () => { cancelled = true }
@@ -7487,6 +7808,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
              for an archived session. Close the floating window like the sync
              path does, instead of polling an empty state forever. */
           if (payload?.exists === false) {
+            mindmapConvertedSessions.delete(String(sessionId))
             mindmapOverlayStore.close()
             return
           }
@@ -7532,27 +7854,45 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       lastFingerprintRef.current = fp
       setDoc(next)
     }
-    const liveNext = payload?.live ?? null
-    setLive(prev => (prev === null && liveNext === null)
-      || (prev !== null && liveNext !== null
-        && String(prev.sessionId) === String(liveNext.sessionId)
-        && Number(prev.turn) === Number(liveNext.turn)
-        && String(prev.question ?? '') === String(liveNext.question ?? ''))
-      ? prev : liveNext)
+    /* The live list is identity-compared so a static set of in-flight
+       questions does not re-render the map on every periodic sync. */
+    const liveNext = Array.isArray(payload?.live)
+      ? payload.live
+      : payload?.live !== null && payload?.live !== undefined && typeof payload.live === 'object'
+        ? [{
+            // Older Hosts return one object and may omit its session id; the
+            // first currently-running family id is the compatible fallback.
+            sessionId: String(payload.live.sessionId ?? runningFamilyIdsRef.current[0] ?? ''),
+            turn: payload.live.turn,
+            question: payload.live.question,
+          }]
+        : []
+    setLive(prev => {
+      if (prev.length !== liveNext.length) return liveNext
+      for (let i = 0; i < liveNext.length; i += 1) {
+        const a = prev[i]
+        const b = liveNext[i]
+        if (a === null || a === undefined || b === null || b === undefined
+          || String(a.sessionId) !== String(b.sessionId)
+          || Number(a.turn) !== Number(b.turn)
+          || String(a.question ?? '') !== String(b.question ?? '')) return liveNext
+      }
+      return prev
+    })
   }, [])
 
-  /* The doc-family session currently running (at most one in practice): the
-     live card attaches to ITS chain regardless of which session the floating
-     map is "on", and every sync asks for that session's in-flight question.
-     Declared BEFORE the debounced effect below — its dependency array reads
-     this binding at call time. */
-  const runningFamilyId = useMemo(() => {
-    if (doc === null || rootId === null) return undefined
+  /* The doc-family sessions currently running: a live streaming card attaches
+     to EACH of their chains, regardless of which session the floating map is
+     "on", and every sync asks for their in-flight questions. Declared BEFORE
+     the debounced effect below — its dependency array reads this binding at
+     call time. */
+  const runningFamilyIds = useMemo(() => {
+    if (doc === null || rootId === null) return []
     const family = [String(rootId), ...(doc.branches ?? []).map(b => String(b?.sessionId))]
-    return family.find(id => list.runningIds.has(id))
+    return family.filter(id => list.runningIds.has(id))
   }, [doc, list, rootId])
-  const runningFamilyIdRef = useRef(undefined)
-  runningFamilyIdRef.current = runningFamilyId
+  const runningFamilyIdsRef = useRef([])
+  runningFamilyIdsRef.current = runningFamilyIds
 
   /* Periodic sync while mounted: fold new branch turns from the full logs so
      a branch that completes a turn in the chat appears live. */
@@ -7561,7 +7901,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     const timer = window.setInterval(() => {
       if (savingRef.current) return
       const root = rootId
-      Promise.resolve(syncDocRef.current(root, runningFamilyIdRef.current))
+      Promise.resolve(syncDocRef.current(root, runningFamilyIdsRef.current))
         .then((payload) => { applySync(payload, root) })
         .catch(() => { /* transient sync failure: keep the current doc */ })
     }, MINDMAP_SYNC_MS)
@@ -7569,7 +7909,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   }, [applySync, rootId])
 
   /* Sync shortly after the doc-family running state changes: a run start
-     brings the in-flight question back quickly; a run end folds the just
+     brings the in-flight questions back quickly; a run end folds the just
      completed turn (the map may be showing a different session than the one
      that just ran), debounced against streaming updates. */
   useEffect(() => {
@@ -7577,36 +7917,65 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     const timer = window.setTimeout(() => {
       if (!mountedRef.current || savingRef.current) return
       const root = rootId
-      Promise.resolve(syncDocRef.current(root, runningFamilyIdRef.current))
+      Promise.resolve(syncDocRef.current(root, runningFamilyIdsRef.current))
         .then((payload) => { applySync(payload, root) })
         .catch(() => { /* transient */ })
     }, 600)
     return () => { clearTimeout(timer) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runningFamilyId, rootId])
+  }, [runningFamilyIds, rootId])
 
-  /* The live streaming card: the running doc-family session has a turn in
-     flight — a live card is appended to its chain tail. The in-flight
-     question arrives with the next sync payload; until then the card shows
-     the streaming label. Declared BEFORE the layout memo that consumes it
-     (use-before-declaration would throw a TDZ error on every render). */
-  const streamingCard = useMemo(() => {
-    if (runningFamilyId === undefined) return null
-    const liveTurn = (live !== null && String(live.sessionId) === String(runningFamilyId)) ? live : null
-    return {
-      sessionId: String(runningFamilyId),
-      question: liveTurn === null ? '' : (typeof liveTurn.question === 'string' ? liveTurn.question : ''),
+  /* The live streaming cards: every running doc-family session gets a live
+     card appended to its own chain tail. The in-flight question arrives with
+     the next sync payload; until then the card shows the streaming label.
+     Declared BEFORE the layout memo that consumes them (use-before-declaration
+     would throw a TDZ error on every render). */
+  const streamingCards = useMemo(() => {
+    if (runningFamilyIds.length === 0) return []
+    const liveById = new Map()
+    for (const item of live) {
+      if (item !== null && item !== undefined) liveById.set(String(item.sessionId), item)
     }
-  }, [live, runningFamilyId])
+    return runningFamilyIds.map((sid) => {
+      const liveTurn = liveById.get(String(sid))
+      return {
+        sessionId: String(sid),
+        question: liveTurn === undefined ? '' : (typeof liveTurn.question === 'string' ? liveTurn.question : ''),
+      }
+    })
+  }, [live, runningFamilyIds])
 
-  const layout = useMemo(() => mindmapDocLayout(doc, streamingCard), [doc, streamingCard])
+  const layout = useMemo(() => mindmapDocLayout(doc, streamingCards), [doc, streamingCards])
 
-  /* Edge path strings and the streaming frame, derived from the layout and
-     stable between doc changes — memoized so a re-render (rare, after A1 the
-     pan/zoom path never re-renders) does not rebuild them. */
+  /* Edge path strings plus per-streaming metadata, derived from the layout
+     and stable between doc changes — memoized so a re-render (rare, after A1
+     the pan/zoom path never re-renders) does not rebuild them. */
   const edgeView = useMemo(() => {
     const byKey = new Map()
     for (const node of layout.nodes) byKey.set(node.key, node)
+    /* Per-streaming metadata for the SVG <defs> + ring palette lookups. */
+    const streamingEntries = []
+    for (const node of layout.nodes) {
+      if (node.streaming !== true) continue
+      const palette = mindmapStreamPalette(node.sessionId)
+      const gradId = mindmapGradientId(node.sessionId)
+      const entry = { entry: node, parentKey: node.parentKey, palette, gradId }
+      const parent = node.parentKey === undefined ? undefined : byKey.get(node.parentKey)
+      if (parent !== undefined) {
+        entry.bbox = {
+          x1: mindmapXOf(parent.depth) + MINDMAP_NODE_W,
+          y1: parent.y + parent.height / 2,
+          x2: mindmapXOf(node.depth),
+          y2: node.y + node.height / 2,
+        }
+      }
+      streamingEntries.push(entry)
+    }
+    /* An edge that TARGETS a live streaming card (its `to` is a
+       `streaming:<sid>` key, by construction) is a flowing pair edge: it
+       carries its own gradient id + palette derived from the sid embedded in
+       the key, so the flow styling never depends on a node/edge key-matching
+       map. */
     const edges = []
     for (const edge of layout.edges) {
       const from = byKey.get(edge.from)
@@ -7619,36 +7988,17 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       const mx = (x1 + x2) / 2
       /* Keep the edge's from/to identities so the render pass can mark the
          current card's ancestor-trace edges (from/to are strings). */
-      edges.push({ from: edge.from, to: edge.to, d: `M ${x1} ${y1} H ${mx} V ${y2} H ${x2}` })
-    }
-    /* The live streaming node (if any) and its parent card: the frame encloses
-       exactly these two cards as one unit while a turn is in flight. */
-    const streamingEntry = layout.nodes.find(n => n.streaming === true)
-    let frame = null
-    let streamingParentKey = undefined
-    if (streamingEntry !== undefined) {
-      streamingParentKey = streamingEntry.parentKey
-      const parent = streamingEntry.parentKey === undefined ? undefined : byKey.get(streamingEntry.parentKey)
-      const cards = parent === undefined ? [streamingEntry] : [streamingEntry, parent]
-      let left = Infinity
-      let top = Infinity
-      let right = -Infinity
-      let bottom = -Infinity
-      for (const card of cards) {
-        const x = mindmapXOf(card.depth)
-        left = Math.min(left, x)
-        top = Math.min(top, card.y)
-        right = Math.max(right, x + MINDMAP_NODE_W)
-        bottom = Math.max(bottom, card.y + card.height)
+      let flow
+      if (typeof edge.to === 'string' && edge.to.startsWith('streaming:')) {
+        const sid = edge.to.slice('streaming:'.length)
+        flow = {
+          gradId: mindmapGradientId(sid),
+          palette: mindmapStreamPalette(sid),
+        }
       }
-      frame = {
-        left: left - MINDMAP_FRAME_PAD,
-        top: top - MINDMAP_FRAME_PAD,
-        width: right - left + MINDMAP_FRAME_PAD * 2,
-        height: bottom - top + MINDMAP_FRAME_PAD * 2,
-      }
+      edges.push({ from: edge.from, to: edge.to, d: `M ${x1} ${y1} H ${mx} V ${y2} H ${x2}`, flow })
     }
-    return { edges, streamingEntry, streamingParentKey, frame }
+    return { edges, streamingEntries }
   }, [layout])
 
   /* Viewport interaction: grab-pan on blank area + wheel zoom anchored at the
@@ -7772,7 +8122,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   const currentKey = useMemo(() => {
     if (doc === null || rootId === null) return undefined
     const current = String(sessionId)
-    if (runningFamilyId !== undefined && String(runningFamilyId) === current) {
+    if (runningFamilyIds.includes(current)) {
       return `streaming:${current}`
     }
     if (current === String(rootId)) {
@@ -7785,7 +8135,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     const turns = branch.turns ?? []
     const last = turns[turns.length - 1]
     return last === undefined ? mindmapEmptyKey(branch.sessionId) : mindmapDocKey(branch.sessionId, last.seq)
-  }, [doc, rootId, runningFamilyId, sessionId])
+  }, [doc, rootId, runningFamilyIds, sessionId])
 
   /* Ancestor trace of the current card: walk the layout's edges BACKWARD from
      currentKey (`to → from`) to the root (no incoming edge). Yields the set
@@ -7810,6 +8160,29 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     }
     return { ancestorSet, activeEdgeKeys }
   }, [currentKey, layout])
+
+  /* Hover ancestor trace: the SAME backward walk as `trace` above, but rooted
+     at the card currently under the pointer instead of the selected card. The
+     two traces are rendered as a union, so hovering adds its chain on top of
+     the selection's without disturbing it. A stale hoverKey (e.g. the card
+     was replaced by a sync while hovered) matches no node and yields an empty
+     trace. */
+  const hoverTrace = useMemo(() => {
+    const ancestorSet = new Set()
+    const activeEdgeKeys = new Set()
+    if (hoverKey === undefined) return { ancestorSet, activeEdgeKeys }
+    const parentOf = new Map()
+    for (const edge of layout.edges) parentOf.set(edge.to, edge.from)
+    let key = hoverKey
+    while (key !== undefined && parentOf.has(key)) {
+      const parentKey = parentOf.get(key)
+      if (parentKey === undefined) break
+      ancestorSet.add(parentKey)
+      activeEdgeKeys.add(`${parentKey}\u0000${key}`)
+      key = parentKey
+    }
+    return { ancestorSet, activeEdgeKeys }
+  }, [hoverKey, layout])
 
   /* Open a session inside the map: the wrapped openSession switches the
      right-side conversation to it and moves the "当前" highlight here; the
@@ -7894,40 +8267,15 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
      new mind map — and its session stays hidden from the sidebar list. */
   const openCard = useCallback((node) => {
     if (node === undefined || forking) return
-    /* The live streaming card is its session's chain tail (a turn in flight):
-       switch the chat to that session so the user can watch it generate. A
-       switch, never a fork — the unfinished turn has no turn/end seq, so it
-       cannot anchor a branch; the right-click menu stays disabled too (the
-       card is ephemeral UI, not part of the doc). */
-    if (node.streaming === true) { openBranch(node.sessionId); return }
-    /* An empty branch card is that session's tail too (parked awaiting a new
-       question): follow the same switch-first path as any tail card — open
-       the session and keep the map up, so the "当前" badge lights this card
-       instead of jumping into the chat. */
-    if (node.empty) { openBranch(node.sessionId); return }
-    const owner = node.sessionId
-    const chain = String(owner) === String(doc?.rootSessionId)
-      ? (doc?.trunk ?? [])
-      : ((doc?.branches ?? []).find(b => String(b?.sessionId) === String(owner))?.turns ?? [])
-    const last = chain[chain.length - 1]
-    if (last !== undefined && last.seq === node.turn?.seq) {
-      /* Tail card of a session that is CURRENTLY generating: the real chain
-         tail is the streaming card (not part of the doc), so this last
-         completed card is semantically a middle card — click forks a new
-         branch at it instead of switching into the running session (a switch
-         would jump the highlight onto the streaming card). */
-      if (String(owner) === String(runningFamilyId)) {
-        forkBranchAt(owner, node.turn)
-        return
-      }
-      /* The owner session is parked at this card: switch to it (stay on the
-         mind-map tab so branches are switched freely from the map). */
-      openBranch(owner)
-      return
-    }
-    /* Middle card (or a card of a session that moved on): fork a new branch. */
-    forkBranchAt(owner, node.turn)
-  }, [doc, forking, runningFamilyId, forkBranchAt, openBranch])
+    /* Single source of truth for the click outcome: the same decision tree
+       the hover hint uses (mindmapCardClickAction), so the hint can never
+       drift from the real behavior. 'switch' opens the card's own session
+       (streaming / empty / parked tail); 'fork' branches a new session at
+       this card's turn. */
+    const action = mindmapCardClickAction(node, doc, runningFamilyIds)
+    if (action === 'switch') openBranch(node.sessionId)
+    else if (action === 'fork') forkBranchAt(node.sessionId, node.turn)
+  }, [doc, forking, runningFamilyIds, forkBranchAt, openBranch])
 
   /* Right-click a card: remember WHICH card (not just its session) so the
      menu can rename/archive a branch card or delete any card (the trunk cards
@@ -8204,7 +8552,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   const rootTitle = doc?.rootTitle
     || (rootId !== null && rootId !== undefined ? (list.titles[rootId] ?? '') : '')
     || ''
-  const { edges: edgeEdges, streamingEntry, streamingParentKey, frame } = edgeView
+  const { edges: edgeEdges, streamingEntries } = edgeView
 
   const nodeViews = layout.nodes.map((entry) => {
     const isStreaming = entry.streaming === true
@@ -8212,16 +8560,36 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     const title = isBranch
       ? (list.titles[entry.sessionId] ?? '')
       : translate('mindmap.turnTag', { n: (isStreaming ? entry.turnN : entry.turn?.n) ?? '' })
+    /* Ring: the streaming card and its parent card both wear the pair's
+       flowing gradient border. A node that is the parent of several streaming
+       cards (two branches forked at it, both generating) takes the first
+       pair's palette. */
+    let ringPalette = undefined
+    if (isStreaming) {
+      const info = streamingEntries.find(s => s.entry.key === entry.key)
+      ringPalette = info?.palette
+    } else {
+      const info = streamingEntries.find(s => s.parentKey === entry.key)
+      ringPalette = info?.palette
+    }
     return h(MindMapCard, {
       key: entry.key,
       entry,
       title,
       isCurrent: entry.key === currentKey,
       isStreaming,
-      isFrameParent: entry.key === streamingParentKey,
+      /* The two traces are additive: the selected card's chain (solid current
+         + blue dashed ancestors) and the hovered card's chain (amber dashed
+         ancestors + solid amber hovered card) coexist; a card on both paths
+         gets both classes, and the later amber CSS rules win. */
       isAncestor: trace.ancestorSet.has(entry.key),
+      isHoverAncestor: hoverTrace.ancestorSet.has(entry.key),
+      isHover: entry.key === hoverKey,
+      hintAction: entry.key === hoverKey ? mindmapCardClickAction(entry, doc, runningFamilyIds) : undefined,
+      ringPalette,
       onOpen: openCard,
       onMenu: openCardMenu,
+      onHover: setHoverKey,
     })
   })
 
@@ -8309,15 +8677,54 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       h('div', { className: 'dsh-ws-mindmap-viewport', 'data-dragging': dragging ? '' : undefined, onPointerCancel: endPan, onPointerDown: startPan, onPointerMove: movePan, onPointerUp: endPan, ref: viewportRef },
         h('div', { className: 'dsh-ws-mindmap-canvas', ref: canvasRef, style: { height: layout.height, width: layout.width } },
           h('svg', { className: 'dsh-ws-mindmap-edges', width: layout.width, height: layout.height },
-            edgeEdges.map((edge, index) => h('path', {
-              className: 'dsh-ws-mindmap-edge'
-                + (trace.activeEdgeKeys.has(`${edge.from}\u0000${edge.to}`) ? ' dsh-ws-mindmap-edge-active' : ''),
-              d: edge.d,
-              key: index,
-            }))),
-          frame !== null
-            ? h('div', { className: 'dsh-ws-mindmap-frame', style: { left: frame.left, top: frame.top, width: frame.width, height: frame.height } })
-            : null,
+            h('defs', null,
+              streamingEntries.map((item) => item.bbox === undefined
+                ? null
+                : h('linearGradient', {
+                  gradientUnits: 'userSpaceOnUse',
+                  id: item.gradId,
+                  key: item.gradId,
+                  x1: item.bbox.x1,
+                  x2: item.bbox.x2,
+                  y1: item.bbox.y1,
+                  y2: item.bbox.y2,
+                },
+                  item.palette.map((color, i) => h('stop', {
+                    key: i,
+                    offset: `${i * 50}%`,
+                    stopColor: color,
+                  }))))),
+            edgeEdges.map((edge, index) => {
+              const flow = edge.flow
+              if (flow === undefined) {
+                return h('path', {
+                  className: 'dsh-ws-mindmap-edge'
+                    + (trace.activeEdgeKeys.has(`${edge.from}\u0000${edge.to}`) ? ' dsh-ws-mindmap-edge-active' : '')
+                    + (hoverTrace.activeEdgeKeys.has(`${edge.from}\u0000${edge.to}`) ? ' dsh-ws-mindmap-edge-hover-active' : ''),
+                  d: edge.d,
+                  key: index,
+                })
+              }
+              /* A flowing pair edge renders as a solid underlay (palette c1 —
+                 the connection is always visibly colored even if the gradient
+                 reference cannot resolve) plus the animated gradient dashes on
+                 top. Both strokes are inline styles, which beat every CSS
+                 stroke rule (and never fall back to the default gray). Neither
+                 the selection (blue) nor the hover (amber) trace class is ever
+                 added here, so this edge is immune to both effects — the
+                 flowing look is the stronger signal on the pair. */
+              return h(Fragment, { key: index },
+                h('path', {
+                  className: 'dsh-ws-mindmap-edge dsh-ws-mindmap-edge-flow-under',
+                  d: edge.d,
+                  style: { stroke: flow.palette[0] },
+                }),
+                h('path', {
+                  className: 'dsh-ws-mindmap-edge dsh-ws-mindmap-edge-flow',
+                  d: edge.d,
+                  style: { stroke: `url(#${flow.gradId})` },
+                }))
+            })),
           nodeViews))),
     menuView,
     renameView,
@@ -8682,6 +9089,14 @@ function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, openSess
     menuView,
     renameView)
 }
+/* Sessions the user has converted to a mind map this app session. The doc
+   index registry is only refreshed every 5 s, so right after a conversion
+   `isMember` is still false: without this set the header button would re-offer
+   the convert dialog on the very next click instead of toggling the overlay.
+   Entries become redundant the moment the registry catches up and are pruned
+   then (see MindmapHeaderButton), so the set only ever holds in-flight
+   conversions. */
+const mindmapConvertedSessions = new Set()
 /* The session-header mind-map button: opens the floating mind-map overlay
    for the current session (the chat stays visible on the right) instead of
    switching to a full-page map. Clicking again (or the overlay's close
@@ -8693,8 +9108,14 @@ function MindmapHeaderButton({ sessionId }) {
   // Track the doc index so isMember sees a fresh conversion (a normal session
   // becoming a mind-map member) without an unrelated re-render, or the button
   // would keep offering the convert dialog after the conversion.
-  useMindmapRegistry()
+  const registry = useMindmapRegistry()
+  const registryVersion = registry.getVersion()
   const [confirmTarget, setConfirmTarget] = useState(null)
+  useEffect(() => {
+    if (sessionId !== undefined && sessionId !== null && registry.isMember(String(sessionId))) {
+      mindmapConvertedSessions.delete(String(sessionId))
+    }
+  }, [registryVersion, sessionId])
   /* Escape closes the confirm dialog. The overlay's own Escape handler defers
      while any .dsh-ws-dialog-backdrop is in the DOM, so this window listener
      is required while the dialog is open. It sits BEFORE the early return so
@@ -8713,10 +9134,14 @@ function MindmapHeaderButton({ sessionId }) {
   const active = overlay.open && String(overlay.sessionId) === key
   /* The background index may be a few seconds behind a fresh conversion, so
      the "is this already a mind map" check uses the last known registry
-     membership (roots + documented branches). */
-  const member = mindmapRegistry.isMember(key)
+     membership (roots + documented branches) plus the in-flight conversions
+     this session started (see mindmapConvertedSessions). */
+  const member = mindmapRegistry.isMember(key) || mindmapConvertedSessions.has(key)
   const label = translate('view.mindmap')
   const onButtonClick = () => {
+    /* Once the registry confirms membership, the converted-set entry is
+       redundant — drop it so the set only tracks unconfirmed conversions. */
+    if (mindmapRegistry.isMember(key)) mindmapConvertedSessions.delete(key)
     /* Already a mind-map member (root or branch): plain open/close toggle. */
     if (member) { mindmapOverlayStore.toggle(key); return }
     /* The overlay is open on this normal session (e.g. an empty session with
@@ -8729,6 +9154,9 @@ function MindmapHeaderButton({ sessionId }) {
   const closeConfirm = () => setConfirmTarget(null)
   const confirmConvert = () => {
     setConfirmTarget(null)
+    /* Remember the conversion so the next click toggles instead of re-asking
+       until the background doc index catches up (see mindmapConvertedSessions). */
+    mindmapConvertedSessions.add(key)
     mindmapOverlayStore.open(key)
   }
   /* Portal the confirm dialog to body: .dsh-ws-chat clips fixed-position
@@ -9562,6 +9990,21 @@ export function apply(ctx) {
   // Persisted `explorerOpen:false` self-heals here, since nothing else can
   // reopen it anymore.
   explorerPaneStore.actions.setExplorerOpen(true)
+  /* Publish the user's mind-map highlight colors (hover / selected) as
+     document-wide CSS custom properties: every mind-map highlight rule
+     resolves them live, so changing a setting updates open maps instantly
+     (no React re-render), and unset values keep the theme defaults. */
+  ctx.effect(() => {
+    if (typeof document === 'undefined') return undefined
+    const applyMindmapColors = () => {
+      const state = settingsStore.getSnapshot()
+      const root = document.documentElement
+      root.style.setProperty('--dsh-ws-mindmap-hover', state?.mindmapHoverColor || 'var(--dsw-alias-state-warn-primary)')
+      root.style.setProperty('--dsh-ws-mindmap-selected', state?.mindmapSelectedColor || 'var(--dsw-alias-state-business-primary)')
+    }
+    applyMindmapColors()
+    return settingsStore.subscribe(applyMindmapColors)
+  }, 'workspace-studio: mind-map highlight colors')
   const editorContexts = new EditorContextController()
   /* Follow the harness language setting (Settings -> General -> Language) when
      the locale plugin is present: register this plugin's dictionaries, bind
@@ -9643,7 +10086,7 @@ export function apply(ctx) {
       if (!result.ok) throw new Error(result.error.message)
     },
     saveDoc: (id, doc, signal, prevSessionId) => writeMindmapDoc(String(id), doc, signal, prevSessionId),
-    syncDoc: (id, liveSessionId, signal) => syncMindmapDoc(String(id), liveSessionId, signal),
+    syncDoc: (id, liveSessionIds, signal) => syncMindmapDoc(String(id), liveSessionIds, signal),
   })
 
   ctx.effect(() => {
