@@ -75,6 +75,21 @@ const clampSpinSpeed = (value) => {
     : MINDMAP_SPIN_SPEED_DEFAULT_X
   return Math.round(bounded * 10) / 10
 }
+/* Mount-edge S-curve bulge (root → top-level session head, parent card →
+   nested session head): a scale factor over the "slight" base curve. Default
+   ×5 is the shipped look (start-side up/outward bow + end-side left/up hook);
+   0 collapses each mount edge to the straight chord. The max keeps the left
+   swing of the root→head curve inside the map's left margin. */
+const MINDMAP_MOUNT_BULGE_DEFAULT_X = 5
+const MINDMAP_MOUNT_BULGE_MIN_X = 0
+const MINDMAP_MOUNT_BULGE_MAX_X = 6
+const clampMountBulge = (value) => {
+  const bulge = Number(value ?? MINDMAP_MOUNT_BULGE_DEFAULT_X)
+  const bounded = Number.isFinite(bulge)
+    ? Math.min(MINDMAP_MOUNT_BULGE_MAX_X, Math.max(MINDMAP_MOUNT_BULGE_MIN_X, bulge))
+    : MINDMAP_MOUNT_BULGE_DEFAULT_X
+  return Math.round(bounded * 10) / 10
+}
 const EXPLORER_SETTINGS_STORE_KEY = 'dsh.workspace.studio.settings.v1'
 /* Mind-map highlight colors (hover / selected): user-chosen hex, or unset
    (undefined) = the harness theme default. The theme CSS variables resolve to
@@ -86,6 +101,20 @@ const MINDMAP_HOVER_THEME_VAR = '--dsw-alias-state-warn-primary'
 const MINDMAP_SELECTED_THEME_VAR = '--dsw-alias-state-business-primary'
 const MINDMAP_HOVER_COLOR_FALLBACK = '#f59e0b'
 const MINDMAP_SELECTED_COLOR_FALLBACK = '#4176e6'
+/* Session-head card accent color: the identity tint of a session's head card
+   (border + background wash + folder icon), published as the document-wide
+   --dsh-ws-mindmap-head custom property (see the applyMindmapColors effect).
+   Defaults to violet #a78bfa so the session identity is distinct from the
+   primary-blue root/selection and the green "末端" chips; the user can
+   override it in 设置 → 工作区设置 → 导图浏览设置. */
+const MINDMAP_HEAD_COLOR_DEFAULT = '#a78bfa'
+/* End-of-branch card accent color: the whole-card tint (border + background
+   wash + the "末端" capsule) of a card whose click jumps (switch) instead of
+   forking. Published as the document-wide --dsh-ws-mindmap-end custom
+   property (see the applyMindmapColors effect). Defaults to the success
+   green #22c55e — the capsule's current color — so the terminal-point meaning
+   stays green; the user can override it in 设置 → 工作区设置 → 导图浏览设置. */
+const MINDMAP_END_COLOR_DEFAULT = '#22c55e'
 const cssColorToHex = (color) => {
   if (typeof color !== 'string') return null
   const text = color.trim()
@@ -141,6 +170,14 @@ const MOBILE_HEADER_FALLBACK_H = 52
 const MINDMAP_NODE_W = 236
 /* Card height fits the branch-title row, clamped two-line question, and status row. */
 const MINDMAP_NODE_H = 124
+/* The virtual mind-map ROOT node (the map's top hub: clicking it creates a new
+   top-level session) and the per-session HEAD node (a session's identity
+   card at the left of its question chain; clicking it switches to the
+   session). Both are layout-only nodes, never part of the persisted doc. */
+const MINDMAP_ROOT_W = 264
+const MINDMAP_ROOT_H = 64
+const MINDMAP_HEAD_W = 180
+const MINDMAP_HEAD_H = 124
 const MINDMAP_DEPTH_GAP = 64
 const MINDMAP_ROW_GAP = 12
 const MINDMAP_TEXT_MAX = 88
@@ -421,6 +458,12 @@ const zh = {
   'settings.mindmapHoverColor.reset.title': '恢复默认悬浮高亮颜色',
   'settings.mindmapSelectedColor': '选中高亮颜色',
   'settings.mindmapSelectedColor.reset.title': '恢复默认选中高亮颜色',
+  'settings.mindmapHeadColor': '会话头卡片提示色',
+  'settings.mindmapHeadColor.reset.title': '恢复默认会话头卡片提示色',
+  'settings.mindmapEndColor': '末端卡片提示色',
+  'settings.mindmapEndColor.reset.title': '恢复默认末端卡片提示色',
+  'settings.mindmapMountBulge': '导图连线弯曲幅度',
+  'settings.mindmapMountBulge.reset.title': '恢复默认弯曲幅度',
   'settings.mindmapSpinSpeed': '导图图标旋转速度',
   'settings.mindmapSpinSpeed.reset.title': '恢复默认旋转速度',
   'settings.rowHeight': '每行高度',
@@ -446,7 +489,7 @@ const zh = {
   'settings.thinkDelay.reset.title': '恢复默认收起延迟',
   'settings.previewRight': '文件浏览页面显示在右侧',
   'settings.resetDefault': '恢复默认',
-  'settings.hint': '会话浏览设置：调整侧栏导图条目流式输出时旋转图标的速度（倍速 0.0×–3.0×，数值越大越快，默认 1.5× 即 1.2 秒一圈，0 表示不旋转）；导图浏览设置：调整导图视图中悬浮高亮与选中高亮的颜色（默认分别为琥珀与主题蓝，可分别恢复默认）；文件浏览设置：调整左侧文件树的行高、搜索结果显示方式与图标徽标配色；内容浏览设置：为每种文件类型选择编辑器代码高亮预设、调整保存冲突弹窗中对比文本的字号、并可选择是否将文件浏览页面显示在对话页面的右侧；对话页面设置：调整对话文字大小，开启思考过程自动展开后，聊天中正在输出的思考内容会自动展开、结束后按设定延迟自动收起（0–10 秒，分度 0.1 秒），期间手动操作可取消；未修改的项使用默认值。',
+  'settings.hint': '会话浏览设置：调整侧栏导图条目流式输出时旋转图标的速度（倍速 0.0×–3.0×，数值越大越快，默认 1.5× 即 1.2 秒一圈，0 表示不旋转）；导图浏览设置：调整导图视图中悬浮高亮与选中高亮的颜色（默认分别为琥珀与主题蓝，可分别恢复默认），以及导图挂载连线的弯曲幅度（根节点→会话头、分支提问卡→分支会话头的 S 曲线，默认 5.0×，数值越大弯得越明显，0 为直线）；文件浏览设置：调整左侧文件树的行高、搜索结果显示方式与图标徽标配色；内容浏览设置：为每种文件类型选择编辑器代码高亮预设、调整保存冲突弹窗中对比文本的字号、并可选择是否将文件浏览页面显示在对话页面的右侧；对话页面设置：调整对话文字大小，开启思考过程自动展开后，聊天中正在输出的思考内容会自动展开、结束后按设定延迟自动收起（0–10 秒，分度 0.1 秒），期间手动操作可取消；未修改的项使用默认值。',
   'fileColor.directory': '目录',
   'fileColor.style': '样式',
   'fileColor.log': '日志',
@@ -569,7 +612,7 @@ const zh = {
   'mobile.files': '文件内容浏览',
   'view.mindmap': '导图',
   'mindmap.overlay.close': '关闭导图悬浮窗',
-  'mindmap.rootLabel': '主会话',
+  'mindmap.rootLabel': '导图',
   'mindmap.current': '当前',
   'mindmap.pending': '等待新问题…',
   'mindmap.streaming': '生成中…',
@@ -578,31 +621,48 @@ const zh = {
   'mindmap.done': '已完成',
   'mindmap.emptyRound': '（本轮无文本）',
   'mindmap.open.hint': '从这张卡片创建分支并继续对话',
+  'mindmap.rootNode': '导图根节点',
+  'mindmap.rootNode.hint': '点击创建新会话分支',
+  'mindmap.session.empty': '空会话',
+  'mindmap.session.waiting': '等待新问题',
+  'mindmap.session.untitled': '未命名会话',
+  'mindmap.hint.new': '点击新建会话',
   'mindmap.hint.fork': '点击分支',
   'mindmap.hint.switch': '点击跳转',
-  'mindmap.empty': '该会话还没有可展示的对话轮次。完成一轮对话后，可在此将全部轮次切成卡片，并从任意卡片创建分支。',
+  'mindmap.empty': '该会话还没有可展示的内容。点击上方的「导图根节点」即可创建新的空会话分支，或在任意会话中完成一轮对话后再打开导图。',
   'mindmap.loading': '正在加载导图会话…',
   'mindmap.error': '加载导图会话失败：{message}',
   'mindmap.forkFailed': '创建分支失败：{message}',
-  'mindmap.created': '已创建导图会话，并已替换左侧会话列表。',
+  'mindmap.created': '已创建导图会话。',
   'mindmap.forked': '已在此处创建分支。',
+  'mindmap.sessionCreated': '已创建新的空会话分支。',
   'mindmap.branchTag': '分支',
+  'mindmap.endTag': '末端',
   'mindmap.turnTag': '第 {n} 轮',
   'mindmap.rounds': '{n} 轮',
   'mindmap.moreRounds': '还有 {n} 轮历史',
-  'mindmap.menu.rename': '重命名分支',
+  'mindmap.menu.rename': '重命名',
   'mindmap.menu.archiveAll': '归档整个导图',
-  'mindmap.rename.title': '重命名分支',
-  'mindmap.archiveAll.message': '确定归档整个导图「{name}」吗？其所有分支会话也将一并归档并从列表中移除。',
+  'mindmap.menu.archiveBranch': '归档本会话及其分支',
+  'mindmap.rename.title': '重命名',
+  'mindmap.archiveAll.message': '确定归档整个导图「{name}」吗？其所有会话分支也将一并归档并从列表中移除。',
   'mindmap.archive.action': '归档',
   'mindmap.archivedAll': '已归档整个导图。',
-  'mindmap.renamed': '已重命名分支。',
+  'mindmap.archiveBranch.title': '归档会话',
+  'mindmap.archiveBranch.message': '确定归档会话「{name}」及其全部分支吗？归档后将从导图移除（当前无恢复入口）。',
+  'mindmap.archiveBranch.action': '归档',
+  'mindmap.branchArchived': '已归档该会话及其分支。',
+  'mindmap.workspace.title': '选择工作区（新建会话归属）',
+  'mindmap.workspace.none': '未分组（不指定工作区）',
+  'mindmap.workspace.set': '新建会话的工作区已切换为「{name}」。',
+  'mindmap.workspace.cleared': '新建会话不再指定工作区。',
+  'mindmap.renamed': '已重命名。',
   'mindmap.menu.deleteCard': '删除卡片',
   'mindmap.delete.title': '删除卡片',
-  'mindmap.delete.message': '确定删除卡片「{name}」吗？将从这里截断：该卡片及之后的内容、由此衍生的所有分支都会被移除，原会话将被归档（当前无恢复入口）。',
+  'mindmap.delete.message': '确定删除卡片「{name}」吗？将从这里截断：该卡片及之后的内容、挂在其下的所有会话都会被移除，原会话将被归档（当前无恢复入口）。',
   'mindmap.delete.action': '删除',
   'mindmap.delete.current': '当前会话将被归档，删除后将自动切换到截断后的新会话。',
-  'mindmap.delete.lastTrunk': '不能删除第一张主干卡片，导图至少需要保留一张主干卡片。',
+  'mindmap.delete.lastSession': '导图至少需要保留一个会话，请改为归档整个导图。',
   'mindmap.delete.missing': '找不到要删除的卡片，文档可能已变化，请重试。',
   'mindmap.deleted': '已删除卡片及其派生内容。',
   'mindmap.truncated': '已截断会话并归档原会话。',
@@ -836,6 +896,12 @@ const en = {
   'settings.mindmapHoverColor.reset.title': 'Reset hover highlight color',
   'settings.mindmapSelectedColor': 'Selected highlight color',
   'settings.mindmapSelectedColor.reset.title': 'Reset selected highlight color',
+  'settings.mindmapHeadColor': 'Session head accent color',
+  'settings.mindmapHeadColor.reset.title': 'Reset session head accent color',
+  'settings.mindmapEndColor': 'End card accent color',
+  'settings.mindmapEndColor.reset.title': 'Reset end card accent color',
+  'settings.mindmapMountBulge': 'Mount edge curve',
+  'settings.mindmapMountBulge.reset.title': 'Reset curve amount',
   'settings.mindmapSpinSpeed': 'Mind-map icon spin speed',
   'settings.mindmapSpinSpeed.reset.title': 'Reset spin speed',
   'settings.rowHeight': 'Row height',
@@ -861,7 +927,7 @@ const en = {
   'settings.thinkDelay.reset.title': 'Reset collapse delay',
   'settings.previewRight': 'Show the file browser pane on the right',
   'settings.resetDefault': 'Reset',
-  'settings.hint': 'Session Browsing: adjust the spin speed of the sidebar mind-map entry icon while the map is streaming (a 0.0x–3.0x speed multiplier, larger is faster; the default 1.5x means one 1.2 s revolution, and 0 means no rotation). Mind Map Browsing: adjust the hover and selected highlight colors in the mind-map view (amber and the theme blue by default; each can be reset). File Browsing: adjust the tree row height, how search results are shown, and the file icon badge colors. Content Browsing: pick a highlight preset per file type, adjust the save-conflict dialog comparison text size, and choose whether the file browser pane sits on the right side of the conversation column. Conversation Page Settings: adjust the chat font size; when auto-expand thinking is on, streaming thinking blocks expand automatically and collapse after the configured delay (0–10 s, 0.1 s steps), and manual interaction cancels a pending collapse. Unchanged items use their defaults.',
+  'settings.hint': 'Session Browsing: adjust the spin speed of the sidebar mind-map entry icon while the map is streaming (a 0.0x–3.0x speed multiplier, larger is faster; the default 1.5x means one 1.2 s revolution, and 0 means no rotation). Mind Map Browsing: adjust the hover and selected highlight colors in the mind-map view (amber and the theme blue by default; each can be reset), plus the mount-edge curve of the mind map (the S-curves from the root to session heads and from branch question cards to branch session heads; default 5.0x, larger bends more visibly, and 0 draws a straight line). File Browsing: adjust the tree row height, how search results are shown, and the file icon badge colors. Content Browsing: pick a highlight preset per file type, adjust the save-conflict dialog comparison text size, and choose whether the file browser pane sits on the right side of the conversation column. Conversation Page Settings: adjust the chat font size; when auto-expand thinking is on, streaming thinking blocks expand automatically and collapse after the configured delay (0–10 s, 0.1 s steps), and manual interaction cancels a pending collapse. Unchanged items use their defaults.',
   'fileColor.directory': 'Directory',
   'fileColor.style': 'Style',
   'fileColor.log': 'Log',
@@ -984,7 +1050,7 @@ const en = {
   'mobile.files': 'Browse files',
   'view.mindmap': 'Mind map',
   'mindmap.overlay.close': 'Close mind map',
-  'mindmap.rootLabel': 'Main session',
+  'mindmap.rootLabel': 'Mind map',
   'mindmap.current': 'Current',
   'mindmap.pending': 'Awaiting a new question…',
   'mindmap.streaming': 'Generating…',
@@ -993,31 +1059,48 @@ const en = {
   'mindmap.done': 'Done',
   'mindmap.emptyRound': '(no text this round)',
   'mindmap.open.hint': 'Create a branch from this card and keep chatting',
+  'mindmap.rootNode': 'Mind-map root',
+  'mindmap.rootNode.hint': 'Click to create a new session branch',
+  'mindmap.session.empty': 'Empty session',
+  'mindmap.session.waiting': 'Awaiting a question',
+  'mindmap.session.untitled': 'Untitled session',
+  'mindmap.hint.new': 'Click to create a session',
   'mindmap.hint.fork': 'Click to fork a branch',
   'mindmap.hint.switch': 'Click to switch',
-  'mindmap.empty': 'This session has no turns to show yet. Once a turn completes, you can split all turns into cards here and branch from any card.',
+  'mindmap.empty': 'This session has nothing to show yet. Click the "Mind-map root" above to create a new empty session branch, or complete a turn in any session and open the mind map again.',
   'mindmap.loading': 'Loading mind-map session…',
   'mindmap.error': 'Failed to load mind-map session: {message}',
   'mindmap.forkFailed': 'Failed to create branch: {message}',
-  'mindmap.created': 'Mind-map session created; the sidebar session list was replaced.',
+  'mindmap.created': 'Mind-map session created.',
   'mindmap.forked': 'Branch created here.',
+  'mindmap.sessionCreated': 'New empty session branch created.',
   'mindmap.branchTag': 'branch',
+  'mindmap.endTag': 'End',
   'mindmap.turnTag': 'Turn {n}',
   'mindmap.rounds': '{n} turns',
   'mindmap.moreRounds': '{n} more turns in history',
-  'mindmap.menu.rename': 'Rename branch',
+  'mindmap.menu.rename': 'Rename',
   'mindmap.menu.archiveAll': 'Archive entire mind map',
-  'mindmap.rename.title': 'Rename Branch',
-  'mindmap.archiveAll.message': 'Archive the entire mind map "{name}"? All its branch sessions will be archived and removed from all lists too.',
+  'mindmap.menu.archiveBranch': 'Archive this session and its branches',
+  'mindmap.rename.title': 'Rename',
+  'mindmap.archiveAll.message': 'Archive the entire mind map "{name}"? All its session branches will be archived and removed from all lists too.',
   'mindmap.archive.action': 'Archive',
   'mindmap.archivedAll': 'Mind map archived.',
-  'mindmap.renamed': 'Branch renamed.',
+  'mindmap.archiveBranch.title': 'Archive Session',
+  'mindmap.archiveBranch.message': 'Archive session "{name}" and all its branches? It will be removed from the mind map (currently no restore path).',
+  'mindmap.archiveBranch.action': 'Archive',
+  'mindmap.branchArchived': 'Session and its branches archived.',
+  'mindmap.workspace.title': 'Choose workspace (where new sessions go)',
+  'mindmap.workspace.none': 'Ungrouped (no workspace)',
+  'mindmap.workspace.set': 'New sessions will land in workspace "{name}".',
+  'mindmap.workspace.cleared': 'New sessions will no longer be bound to a workspace.',
+  'mindmap.renamed': 'Renamed.',
   'mindmap.menu.deleteCard': 'Delete card',
   'mindmap.delete.title': 'Delete Card',
-  'mindmap.delete.message': 'Delete card "{name}"? The conversation will be truncated here: this card, everything after it, and every branch derived from them will be removed, and the original session will be archived (currently no restore path).',
+  'mindmap.delete.message': 'Delete card "{name}"? The conversation will be truncated here: this card, everything after it, and every session hanging below will be removed, and the original session will be archived (currently no restore path).',
   'mindmap.delete.action': 'Delete',
   'mindmap.delete.current': 'The current session will be archived; the view will switch to the truncated session afterwards.',
-  'mindmap.delete.lastTrunk': 'The first trunk card cannot be deleted; a mind map must keep at least one trunk card.',
+  'mindmap.delete.lastSession': 'A mind map must keep at least one session; archive the whole mind map instead.',
   'mindmap.delete.missing': 'The card to delete was not found; the document may have changed, please retry.',
   'mindmap.deleted': 'Card and its derived content deleted.',
   'mindmap.truncated': 'Session truncated; the original was archived.',
@@ -1159,7 +1242,7 @@ const styles = `
 .dsh-ws-context-row{box-sizing:border-box;display:flex;align-items:center;gap:8px;flex:none;width:min(var(--dsh-composer-card-max-width),max(0px,calc(100% - (var(--dsh-composer-side-clearance) * 2))));margin:0 auto;padding:0}.dsh-ws-context-prefix{display:flex;flex:1;align-items:center;gap:6px;min-width:0;min-height:28px;padding:5px 8px 5px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:22px;background:var(--dsw-specific-input-major);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:16px;text-align:left;cursor:pointer}.dsh-ws-context-prefix:hover{color:var(--dsw-alias-label-primary)}.dsh-ws-context-prefix:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}.dsh-ws-context-prefix[data-inactive]{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-caption);filter:grayscale(1)}.dsh-ws-context-prefix-mark{flex:none;font-size:12px}.dsh-ws-context-prefix-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-ws-message-context-summary{box-sizing:border-box;display:flex;align-items:center;align-self:flex-end;gap:6px;max-width:100%;min-height:24px;padding:3px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:22px;background:var(--dsw-specific-input-major);color:var(--dsw-alias-label-secondary);font-size:11px;line-height:16px}.dsh-ws-message-context-summary-mark{flex:none;font-size:12px}.dsh-ws-message-context-summary-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-ws-message-context-summary-range{flex:none;color:var(--dsw-alias-label-caption)}.dsh-ws-message-context-bubble[data-dsh-ws-empty-prompt]{display:none}
 .dsh-ws-banner{padding:7px 12px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-state-warn-tertiary);color:var(--dsw-alias-state-warn-label);font-size:11px;line-height:16px}.dsh-ws-banner-actions{display:flex;gap:6px;margin-top:5px}.dsh-ws-status{flex:none;display:flex;align-items:center;gap:8px;min-width:0;box-sizing:border-box;width:100%;padding:3px 12px;border-top:1px solid var(--dsw-alias-border-l2);background:var(--dsw-specific-sidebar-fill);color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}.dsh-ws-preview-status-actions{flex:none;display:flex;align-items:center;gap:2px;min-width:0}.dsh-ws-preview-status-actions .dsh-ws-text-button{height:22px;padding:0 6px;font-size:11px}.dsh-ws-preview-status-meta{flex:none;display:flex;align-items:center;gap:6px;min-width:0}.dsh-ws-preview-status-meta>span:not(.dsh-ws-language):not(.dsh-ws-encoding){overflow:hidden;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:15px;text-overflow:ellipsis;white-space:nowrap}.dsh-ws-preview-status-msg{flex:1;min-width:0;overflow:hidden;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;text-align:right;text-overflow:ellipsis;white-space:nowrap}.dsh-ws-preview-status-msg[data-error]{color:var(--dsw-alias-state-error-primary)}.dsh-ws-error-card{max-width:300px;padding:14px 16px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:19px;text-align:left}.dsh-ws-dialog-backdrop{position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;padding:20px;background:var(--dsw-alias-bg-mask-1,rgba(0,0,0,.38));box-sizing:border-box}.dsh-ws-dialog{width:min(360px,100%);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-elevated,0 12px 36px rgba(0,0,0,.24));box-sizing:border-box}.dsh-ws-dialog-header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-bottom:1px solid var(--dsw-alias-border-l2)}.dsh-ws-dialog-title{min-width:0;overflow:hidden;color:var(--dsw-alias-label-primary);font-size:13px;font-weight:600;line-height:18px;text-overflow:ellipsis;white-space:nowrap}.dsh-ws-dialog-body{display:flex;flex-direction:column;gap:8px;padding:14px}.dsh-ws-dialog-input{width:100%;height:32px;padding:0 9px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;box-sizing:border-box}.dsh-ws-dialog-input:focus{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}.dsh-ws-dialog-error{color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px}.dsh-ws-dialog-message{color:var(--dsw-alias-label-primary);font-size:13px;line-height:20px}.dsh-ws-dialog-warning{color:var(--dsw-alias-state-warn-label);font-size:12px;line-height:18px}.dsh-ws-danger-button{color:var(--dsw-alias-state-error-primary)}.dsh-ws-dialog-footer{display:flex;justify-content:flex-end;gap:8px;padding:0 14px 14px}.dsh-ws-conflict-region{display:flex;flex-direction:column;gap:8px;min-height:0}.dsh-ws-conflict-region-title{display:flex;align-items:center;gap:8px;color:var(--dsw-alias-state-warn-label);font-size:12px;line-height:18px}.dsh-ws-conflict-cols{display:grid;grid-template-columns:1fr 1fr;gap:8px;min-height:0;flex:1}.dsh-ws-conflict-cols-final{border-top:1px solid var(--dsw-alias-border-l2);padding-top:8px}.dsh-ws-conflict-col{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;border:1px solid var(--dsw-alias-border-l2);border-radius:6px}.dsh-ws-conflict-col-label{padding:4px 8px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}.dsh-ws-conflict-mine .dsh-ws-conflict-col-label{color:var(--dsw-alias-state-warn-label)}.dsh-ws-conflict-theirs .dsh-ws-conflict-col-label{color:var(--dsw-alias-state-business-primary)}.dsh-ws-conflict-code{margin:0;min-height:0;flex:1;overflow:auto;padding:10px;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-mono,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace);font-size:var(--dsh-ws-conflict-font-size,12px);line-height:20px;white-space:pre;box-sizing:border-box}.dsh-ws-inline-add{color:var(--dsw-alias-state-success-primary);background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 14%,transparent);border-radius:3px;box-decoration-break:clone;-webkit-box-decoration-break:clone}.dsh-ws-inline-del{color:var(--dsw-alias-state-error-primary);text-decoration:line-through;text-decoration-thickness:1.5px;background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 12%,transparent);border-radius:3px;opacity:.9;box-decoration-break:clone;-webkit-box-decoration-break:clone}.dsh-ws-conflict-code-row{display:inline;border-radius:3px;box-decoration-break:clone;-webkit-box-decoration-break:clone}.dsh-ws-conflict-code-row[data-kind='add']{background:color-mix(in srgb,var(--dsw-alias-label-secondary) 16%,transparent)}.dsh-ws-conflict-mine .dsh-ws-conflict-code-row[data-kind='add']{background:color-mix(in srgb,var(--dsw-alias-state-warn-label) 20%,transparent);color:var(--dsw-alias-state-warn-label)}.dsh-ws-conflict-theirs .dsh-ws-conflict-code-row[data-kind='add']{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 20%,transparent);color:var(--dsw-alias-state-business-primary)}.dsh-ws-conflict-code-row[data-kind='del']{color:var(--dsw-alias-state-error-primary);text-decoration:line-through;text-decoration-thickness:1.5px;background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,transparent);opacity:.85}.dsh-ws-conflict-dialog{width:66vw;max-width:66vw;max-height:min(90vh,1000px);display:flex;flex-direction:column}.dsh-ws-conflict-dialog .dsh-ws-dialog-body{flex:1;min-height:0;overflow:auto}.dsh-ws-conflict-progress{margin-left:8px;padding:0 6px;border-radius:6px;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);font-size:11px;font-weight:600;line-height:18px;white-space:nowrap}
 .dsh-ws-frame [data-slot='sidebar.footer.action']{display:flex!important;flex-direction:column;align-items:stretch;width:100%;min-width:0}
-.dsh-ws-splitter{position:absolute;top:0;bottom:0;z-index:8;width:8px;margin-left:-4px;border:0;background:transparent;cursor:col-resize;touch-action:none}.dsh-ws-splitter::after{content:'';position:absolute;top:0;bottom:0;left:3px;width:2px;background:transparent;transition:background var(--ds-transition-duration-fast) var(--ds-ease-in-out)}.dsh-ws-splitter:hover::after,.dsh-ws-splitter[data-dragging]::after,.dsh-ws-splitter:focus-visible::after{background:var(--dsw-alias-state-business-primary)}.dsh-ws-details{position:absolute;z-index:16;top:0;right:0;bottom:0;width:min(440px,45vw);overflow:hidden;border-left:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-elevated,0 12px 36px var(--dsw-alias-bg-mask-1));transform:translateX(0);opacity:1;transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out),opacity var(--ds-transition-duration-fast) var(--ds-ease-in-out)}.dsh-ws-details[data-closed]{pointer-events:none;visibility:hidden;transform:translateX(100%);opacity:0}.dsh-ws-overlay{position:absolute;inset:0;z-index:20;pointer-events:none}.dsh-ws-overlay>*{pointer-events:auto}.dsh-ws-tree{position:relative}.dsh-ws-context-menu{position:fixed;z-index:40;min-width:168px;padding:6px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-elevated,0 12px 36px rgba(0,0,0,.24));box-sizing:border-box}.dsh-ws-context-item{display:block;width:100%;height:30px;padding:0 10px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:30px;text-align:left;cursor:pointer;box-sizing:border-box}.dsh-ws-context-item:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.dsh-ws-context-item-danger{color:var(--dsw-alias-state-error-primary)}.dsh-ws-context-item-danger:hover{color:var(--dsw-alias-state-error-primary)}.dsh-ws-context-item:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}.dsh-ws-context-item:disabled{cursor:not-allowed;opacity:.5}.dsh-ws-context-item:disabled:hover{background:transparent;color:var(--dsw-alias-label-primary)}.dsh-ws-context-separator{height:1px;margin:4px 0;border:0;background:var(--dsw-alias-border-l2)}.dsh-ws-copy-notice{position:absolute;right:10px;bottom:10px;z-index:12;padding:5px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-size:11px;line-height:16px;box-shadow:var(--dsw-shadow-elevated,0 4px 12px rgba(0,0,0,.18))}@media(prefers-reduced-motion:reduce){.dsh-ws-frame,.dsh-ws-details,.dsh-ws-splitter::after{transition:none}}
+.dsh-ws-splitter{position:absolute;top:0;bottom:0;z-index:8;width:8px;margin-left:-4px;border:0;background:transparent;cursor:col-resize;touch-action:none}.dsh-ws-splitter::after{content:'';position:absolute;top:0;bottom:0;left:3px;width:2px;background:transparent;transition:background var(--ds-transition-duration-fast) var(--ds-ease-in-out)}.dsh-ws-splitter:hover::after,.dsh-ws-splitter[data-dragging]::after,.dsh-ws-splitter:focus-visible::after{background:var(--dsw-alias-state-business-primary)}.dsh-ws-details{position:absolute;z-index:16;top:0;right:0;bottom:0;width:min(440px,45vw);overflow:hidden;border-left:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-elevated,0 12px 36px var(--dsw-alias-bg-mask-1));transform:translateX(0);opacity:1;transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out),opacity var(--ds-transition-duration-fast) var(--ds-ease-in-out)}.dsh-ws-details[data-closed]{pointer-events:none;visibility:hidden;transform:translateX(100%);opacity:0}.dsh-ws-overlay{position:absolute;inset:0;z-index:20;pointer-events:none}.dsh-ws-overlay>*{pointer-events:auto}.dsh-ws-tree{position:relative}.dsh-ws-context-menu{position:fixed;z-index:40;min-width:168px;padding:6px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-elevated,0 12px 36px rgba(0,0,0,.24));box-sizing:border-box}.dsh-ws-context-menu-wide{min-width:220px;max-width:280px;max-height:min(420px,70vh);overflow-y:auto}.dsh-ws-context-label{padding:4px 10px 6px;color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:14px;user-select:none}.dsh-ws-context-item-check{display:flex;align-items:center;gap:8px}.dsh-ws-context-item-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-ws-context-item-check-mark{flex:none;color:var(--dsw-alias-state-business-primary);font-weight:700}.dsh-ws-context-item.dsh-ws-context-item-check{color:var(--dsw-alias-state-business-primary)}.dsh-ws-context-item{display:block;width:100%;height:30px;padding:0 10px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:30px;text-align:left;cursor:pointer;box-sizing:border-box}.dsh-ws-context-item:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.dsh-ws-context-item-danger{color:var(--dsw-alias-state-error-primary)}.dsh-ws-context-item-danger:hover{color:var(--dsw-alias-state-error-primary)}.dsh-ws-context-item:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}.dsh-ws-context-item:disabled{cursor:not-allowed;opacity:.5}.dsh-ws-context-item:disabled:hover{background:transparent;color:var(--dsw-alias-label-primary)}.dsh-ws-context-separator{height:1px;margin:4px 0;border:0;background:var(--dsw-alias-border-l2)}.dsh-ws-copy-notice{position:absolute;right:10px;bottom:10px;z-index:12;padding:5px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-size:11px;line-height:16px;box-shadow:var(--dsw-shadow-elevated,0 4px 12px rgba(0,0,0,.18))}@media(prefers-reduced-motion:reduce){.dsh-ws-frame,.dsh-ws-details,.dsh-ws-splitter::after{transition:none}}
 .dsh-ws-search-header{flex-direction:column;align-items:stretch;gap:8px;padding:8px}
 .dsh-ws-search-input-row{display:flex;align-items:center;gap:6px}
 .dsh-ws-search-input{flex:1;min-width:0;height:30px;padding:0 9px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;box-sizing:border-box}
@@ -1438,6 +1521,9 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-mindmap-canvas{position:absolute;left:0;top:0;transform-origin:0 0}
 .dsh-ws-mindmap-edges{position:absolute;inset:0;pointer-events:none;overflow:visible}
 .dsh-ws-mindmap-edge:not(.dsh-ws-mindmap-edge-flow){fill:none;stroke:var(--dsw-alias-border-l2,#8a8f98);stroke-width:1.5;opacity:.85}
+/* V3 mount edges (root → top-level session head, parent card → nested session
+   head): primary dashed, weaker than the ancestor-trace classes above it. */
+.dsh-ws-mindmap-edge-mount{stroke:var(--dsw-alias-state-business-primary);stroke-width:1.6;opacity:.55;stroke-dasharray:4 4}
 .dsh-ws-mindmap-edge.dsh-ws-mindmap-edge-flow-under{fill:none;stroke-width:3;stroke-linecap:round;opacity:.9}
 .dsh-ws-mindmap-edge-flow{fill:none;stroke-width:3;stroke-linecap:round;stroke-dasharray:10 8;opacity:1;animation:dsh-ws-mindmap-edge-flow 1.1s linear infinite}
 @keyframes dsh-ws-mindmap-edge-flow{to{stroke-dashoffset:-18}}
@@ -1460,6 +1546,36 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
    title) and, when the branch has visible rounds, a per-round preview list. */
 .dsh-ws-mindmap-pending{border-style:dashed;cursor:pointer;justify-content:flex-start;align-items:stretch}
 .dsh-ws-mindmap-branchcard{border-style:dashed;cursor:pointer;justify-content:flex-start;align-items:stretch;gap:6px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 88%,var(--dsw-alias-state-business-primary) 6%)}
+/* End-of-branch card ("末端"): the WHOLE card wears the accent tint — border,
+   background wash and the "末端" capsule all resolve the --dsh-ws-mindmap-end
+   custom property (default success green), so a terminal-point card reads
+   green as a card, not just in its chip. The selected / hover ancestor rules
+   (later in source, equal-or-higher specificity) still override the border,
+   so the trace highlight stays visible over the tint. Streaming cards keep
+   only the chip (their flowing ring is already the strong signal). */
+.dsh-ws-mindmap-node.dsh-ws-mindmap-endcard{border-color:var(--dsh-ws-mindmap-end,var(--dsw-alias-state-success-primary));background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 86%,var(--dsh-ws-mindmap-end,var(--dsw-alias-state-success-primary)) 14%)}
+/* V3 nodes: the VIRTUAL root node (the map's top hub — click it to create a
+   new top-level session) and each session's HEAD node (its identity card at
+   the left of the question chain; the "当前" badge sits here). */
+.dsh-ws-mindmap-root{position:absolute;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:12px;padding:0 18px;border:2px solid var(--dsw-alias-state-business-primary);border-radius:16px;cursor:pointer;user-select:none;background:linear-gradient(180deg,color-mix(in srgb,var(--dsw-alias-state-business-primary) 18%,var(--dsw-alias-bg-layer-1)),color-mix(in srgb,var(--dsw-alias-state-business-primary) 8%,var(--dsw-alias-bg-layer-1)));box-shadow:0 0 0 4px color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent);transition:transform .12s ease,box-shadow .12s ease;overflow:hidden}
+.dsh-ws-mindmap-root:hover{transform:translateY(-1px);box-shadow:0 0 0 6px color-mix(in srgb,var(--dsw-alias-state-business-primary) 18%,transparent)}
+.dsh-ws-mindmap-root-plus{flex:none;width:26px;height:26px;border-radius:50%;background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-primary-inverted);display:flex;align-items:center;justify-content:center;transition:transform .15s ease}
+.dsh-ws-mindmap-root-plus svg{display:block;width:14px;height:14px;transition:transform .15s ease}
+.dsh-ws-mindmap-root:hover .dsh-ws-mindmap-root-plus{transform:scale(1.06)}
+.dsh-ws-mindmap-root:hover .dsh-ws-mindmap-root-plus svg{transform:rotate(90deg)}
+.dsh-ws-mindmap-root-col{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:0}
+.dsh-ws-mindmap-root-title{font-weight:800;font-size:14px;color:var(--dsw-alias-label-primary);white-space:nowrap}
+.dsh-ws-mindmap-root-hint{font-size:10px;line-height:14px;color:var(--dsw-alias-state-business-primary);white-space:nowrap}
+.dsh-ws-mindmap-head{position:absolute;box-sizing:border-box;display:flex;flex-direction:column;gap:5px;padding:9px 10px;border:1px solid var(--dsh-ws-mindmap-head,var(--dsw-alias-state-business-primary));border-radius:10px;cursor:pointer;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 88%,var(--dsh-ws-mindmap-head,var(--dsw-alias-state-business-primary)) 12%);overflow:hidden}
+.dsh-ws-mindmap-head:hover{box-shadow:0 0 0 1px color-mix(in srgb,var(--dsh-ws-mindmap-head,var(--dsw-alias-state-business-primary)) 40%,transparent)}
+.dsh-ws-mindmap-head-current{border-color:var(--dsh-ws-mindmap-selected,var(--dsw-alias-state-business-primary));box-shadow:0 0 0 1px var(--dsh-ws-mindmap-selected,var(--dsw-alias-state-business-primary))}
+.dsh-ws-mindmap-head-row{display:flex;align-items:center;gap:6px;min-width:0}
+.dsh-ws-mindmap-head-icon{flex:none;width:15px;height:15px;color:var(--dsh-ws-mindmap-head,var(--dsw-alias-state-business-primary))}
+.dsh-ws-mindmap-head-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700;font-size:12px;line-height:16px;color:var(--dsw-alias-label-primary)}
+.dsh-ws-mindmap-head-count{font-size:11px;line-height:15px;color:var(--dsw-alias-label-secondary)}
+.dsh-ws-mindmap-head-status{display:flex;align-items:center;gap:6px;font-size:11px;line-height:15px;color:var(--dsw-alias-label-tertiary,var(--dsw-alias-label-secondary))}
+.dsh-ws-mindmap-head-status-live{color:var(--dsw-alias-state-business-primary)}
+.dsh-ws-mindmap-head.dsh-ws-mindmap-node-ring{border:2px solid transparent;padding:8px 9px;border-radius:12px;background:linear-gradient(var(--dsw-alias-bg-layer-1),var(--dsw-alias-bg-layer-1)) padding-box,conic-gradient(from var(--dsw-ws-mm-angle),var(--dsw-ws-mm-c1),var(--dsw-ws-mm-c2),var(--dsw-ws-mm-c3),var(--dsw-ws-mm-c1)) border-box;animation:dsh-ws-mindmap-ring-spin 2.4s linear infinite}
 /* Live streaming cards (turns in flight, ephemeral UI — replaced by normal
    cards once their turns complete): instead of an enclosing frame, each
    streaming card AND its parent card get a colorful flowing gradient ring
@@ -1470,7 +1586,7 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
    appears. The compound selectors beat the ancestor / branch border rules. */
 @property --dsw-ws-mm-angle{syntax:'<angle>';initial-value:0deg;inherits:false}
 .dsh-ws-mindmap-node.dsh-ws-mindmap-node-ring{border:2px solid transparent;padding:7px 9px;border-radius:12px;background:linear-gradient(var(--dsw-alias-bg-layer-1),var(--dsw-alias-bg-layer-1)) padding-box,conic-gradient(from var(--dsw-ws-mm-angle),var(--dsw-ws-mm-c1),var(--dsw-ws-mm-c2),var(--dsw-ws-mm-c3),var(--dsw-ws-mm-c1)) border-box;animation:dsh-ws-mindmap-ring-spin 2.4s linear infinite}
-.dsh-ws-mindmap-node.dsh-ws-mindmap-node-ring.dsh-ws-mindmap-node-streaming{box-shadow:0 0 14px color-mix(in srgb,var(--dsw-ws-mm-c1) 22%,transparent)}
+.dsh-ws-mindmap-node.dsh-ws-mindmap-node-ring.dsh-ws-mindmap-node-streaming{box-shadow:0 0 14px color-mix(in srgb,var(--dsw-ws-mm-c1) 22%,transparent);background:linear-gradient(color-mix(in srgb,var(--dsw-alias-bg-layer-1) 78%,transparent),color-mix(in srgb,var(--dsw-alias-bg-layer-1) 78%,transparent)) padding-box,conic-gradient(from var(--dsw-ws-mm-angle),var(--dsw-ws-mm-c1),var(--dsw-ws-mm-c2),var(--dsw-ws-mm-c3),var(--dsw-ws-mm-c1)) padding-box,conic-gradient(from var(--dsw-ws-mm-angle),var(--dsw-ws-mm-c1),var(--dsw-ws-mm-c2),var(--dsw-ws-mm-c3),var(--dsw-ws-mm-c1)) border-box}
 .dsh-ws-mindmap-node-streaming-status{display:flex;align-items:center;gap:6px;color:var(--dsw-ws-mm-c1,var(--dsw-alias-state-business-primary))}
 .dsh-ws-mindmap-node-streaming-dot{width:7px;height:7px;border-radius:50%;background:var(--dsw-ws-mm-c1,var(--dsw-alias-state-business-primary));animation:dsh-ws-mindmap-dot-pulse 1s ease-in-out infinite}
 @keyframes dsh-ws-mindmap-ring-spin{to{--dsw-ws-mm-angle:360deg}}
@@ -1478,6 +1594,10 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 @media (prefers-reduced-motion: reduce){.dsh-ws-mindmap-node.dsh-ws-mindmap-node-ring{animation:none}.dsh-ws-mindmap-edge-flow{animation:none}.dsh-ws-mindmap-node-streaming-dot{animation:none}}
 .dsh-ws-mindmap-pending-head{display:flex;align-items:center;gap:6px;min-width:0}
 .dsh-ws-mindmap-pending-label{flex:none;display:inline-flex;align-items:center;gap:2px;padding:1px 6px 1px 5px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 28%,transparent);border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent);color:var(--dsw-alias-state-business-primary);font-size:10px;line-height:14px}
+/* End-of-branch capsule ("末端"): the same chip shape, but tinted with the
+   success green so the terminal-point chip is instantly distinguishable from
+   a fork point (which stays primary-blue). */
+.dsh-ws-mindmap-end-label{border-color:color-mix(in srgb,var(--dsh-ws-mindmap-end,var(--dsw-alias-state-success-primary)) 28%,transparent);background:color-mix(in srgb,var(--dsh-ws-mindmap-end,var(--dsw-alias-state-success-primary)) 12%,transparent);color:var(--dsh-ws-mindmap-end,var(--dsw-alias-state-success-primary))}
 .dsh-ws-mindmap-pending-icon{flex:none;display:block}
 .dsh-ws-mindmap-pending-title{flex:1;min-width:0;color:var(--dsw-alias-label-primary);font-weight:600;font-size:12px;line-height:17px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dsh-ws-mindmap-pending-count{color:var(--dsw-alias-label-secondary);font-size:10px;line-height:14px}
@@ -2335,6 +2455,9 @@ function createExplorerSettingsStore() {
       mindmapSpinSpeed: MINDMAP_SPIN_SPEED_DEFAULT_X,
       mindmapHoverColor: undefined,
       mindmapSelectedColor: undefined,
+      mindmapHeadColor: undefined,
+      mindmapEndColor: undefined,
+      mindmapMountBulge: MINDMAP_MOUNT_BULGE_DEFAULT_X,
       fileColors: {},
       highlightPresets: {},
       previewRight: PREVIEW_RIGHT_DEFAULT,
@@ -2377,6 +2500,25 @@ function createExplorerSettingsStore() {
         else draft.mindmapSelectedColor = hex
       },
       resetMindmapSelectedColor: (draft) => { delete draft.mindmapSelectedColor },
+      setMindmapHeadColor: (draft, value) => {
+        const hex = cssColorToHex(value)
+        if (hex === null) return
+        /* The DEFAULT head color is the fixed violet (not a theme var): picking
+           it back means "use the default" — drop the stored override. */
+        if (hex === MINDMAP_HEAD_COLOR_DEFAULT) delete draft.mindmapHeadColor
+        else draft.mindmapHeadColor = hex
+      },
+      resetMindmapHeadColor: (draft) => { delete draft.mindmapHeadColor },
+      setMindmapEndColor: (draft, value) => {
+        const hex = cssColorToHex(value)
+        if (hex === null) return
+        /* The DEFAULT end-card color is the fixed success green (not a theme
+           var): picking it back means "use the default" — drop the override. */
+        if (hex === MINDMAP_END_COLOR_DEFAULT) delete draft.mindmapEndColor
+        else draft.mindmapEndColor = hex
+      },
+      resetMindmapEndColor: (draft) => { delete draft.mindmapEndColor },
+      setMindmapMountBulge: (draft, value) => { draft.mindmapMountBulge = clampMountBulge(value) },
       setFileColor: (draft, group, value) => {
         if (draft.fileColors === undefined) draft.fileColors = {}
         if (String(value).toLowerCase() === fileColorDefault(group).toLowerCase()) delete draft.fileColors[group]
@@ -6642,6 +6784,17 @@ function EmptyWorkspaceExplorer({ treePortalTarget, sessionTitle }) {
      permanently disabled. */
   const mindmapHoverColorCustom = settings.mindmapHoverColor !== undefined
   const mindmapSelectedColorCustom = settings.mindmapSelectedColor !== undefined
+  /* Session-head card accent color: default is the fixed violet (not theme
+     adaptive), so the effective hex is simply the stored override or the
+     default constant. */
+  const mindmapHeadColorHex = settings.mindmapHeadColor ?? MINDMAP_HEAD_COLOR_DEFAULT
+  const mindmapHeadColorCustom = settings.mindmapHeadColor !== undefined
+  /* End-of-branch card accent color: default is the fixed success green (not
+     theme adaptive), so the effective hex is simply the stored override or
+     the default constant. */
+  const mindmapEndColorHex = settings.mindmapEndColor ?? MINDMAP_END_COLOR_DEFAULT
+  const mindmapEndColorCustom = settings.mindmapEndColor !== undefined
+  const mindmapMountBulge = clampMountBulge(settings.mindmapMountBulge)
   const customizedCount = Object.keys(settings.fileColors ?? {}).length
   const customizedPresetCount = Object.keys(settings.highlightPresets ?? {}).length
   return h('div', { className: 'dsh-ws-explorer-settings' },
@@ -6704,6 +6857,61 @@ function EmptyWorkspaceExplorer({ treePortalTarget, sessionTitle }) {
           disabled: !mindmapSelectedColorCustom,
           onClick: () => settingsStore.actions.resetMindmapSelectedColor(),
           title: translate('settings.mindmapSelectedColor.reset.title'),
+          type: 'button',
+        }, translate('settings.resetDefault'))),
+      h('div', { className: 'dsh-ws-settings-row' },
+        h('label', { className: 'dsh-ws-settings-label', htmlFor: 'dsh-ws-mindmap-head-color' }, translate('settings.mindmapHeadColor')),
+        h('input', {
+          'aria-label': translate('settings.mindmapHeadColor'),
+          className: 'dsh-ws-settings-color',
+          id: 'dsh-ws-mindmap-head-color',
+          onChange: e => settingsStore.actions.setMindmapHeadColor(e.target.value),
+          type: 'color',
+          value: mindmapHeadColorHex,
+        }),
+        h('button', {
+          className: 'dsh-ws-text-button',
+          disabled: !mindmapHeadColorCustom,
+          onClick: () => settingsStore.actions.resetMindmapHeadColor(),
+          title: translate('settings.mindmapHeadColor.reset.title'),
+          type: 'button',
+        }, translate('settings.resetDefault'))),
+      h('div', { className: 'dsh-ws-settings-row' },
+        h('label', { className: 'dsh-ws-settings-label', htmlFor: 'dsh-ws-mindmap-end-color' }, translate('settings.mindmapEndColor')),
+        h('input', {
+          'aria-label': translate('settings.mindmapEndColor'),
+          className: 'dsh-ws-settings-color',
+          id: 'dsh-ws-mindmap-end-color',
+          onChange: e => settingsStore.actions.setMindmapEndColor(e.target.value),
+          type: 'color',
+          value: mindmapEndColorHex,
+        }),
+        h('button', {
+          className: 'dsh-ws-text-button',
+          disabled: !mindmapEndColorCustom,
+          onClick: () => settingsStore.actions.resetMindmapEndColor(),
+          title: translate('settings.mindmapEndColor.reset.title'),
+          type: 'button',
+        }, translate('settings.resetDefault'))),
+      h('div', { className: 'dsh-ws-settings-row' },
+        h('label', { className: 'dsh-ws-settings-label', htmlFor: 'dsh-ws-mindmap-mount-bulge' }, translate('settings.mindmapMountBulge')),
+        h('input', {
+          'aria-label': translate('settings.mindmapMountBulge'),
+          className: 'dsh-ws-settings-slider',
+          id: 'dsh-ws-mindmap-mount-bulge',
+          max: MINDMAP_MOUNT_BULGE_MAX_X,
+          min: MINDMAP_MOUNT_BULGE_MIN_X,
+          onChange: e => settingsStore.actions.setMindmapMountBulge(Number(e.target.value)),
+          step: 0.5,
+          type: 'range',
+          value: mindmapMountBulge,
+        }),
+        h('span', { className: 'dsh-ws-settings-value' }, `${mindmapMountBulge.toFixed(1)}×`),
+        h('button', {
+          className: 'dsh-ws-text-button',
+          disabled: mindmapMountBulge === MINDMAP_MOUNT_BULGE_DEFAULT_X || undefined,
+          onClick: () => settingsStore.actions.setMindmapMountBulge(MINDMAP_MOUNT_BULGE_DEFAULT_X),
+          title: translate('settings.mindmapMountBulge.reset.title'),
           type: 'button',
         }, translate('settings.resetDefault'))),
     ),
@@ -7103,29 +7311,39 @@ function mindmapClip(text, max) {
 
 const mindmapDocKey = (sessionId, seq) => `${sessionId}:${seq}`
 
-/* Key of a branch's placeholder card (a forked session with no turns yet),
-   shared by the layout and the current-card highlight so the "当前" badge can
-   light the "等待新问题" card. */
+/* Key of the VIRTUAL root node (the map's top hub, not a session). */
+const MINDMAP_ROOT_KEY = '__mindmap_root__'
+
+/* Key of a session's HEAD node (the identity card at the left of its question
+   chain). Shared by the layout and the current-card highlight so the "当前"
+   badge can light the session's head. */
+const mindmapHeadKey = (sessionId) => mindmapDocKey(String(sessionId), `head:${String(sessionId)}`)
+
+/* Key of a session's placeholder card (a session with no turns yet), shared by
+   the layout and the current-card highlight so the "当前" badge can light the
+   "等待新问题" card. */
 const mindmapEmptyKey = (sessionId) => mindmapDocKey(String(sessionId), `empty:${String(sessionId)}`)
 
 /* Plan of a card deletion (right-click → 删除卡片): the card is removed by
    TRUNCATING its session chain — the card and every later card in the same
    session are cut, the session is re-created from the previous card (a fork
    at its turn/end), and the OLD session is archived so the chat shows the
-   truncated conversation. Every branch hanging off a removed card is
-   archived too. An empty branch's placeholder card — or a branch's FIRST
-   card, with no earlier card in the branch to truncate at — removes the
-   whole branch instead. The doc records NO tombstones: a removed turn only
-   resurfaces through a failed archive of its old session (ACCEPTED — pure
-   fork + archive + replace; see docs/mindmap-notes.md). Returns null when
-   the target card is not in the doc, or a plan { archiveIds, trunk,
-   branches, replaced, wholeBranch, firstTrunk, next }. */
+   truncated conversation. Every session hanging off a removed card is
+   archived too. An empty session's placeholder card — or a session's FIRST
+   card, with no earlier card in the session to truncate at — removes the
+   whole session instead. Removing the LAST remaining session (directly or via
+   a subtree prune) is blocked (the map must keep at least one session; the
+   root node itself is virtual). The doc records NO tombstones: a removed turn
+   only resurfaces through a failed archive of its old session (ACCEPTED —
+   pure fork + archive + replace; see docs/mindmap-notes.md). Returns null
+   when the target card is not in the doc, or a plan { archiveIds, sessions,
+   replaced, wholeBranch, lastSession, next }. */
 function mindmapDeletePlan(doc, ownerId, turnSeq, emptyCard) {
-  const root = String(doc?.rootSessionId ?? '')
-  const branches = doc?.branches ?? []
-  const ownerIsRoot = String(ownerId) === root
-  const branch = ownerIsRoot ? undefined : branches.find(b => String(b?.sessionId) === String(ownerId))
-  const chain = ownerIsRoot ? (doc?.trunk ?? []) : (branch?.turns ?? [])
+  const sessions = (doc?.sessions ?? []).filter(s => s !== null && s !== undefined)
+  const ownerIdx = sessions.findIndex(s => String(s?.sessionId) === String(ownerId))
+  if (ownerIdx === -1) return null
+  const session = sessions[ownerIdx]
+  const chain = session.turns ?? []
   const removed = []
   const pruneIds = new Set()
   const pushTurn = (sessionId, turn) => {
@@ -7135,41 +7353,38 @@ function mindmapDeletePlan(doc, ownerId, turnSeq, emptyCard) {
   let idx = -1
   let wholeBranch = false
   if (emptyCard) {
-    /* An empty branch's placeholder: no truncation is possible, the whole
-       branch (session + subtree) is removed. */
-    if (ownerIsRoot) return null
+    /* An empty session's placeholder: no truncation is possible, the whole
+       session (session + subtree) is removed. */
     wholeBranch = true
   } else {
     idx = chain.findIndex(turn => Number(turn?.seq) === Number(turnSeq))
     if (idx === -1) return null
-    if (ownerIsRoot && idx === 0) return { firstTrunk: true }
     if (idx === 0) wholeBranch = true
   }
   if (wholeBranch) {
     pruneIds.add(String(ownerId))
     if (chain.length === 0) {
-      /* An EMPTY branch carries no turns, so the subtree worklist below gets
-         no anchor from its own turns: seed it with the branch itself so
-         descendants whose parent session is this branch are still pruned. */
+      /* An EMPTY session carries no turns, so the subtree worklist below gets
+         no anchor from its own turns: seed it with the session itself so
+         descendants whose parent session is this session are still pruned. */
       removed.push({ sessionId: String(ownerId), seq: undefined, n: undefined })
     }
     for (const turn of chain) pushTurn(ownerId, turn)
   } else {
     for (let i = idx; i < chain.length; i += 1) pushTurn(ownerId, chain[i])
   }
-  /* Branch subtree: every branch whose parent card is one of the removed
-     cards, recursively (grandchildren hang off the removed branches' cards).
-     An empty-branch anchor (seeded above, no card number) matches by session
+  /* Session subtree: every session whose parent card is one of the removed
+     cards, recursively (grandchildren hang off the removed sessions' cards).
+     An empty-session anchor (seeded above, no card number) matches by session
      identity alone. */
   for (let cursor = 0; cursor < removed.length; cursor += 1) {
     const t = removed[cursor]
-    for (const b of branches) {
-      if (b === null || b === undefined) continue
-      if (pruneIds.has(String(b.sessionId))) continue
-      if (String(b?.parentSessionId) === String(t.sessionId)
-        && (t.n === undefined || Number(b?.parentTurn) === Number(t.n))) {
-        pruneIds.add(String(b.sessionId))
-        for (const turn of b?.turns ?? []) pushTurn(b.sessionId, turn)
+    for (const s of sessions) {
+      if (pruneIds.has(String(s.sessionId))) continue
+      if (String(s?.parentSessionId) === String(t.sessionId)
+        && (t.n === undefined || Number(s?.parentTurn) === Number(t.n))) {
+        pruneIds.add(String(s.sessionId))
+        for (const turn of s?.turns ?? []) pushTurn(s.sessionId, turn)
       }
     }
   }
@@ -7179,52 +7394,43 @@ function mindmapDeletePlan(doc, ownerId, turnSeq, emptyCard) {
     removedBySession.get(t.sessionId).add(t.seq)
   }
   const keep = (sessionId, turn) => !removedBySession.get(String(sessionId))?.has(Number(turn?.seq))
-  const nextTrunk = !wholeBranch && ownerIsRoot
-    ? (doc?.trunk ?? []).filter(turn => keep(root, turn))
-    : (doc?.trunk ?? [])
-  const nextBranches = branches
-    .filter(b => b !== null && b !== undefined && !pruneIds.has(String(b.sessionId)))
-    .map(b => String(b?.sessionId) === String(ownerId) && !wholeBranch
-      ? { ...b, turns: (b?.turns ?? []).filter(turn => keep(String(ownerId), turn)) }
-      : b)
+  const nextSessions = sessions
+    .filter(s => !pruneIds.has(String(s.sessionId)))
+    .map(s => String(s?.sessionId) === String(ownerId) && !wholeBranch
+      ? { ...s, turns: (s?.turns ?? []).filter(turn => keep(String(ownerId), turn)) }
+      : s)
+  /* Removing the last remaining session (directly, or via a subtree prune)
+     would leave the map with nothing but the virtual root node — blocked. */
+  if (nextSessions.length === 0) return { lastSession: true }
   /* Fresh doc-wide counter: continue after the largest remaining card number,
      so deleted numbers are reused instead of leaving gaps. */
   let maxN = 0
-  for (const turn of nextTrunk) maxN = Math.max(maxN, Number(turn?.n) || 0)
-  for (const b of nextBranches) for (const turn of b?.turns ?? []) maxN = Math.max(maxN, Number(turn?.n) || 0)
+  for (const s of nextSessions) for (const turn of s?.turns ?? []) maxN = Math.max(maxN, Number(turn?.n) || 0)
   return {
     archiveIds: [...pruneIds],
-    trunk: nextTrunk,
-    branches: nextBranches,
+    sessions: nextSessions,
     replaced: wholeBranch
       ? null
       : { sessionId: String(ownerId), forkAt: Number(chain[idx - 1].seq) },
     wholeBranch,
-    firstTrunk: false,
+    lastSession: false,
     next: maxN + 1,
   }
 }
 
-/* Stable fingerprint of a doc's structure (turn seqs + the map's own title),
-   used to skip redundant re-renders after a sync that changed nothing. The
-   rootTitle is included so a sidebar rename of the map title reaches an open
-   map on the next sync (a seq-only fingerprint skipped it). */
+
+
+/* Stable fingerprint of a doc's structure (per-session turn seqs, fork
+   anchors + the map's own title), used to skip redundant re-renders after a
+   sync that changed nothing. The rootTitle is included so a sidebar rename of
+   the map title reaches an open map on the next sync (a seq-only fingerprint
+   skipped it). */
 function mindmapDocFingerprint(doc) {
-  const trunk = (doc?.trunk ?? []).map(turn => turn?.seq).join(',')
-  const branches = (doc?.branches ?? []).map(branch =>
-    `${branch?.sessionId}:${(branch?.turns ?? []).map(turn => turn?.seq).join(',')}`).join(';')
-  return `${String(doc?.rootTitle ?? '')}|${trunk}|${branches}`
+  const sessions = (doc?.sessions ?? []).map(s =>
+    `${String(s?.sessionId)}:${String(s?.parentSessionId ?? '')}:${String(s?.parentTurn ?? '')}:${(s?.turns ?? []).map(turn => turn?.seq).join(',')}`).join(';')
+  return `${String(doc?.rootTitle ?? '')}|${sessions}`
 }
 
-/* Doc layout: trunk turns are one left-to-right chain; each branch's turn
-   chain hangs off its parent card (parentSessionId + display turn n). A branch
-   with no turns yet renders one placeholder card. Branch rows are ordered by
-   the mount position on the trunk (see below). An optional `streaming`
-   descriptor ({ sessionId, question }) appends an ephemeral live card to that
-   session's chain tail (replacing the placeholder of an empty branch).
-   Returns { nodes, edges, width, height } — nodes carry key/sessionId/turn/
-   branch/empty/streaming/depth/row/y/height, edges are { from, to } key
-   pairs. */
 /* Deterministic per-session color palette for a streaming card + parent pair
    (the flowing gradient ring on both cards and the flowing edge between
    them): a hash of the session id seeds a PRNG that picks ONE coherent 3-color
@@ -7282,99 +7488,143 @@ const mindmapStreamPalette = (sessionId) => {
   return out
 }
 
-function mindmapDocLayout(doc, streamingList) {
+/* Doc layout (v3): the VIRTUAL root node sits alone at the top (row 0);
+   every session is a horizontal chain of a HEAD node (the session's identity
+   card) plus its question cards, laid out one session per row in DFS order —
+   top-level sessions (children of the root node) first, then each session's
+   nested forks on the rows right after it, indented to the card they hang
+   off. A session with no turns renders one placeholder card. An optional
+   `streaming` descriptor ({ sessionId, question }) appends an ephemeral live
+   card to that session's chain tail (replacing the placeholder of an empty
+   session). Returns { nodes, edges, width, height } — nodes carry
+   key/kind/sessionId/turn/empty/streaming/row/depth/x/y/width/height, edges
+   are { from, to, mount?, d } key pairs with the SVG path precomputed. */
+function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_MOUNT_BULGE_DEFAULT_X) {
   const nodes = []
   const edges = []
-  const rootId = doc?.rootSessionId
-  const trunk = doc?.trunk ?? []
-  const branches = doc?.branches ?? []
-  trunk.forEach((turn, index) => {
-    nodes.push({
-      key: mindmapDocKey(rootId, turn?.seq),
-      sessionId: rootId,
-      turn,
-      branch: undefined,
-      empty: false,
-      depth: index,
-      row: 0,
-      height: MINDMAP_NODE_H,
-    })
-    if (index > 0) {
-      edges.push({
-        from: mindmapDocKey(rootId, trunk[index - 1].seq),
-        to: mindmapDocKey(rootId, turn.seq),
-      })
-    }
-  })
-  /* Branch row order follows the MOUNT position on the trunk, not the
-     creation order: each branch's row is assigned after grouping branches by
-     the trunk card they hang off (walking the fork lineage for cascaded
-     branches), so a branch is never pushed down by branches of a different
-     group. Branches of the same group keep their creation order. */
-  const trunkNIndex = new Map()
-  trunk.forEach((turn, index) => { if (turn?.n !== undefined) trunkNIndex.set(Number(turn.n), index) })
-  const anchorOf = new Map()
-  for (const branch of branches) {
-    if (branch === null || branch === undefined) continue
-    let cursor = branch
-    const seen = new Set()
-    while (cursor !== undefined && !seen.has(String(cursor.sessionId))) {
-      seen.add(String(cursor.sessionId))
-      if (String(cursor.parentSessionId) === String(rootId)) {
-        const anchor = trunkNIndex.get(Number(cursor.parentTurn))
-        anchorOf.set(String(branch.sessionId), anchor === undefined ? trunk.length : anchor)
-        break
-      }
-      cursor = branches.find(b => b !== null && b !== undefined
-        && String(b.sessionId) === String(cursor.parentSessionId))
-    }
-    /* Unresolvable mount (inconsistent doc): keep the branch stable at the end
-       instead of colliding with a real group. */
-    if (!anchorOf.has(String(branch.sessionId))) anchorOf.set(String(branch.sessionId), trunk.length)
+  const sessions = (doc?.sessions ?? []).filter(s => s !== null && s !== undefined)
+  const bySession = new Map()
+  for (const s of sessions) bySession.set(String(s.sessionId), s)
+  /* Children of a specific card, keyed `${parentSessionId}\u0000${cardN}`. */
+  const childMap = new Map()
+  for (const s of sessions) {
+    if (!s.parentSessionId || s.parentTurn === undefined || s.parentTurn === null) continue
+    const key = `${String(s.parentSessionId)}\u0000${String(s.parentTurn)}`
+    if (!childMap.has(key)) childMap.set(key, [])
+    childMap.get(key).push(s)
   }
-  const orderedBranches = branches
-    .filter(b => b !== null && b !== undefined)
-    .map((branch, branchIndex) => ({
-      branch,
-      branchIndex,
-      anchor: anchorOf.get(String(branch.sessionId)) ?? trunk.length,
-    }))
-    .sort((a, b) => a.anchor - b.anchor || a.branchIndex - b.branchIndex)
-    .map(entry => entry.branch)
-  orderedBranches.forEach((branch, branchIndex) => {
-    const parent = nodes.find(n => String(n.sessionId) === String(branch.parentSessionId)
-      && Number(n.turn?.n) === Number(branch.parentTurn))
-    let startDepth
-    if (parent !== undefined) startDepth = parent.depth + 1
-    else {
-      /* Malformed/stale doc (parent branch missing or empty): fall back to the
-         trunk anchor's depth instead of collapsing the chain onto the trunk's
-         first card (depth 0 would overlap it visually with a dangling edge
-         from the root card). */
-      const anchor = anchorOf.get(String(branch.sessionId))
-      startDepth = anchor !== undefined && anchor < trunk.length ? anchor + 1 : 0
+  /* DFS pre-order (stable): top-level sessions in doc order, then each
+     session's children by card order. Every session occupies ONE row. */
+  const order = []
+  const visited = new Set()
+  const visit = (s) => {
+    const sid = String(s.sessionId)
+    if (visited.has(sid)) return
+    visited.add(sid)
+    order.push(s)
+    const cardCount = Math.max(1, (s.turns ?? []).length)
+    for (let k = 0; k < cardCount; k += 1) {
+      const n = Number(s.turns?.[k]?.n)
+      if (!Number.isSafeInteger(n)) continue
+      for (const kid of (childMap.get(`${sid}\u0000${String(n)}`) ?? [])) visit(kid)
     }
-    const turns = Array.isArray(branch.turns) && branch.turns.length > 0 ? branch.turns : [undefined]
-    let prevKey = parent === undefined ? undefined : parent.key
-    turns.forEach((turn, index) => {
-      const empty = turn === undefined
-      const key = empty ? mindmapEmptyKey(branch.sessionId) : mindmapDocKey(branch.sessionId, turn.seq)
+  }
+  for (const s of sessions) {
+    if (!s.parentSessionId) visit(s)
+  }
+  /* Row + column assignment (row 0 = the virtual root node). A nested
+     session's head sits one card column to the right of the card it hangs
+     off. */
+  const entryBySession = new Map()
+  let row = 1
+  for (const s of order) {
+    let headCol = 0
+    if (s.parentSessionId) {
+      const parentEntry = entryBySession.get(String(s.parentSessionId))
+      const pTurns = bySession.get(String(s.parentSessionId))?.turns ?? []
+      const pIdx = pTurns.findIndex(t => Number(t?.n) === Number(s.parentTurn))
+      headCol = parentEntry !== undefined && pIdx !== -1 ? parentEntry.headCol + pIdx + 2 : 0
+    }
+    entryBySession.set(String(s.sessionId), { session: s, headCol, row: row++ })
+  }
+  /* Build session chains (heads + cards). */
+  for (const s of order) {
+    const entry = entryBySession.get(String(s.sessionId))
+    const sid = String(s.sessionId)
+    const turns = s.turns ?? []
+    const head = {
+      kind: 'head',
+      key: mindmapHeadKey(sid),
+      sessionId: sid,
+      session: s,
+      turn: undefined,
+      empty: false,
+      streaming: false,
+      depth: entry.headCol,
+      row: entry.row,
+      width: MINDMAP_HEAD_W,
+      height: MINDMAP_HEAD_H,
+    }
+    nodes.push(head)
+    let prevKey = head.key
+    if (turns.length === 0) {
+      const key = mindmapEmptyKey(sid)
       nodes.push({
+        kind: 'card',
         key,
-        sessionId: branch.sessionId,
-        turn,
-        branch,
-        empty,
-        depth: startDepth + index,
-        row: 1 + branchIndex,
+        sessionId: sid,
+        session: s,
+        turn: undefined,
+        empty: true,
+        streaming: false,
+        depth: entry.headCol + 1,
+        row: entry.row,
+        width: MINDMAP_NODE_W,
         height: MINDMAP_NODE_H,
       })
-      if (prevKey !== undefined) edges.push({ from: prevKey, to: key })
+      edges.push({ from: head.key, to: key })
       prevKey = key
+    } else {
+      turns.forEach((turn, index) => {
+        const key = mindmapDocKey(sid, turn.seq)
+        nodes.push({
+          kind: 'card',
+          key,
+          sessionId: sid,
+          session: s,
+          turn,
+          empty: false,
+          streaming: false,
+          depth: entry.headCol + 1 + index,
+          row: entry.row,
+          width: MINDMAP_NODE_W,
+          height: MINDMAP_NODE_H,
+        })
+        edges.push({ from: prevKey, to: key })
+        prevKey = key
+      })
+    }
+  }
+  /* Root → top-level head edges + nested mount edges (parent card → child
+     head). Both render as the primary dashed mount curve. */
+  for (const s of sessions) {
+    if (s.parentSessionId) continue
+    edges.push({ from: MINDMAP_ROOT_KEY, to: mindmapHeadKey(String(s.sessionId)), mount: true })
+  }
+  for (const s of order) {
+    if (!s.parentSessionId) continue
+    const parentEntry = entryBySession.get(String(s.parentSessionId))
+    const parentTurns = bySession.get(String(s.parentSessionId))?.turns ?? []
+    const pIdx = parentTurns.findIndex(t => Number(t?.n) === Number(s.parentTurn))
+    if (parentEntry === undefined || pIdx === -1) continue
+    edges.push({
+      from: mindmapDocKey(String(s.parentSessionId), parentTurns[pIdx].seq),
+      to: mindmapHeadKey(String(s.sessionId)),
+      mount: true,
     })
-  })
+  }
   /* Live streaming cards: every running doc-family session has a turn in
-     flight — append a card to each one's chain tail (a branch awaiting its
+     flight — append a card to each one's chain tail (a session awaiting its
      first turn gets its placeholder replaced instead). The cards are
      ephemeral UI, never part of the doc: the next sync folds each completed
      turn into a normal card. */
@@ -7382,80 +7632,162 @@ function mindmapDocLayout(doc, streamingList) {
   for (const streaming of streamingItems) {
     if (streaming === null || streaming === undefined) continue
     const sid = String(streaming.sessionId)
-    const isRoot = sid === String(rootId)
-    const branch = isRoot
-      ? undefined
-      : branches.find(b => b !== null && b !== undefined && String(b?.sessionId) === sid)
-    const chain = isRoot
-      ? nodes.filter(n => n.branch === undefined)
-      : nodes.filter(n => String(n.sessionId) === sid)
+    const entry = entryBySession.get(sid)
+    if (entry === undefined) continue
+    const chain = nodes.filter(n => String(n.sessionId) === sid)
     const last = chain[chain.length - 1]
-    if (last !== undefined) {
-      const replaceEmpty = last.empty === true
-      const streamingNode = {
-        key: `streaming:${sid}`,
-        sessionId: sid,
-        turn: undefined,
-        branch,
-        empty: false,
-        streaming: true,
-        /* A replaced placeholder keeps its position; an appended card goes
-           one depth deeper than the chain tail. */
-        depth: replaceEmpty ? last.depth : last.depth + 1,
-        row: last.row,
-        height: MINDMAP_NODE_H,
-        question: typeof streaming.question === 'string' ? streaming.question : '',
-        turnN: isRoot ? ((Number.isSafeInteger(last.turn?.n) ? Number(last.turn.n) : 0) + 1) : undefined,
-        parentKey: undefined,
-      }
-      if (replaceEmpty) {
-        /* Replace the placeholder card of a branch awaiting its first turn;
-           the parent of the ring is the card the placeholder hung off. */
-        const index = nodes.indexOf(last)
-        const edge = edges.find(e => e.to === last.key)
-        streamingNode.parentKey = edge === undefined ? undefined : edge.from
-        nodes[index] = streamingNode
-        if (edge !== undefined) edge.to = streamingNode.key
-      } else {
-        streamingNode.parentKey = last.key
-        nodes.push(streamingNode)
-        edges.push({ from: last.key, to: streamingNode.key })
-      }
+    if (last === undefined) continue
+    const replaceEmpty = last.empty === true
+    const streamingNode = {
+      kind: 'card',
+      key: `streaming:${sid}`,
+      sessionId: sid,
+      session: entry.session,
+      turn: undefined,
+      empty: false,
+      streaming: true,
+      /* A replaced placeholder keeps its position; an appended card goes
+         one depth deeper than the chain tail. */
+      depth: replaceEmpty ? last.depth : last.depth + 1,
+      row: last.row,
+      width: MINDMAP_NODE_W,
+      height: MINDMAP_NODE_H,
+      question: typeof streaming.question === 'string' ? streaming.question : '',
+      parentKey: undefined,
+    }
+    if (replaceEmpty) {
+      /* Replace the placeholder card of a session awaiting its first turn;
+         the parent of the ring is the card the placeholder hung off (the
+         session's head). */
+      const index = nodes.indexOf(last)
+      const edge = edges.find(e => e.to === last.key)
+      streamingNode.parentKey = edge === undefined ? undefined : edge.from
+      nodes[index] = streamingNode
+      if (edge !== undefined) edge.to = streamingNode.key
+    } else {
+      streamingNode.parentKey = last.key
+      nodes.push(streamingNode)
+      edges.push({ from: last.key, to: streamingNode.key })
     }
   }
-  const rows = new Map()
+  /* Positions: x by column (uniform grid; the head occupies one column slot),
+     y by row (row 0 = root height, then card rows). */
+  const width = (() => {
+    let maxCol = 0
+    for (const node of nodes) maxCol = Math.max(maxCol, node.depth)
+    return Math.max((maxCol + 1) * (MINDMAP_NODE_W + MINDMAP_DEPTH_GAP) + MINDMAP_DEPTH_GAP,
+      MINDMAP_ROOT_W + MINDMAP_DEPTH_GAP * 2)
+  })()
+  const rootX = (width - MINDMAP_ROOT_W) / 2
+  const rootY = MINDMAP_ROW_GAP
   for (const node of nodes) {
-    if (!rows.has(node.row)) rows.set(node.row, [])
-    rows.get(node.row).push(node)
+    node.x = node.kind === 'root'
+      ? rootX
+      : mindmapXOf(node.depth)
+    /* Row 0 = the virtual root node; every session row is pushed one FULL
+       CARD height below it (the root "sits one card position higher" above
+       the chains, with the node gaps unchanged). */
+    node.y = node.row === 0
+      ? rootY
+      : rootY + MINDMAP_ROOT_H + MINDMAP_ROW_GAP + MINDMAP_NODE_H + (node.row - 1) * (MINDMAP_NODE_H + MINDMAP_ROW_GAP)
   }
-  let y = MINDMAP_ROW_GAP
-  for (const rowNodes of rows.values()) {
-    for (const node of rowNodes) node.y = y
-    y += MINDMAP_NODE_H + MINDMAP_ROW_GAP
+  /* The virtual root node itself. */
+  nodes.push({
+    kind: 'root',
+    key: MINDMAP_ROOT_KEY,
+    sessionId: undefined,
+    session: undefined,
+    turn: undefined,
+    empty: false,
+    streaming: false,
+    depth: 0,
+    row: 0,
+    x: rootX,
+    y: rootY,
+    width: MINDMAP_ROOT_W,
+    height: MINDMAP_ROOT_H,
+  })
+  /* Precompute each edge's SVG path from the node positions. Non-mount edges
+     (head → card → card → streaming) are orthogonal; mount edges (root →
+     top-level head, parent card → child head) are cubic S-curves that enter
+     the session head's LEFT side (its left edge at mid-height). The bulge
+     factor (user-tunable, default ×5) scales both lobes: the root edge bows
+     up near the root then swings into the head's LEFT margin and enters its
+     left edge LEVEL (no downward sag, horizontal tangent); the branch edge
+     leaves its parent card horizontally, bows OUTWARD (away from the trunk)
+     and hooks into the child head — at ×0 each collapses to the straight
+     chord. */
+  const byKey = new Map()
+  for (const node of nodes) byKey.set(node.key, node)
+  const mountBulge = clampMountBulge(mountBulgeParam)
+  for (const edge of edges) {
+    const from = byKey.get(edge.from)
+    const to = byKey.get(edge.to)
+    if (from === undefined || to === undefined) continue
+    if (edge.mount === true) {
+      if (from.kind === 'root') {
+        const sx = from.x + from.width / 2
+        const sy = from.y + from.height
+        const tx = to.x
+        const ty = to.y + to.height / 2
+        const c1x = sx - 61.2 * mountBulge
+        const c1y = sy + 5.4 * mountBulge
+        const c2x = tx - 24 * mountBulge
+        /* The head entry stays LEVEL (control y = the entry mid-height): the
+           curve swings into the head's LEFT margin but never sags below the
+           entry, and its tangent at the head's left edge is horizontal. */
+        const c2y = ty
+        edge.d = `M ${sx} ${sy} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${tx} ${ty}`
+      } else {
+        const sx = from.x + from.width
+        const sy = from.y + from.height / 2
+        const tx = to.x
+        const ty = to.y + to.height / 2
+        const c1x = sx + 13 * mountBulge
+        /* The branch edge leaves the parent card HORIZONTALLY (control y stays
+           on the card's mid-height — no upward bow at the start), then bows
+           outward and hooks into the child head. Both control offsets are
+           balanced so the exit arc (outward, ~13/unit) and the entry arc
+           (leftward, ~12/unit) read as the SAME curve: the exit bows right
+           about as far as the head side bows left, each staying inside the
+           column gap. */
+        const c1y = sy
+        const c2x = tx - 12 * mountBulge
+        const c2y = ty + 1.2 * mountBulge
+        edge.d = `M ${sx} ${sy} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${tx} ${ty}`
+      }
+    } else {
+      const x1 = from.x + from.width
+      const y1 = from.y + from.height / 2
+      const x2 = to.x
+      const y2 = to.y + to.height / 2
+      const mx = (x1 + x2) / 2
+      edge.d = `M ${x1} ${y1} H ${mx} V ${y2} H ${x2}`
+    }
   }
-  let maxDepth = 0
-  for (const node of nodes) maxDepth = Math.max(maxDepth, node.depth)
-  const width = (maxDepth + 1) * (MINDMAP_NODE_W + MINDMAP_DEPTH_GAP) + MINDMAP_DEPTH_GAP
-  const height = y - MINDMAP_ROW_GAP
+  const lastEntry = order.length > 0 ? entryBySession.get(String(order[order.length - 1].sessionId)) : undefined
+  const lastRow = lastEntry === undefined ? 1 : lastEntry.row
+  const height = rootY + MINDMAP_ROOT_H + MINDMAP_ROW_GAP + MINDMAP_NODE_H + lastRow * (MINDMAP_NODE_H + MINDMAP_ROW_GAP) - MINDMAP_ROW_GAP
   return { nodes, edges, width, height }
 }
 
 const mindmapXOf = depth => MINDMAP_DEPTH_GAP + depth * (MINDMAP_NODE_W + MINDMAP_DEPTH_GAP)
 
-/* The action a click on a layout node performs — 'fork' (create a new branch
-   at this card) or 'switch' (jump the right-side chat to this card's own
-   session). Exact mirror of the openCard decision tree; the hover hint and
-   the click handler share it so the hint can never drift from the real
-   behavior. A generating session's last completed card is semantically a
-   middle card (its real tail is the streaming card), hence it forks. */
+/* The action a click on a layout node performs — 'new' (create a new
+   top-level session at the root node), 'fork' (create a nested branch at this
+   card) or 'switch' (jump the right-side chat to this node's own session).
+   Exact mirror of the openCard decision tree; the hover hint and the click
+   handler share it so the hint can never drift from the real behavior. A
+   generating session's last completed card is semantically a middle card (its
+   real tail is the streaming card), hence it forks. */
 const mindmapCardClickAction = (node, doc, runningFamilyIds) => {
   if (node === undefined) return undefined
+  if (node.kind === 'root') return 'new'
+  if (node.kind === 'head') return 'switch'
   if (node.streaming === true) return 'switch'
   if (node.empty) return 'switch'
   const owner = node.sessionId
-  const chain = String(owner) === String(doc?.rootSessionId)
-    ? (doc?.trunk ?? [])
-    : ((doc?.branches ?? []).find(b => String(b?.sessionId) === String(owner))?.turns ?? [])
+  const chain = (doc?.sessions ?? []).find(s => String(s?.sessionId) === String(owner))?.turns ?? []
   const last = chain[chain.length - 1]
   if (last !== undefined && last.seq === node.turn?.seq) {
     return runningFamilyIds.includes(String(owner)) ? 'fork' : 'switch'
@@ -7538,7 +7870,7 @@ function useMindmapSessionView(useSessions, familyIdsRef) {
    cards whose props are unchanged: a doc-triggered re-render only rebuilds the
    added / changed / current-badge-flipped cards. */
 const MindMapCard = memo(function MindMapCard({
-  entry, title, isCurrent, isStreaming, isAncestor, isHover, isHoverAncestor, hintAction, ringPalette, onOpen, onMenu, onHover,
+  entry, title, isCurrent, isStreaming, isAncestor, isHover, isHoverAncestor, hintAction, isEnd, ringPalette, onOpen, onMenu, onHover,
 }) {
   /* Ring cards (the streaming card and its parent, both wearing the flowing
      gradient ring) are the pair's single visual signal: the selection (blue)
@@ -7548,9 +7880,11 @@ const MindMapCard = memo(function MindMapCard({
      purely presentational and stops at these two cards. The "当前" badge is
      kept (informational only, no border interference). */
   const ringed = ringPalette !== undefined
-  const classes = (entry.branch !== undefined
-    ? 'dsh-ws-mindmap-node dsh-ws-mindmap-branchcard'
-    : 'dsh-ws-mindmap-node')
+  /* Every v3 question card is a branch node (there is no trunk anymore); the
+     empty placeholder keeps the dashed pending look (no data-branch), the
+     completed cards are solid + primary-tinted. */
+  const classes = 'dsh-ws-mindmap-node dsh-ws-mindmap-branchcard'
+    + (isEnd && !isStreaming ? ' dsh-ws-mindmap-endcard' : '')
     + (isCurrent && !ringed ? ' dsh-ws-mindmap-node-current' : '')
     + (isStreaming ? ' dsh-ws-mindmap-node-streaming' : '')
     + (ringed ? ' dsh-ws-mindmap-node-ring' : '')
@@ -7558,7 +7892,7 @@ const MindMapCard = memo(function MindMapCard({
     + (isHoverAncestor && !ringed ? ' dsh-ws-mindmap-node-hover-ancestor' : '')
     + (isHover && !ringed ? ' dsh-ws-mindmap-node-hover' : '')
   const turn = entry.turn
-  const style = { left: mindmapXOf(entry.depth), top: entry.y, width: MINDMAP_NODE_W, height: entry.height }
+  const style = { left: entry.x, top: entry.y, width: entry.width, height: entry.height }
   if (ringPalette !== undefined) {
     style['--dsw-ws-mm-c1'] = ringPalette[0]
     style['--dsw-ws-mm-c2'] = ringPalette[1]
@@ -7566,7 +7900,7 @@ const MindMapCard = memo(function MindMapCard({
   }
   return h('div', {
     className: classes,
-    'data-branch': entry.branch !== undefined ? '' : undefined,
+    'data-branch': entry.empty ? undefined : '',
     key: entry.key,
     onClick: () => { onOpen(entry) },
     /* Hover drives the additive ancestor trace: entering a card traces its
@@ -7588,10 +7922,23 @@ const MindMapCard = memo(function MindMapCard({
   },
     isCurrent ? h('span', { className: 'dsh-ws-mindmap-node-current-badge' }, translate('mindmap.current')) : null,
     h('div', { className: 'dsh-ws-mindmap-node-title' },
-      entry.branch !== undefined
-        ? h('span', { className: 'dsh-ws-mindmap-pending-label' },
-          /* A small fork glyph makes the branch chip's meaning self-evident. */
-          h('svg', {
+      h('span', { className: 'dsh-ws-mindmap-pending-label' + (isEnd ? ' dsh-ws-mindmap-end-label' : '') },
+        /* An end-of-branch card (click = jump/switch to its session) carries a
+           bullseye chip — the branch's terminal point — instead of the fork
+           glyph, so its meaning never gets confused with a fork point. */
+        isEnd
+          ? h('svg', {
+            className: 'dsh-ws-mindmap-pending-icon',
+            fill: 'none',
+            height: '11',
+            stroke: 'currentColor',
+            strokeWidth: 1.3,
+            viewBox: '0 0 14 14',
+            width: '11',
+          },
+            h('circle', { cx: 7, cy: 7, r: 4.4 }),
+            h('circle', { cx: 7, cy: 7, fill: 'currentColor', r: 1.6, stroke: 'none' }))
+          : h('svg', {
             className: 'dsh-ws-mindmap-pending-icon',
             fill: 'none',
             height: '11',
@@ -7606,8 +7953,7 @@ const MindMapCard = memo(function MindMapCard({
             h('path', { d: 'M4.5 7 C5.8 11.4 10.6 11 11.4 10.8' }),
             h('circle', { cx: 11.4, cy: 3.2, fill: 'currentColor', r: 1.4, stroke: 'none' }),
             h('circle', { cx: 11.4, cy: 10.8, fill: 'currentColor', r: 1.4, stroke: 'none' })),
-          translate('mindmap.branchTag'))
-        : null,
+        translate(isEnd ? 'mindmap.endTag' : 'mindmap.branchTag')),
       h('span', { className: 'dsh-ws-mindmap-node-title-text' }, title)),
     entry.empty
       ? h('div', { className: 'dsh-ws-mindmap-pending-title' }, translate('mindmap.pending'))
@@ -7629,11 +7975,100 @@ const MindMapCard = memo(function MindMapCard({
       : null)
 })
 
+/* The VIRTUAL root node: the map's top hub. Clicking it creates a new
+   top-level session. Not backed by any session — it only exists in the
+   layout. */
+const MindMapRootNode = memo(function MindMapRootNode({ entry, isAncestor, isHoverAncestor, isHover, onOpen, onMenu, onHover }) {
+  const classes = 'dsh-ws-mindmap-root'
+    + (isAncestor ? ' dsh-ws-mindmap-node-ancestor' : '')
+    + (isHoverAncestor ? ' dsh-ws-mindmap-node-hover-ancestor' : '')
+    + (isHover ? ' dsh-ws-mindmap-node-hover' : '')
+  return h('div', {
+    className: classes,
+    key: entry.key,
+    onClick: () => { onOpen(entry) },
+    onMouseEnter: () => { onHover(entry.key) },
+    onMouseLeave: () => { onHover(undefined) },
+    onContextMenu: (event) => { event.preventDefault(); event.stopPropagation(); onMenu(entry, event.clientX, event.clientY) },
+    onKeyDown: (event) => {
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpen(entry) }
+    },
+    role: 'button',
+    tabIndex: 0,
+    style: { left: entry.x, top: entry.y, width: entry.width, height: entry.height },
+    title: translate('mindmap.rootNode.hint'),
+  },
+    h('div', { className: 'dsh-ws-mindmap-root-plus' },
+      /* A symmetric inline SVG plus (geometrically centered in the circle, so
+         the hover 90° rotation maps it onto itself — no position shift). */
+      h('svg', { 'aria-hidden': true, viewBox: '0 0 16 16' },
+        h('path', { d: 'M8 3v10M3 8h10', stroke: 'currentColor', strokeLinecap: 'round', strokeWidth: 2.4 }))),
+    h('div', { className: 'dsh-ws-mindmap-root-col' },
+      h('div', { className: 'dsh-ws-mindmap-root-title' }, translate('mindmap.rootNode')),
+      h('div', { className: 'dsh-ws-mindmap-root-hint' }, translate('mindmap.rootNode.hint'))))
+})
+
+/* A session's HEAD node: the identity card at the left of its question chain.
+   Shows the session title / round count / status; clicking it switches to the
+   session (the "当前" badge sits here); right-click renames the session. */
+const MindMapSessionHead = memo(function MindMapSessionHead({
+  entry, title, isCurrent, isRunning, isAncestor, isHover, isHoverAncestor, hintAction, ringPalette, onOpen, onMenu, onHover,
+}) {
+  const ringed = ringPalette !== undefined
+  const classes = 'dsh-ws-mindmap-node dsh-ws-mindmap-head'
+    + (isCurrent && !ringed ? ' dsh-ws-mindmap-head-current' : '')
+    + (ringed ? ' dsh-ws-mindmap-node-ring' : '')
+    + (isAncestor && !ringed ? ' dsh-ws-mindmap-node-ancestor' : '')
+    + (isHoverAncestor && !ringed ? ' dsh-ws-mindmap-node-hover-ancestor' : '')
+    + (isHover && !ringed ? ' dsh-ws-mindmap-node-hover' : '')
+  const turns = entry.session?.turns ?? []
+  const countLabel = turns.length > 0
+    ? translate('mindmap.rounds', { n: turns.length })
+    : translate('mindmap.session.empty')
+  const statusLabel = isRunning
+    ? translate('mindmap.streaming')
+    : (turns.length > 0 ? translate('mindmap.done') : translate('mindmap.session.waiting'))
+  const style = { left: entry.x, top: entry.y, width: entry.width, height: entry.height }
+  if (ringPalette !== undefined) {
+    style['--dsw-ws-mm-c1'] = ringPalette[0]
+    style['--dsw-ws-mm-c2'] = ringPalette[1]
+    style['--dsw-ws-mm-c3'] = ringPalette[2]
+  }
+  return h('div', {
+    className: classes,
+    key: entry.key,
+    onClick: () => { onOpen(entry) },
+    onMouseEnter: () => { onHover(entry.key) },
+    onMouseLeave: () => { onHover(undefined) },
+    onContextMenu: (event) => { event.preventDefault(); event.stopPropagation(); onMenu(entry, event.clientX, event.clientY) },
+    onKeyDown: (event) => {
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpen(entry) }
+    },
+    role: 'button',
+    tabIndex: 0,
+    style,
+    title: translate('mindmap.open.hint'),
+  },
+    isCurrent ? h('span', { className: 'dsh-ws-mindmap-node-current-badge' }, translate('mindmap.current')) : null,
+    h('div', { className: 'dsh-ws-mindmap-head-row' },
+      h('svg', { className: 'dsh-ws-mindmap-head-icon', fill: 'none', viewBox: '0 0 24 24' },
+        h('path', { d: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z', stroke: 'currentColor', strokeWidth: '1.7', strokeLinejoin: 'round' })),
+      h('span', { className: 'dsh-ws-mindmap-head-title' }, title)),
+    h('div', { className: 'dsh-ws-mindmap-head-count' }, countLabel),
+    h('div', { className: 'dsh-ws-mindmap-head-status' + (isRunning ? ' dsh-ws-mindmap-head-status-live' : '') },
+      isRunning ? h('span', { className: 'dsh-ws-mindmap-node-streaming-dot' }) : null,
+      statusLabel),
+    isHover && hintAction !== undefined
+      ? h('span', { className: 'dsh-ws-mindmap-node-hint' }, translate(`mindmap.hint.${hintAction}`))
+      : null)
+})
+
 /* The floating mind map: a persisted turn tree (trunk + fork branches)
    rendered from the doc, with pan/zoom and per-card forking. Rendered inside
    the left-side overlay window; card clicks switch the right-side chat. */
-function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, deleteDoc, forkAt, openSession, renameSession, archiveSession, previewRight }) {
+function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, deleteDoc, forkAt, createSession, listWorkspaces, openSession, renameSession, archiveSession, previewRight, settingsStore }) {
   const overlay = useMindmapOverlay()
+  const settings = useSyncExternalStore(settingsStore.subscribe, settingsStore.getSnapshot)
   const [phase, setPhase] = useState({ status: 'loading' })
   const [doc, setDoc] = useState(null)
   const [rootId, setRootId] = useState(null)
@@ -7648,7 +8083,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   const familyIdsRef = useRef([])
   familyIdsRef.current = doc === null || rootId === null
     ? []
-    : [String(rootId), ...(doc.branches ?? []).map(b => String(b?.sessionId))]
+    : [...new Set([String(rootId), ...(doc.sessions ?? []).map(s => String(s?.sessionId))])]
   const list = useMindmapSessionView(useSessions, familyIdsRef)
   const loadDocRef = useRef(loadDoc)
   loadDocRef.current = loadDoc
@@ -7660,6 +8095,10 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   deleteDocRef.current = deleteDoc
   const forkAtRef = useRef(forkAt)
   forkAtRef.current = forkAt
+  const createSessionRef = useRef(createSession)
+  createSessionRef.current = createSession
+  const listWorkspacesRef = useRef(listWorkspaces)
+  listWorkspacesRef.current = listWorkspaces
   const openSessionRef = useRef(openSession)
   openSessionRef.current = openSession
   const renameSessionRef = useRef(renameSession)
@@ -7685,6 +8124,11 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   const [archiveTarget, setArchiveTarget] = useState(null)
   const [archiveBusy, setArchiveBusy] = useState(false)
   const [archiveError, setArchiveError] = useState(null)
+  /* Archiving ONE session branch (right-click a session head): archives the
+     session + its whole subtree and removes it from the doc. */
+  const [archiveBranchTarget, setArchiveBranchTarget] = useState(null)
+  const [archiveBranchBusy, setArchiveBranchBusy] = useState(false)
+  const [archiveBranchError, setArchiveBranchError] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [deleteError, setDeleteError] = useState(null)
@@ -7745,7 +8189,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
        OUTSIDE the family (another mind map opened over this one) triggers a
        full reload. rootId/doc are read at call time on purpose. */
     if (rootId !== null && (String(sessionId) === String(rootId)
-      || (doc?.branches ?? []).some(b => String(b?.sessionId) === String(sessionId)))) {
+      || (doc?.sessions ?? []).some(s => String(s?.sessionId) === String(sessionId)))) {
       setForkError(null)
       return undefined
     }
@@ -7770,7 +8214,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       .then((payload) => {
         if (cancelled) return
         const loaded = payload?.doc
-        if (loaded === null || loaded === undefined || (loaded.trunk ?? []).length === 0) {
+        if (loaded === null || loaded === undefined || (loaded.sessions ?? []).length === 0) {
           mindmapConvertedSessions.delete(id)
           setPhase({ status: 'empty' })
           return
@@ -7813,7 +8257,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
             return
           }
           const loaded = payload?.doc
-          if (loaded !== null && loaded !== undefined && (loaded.trunk ?? []).length > 0) {
+          if (loaded !== null && loaded !== undefined && (loaded.sessions ?? []).length > 0) {
             setRootId(loaded.rootSessionId)
             setDoc(loaded)
             lastFingerprintRef.current = mindmapDocFingerprint(loaded)
@@ -7888,7 +8332,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
      call time. */
   const runningFamilyIds = useMemo(() => {
     if (doc === null || rootId === null) return []
-    const family = [String(rootId), ...(doc.branches ?? []).map(b => String(b?.sessionId))]
+    const family = [...new Set([String(rootId), ...(doc.sessions ?? []).map(s => String(s?.sessionId))])]
     return family.filter(id => list.runningIds.has(id))
   }, [doc, list, rootId])
   const runningFamilyIdsRef = useRef([])
@@ -7945,11 +8389,13 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     })
   }, [live, runningFamilyIds])
 
-  const layout = useMemo(() => mindmapDocLayout(doc, streamingCards), [doc, streamingCards])
+  const mountBulge = clampMountBulge(settings.mindmapMountBulge)
+  const layout = useMemo(() => mindmapDocLayout(doc, streamingCards, mountBulge), [doc, streamingCards, mountBulge])
 
   /* Edge path strings plus per-streaming metadata, derived from the layout
-     and stable between doc changes — memoized so a re-render (rare, after A1
-     the pan/zoom path never re-renders) does not rebuild them. */
+     (edge `d` paths are already precomputed by the layout) and stable between
+     doc changes — memoized so a re-render (rare, after A1 the pan/zoom path
+     never re-renders) does not rebuild them. */
   const edgeView = useMemo(() => {
     const byKey = new Map()
     for (const node of layout.nodes) byKey.set(node.key, node)
@@ -7963,9 +8409,9 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       const parent = node.parentKey === undefined ? undefined : byKey.get(node.parentKey)
       if (parent !== undefined) {
         entry.bbox = {
-          x1: mindmapXOf(parent.depth) + MINDMAP_NODE_W,
+          x1: parent.x + parent.width,
           y1: parent.y + parent.height / 2,
-          x2: mindmapXOf(node.depth),
+          x2: node.x,
           y2: node.y + node.height / 2,
         }
       }
@@ -7981,11 +8427,6 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       const from = byKey.get(edge.from)
       const to = byKey.get(edge.to)
       if (from === undefined || to === undefined) continue
-      const x1 = mindmapXOf(from.depth) + MINDMAP_NODE_W
-      const y1 = from.y + from.height / 2
-      const x2 = mindmapXOf(to.depth)
-      const y2 = to.y + to.height / 2
-      const mx = (x1 + x2) / 2
       /* Keep the edge's from/to identities so the render pass can mark the
          current card's ancestor-trace edges (from/to are strings). */
       let flow
@@ -7996,7 +8437,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
           palette: mindmapStreamPalette(sid),
         }
       }
-      edges.push({ from: edge.from, to: edge.to, d: `M ${x1} ${y1} H ${mx} V ${y2} H ${x2}`, flow })
+      edges.push({ from: edge.from, to: edge.to, d: edge.d, mount: edge.mount === true, flow })
     }
     return { edges, streamingEntries }
   }, [layout])
@@ -8113,28 +8554,23 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     }
   }, [])
 
-  /* Key of the current session's last card (root or branch tail) for the
-     "current" highlight. While the CURRENT session is generating, its tail is
-     the live streaming card (key `streaming:<sid>`): point the badge at it —
-     for an empty branch the placeholder was replaced by the streaming card,
-     so a doc-derived key would match nothing and the badge would vanish for
-     the whole generation. */
+  /* Key of the CURRENT session's chain TAIL for the "当前" highlight (the
+     badge + the solid selection highlight + the ancestor trace all derive
+     from this). The session HEAD card is only an opening/switch identity
+     card and must NEVER carry the badge or the solid current highlight — the
+     badge lands on the chain tail: the last question card, the empty
+     placeholder of a session with no turns yet, or the ephemeral streaming
+     card while the session is generating (which wears its own ring instead
+     of the solid border). */
   const currentKey = useMemo(() => {
     if (doc === null || rootId === null) return undefined
     const current = String(sessionId)
-    if (runningFamilyIds.includes(current)) {
-      return `streaming:${current}`
-    }
-    if (current === String(rootId)) {
-      const trunk = doc.trunk ?? []
-      const last = trunk[trunk.length - 1]
-      return last === undefined ? undefined : mindmapDocKey(rootId, last.seq)
-    }
-    const branch = (doc.branches ?? []).find(b => String(b?.sessionId) === current)
-    if (branch === undefined) return undefined
-    const turns = branch.turns ?? []
+    const entry = (doc.sessions ?? []).find(s => String(s?.sessionId) === current)
+    if (entry === undefined) return undefined
+    if (runningFamilyIds.includes(current)) return `streaming:${current}`
+    const turns = entry.turns ?? []
     const last = turns[turns.length - 1]
-    return last === undefined ? mindmapEmptyKey(branch.sessionId) : mindmapDocKey(branch.sessionId, last.seq)
+    return last === undefined ? mindmapEmptyKey(current) : mindmapDocKey(current, last.seq)
   }, [doc, rootId, runningFamilyIds, sessionId])
 
   /* Ancestor trace of the current card: walk the layout's edges BACKWARD from
@@ -8209,8 +8645,9 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     savingRef.current = true
     Promise.resolve(forkAtRef.current(String(ownerId), turn.seq))
       .then(async (childId) => {
-        const branch = {
-          id: `b${Date.now()}`,
+        /* A nested fork: the new session hangs off the clicked card. */
+        const session = {
+          id: `s${Date.now()}`,
           sessionId: String(childId),
           parentSessionId: String(ownerId),
           forkTurn: Number(turn.t),
@@ -8218,7 +8655,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
           forkSeq: Number(turn.seq),
           turns: [],
         }
-        const next = { ...currentDoc, branches: [...(currentDoc?.branches ?? []), branch], updatedAt: Date.now() }
+        const next = { ...currentDoc, sessions: [...(currentDoc?.sessions ?? []), session], updatedAt: Date.now() }
         setDoc(next)
         lastFingerprintRef.current = mindmapDocFingerprint(next)
         try {
@@ -8256,40 +8693,123 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       })
   }, [doc, forking, rootId, showNotice])
 
-  /* Click a card: switch-first, fork-as-fallback. A card where a session is
-     parked — the session's chain tail — opens that session (the right-side
-     chat follows, the "当前" highlight moves here, the overlay stays); an
-     empty branch card is the tail of a forked session waiting for its first
-     question, so it follows the same path; the last completed card of a
-     session that is CURRENTLY generating counts as a middle card (its real
-     tail is the streaming card), so it forks too; any other (middle) card
-     forks a NEW branch at this card, which joins the SAME document — never a
-     new mind map — and its session stays hidden from the sidebar list. */
+  /* Click the VIRTUAL root node: create a brand-new EMPTY top-level session
+     (a fresh harness session with no inherited turns) that hangs directly off
+     the root node, record it in the doc and persist, then open it so the user
+     can immediately ask the first question. The session is created in the
+     workspace the map was CREATED in (doc.workspaceCwd, recorded at
+     conversion) so it lands in the same sidebar group regardless of where the
+     anchor session currently lives. */
+  const addRootSession = useCallback(() => {
+    /* The ref is the authoritative same-tick gate (see forkingRef above); the
+       state guard additionally stops a second create after re-render. */
+    if (forkingRef.current || forking) return
+    forkingRef.current = true
+    setForkError(null)
+    setForking(true)
+    const root = rootId
+    const currentDoc = doc
+    savingRef.current = true
+    const recordedCwd = (typeof currentDoc?.workspaceCwd === 'string' && currentDoc.workspaceCwd !== '')
+      ? currentDoc.workspaceCwd
+      : undefined
+    Promise.resolve(createSessionRef.current(recordedCwd, String(root)))
+      .then(async (childId) => {
+        const session = {
+          id: `s${Date.now()}`,
+          sessionId: String(childId),
+          parentSessionId: null,
+          parentTurn: null,
+          forkTurn: 0,
+          forkSeq: null,
+          turns: [],
+        }
+        const next = { ...currentDoc, sessions: [...(currentDoc?.sessions ?? []), session], updatedAt: Date.now() }
+        setDoc(next)
+        lastFingerprintRef.current = mindmapDocFingerprint(next)
+        try {
+          await saveDocRef.current(root, next)
+        } catch (error) {
+          /* The fresh session must not outlive its document entry: archive it
+             so a failed write cannot leave an orphaned session behind. */
+          try { await archiveSessionRef.current(String(childId)) } catch { /* best effort */ }
+          setDoc(prev => (prev === next ? currentDoc : prev))
+          lastFingerprintRef.current = mindmapDocFingerprint(currentDoc)
+          throw error
+        }
+        if (!mountedRef.current) return
+        /* Open the new session into chat so the next message starts it. */
+        openSessionRef.current(String(childId))
+      })
+      .then(() => {
+        if (!mountedRef.current) return
+        showNotice(translate('mindmap.sessionCreated'))
+        mindmapRegistry.markDirty()
+      })
+      .catch((error) => {
+        if (mountedRef.current) setForkError(error instanceof Error ? error.message : String(error))
+      })
+      .finally(() => {
+        forkingRef.current = false
+        savingRef.current = false
+        if (mountedRef.current) setForking(false)
+      })
+  }, [doc, forking, rootId, showNotice])
+
+  /* Click a node: the root node creates a NEW top-level session; a head node
+     switches to its session; a card switches (parked tail / streaming / empty
+     placeholder) or forks a nested session (intermediate card, or the last
+     completed card of a session that is CURRENTLY generating — its real tail
+     is the streaming card). The new session joins the SAME document — never a
+     new mind map — and stays hidden from the sidebar list. */
   const openCard = useCallback((node) => {
     if (node === undefined || forking) return
     /* Single source of truth for the click outcome: the same decision tree
        the hover hint uses (mindmapCardClickAction), so the hint can never
-       drift from the real behavior. 'switch' opens the card's own session
-       (streaming / empty / parked tail); 'fork' branches a new session at
-       this card's turn. */
+       drift from the real behavior. 'new' creates a top-level session at the
+       root node; 'switch' opens the node's own session (head / streaming /
+       empty placeholder / parked tail); 'fork' branches a new session at this
+       card's turn. */
     const action = mindmapCardClickAction(node, doc, runningFamilyIds)
-    if (action === 'switch') openBranch(node.sessionId)
+    if (action === 'new') addRootSession()
+    else if (action === 'switch') openBranch(node.sessionId)
     else if (action === 'fork') forkBranchAt(node.sessionId, node.turn)
-  }, [doc, forking, runningFamilyIds, forkBranchAt, openBranch])
+  }, [doc, forking, runningFamilyIds, forkBranchAt, openBranch, addRootSession])
 
-  /* Right-click a card: remember WHICH card (not just its session) so the
-     menu can rename/archive a branch card or delete any card (the trunk cards
-     get the delete-only menu). */
+  /* Right-click a node: remember WHICH node so the menu can rename a session
+     (head / card) or delete a card; the root node offers no menu (the toolbar
+     carries 归档整个导图). */
   const openCardMenu = useCallback((entry, x, y) => {
+    if (entry.kind === 'root') {
+      /* Root menu: choose the workspace new sessions land in (from the doc's
+         workspaceCwd) + archive the whole map. The workspace list is fetched
+         synchronously from the host action face. */
+      const raw = listWorkspacesRef.current?.()
+      const items = Array.isArray(raw) ? raw : []
+      const current = (typeof doc?.workspaceCwd === 'string' && doc.workspaceCwd !== '') ? doc.workspaceCwd : ''
+      setMenu({ kind: 'root', workspaces: items, current, x, y })
+      return
+    }
+    if (entry.kind === 'head') {
+      setMenu({
+        kind: 'head',
+        sessionId: String(entry.sessionId),
+        sessionTitle: (list.titles[String(entry.sessionId)] ?? ''),
+        x, y,
+      })
+      return
+    }
     setMenu({
+      kind: 'card',
       sessionId: String(entry.sessionId),
+      sessionTitle: (list.titles[String(entry.sessionId)] ?? ''),
+      question: entry.empty ? undefined : String(entry.turn?.user ?? ''),
       turnSeq: entry.empty ? undefined : Number(entry.turn?.seq),
       turnN: entry.empty ? undefined : Number(entry.turn?.n),
       empty: entry.empty === true,
-      isBranch: entry.branch !== undefined,
       x, y,
     })
-  }, [])
+  }, [doc, list])
   const closeMenu = useCallback(() => { setMenu(null) }, [])
   useEffect(() => {
     if (menu === null) return undefined
@@ -8340,6 +8860,110 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       })
   }, [renameBusy, renameTarget, showNotice])
 
+  /* Pick the workspace (from the root node's right-click menu) new top-level
+     sessions created by clicking the root node will land in. Persisted to the
+     doc's workspaceCwd; '' clears the choice (ungrouped). */
+  const selectWorkspace = useCallback((cwd, title) => {
+    if (menu === null || menu.kind !== 'root' || doc === null || rootId === null) return
+    setMenu(null)
+    const next = { ...doc, workspaceCwd: cwd, updatedAt: Date.now() }
+    savingRef.current = true
+    setDoc(next)
+    lastFingerprintRef.current = mindmapDocFingerprint(next)
+    Promise.resolve(saveDocRef.current(String(rootId), next))
+      .then(() => {
+        if (!mountedRef.current) return
+        mindmapRegistry.markDirty()
+        showNotice(cwd === ''
+          ? translate('mindmap.workspace.cleared')
+          : translate('mindmap.workspace.set', { name: title ?? cwd }))
+      })
+      .catch((error) => {
+        if (!mountedRef.current) return
+        setDoc(prev => (prev === next ? doc : prev))
+        lastFingerprintRef.current = mindmapDocFingerprint(doc)
+        showNoticeError(error instanceof Error ? error.message : String(error))
+      })
+      .finally(() => { savingRef.current = false })
+  }, [doc, menu, rootId, showNotice, showNoticeError])
+
+  /* Archive ONE session branch (right-click a session head): archive the
+     session + its whole subtree and remove it from the doc. Re-anchors when
+     the archived session was the doc's anchor; blocked when it would empty
+     the map (use 归档整个导图 instead). */
+  const startArchiveBranch = useCallback(() => {
+    if (menu === null || menu.kind !== 'head') return
+    const plan = mindmapDeletePlan(doc, String(menu.sessionId), undefined, true)
+    setMenu(null)
+    setArchiveBranchError(null)
+    if (plan !== null && plan.lastSession === true) {
+      showNoticeError(translate('mindmap.delete.lastSession'))
+      return
+    }
+    setArchiveBranchTarget({
+      sessionId: String(menu.sessionId),
+      label: menu.sessionTitle || translate('mindmap.session.untitled'),
+      willArchiveCurrent: plan !== null && (plan.archiveIds ?? []).includes(String(sessionId)),
+    })
+  }, [doc, menu, sessionId, showNoticeError])
+  const closeArchiveBranch = useCallback(() => {
+    if (archiveBranchBusy) return
+    setArchiveBranchTarget(null)
+    setArchiveBranchError(null)
+  }, [archiveBranchBusy])
+  const confirmArchiveBranch = useCallback(() => {
+    if (archiveBranchBusy || archiveBranchTarget === null) return
+    const root = rootId
+    const currentDoc = doc
+    if (root === null || currentDoc === null) return
+    const plan = mindmapDeletePlan(currentDoc, archiveBranchTarget.sessionId, undefined, true)
+    if (plan === null || plan.lastSession === true) {
+      setArchiveBranchError(translate('mindmap.delete.lastSession'))
+      return
+    }
+    setArchiveBranchBusy(true)
+    setArchiveBranchError(null)
+    savingRef.current = true
+    const next = { ...currentDoc, sessions: plan.sessions, next: plan.next, updatedAt: Date.now() }
+    /* Re-anchor when the archived session was the anchor (the doc file moves
+       via prevSessionId). */
+    let saveRoot = String(root)
+    let prevRoot = undefined
+    if (!next.sessions.some(s => String(s?.sessionId) === String(saveRoot))) {
+      const anchor = next.sessions[0]?.sessionId
+      if (anchor !== undefined && anchor !== null && anchor !== '') {
+        next.rootSessionId = String(anchor)
+        saveRoot = String(anchor)
+        prevRoot = String(root)
+      }
+    }
+    setDoc(next)
+    lastFingerprintRef.current = mindmapDocFingerprint(next)
+    Promise.resolve(saveDocRef.current(saveRoot, next, undefined, prevRoot))
+      .then(() => Promise.all(plan.archiveIds.map(id => archiveSessionRef.current(String(id)).catch(() => {}))))
+      .then(() => {
+        if (!mountedRef.current) return
+        if (String(saveRoot) !== String(root)) setRootId(String(saveRoot))
+        setArchiveBranchTarget(null)
+        mindmapRegistry.markDirty()
+        /* If the current chat session was archived, switch to the (re-anchored)
+           root so the view is never left on a dead session. */
+        if ((plan.archiveIds ?? []).includes(String(sessionId))) openSessionRef.current(String(saveRoot))
+        showNotice(translate('mindmap.branchArchived'))
+      })
+      .catch((error) => {
+        if (mountedRef.current) {
+          setDoc(prev => (prev === next ? currentDoc : prev))
+          lastFingerprintRef.current = mindmapDocFingerprint(currentDoc)
+          setArchiveBranchError(error instanceof Error ? error.message : String(error))
+        }
+      })
+      .finally(() => {
+        savingRef.current = false
+        if (mountedRef.current) setArchiveBranchBusy(false)
+      })
+  }, [archiveBranchBusy, archiveBranchTarget, doc, rootId, sessionId, showNotice])
+
   const startArchiveAll = useCallback(() => {
     setArchiveError(null)
     setArchiveTarget({
@@ -8361,7 +8985,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     const run = async () => {
       const root = rootId
       const ids = [root]
-      for (const branch of doc?.branches ?? []) ids.push(branch.sessionId)
+      for (const s of doc?.sessions ?? []) ids.push(s?.sessionId)
       const unique = [...new Set(ids)].filter(id => id !== undefined && id !== null && id !== '')
       if (unique.includes(String(sessionId))) openSessionRef.current(root)
       for (const id of unique) await archiveSessionRef.current(String(id))
@@ -8388,7 +9012,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   }, [archiveBusy, archiveTarget, doc, rootId, sessionId, showNotice])
 
   const startDelete = useCallback(() => {
-    if (menu === null) return
+    if (menu === null || menu.kind !== 'card') return
     /* Pre-compute the plan so the dialog can warn when the CURRENT session is
        one of the pruned subtree sessions (it will be archived and the view
        switched away). */
@@ -8399,10 +9023,12 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       sessionId: String(menu.sessionId),
       turnSeq: menu.turnSeq,
       empty: menu.empty === true,
-      label: menu.empty ? translate('mindmap.pending') : translate('mindmap.turnTag', { n: menu.turnN ?? '' }),
+      label: menu.empty
+        ? translate('mindmap.pending')
+        : mindmapClip(String(menu.question ?? menu.sessionTitle ?? ''), 20),
       /* The current session is warned when it will be archived: a pruned
          subtree session, or the replaced session of a truncation. */
-      willArchiveCurrent: plan !== null && plan.firstTrunk !== true && (
+      willArchiveCurrent: plan !== null && plan.lastSession !== true && (
         (plan.archiveIds ?? []).includes(String(sessionId))
         || (plan.replaced !== null && String(plan.replaced.sessionId) === String(sessionId))),
     })
@@ -8417,15 +9043,16 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
      a .dsh-ws-dialog-backdrop is in the DOM, so without this the key would do
      nothing while one of these dialogs is open. */
   useEffect(() => {
-    if (archiveTarget === null && deleteTarget === null) return undefined
+    if (archiveTarget === null && deleteTarget === null && archiveBranchTarget === null) return undefined
     const onKeyDown = event => {
       if (event.key !== 'Escape') return
       closeArchive()
       closeDelete()
+      closeArchiveBranch()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [archiveTarget, closeArchive, closeDelete, deleteTarget])
+  }, [archiveTarget, closeArchive, closeDelete, deleteTarget, archiveBranchTarget, closeArchiveBranch])
   const confirmDelete = useCallback(() => {
     if (deleteBusy || deleteTarget === null) return
     const root = rootId
@@ -8433,15 +9060,18 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     if (root === null || currentDoc === null) return
     const plan = mindmapDeletePlan(currentDoc, deleteTarget.sessionId, deleteTarget.turnSeq, deleteTarget.empty)
     if (plan === null) { setDeleteError(translate('mindmap.delete.missing')); return }
-    if (plan.firstTrunk === true) { setDeleteError(translate('mindmap.delete.lastTrunk')); return }
+    if (plan.lastSession === true) { setDeleteError(translate('mindmap.delete.lastSession')); return }
     setDeleteBusy(true)
     setDeleteError(null)
     savingRef.current = true
     let forkedChildId = null
     const next = { ...currentDoc }
-    /* A trunk truncation makes the fork child the NEW root of the family: it
-       must not get the branch " ›" suffix (forkAt renames branch children to
-       it), so the child is told it is replacing the root. */
+    /* A truncation of the ANCHOR session makes the fork child the doc's new
+       root (and the map file moves to it): it must not get the branch " ›"
+       suffix (forkAt renames branch children to it), so the child is told it
+       is replacing the root. A whole-session removal of the anchor re-anchors
+       the doc to the first remaining session. Both retire the old root's doc
+       file via prevSessionId. */
     const isRootReplacement = plan.replaced !== null && String(plan.replaced.sessionId) === String(root)
     Promise.resolve(
       plan.replaced === null
@@ -8449,39 +9079,41 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
         : forkAtRef.current(String(plan.replaced.sessionId), plan.replaced.forkAt, isRootReplacement))
       .then(async (childId) => {
         if (plan.replaced !== null) {
-          /* A truncation fork succeeded: re-point the doc at the truncated
-             session. The kept cards keep their display numbers (the fork
-             child's seed carries the same turn/end seqs), and every surviving
-             branch that hung off the replaced session re-anchors to it. */
+          /* A truncation fork succeeded: swap the replaced session's entry to
+             the fork child. The kept cards keep their display numbers (the
+             fork child's seed carries the same turn/end seqs), and every
+             surviving session that hung off the replaced session re-anchors
+             to it. */
           if (childId === null || childId === undefined) throw new Error(translate('mindmap.delete.missing'))
           forkedChildId = String(childId)
           const replacedId = String(plan.replaced.sessionId)
-          next.trunk = plan.trunk
-          next.branches = plan.branches
-          if (isRootReplacement) {
-            next.rootSessionId = forkedChildId
-          } else {
-            next.branches = (next.branches ?? []).map(b =>
-              b !== null && b !== undefined && String(b?.sessionId) === replacedId
-                ? { ...b, sessionId: forkedChildId }
-                : b)
-          }
-          next.branches = (next.branches ?? []).map(b =>
-            b !== null && b !== undefined && String(b?.parentSessionId) === replacedId
-              ? { ...b, parentSessionId: forkedChildId }
-              : b)
+          next.sessions = plan.sessions.map(s =>
+            String(s?.sessionId) === replacedId ? { ...s, sessionId: forkedChildId } : s)
+          next.sessions = next.sessions.map(s =>
+            String(s?.parentSessionId) === replacedId ? { ...s, parentSessionId: forkedChildId } : s)
+          if (isRootReplacement) next.rootSessionId = forkedChildId
           /* No tombstones: the truncated session's log simply lacks the
              removed turns and the old session (plus every pruned subtree
-             branch) is archived, so nothing is recorded about which turns
+             session) is archived, so nothing is recorded about which turns
              were cut. A failed archive may legitimately resurrect the old
-             session or leak a pruned branch into the sidebar later (ACCEPTED
+             session or leak a pruned session into the sidebar later (ACCEPTED
              behavior — see docs/mindmap-notes.md). */
         } else {
-          /* Whole-branch removal: prune the branch entry; the branch session
-             (and its subtree) is archived. A failed archive may resurrect the
-             branch placeholder later (ACCEPTED behavior). */
-          next.trunk = plan.trunk
-          next.branches = plan.branches
+          /* Whole-session removal: prune the session entry; the session (and
+             its subtree) is archived. A failed archive may resurrect the
+             placeholder later (ACCEPTED behavior). */
+          next.sessions = plan.sessions
+        }
+        /* Re-anchor when the anchor session itself was removed. */
+        let saveRoot = String(root)
+        let prevRoot = undefined
+        if (!next.sessions.some(s => String(s?.sessionId) === String(saveRoot))) {
+          const anchor = next.sessions[0]?.sessionId
+          if (anchor !== undefined && anchor !== null && anchor !== '') {
+            next.rootSessionId = String(anchor)
+            saveRoot = String(anchor)
+            prevRoot = String(root)
+          }
         }
         next.next = plan.next
         next.updatedAt = Date.now()
@@ -8490,18 +9122,14 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
         /* A root replacement retires the old root's doc file in the SAME
            request (the Host writes the new doc and leaves an alias stub at
            the old path), so no stale doc can split the family. */
-        await saveDocRef.current(
-          isRootReplacement ? forkedChildId : String(root),
-          next,
-          undefined,
-          isRootReplacement ? String(root) : undefined)
+        await saveDocRef.current(saveRoot, next, undefined, prevRoot)
         /* Archive the pruned subtree sessions AND the replaced session (the
-           old root/branch, whose full log now lives only in the archive). */
+           old session, whose full log now lives only in the archive). */
         const archiveIds = [...plan.archiveIds]
         if (plan.replaced !== null) archiveIds.push(String(plan.replaced.sessionId))
         await Promise.all(archiveIds.map(id => archiveSessionRef.current(String(id)).catch(() => {})))
         if (!mountedRef.current) return
-        if (isRootReplacement) setRootId(forkedChildId)
+        if (String(saveRoot) !== String(root)) setRootId(String(saveRoot))
         /* Close the dialog before the notice and any session switch. */
         setDeleteTarget(null)
         mindmapRegistry.markDirty()
@@ -8510,7 +9138,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
         if (forkedChildId !== null) {
           openSessionRef.current(forkedChildId)
         } else if ((plan.archiveIds ?? []).includes(String(sessionId))) {
-          openSessionRef.current(String(root))
+          openSessionRef.current(String(saveRoot))
         }
         showNotice(forkedChildId !== null ? translate('mindmap.truncated') : translate('mindmap.deleted'))
       })
@@ -8556,14 +9184,12 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
 
   const nodeViews = layout.nodes.map((entry) => {
     const isStreaming = entry.streaming === true
-    const isBranch = entry.branch !== undefined
-    const title = isBranch
-      ? (list.titles[entry.sessionId] ?? '')
-      : translate('mindmap.turnTag', { n: (isStreaming ? entry.turnN : entry.turn?.n) ?? '' })
-    /* Ring: the streaming card and its parent card both wear the pair's
-       flowing gradient border. A node that is the parent of several streaming
-       cards (two branches forked at it, both generating) takes the first
-       pair's palette. */
+    const title = list.titles[String(entry.sessionId)] || translate('mindmap.session.untitled')
+    const isRunning = runningFamilyIds.includes(String(entry.sessionId))
+    /* Ring: the streaming card and its parent node (card or head) both wear
+       the pair's flowing gradient border. A node that is the parent of several
+       streaming cards (two sessions forked at it, both generating) takes the
+       first pair's palette. */
     let ringPalette = undefined
     if (isStreaming) {
       const info = streamingEntries.find(s => s.entry.key === entry.key)
@@ -8572,24 +9198,43 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       const info = streamingEntries.find(s => s.parentKey === entry.key)
       ringPalette = info?.palette
     }
-    return h(MindMapCard, {
+    /* Single source of truth for what this node IS / does: the same decision
+       tree as openCard and the hover hint. The click action is computed once
+       and drives BOTH the hover hint ('fork' → 点击分支 / 'switch' → 点击跳转)
+       and the always-visible capsule (fork glyph "分支" vs. end chip "末端"),
+       so the hint and the chip can never drift apart. */
+    const clickAction = mindmapCardClickAction(entry, doc, runningFamilyIds)
+    const common = {
       key: entry.key,
       entry,
-      title,
       isCurrent: entry.key === currentKey,
-      isStreaming,
-      /* The two traces are additive: the selected card's chain (solid current
-         + blue dashed ancestors) and the hovered card's chain (amber dashed
-         ancestors + solid amber hovered card) coexist; a card on both paths
-         gets both classes, and the later amber CSS rules win. */
       isAncestor: trace.ancestorSet.has(entry.key),
       isHoverAncestor: hoverTrace.ancestorSet.has(entry.key),
       isHover: entry.key === hoverKey,
-      hintAction: entry.key === hoverKey ? mindmapCardClickAction(entry, doc, runningFamilyIds) : undefined,
+      hintAction: entry.key === hoverKey ? clickAction : undefined,
+      /* End-of-branch: click jumps (switch) instead of forking — the capsule
+         chip flips from the fork glyph "分支" to the terminal "末端". */
+      isEnd: clickAction === 'switch',
       ringPalette,
       onOpen: openCard,
-      onMenu: openCardMenu,
       onHover: setHoverKey,
+    }
+    if (entry.kind === 'root') {
+      return h(MindMapRootNode, { ...common, onMenu: openCardMenu })
+    }
+    if (entry.kind === 'head') {
+      return h(MindMapSessionHead, {
+        ...common,
+        title,
+        isRunning,
+        onMenu: openCardMenu,
+      })
+    }
+    return h(MindMapCard, {
+      ...common,
+      title,
+      isStreaming,
+      onMenu: openCardMenu,
     })
   })
 
@@ -8599,7 +9244,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   }, notice.text)
   const menuView = menu !== null ? createPortal(
     h('div', {
-      className: 'dsh-ws-context-menu',
+      className: 'dsh-ws-context-menu' + (menu.kind === 'root' ? ' dsh-ws-context-menu-wide' : ''),
       ref: menuRef,
       role: 'menu',
       style: {
@@ -8607,10 +9252,41 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
         top: Math.max(4, Math.min(menu.y, window.innerHeight - 92)),
       },
     },
-      menu.isBranch ? h(Fragment, null,
+      menu.kind === 'card' ? h(Fragment, null,
         h('button', { className: 'dsh-ws-context-item', onClick: startRename, role: 'menuitem', title: translate('mindmap.menu.rename'), type: 'button' }, translate('mindmap.menu.rename')),
-        h('div', { className: 'dsh-ws-context-separator', role: 'separator' })) : null,
-      h('button', { className: 'dsh-ws-context-item dsh-ws-context-item-danger', onClick: startDelete, role: 'menuitem', title: translate('mindmap.menu.deleteCard'), type: 'button' }, translate('mindmap.menu.deleteCard'))),
+        h('div', { className: 'dsh-ws-context-separator', role: 'separator' }),
+        h('button', { className: 'dsh-ws-context-item dsh-ws-context-item-danger', onClick: startDelete, role: 'menuitem', title: translate('mindmap.menu.deleteCard'), type: 'button' }, translate('mindmap.menu.deleteCard')))
+        : menu.kind === 'head' ? h(Fragment, null,
+          h('button', { className: 'dsh-ws-context-item', onClick: startRename, role: 'menuitem', title: translate('mindmap.menu.rename'), type: 'button' }, translate('mindmap.menu.rename')),
+          h('div', { className: 'dsh-ws-context-separator', role: 'separator' }),
+          h('button', { className: 'dsh-ws-context-item dsh-ws-context-item-danger', onClick: startArchiveBranch, role: 'menuitem', title: translate('mindmap.menu.archiveBranch'), type: 'button' }, translate('mindmap.menu.archiveBranch')))
+          : h(Fragment, null,
+            h('div', { className: 'dsh-ws-context-label' }, translate('mindmap.workspace.title')),
+            (menu.workspaces ?? []).map((w) => {
+              const isCurrent = typeof w?.path === 'string' && w.path !== '' && w.path === menu.current
+              return h('button', {
+                className: 'dsh-ws-context-item dsh-ws-context-item-check',
+                key: w?.id ?? w?.path ?? 'ws',
+                onClick: () => selectWorkspace(typeof w?.path === 'string' ? w.path : '', w?.title ?? w?.path ?? ''),
+                role: 'menuitem',
+                title: translate('mindmap.workspace.set', { name: w?.title ?? w?.path ?? '' }),
+                type: 'button',
+              },
+                h('span', { className: 'dsh-ws-context-item-text' }, w?.title ?? w?.path ?? ''),
+                isCurrent ? h('span', { className: 'dsh-ws-context-item-check-mark' }, '✓') : null)
+            }),
+            h('div', { className: 'dsh-ws-context-separator', role: 'separator' }),
+            h('button', {
+              className: 'dsh-ws-context-item' + (menu.current === '' ? ' dsh-ws-context-item-check' : ''),
+              onClick: () => selectWorkspace('', ''),
+              role: 'menuitem',
+              title: translate('mindmap.workspace.none'),
+              type: 'button',
+            },
+              h('span', { className: 'dsh-ws-context-item-text' }, translate('mindmap.workspace.none')),
+              menu.current === '' ? h('span', { className: 'dsh-ws-context-item-check-mark' }, '✓') : null),
+            h('div', { className: 'dsh-ws-context-separator', role: 'separator' }),
+            h('button', { className: 'dsh-ws-context-item dsh-ws-context-item-danger', onClick: startArchiveAll, role: 'menuitem', title: translate('mindmap.menu.archiveAll'), type: 'button' }, translate('mindmap.menu.archiveAll')))),
     document.body,
   ) : null
   const renameView = renameTarget !== null ? h(SessionRenameDialog, {
@@ -8653,6 +9329,22 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       h('div', { className: 'dsh-ws-dialog-footer' },
         h('button', { className: 'dsh-ws-text-button', disabled: deleteBusy, onClick: closeDelete, type: 'button' }, translate('dialog.cancel')),
         h('button', { className: 'dsh-ws-text-button', disabled: deleteBusy, onClick: confirmDelete, type: 'button' }, deleteBusy ? translate('dialog.processing') : translate('mindmap.delete.action')))))
+    : null
+  const archiveBranchView = archiveBranchTarget !== null ? h('div', {
+    className: 'dsh-ws-dialog-backdrop',
+    onMouseDown: event => { if (event.target === event.currentTarget && !archiveBranchBusy) closeArchiveBranch() },
+  },
+    h('div', { 'aria-modal': true, className: 'dsh-ws-dialog dsh-ws-mindmap-confirm-dialog', role: 'dialog' },
+      h('div', { className: 'dsh-ws-dialog-header' },
+        h('div', { className: 'dsh-ws-dialog-title' }, translate('mindmap.archiveBranch.title')),
+        h('button', { 'aria-label': translate('dialog.close'), className: 'dsh-ws-icon-button', disabled: archiveBranchBusy, onClick: closeArchiveBranch, title: translate('dialog.close'), type: 'button' }, '×')),
+      h('div', { className: 'dsh-ws-dialog-body' },
+        h('div', { className: 'dsh-ws-dialog-message' }, translate('mindmap.archiveBranch.message', { name: archiveBranchTarget.label })),
+        archiveBranchTarget.willArchiveCurrent ? h('div', { className: 'dsh-ws-dialog-warning', role: 'alert' }, translate('mindmap.delete.current')) : null,
+        archiveBranchError !== null ? h('div', { className: 'dsh-ws-dialog-error', role: 'alert' }, archiveBranchError) : null),
+      h('div', { className: 'dsh-ws-dialog-footer' },
+        h('button', { className: 'dsh-ws-text-button', disabled: archiveBranchBusy, onClick: closeArchiveBranch, type: 'button' }, translate('dialog.cancel')),
+        h('button', { className: 'dsh-ws-text-button', disabled: archiveBranchBusy, onClick: confirmArchiveBranch, type: 'button' }, archiveBranchBusy ? translate('dialog.processing') : translate('mindmap.archiveBranch.action')))))
     : null
 
   return h(Fragment, null,
@@ -8699,6 +9391,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
               if (flow === undefined) {
                 return h('path', {
                   className: 'dsh-ws-mindmap-edge'
+                    + (edge.mount === true ? ' dsh-ws-mindmap-edge-mount' : '')
                     + (trace.activeEdgeKeys.has(`${edge.from}\u0000${edge.to}`) ? ' dsh-ws-mindmap-edge-active' : '')
                     + (hoverTrace.activeEdgeKeys.has(`${edge.from}\u0000${edge.to}`) ? ' dsh-ws-mindmap-edge-hover-active' : ''),
                   d: edge.d,
@@ -8729,6 +9422,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     menuView,
     renameView,
     archiveView,
+    archiveBranchView,
     deleteView)
 }
 
@@ -8879,14 +9573,16 @@ function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, openSess
     const item = workspaces.find(w => (w.sessionIds ?? []).includes(String(doc.sessionId)))
       || (row?.cwd !== undefined ? workspaces.find(w => w.path === row.cwd) : undefined)
     const docTitle = item?.title
-    /* A doc without a resolvable workspace lives in the ungrouped bucket:
-       the group whose title is not any real workspace's title. */
-    if (docTitle !== undefined && docTitle === groupTitle) return true
-    /* A doc whose workspace title does not match THIS group is not dropped: it
-       lands in the ungrouped bucket — the group whose title is not any real
-       workspace's title (or the flat fallback seat). Exact-match-only grouping
-       would make a doc vanish entirely when a harness group header text differs
-       from the workspace's canonical title (truncation, count suffix). */
+    /* A doc whose workspace resolves to a real Host workspace (accounted by
+       sessionIds, or a canonical cwd match) appears ONLY under that
+       workspace's group, matched by its exact title. */
+    if (docTitle !== undefined) return docTitle === groupTitle
+    /* A doc with no resolvable workspace (not accounted by any workspace and
+       no cwd match) lives in the ungrouped bucket — the group whose title is
+       not any real workspace's title (or the flat fallback seat). Exact-match
+       grouping is safe here: real workspace group headers render their
+       canonical title and the ungrouped bucket the localized label, so a
+       resolved doc never falls through to the ungrouped bucket. */
     return !workspaces.some(w => w.title === groupTitle)
   })
   const groupKey = groupTitle === undefined ? MINDMAP_ORDER_ALL_KEY : groupTitle
@@ -9269,7 +9965,7 @@ function MobileHeroControls() {
    tracked live so resizing the chat reflows the window); on mobile it takes
    the whole screen. The chat stays visible on the right; card clicks inside
    the map switch the conversation to the clicked session. */
-function MindmapOverlayHost({ sessionId, useSessions, actions, chatWidth, mobile, previewRight, previewWidth, sidebarWidth }) {
+function MindmapOverlayHost({ sessionId, useSessions, actions, chatWidth, mobile, previewRight, previewWidth, sidebarWidth, settingsStore }) {
   const overlay = useMindmapOverlay()
   const closeLabel = translate('mindmap.overlay.close')
   /* Scope 'full' (default) spans everything left of the chat column; scope
@@ -9314,14 +10010,17 @@ function MindmapOverlayHost({ sessionId, useSessions, actions, chatWidth, mobile
     }, '×'),
     h(MindMapView, {
       archiveSession: actions.archiveSession,
+      createSession: actions.createSession,
       deleteDoc: actions.deleteDoc,
       forkAt: actions.forkAt,
+      listWorkspaces: actions.listWorkspaces,
       loadDoc: actions.loadDoc,
       openSession: id => { actions.openSession(String(id)); mindmapOverlayStore.setSession(String(id)) },
       previewRight: previewRight === true,
       renameSession: actions.renameSession,
       saveDoc: actions.saveDoc,
       sessionId: String(sessionId),
+      settingsStore,
       syncDoc: actions.syncDoc,
       useSessions,
     }))
@@ -9977,7 +10676,7 @@ function AppFrame(props) {
     props.openSession(String(id))
     mindmapOverlayStore.open(String(id))
   }, [props.openSession])
-  return h('div',{ref:viewportRef,className:'dsh-ws-viewport'},h('main',{className:'dsh-ws-frame','data-explorer-closed':!panes.explorerOpen&&!filesActive||undefined,'data-sidebar-collapsed':collapsed||undefined,'data-sidebar-files':filesActive||undefined,'data-resizing':resizing||undefined,'data-preview-right':settings.previewRight===true||undefined,style:{'--dsh-ws-preview':`${preview}px`,'--dsh-ws-sidebar':`${sidebar}px`,'--dsh-ws-row-height':`${clamp(settings.rowHeight ?? ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MIN, ROW_HEIGHT_MAX)}px`,'--dsh-ws-chat-font-scale':String(chatFontScale),'--dsh-ws-mobile-header-h':`${mobileHeaderHeight}px`,'--dsh-ws-mindmap-spin-duration':mindmapSpinDuration,...fileColorVars}},h('aside',{className:'dsh-ws-sidebar',ref:asideRef},props.renderSlot('sidebar',{collapsed,width:sidebar}),sidebarChrome?.top?createPortal(h(SidebarTopActions,{collapsed,view,width:sidebar,onSelectSessions:()=>{props.actions.setView('sessions')},onSelectFiles:()=>{if(collapsed)props.toggleSidebar();props.actions.setView('files')}}),sidebarChrome.top):null,sidebarChrome&&(sidebarChrome.groups.length>0?sidebarChrome.groups.map(group=>createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:group.title,openSession:openMindmapSession,revealSession:revealSessionById}),group.container)):sidebarChrome.fallback?createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:undefined,openSession:openMindmapSession,revealSession:revealSessionById}),sidebarChrome.fallback):null)),workspace?h(WorkspaceExplorer,{key:`${workspace.workspaceId}:${sessionId ?? 'workspace'}`,createEntry:props.createEntry,listDirectory:props.listDirectory,persistPreviewSession,publishEditorContext,readFile:props.readFile,renameEntry:props.renameEntry,saveFile:props.saveFile,loadDraft:props.loadDraft,persistDraftFile:props.persistDraftFile,removeDraftFile:props.removeDraftFile,draftTree:props.draftTree,settingsStore:props.settingsStore,storedPreviewSession,sessionTitle,sessionId,renameSession:props.renameSession,treePortalTarget,workspace}):h(EmptyWorkspaceExplorer,{sessionTitle,treePortalTarget}),h('section',{className:'dsh-ws-chat',ref:chatSectionRef},props.renderSlot('conversation',{}),chatDropActive?h('div',{className:'dsh-ws-chat-drop-mask',role:'presentation'},h('button',{'aria-label':translate('drop.closeAria'),className:'dsh-ws-chat-drop-close',onClick:()=>{chatDropSuppressed.current=true;setChatDropActive(false)},title:translate('drop.closeTitle'),type:'button'},'×'),h('div',{className:'dsh-ws-chat-drop-card'},translate('drop.releaseImages'))):null),!collapsed?h(ResizeHandle,{label:translate('resize.sidebar'),left:sidebar,max:sidebarMax,min:SIDEBAR_MIN,onDragging:setResizing,onResize:width=>props.actions.setSidebar(width,sidebarMax),value:sidebar}):null,(panes.explorerOpen||filesActive)?h(ResizeHandle,{label:translate('resize.preview'),left:settings.previewRight===true?Math.max(0,viewportWidth-preview):previewBoundary,max:previewMax,min:PREVIEW_MIN,onDragging:setResizing,onResize:width=>props.explorerPaneStore.actions.setPreview(width,previewMax),value:preview,invert:settings.previewRight===true||undefined}):null,h('aside',{className:'dsh-ws-details','data-closed':!panels.detailsOpen||!detailsCapable||undefined},props.renderSlot('details',{})),mobile.on&&mobile.drawerOpen?h('div',{className:'dsh-ws-mobile-scrim',onClick:()=>setDrawerOpen(false)}):null,h('div',{className:'dsh-ws-overlay','data-shell-overlay':true},props.renderSlot('shell.overlay',{})),sessionContextMenu?h('div',{className:'dsh-ws-context-menu',ref:sessionMenuRef,role:'menu',style:{left:Math.max(4,Math.min(sessionContextMenu.x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top:Math.max(4,Math.min(sessionContextMenu.y,window.innerHeight-52))}},h('button',{className:'dsh-ws-context-item',onClick:beginSessionInlineRename,role:'menuitem',type:'button'},translate('context.renameSession')),h('button',{className:'dsh-ws-context-item',onClick:archiveSessionFromMenu,role:'menuitem',type:'button'},translate('context.archiveSession')),h('div',{className:'dsh-ws-context-separator',role:'separator'}),h('button',{className:'dsh-ws-context-item',onClick:revealSessionFromMenu,role:'menuitem',type:'button'},translate('context.reveal'))):null,sessionInlineRename?h(SessionInlineRename,{busy:sessionInlineRenameBusy,error:sessionInlineRenameError,onCancel:cancelSessionInlineRename,onConfirm:confirmSessionInlineRename,row:sessionInlineRename.row,title:sessionInlineRename.title}):null,sessionNotice?h('div',{className:'dsh-ws-copy-notice','data-error':sessionNotice.error||undefined,role:'status'},sessionNotice.text):null),overlay.open?h(MindmapOverlayHost,{actions:props.mindmapActions,chatWidth,mobile:mobile.on,previewRight:settings.previewRight===true,previewWidth:preview,sessionId:overlay.sessionId,sidebarWidth:sidebar,useSessions:props.useSessions}):null)}
+  return h('div',{ref:viewportRef,className:'dsh-ws-viewport'},h('main',{className:'dsh-ws-frame','data-explorer-closed':!panes.explorerOpen&&!filesActive||undefined,'data-sidebar-collapsed':collapsed||undefined,'data-sidebar-files':filesActive||undefined,'data-resizing':resizing||undefined,'data-preview-right':settings.previewRight===true||undefined,style:{'--dsh-ws-preview':`${preview}px`,'--dsh-ws-sidebar':`${sidebar}px`,'--dsh-ws-row-height':`${clamp(settings.rowHeight ?? ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MIN, ROW_HEIGHT_MAX)}px`,'--dsh-ws-chat-font-scale':String(chatFontScale),'--dsh-ws-mobile-header-h':`${mobileHeaderHeight}px`,'--dsh-ws-mindmap-spin-duration':mindmapSpinDuration,...fileColorVars}},h('aside',{className:'dsh-ws-sidebar',ref:asideRef},props.renderSlot('sidebar',{collapsed,width:sidebar}),sidebarChrome?.top?createPortal(h(SidebarTopActions,{collapsed,view,width:sidebar,onSelectSessions:()=>{props.actions.setView('sessions')},onSelectFiles:()=>{if(collapsed)props.toggleSidebar();props.actions.setView('files')}}),sidebarChrome.top):null,sidebarChrome&&(sidebarChrome.groups.length>0?sidebarChrome.groups.map(group=>createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:group.title,openSession:openMindmapSession,revealSession:revealSessionById}),group.container)):sidebarChrome.fallback?createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:undefined,openSession:openMindmapSession,revealSession:revealSessionById}),sidebarChrome.fallback):null)),workspace?h(WorkspaceExplorer,{key:`${workspace.workspaceId}:${sessionId ?? 'workspace'}`,createEntry:props.createEntry,listDirectory:props.listDirectory,persistPreviewSession,publishEditorContext,readFile:props.readFile,renameEntry:props.renameEntry,saveFile:props.saveFile,loadDraft:props.loadDraft,persistDraftFile:props.persistDraftFile,removeDraftFile:props.removeDraftFile,draftTree:props.draftTree,settingsStore:props.settingsStore,storedPreviewSession,sessionTitle,sessionId,renameSession:props.renameSession,treePortalTarget,workspace}):h(EmptyWorkspaceExplorer,{sessionTitle,treePortalTarget}),h('section',{className:'dsh-ws-chat',ref:chatSectionRef},props.renderSlot('conversation',{}),chatDropActive?h('div',{className:'dsh-ws-chat-drop-mask',role:'presentation'},h('button',{'aria-label':translate('drop.closeAria'),className:'dsh-ws-chat-drop-close',onClick:()=>{chatDropSuppressed.current=true;setChatDropActive(false)},title:translate('drop.closeTitle'),type:'button'},'×'),h('div',{className:'dsh-ws-chat-drop-card'},translate('drop.releaseImages'))):null),!collapsed?h(ResizeHandle,{label:translate('resize.sidebar'),left:sidebar,max:sidebarMax,min:SIDEBAR_MIN,onDragging:setResizing,onResize:width=>props.actions.setSidebar(width,sidebarMax),value:sidebar}):null,(panes.explorerOpen||filesActive)?h(ResizeHandle,{label:translate('resize.preview'),left:settings.previewRight===true?Math.max(0,viewportWidth-preview):previewBoundary,max:previewMax,min:PREVIEW_MIN,onDragging:setResizing,onResize:width=>props.explorerPaneStore.actions.setPreview(width,previewMax),value:preview,invert:settings.previewRight===true||undefined}):null,h('aside',{className:'dsh-ws-details','data-closed':!panels.detailsOpen||!detailsCapable||undefined},props.renderSlot('details',{})),mobile.on&&mobile.drawerOpen?h('div',{className:'dsh-ws-mobile-scrim',onClick:()=>setDrawerOpen(false)}):null,h('div',{className:'dsh-ws-overlay','data-shell-overlay':true},props.renderSlot('shell.overlay',{})),sessionContextMenu?h('div',{className:'dsh-ws-context-menu',ref:sessionMenuRef,role:'menu',style:{left:Math.max(4,Math.min(sessionContextMenu.x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top:Math.max(4,Math.min(sessionContextMenu.y,window.innerHeight-52))}},h('button',{className:'dsh-ws-context-item',onClick:beginSessionInlineRename,role:'menuitem',type:'button'},translate('context.renameSession')),h('button',{className:'dsh-ws-context-item',onClick:archiveSessionFromMenu,role:'menuitem',type:'button'},translate('context.archiveSession')),h('div',{className:'dsh-ws-context-separator',role:'separator'}),h('button',{className:'dsh-ws-context-item',onClick:revealSessionFromMenu,role:'menuitem',type:'button'},translate('context.reveal'))):null,sessionInlineRename?h(SessionInlineRename,{busy:sessionInlineRenameBusy,error:sessionInlineRenameError,onCancel:cancelSessionInlineRename,onConfirm:confirmSessionInlineRename,row:sessionInlineRename.row,title:sessionInlineRename.title}):null,sessionNotice?h('div',{className:'dsh-ws-copy-notice','data-error':sessionNotice.error||undefined,role:'status'},sessionNotice.text):null),overlay.open?h(MindmapOverlayHost,{actions:props.mindmapActions,chatWidth,mobile:mobile.on,previewRight:settings.previewRight===true,previewWidth:preview,sessionId:overlay.sessionId,settingsStore:props.settingsStore,sidebarWidth:sidebar,useSessions:props.useSessions}):null)}
 
 export const inject = ['slots', 'theme', 'sessions', 'workspaces']
 export function apply(ctx) {
@@ -10001,6 +10700,8 @@ export function apply(ctx) {
       const root = document.documentElement
       root.style.setProperty('--dsh-ws-mindmap-hover', state?.mindmapHoverColor || 'var(--dsw-alias-state-warn-primary)')
       root.style.setProperty('--dsh-ws-mindmap-selected', state?.mindmapSelectedColor || 'var(--dsw-alias-state-business-primary)')
+      root.style.setProperty('--dsh-ws-mindmap-head', state?.mindmapHeadColor || MINDMAP_HEAD_COLOR_DEFAULT)
+      root.style.setProperty('--dsh-ws-mindmap-end', state?.mindmapEndColor || MINDMAP_END_COLOR_DEFAULT)
     }
     applyMindmapColors()
     return settingsStore.subscribe(applyMindmapColors)
@@ -10062,9 +10763,63 @@ export function apply(ctx) {
      child is renamed to the family-root title plus " ›" so its header never
      collides with the root (a root-replacement fork — card-deletion
      truncation of the trunk — keeps the plain family title instead, asRoot). */
-  const buildMindmapActions = (ctx) => ({
+  const buildMindmapActions = (ctx) => {
+    /* Resolve the workspace whose canonical path matches a cwd string (case /
+       trailing-separator normalized), so a root-node-created session can be
+       created WITH its workspaceId. The harness host attaches a session to a
+       workspace only when session.create carries a workspaceId; a cwd-only
+       create leaves the session ungrouped, and a blank ungrouped session is
+       then hidden from the sidebar as soon as it is not the current session. */
+    const mindmapWorkspaceIdForCwd = (cwd) => {
+      if (typeof cwd !== 'string' || cwd === '') return undefined
+      let items = []
+      try {
+        items = ctx.workspaces.list.getSnapshot().items
+      } catch {
+        items = []
+      }
+      if (!Array.isArray(items)) return undefined
+      const normalize = (p) => String(p ?? '').replace(/[\\/]+$/, '').toLowerCase()
+      const target = normalize(cwd)
+      for (const workspace of items) {
+        if (workspace !== null && workspace !== undefined
+          && workspace.workspaceId !== undefined
+          && workspace.workspaceId !== ''
+          && normalize(workspace.path) === target) return String(workspace.workspaceId)
+      }
+      return undefined
+    }
+    return {
     archiveSession: async id => { await ctx.workspaces.archiveSession(String(id)) },
+    createSession: async (recordedCwd, anchorId) => {
+      /* A top-level session (created by clicking the mind-map root node) is a
+         brand-new BLANK harness session — no inherited turns. It is created in
+         the workspace the map was CREATED in (recordedCwd, from the doc); when
+         the doc has none recorded (pre-upgrade / no workspace), fall back to
+         the anchor session's current cwd so it still lands in a sidebar group
+         instead of the ungrouped bucket. Created via workspaceId (not cwd) so
+         the host attaches the session to that workspace; a cwd-only create
+         stays ungrouped and the blank session disappears from the sidebar. */
+      const snapshot = ctx.sessions.list.getSnapshot()
+      const cwd = (typeof recordedCwd === 'string' && recordedCwd !== '')
+        ? recordedCwd
+        : snapshot.byId[String(anchorId)]?.cwd
+      const workspaceId = mindmapWorkspaceIdForCwd(cwd)
+      const childId = workspaceId !== undefined
+        ? await ctx.sessions.create({ workspaceId })
+        : await ctx.sessions.create(cwd === undefined ? {} : { cwd })
+      return childId
+    },
     deleteDoc: (id, signal) => deleteMindmapDoc(String(id), signal),
+    /* All workspaces, for the root node's "选择工作区" menu. */
+    listWorkspaces: () => {
+      try {
+        const items = ctx.workspaces.list.getSnapshot().items
+        return Array.isArray(items) ? items : []
+      } catch {
+        return []
+      }
+    },
     forkAt: async (id, seq, asRoot) => {
       const childId = await ctx.sessions.fork({ sessionId: String(id), atSeq: seq })
       const rootTitle = mindmapRootTitleOf(ctx.sessions.list.getSnapshot(), String(id))
@@ -10087,7 +10842,8 @@ export function apply(ctx) {
     },
     saveDoc: (id, doc, signal, prevSessionId) => writeMindmapDoc(String(id), doc, signal, prevSessionId),
     syncDoc: (id, liveSessionIds, signal) => syncMindmapDoc(String(id), liveSessionIds, signal),
-  })
+    }
+  }
 
   ctx.effect(() => {
     const disposeService = ctx.reflect.provide('layout', layout)
