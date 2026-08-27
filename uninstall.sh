@@ -8,7 +8,7 @@ set -euo pipefail
 PROFILE="${1:-${PROFILE:-web}}"
 BUNDLE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HARNESS_ROOT="$(cd "$BUNDLE_DIR/../.." && pwd)"
-PACKAGE_NAME="@deepseek-ai/dsh-workspace-studio"
+PACKAGE_NAME="@yishengjun8/dsh-workspace-studio"
 
 DSH_HOME_RAW="${DSH_HOME:-$HOME/.dsh}"
 if command -v cygpath >/dev/null 2>&1; then

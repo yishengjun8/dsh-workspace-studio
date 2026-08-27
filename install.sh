@@ -35,7 +35,7 @@ else
   BUNDLE_NATIVE="$BUNDLE_DIR"
 fi
 BUNDLE_SPEC="file:$BUNDLE_NATIVE"
-PACKAGE_NAME="@deepseek-ai/dsh-workspace-studio"
+PACKAGE_NAME="@yishengjun8/dsh-workspace-studio"
 
 if [[ -n "${DSH_BIN:-}" ]]; then
   DSH_COMMAND=("$DSH_BIN")

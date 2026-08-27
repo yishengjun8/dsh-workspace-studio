@@ -5,7 +5,7 @@
 
 - insert:
     - id: workspace-studio
-      name: '@deepseek-ai/dsh-workspace-studio'
+      name: '@yishengjun8/dsh-workspace-studio'
       config:
         enableEditing: true
         maxContextBytes: 65536

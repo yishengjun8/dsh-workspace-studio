@@ -31,7 +31,7 @@ import { dockerFile } from '@codemirror/legacy-modes/mode/dockerfile'
 import { clike } from '@codemirror/legacy-modes/mode/clike'
 
 const { Fragment, createElement: h, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } = React
-const PACKAGE_ID = '@deepseek-ai/dsh-workspace-studio'
+const PACKAGE_ID = '@yishengjun8/dsh-workspace-studio'
 const API_PREFIX = '/workspace-studio/api'
 const EDITOR_CONTEXT_PROVIDER = 'workspace-editor-context'
 const SEND_SESSION_BRIDGE_MARKER = Symbol('workspace-studio.send-session-bridge')
