@@ -164,6 +164,22 @@ const MINDMAP_HEAD_H = 124
 const MINDMAP_DEPTH_GAP = 64
 const MINDMAP_ROW_GAP = 12
 const MINDMAP_TEXT_MAX = 88
+/* AI card summaries: the model picker + advisory length live in 设置 → 工作区设置 →
+   导图浏览设置. The length is a SUGGESTION (prompt wording), not a hard bound.
+   Step 4 keeps the 48-char default on the slider grid (a step of 10 would snap
+   it to 50); the default is what the length row's 恢复默认 restores to. */
+const MINDMAP_SUMMARY_DEFAULT_LENGTH = 48
+const MINDMAP_SUMMARY_MIN_LENGTH = 20
+const MINDMAP_SUMMARY_MAX_LENGTH = 200
+const MINDMAP_SUMMARY_LENGTH_STEP = 4
+/* Session-level summary length (右键会话头 → 总结当前会话): a paragraph, so the
+   range is wider than the card length; step 4 keeps the 64-char default on the
+   slider grid. */
+const MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH = 64
+const MINDMAP_SUMMARY_SESSION_MIN_LENGTH = 20
+const MINDMAP_SUMMARY_SESSION_MAX_LENGTH = 500
+const MINDMAP_SUMMARY_SESSION_LENGTH_STEP = 4
+const MINDMAP_MODELS_CACHE_MS = 60_000
 /* Mind-map viewport interaction bounds: wheel-zoom range, pan overhang (MINDMAP_PAN_MARGIN, the margin the fit view aligns to), and wheel zoom step. */
 const MINDMAP_ZOOM_MIN = 0.25
 const MINDMAP_ZOOM_MAX = 3
@@ -444,6 +460,18 @@ const zh = {
   'settings.mindmapMountBulge.reset.title': '恢复默认弯曲幅度',
   'settings.mindmapSpinSpeed': '导图图标旋转速度',
   'settings.mindmapSpinSpeed.reset.title': '恢复默认旋转速度',
+  'settings.mindmapSummary': 'AI 卡片摘要',
+  'settings.mindmapSummary.enabled': '启用 AI 摘要',
+  'settings.mindmapSummary.model': '摘要模型',
+  'settings.mindmapSummary.model.session': '跟随会话模型',
+  'settings.mindmapSummary.model.missing': '未检测到已配置的模型，请先在「模型」页面配置',
+  'settings.mindmapSummary.length': '摘要长度',
+  'settings.mindmapSummary.length.hint': '建议长度（字）',
+  'settings.mindmapSummary.length.unit': '{n} 字',
+  'settings.mindmapSummary.sessionLength': '会话总结长度',
+  'settings.mindmapSummary.sessionLength.hint': '建议长度（字）',
+  'settings.mindmapSummary.sessionLength.reset.title': '恢复默认会话总结长度（{n} 字）',
+  'settings.mindmapSummary.hint': '开启后，导图卡片会用所选模型自动总结每轮提问（每轮一次小调用，产生少量 token 消耗；摘要为建议性总结，完整原文可悬浮卡片查看）。',
   'settings.rowHeight': '每行高度',
   'settings.rowHeight.reset.title': '恢复默认行高',
   'settings.searchResult': '搜索结果显示',
@@ -469,7 +497,10 @@ const zh = {
   'settings.watchFiles': '监听文件更改并自动同步',
   'settings.watchOnly': '仅提示，不自动刷新',
   'settings.resetDefault': '恢复默认',
-  'settings.hint': '会话浏览设置：调整侧栏导图条目流式输出时旋转图标的速度（倍速 0.0×–3.0×，数值越大越快，默认 1.5× 即 1.2 秒一圈，0 表示不旋转）；导图浏览设置：调整导图视图中悬浮高亮与选中高亮的颜色（默认分别为琥珀与主题蓝，可分别恢复默认）、会话头卡片与末端卡片的提示色（默认分别为紫与绿，可分别恢复默认），以及导图挂载连线的弯曲幅度（根节点→会话头、分支提问卡→分支会话头的 S 曲线，默认 5.0×，数值越大弯得越明显，0 为直线）；文件浏览设置：调整左侧文件树的行高、搜索结果显示方式与图标徽标配色；内容浏览设置：为每种文件类型选择编辑器代码高亮预设、调整保存冲突弹窗中对比文本的字号、选择文件浏览页面显示在对话页面的左侧或右侧，并可开启或关闭「监听文件更改并自动同步」（默认开启，可改为「仅提示，不自动刷新」）；对话页面设置：调整对话文字大小，开启思考过程自动展开后，聊天中正在输出的思考内容会自动展开、结束后按设定延迟自动收起（0–10 秒，分度 0.1 秒），期间手动操作可取消；未修改的项使用默认值。',
+  'settings.loading': '加载中…',
+  'settings.mindmapSummary.reset.title': '恢复默认（关闭 AI 摘要，保留已选模型与长度）',
+  'settings.mindmapSummary.length.reset.title': '恢复默认摘要长度（{n} 字）',
+  'settings.hint': '会话浏览设置：调整侧栏导图条目流式输出时旋转图标的速度（倍速 0.0×–3.0×，数值越大越快，默认 1.5× 即 1.2 秒一圈，0 表示不旋转）；导图浏览设置：调整导图视图中悬浮高亮与选中高亮的颜色（默认分别为琥珀与主题蓝，可分别恢复默认）、会话头卡片与末端卡片的提示色（默认分别为紫与绿，可分别恢复默认），以及导图挂载连线的弯曲幅度（根节点→会话头、分支提问卡→分支会话头的 S 曲线，默认 5.0×，数值越大弯得越明显，0 为直线），并可开启「AI 卡片摘要」：选择已配置的模型自动总结卡片上的提问（可调整建议长度，完整原文可悬浮卡片查看）；文件浏览设置：调整左侧文件树的行高、搜索结果显示方式与图标徽标配色；内容浏览设置：为每种文件类型选择编辑器代码高亮预设、调整保存冲突弹窗中对比文本的字号、选择文件浏览页面显示在对话页面的左侧或右侧，并可开启或关闭「监听文件更改并自动同步」（默认开启，可改为「仅提示，不自动刷新」）；对话页面设置：调整对话文字大小，开启思考过程自动展开后，聊天中正在输出的思考内容会自动展开、结束后按设定延迟自动收起（0–10 秒，分度 0.1 秒），期间手动操作可取消；未修改的项使用默认值。',
   'fileColor.directory': '目录',
   'fileColor.style': '样式',
   'fileColor.log': '日志',
@@ -558,6 +589,8 @@ const zh = {
   'error.query-too-long': '搜索内容过长',
   'error.invalid-response': '接口返回了无效响应（HTTP {status}）',
   'error.invalid-response.tree': '工作区接口返回了无效响应（HTTP {status}）',
+  'error.invalid-response.file': '文件接口返回了无效响应（HTTP {status}）',
+  'error.invalid-response.mindmap': '导图接口返回了无效响应（HTTP {status}）',
   'error.invalid-response.save': '保存接口返回了无效响应（HTTP {status}）',
   'error.invalid-response.external': '外部文件接口返回了无效响应（HTTP {status}）',
   'error.invalid-response.context': '编辑器上下文接口返回了无效响应（HTTP {status}）',
@@ -622,6 +655,28 @@ const zh = {
   'mindmap.rounds': '{n} 轮',
   'mindmap.moreRounds': '还有 {n} 轮历史',
   'mindmap.menu.rename': '重命名',
+  'mindmap.menu.regenerateSummary': '重新生成摘要',
+  'mindmap.summary.regenerating': '正在重新生成摘要…',
+  'mindmap.summary.generating': '正在生成摘要中…',
+  'mindmap.summary.regenerated': '已重新生成摘要。',
+  'mindmap.summary.regenerateFailed': '摘要生成失败：{message}',
+  'mindmap.summary.fail.noModel': '未找到可用的会话模型',
+  'mindmap.summary.fail.generationFailed': '模型调用失败，请稍后重试',
+  'mindmap.summary.fail.turnGone': '卡片已不存在',
+  'mindmap.summary.regenerateAll': '重新生成全部摘要',
+  'mindmap.summary.regenerateAll.message': '确定重新生成全部 {n} 张卡片的摘要吗？将产生 {n} 次模型调用；旧摘要会保留，新摘要生成后逐张替换。',
+  'mindmap.summary.regenerateAll.action': '重新生成',
+  'mindmap.summary.regenerateAll.started': '正在重新生成全部摘要（共 {n} 张卡片）…',
+  'mindmap.summary.regenerateAll.failed': '重新生成失败：{message}',
+  'mindmap.summary.regenerateAll.empty': '没有可生成摘要的卡片。',
+  'mindmap.menu.summarizeSession': '总结当前会话',
+  'mindmap.sessionSummary.summarizing': '正在总结中…',
+  'mindmap.sessionSummary.generating': '正在总结当前会话…',
+  'mindmap.sessionSummary.waiting': '正在生成缺失摘要，完成后将自动总结当前会话…',
+  'mindmap.sessionSummary.empty': '该会话没有可总结的卡片。',
+  'mindmap.sessionSummary.failed': '会话总结失败：{message}',
+  'mindmap.sessionSummary.timeout': '会话总结超时，请重试。',
+  'mindmap.head.summaryEmpty': '（尚未总结）',
   'mindmap.menu.archiveAll': '归档整个导图',
   'mindmap.menu.archiveBranch': '归档本会话及其分支',
   'mindmap.rename.title': '重命名',
@@ -887,6 +942,18 @@ const en = {
   'settings.mindmapMountBulge.reset.title': 'Reset curve amount',
   'settings.mindmapSpinSpeed': 'Mind-map icon spin speed',
   'settings.mindmapSpinSpeed.reset.title': 'Reset spin speed',
+  'settings.mindmapSummary': 'AI card summary',
+  'settings.mindmapSummary.enabled': 'Enable AI summaries',
+  'settings.mindmapSummary.model': 'Summary model',
+  'settings.mindmapSummary.model.session': 'Follow session model',
+  'settings.mindmapSummary.model.missing': 'No configured models found — configure one on the Models page first',
+  'settings.mindmapSummary.length': 'Summary length',
+  'settings.mindmapSummary.length.hint': 'Suggested length (characters)',
+  'settings.mindmapSummary.length.unit': '{n} chars',
+  'settings.mindmapSummary.sessionLength': 'Session summary length',
+  'settings.mindmapSummary.sessionLength.hint': 'Suggested length (characters)',
+  'settings.mindmapSummary.sessionLength.reset.title': 'Restore default session summary length ({n} chars)',
+  'settings.mindmapSummary.hint': 'When enabled, mind-map cards summarize each question with the chosen model (one small call per turn, minor token cost; the summary is a suggestion — hover a card to see the full text).',
   'settings.rowHeight': 'Row height',
   'settings.rowHeight.reset.title': 'Reset row height',
   'settings.searchResult': 'Search results',
@@ -912,7 +979,10 @@ const en = {
   'settings.watchFiles': 'Watch files for changes and sync automatically',
   'settings.watchOnly': 'Only notify — do not auto-reload',
   'settings.resetDefault': 'Reset',
-  'settings.hint': 'Session Browsing: adjust the spin speed of the sidebar mind-map entry icon while the map is streaming (a 0.0x–3.0x speed multiplier, larger is faster; the default 1.5x means one 1.2 s revolution, and 0 means no rotation). Mind Map Browsing: adjust the hover and selected highlight colors in the mind-map view (amber and the theme blue by default; each can be reset), the session-head and end-card accent colors (violet and green by default; each can be reset), and the mount-edge curve of the mind map (the S-curves from the root to session heads and from branch question cards to branch session heads; default 5.0x, larger bends more visibly, and 0 draws a straight line). File Browsing: adjust the tree row height, how search results are shown, and the file icon badge colors. Content Browsing: pick a highlight preset per file type, adjust the save-conflict dialog comparison text size, choose whether the file browser pane sits on the left or the right of the conversation column, and enable or disable file watching with auto-sync (on by default; switchable to notify-only without auto-reload). Conversation Page Settings: adjust the chat font size; when auto-expand thinking is on, streaming thinking blocks expand automatically and collapse after the configured delay (0–10 s, 0.1 s steps), and manual interaction cancels a pending collapse. Unchanged items use their defaults.',
+  'settings.loading': 'Loading…',
+  'settings.mindmapSummary.reset.title': 'Restore defaults (turn AI summaries off; keep the chosen model and length)',
+  'settings.mindmapSummary.length.reset.title': 'Restore default summary length ({n} chars)',
+  'settings.hint': 'Session Browsing: adjust the spin speed of the sidebar mind-map entry icon while the map is streaming (a 0.0x–3.0x speed multiplier, larger is faster; the default 1.5x means one 1.2 s revolution, and 0 means no rotation). Mind Map Browsing: adjust the hover and selected highlight colors in the mind-map view (amber and the theme blue by default; each can be reset), the session-head and end-card accent colors (violet and green by default; each can be reset), and the mount-edge curve of the mind map (the S-curves from the root to session heads and from branch question cards to branch session heads; default 5.0x, larger bends more visibly, and 0 draws a straight line), plus the optional AI card summary: pick a configured model to summarize the question on each card (the suggested length is adjustable; hover a card to see the full text). File Browsing: adjust the tree row height, how search results are shown, and the file icon badge colors. Content Browsing: pick a highlight preset per file type, adjust the save-conflict dialog comparison text size, choose whether the file browser pane sits on the left or the right of the conversation column, and enable or disable file watching with auto-sync (on by default; switchable to notify-only without auto-reload). Conversation Page Settings: adjust the chat font size; when auto-expand thinking is on, streaming thinking blocks expand automatically and collapse after the configured delay (0–10 s, 0.1 s steps), and manual interaction cancels a pending collapse. Unchanged items use their defaults.',
   'fileColor.directory': 'Directory',
   'fileColor.style': 'Style',
   'fileColor.log': 'Log',
@@ -1001,6 +1071,8 @@ const en = {
   'error.query-too-long': 'Search text is too long',
   'error.invalid-response': 'The API returned an invalid response (HTTP {status})',
   'error.invalid-response.tree': 'The workspace API returned an invalid response (HTTP {status})',
+  'error.invalid-response.file': 'The file API returned an invalid response (HTTP {status})',
+  'error.invalid-response.mindmap': 'The mind-map API returned an invalid response (HTTP {status})',
   'error.invalid-response.save': 'The save API returned an invalid response (HTTP {status})',
   'error.invalid-response.external': 'The external-file API returned an invalid response (HTTP {status})',
   'error.invalid-response.context': 'The editor-context API returned an invalid response (HTTP {status})',
@@ -1065,6 +1137,28 @@ const en = {
   'mindmap.rounds': '{n} turns',
   'mindmap.moreRounds': '{n} more turns in history',
   'mindmap.menu.rename': 'Rename',
+  'mindmap.menu.regenerateSummary': 'Regenerate summary',
+  'mindmap.summary.regenerating': 'Regenerating summary…',
+  'mindmap.summary.generating': 'Summarizing…',
+  'mindmap.summary.regenerated': 'Summary regenerated.',
+  'mindmap.summary.regenerateFailed': 'Summary generation failed: {message}',
+  'mindmap.summary.fail.noModel': 'No usable session model found',
+  'mindmap.summary.fail.generationFailed': 'Model call failed — please retry later',
+  'mindmap.summary.fail.turnGone': 'The card no longer exists',
+  'mindmap.summary.regenerateAll': 'Regenerate all summaries',
+  'mindmap.summary.regenerateAll.message': 'Regenerate the summaries of all {n} cards? This will make {n} model calls; existing summaries are kept until the new ones replace them one by one.',
+  'mindmap.summary.regenerateAll.action': 'Regenerate',
+  'mindmap.summary.regenerateAll.started': 'Regenerating all summaries ({n} cards)…',
+  'mindmap.summary.regenerateAll.failed': 'Regeneration failed: {message}',
+  'mindmap.summary.regenerateAll.empty': 'No cards to summarize.',
+  'mindmap.menu.summarizeSession': 'Summarize session',
+  'mindmap.sessionSummary.summarizing': 'Summarizing…',
+  'mindmap.sessionSummary.generating': 'Summarizing this session…',
+  'mindmap.sessionSummary.waiting': 'Generating missing summaries first — the session summary will follow automatically…',
+  'mindmap.sessionSummary.empty': 'This session has no cards to summarize.',
+  'mindmap.sessionSummary.failed': 'Session summary failed: {message}',
+  'mindmap.sessionSummary.timeout': 'Session summary timed out — please retry.',
+  'mindmap.head.summaryEmpty': '(not summarized yet)',
   'mindmap.menu.archiveAll': 'Archive entire mind map',
   'mindmap.menu.archiveBranch': 'Archive this session and its branches',
   'mindmap.rename.title': 'Rename',
@@ -1138,12 +1232,26 @@ const zhFallbackTranslate = (key, params) => {
   if (params === undefined) return template
   return template.replace(/\{(\w+)\}/g, (match, name) => name in params ? String(params[name]) : match)
 }
+/* Locale subscription bridge: useLocaleText registers on THIS set (never a
+   no-op), and the locale-activation effect bumps the epoch + forwards the
+   locale service's own notifications through it. Without the bridge, a
+   component mounted while localeFace was still undefined would hold a no-op
+   subscription forever — the first language switch would never reach it
+   (the deferred inject wires translate, but nothing re-renders). */
+const localeListeners = new Set()
+let localeEpoch = 0
+function notifyLocaleListeners() {
+  for (const listener of [...localeListeners]) listener()
+}
 let translate = zhFallbackTranslate
 /* Re-renders the calling component whenever the active locale (or dictionary registry) changes. */
 function useLocaleText() {
   return useSyncExternalStore(
-    localeFace === undefined ? () => () => {} : callback => localeFace.subscribe(callback),
-    () => localeFace === undefined ? 0 : localeFace.getSnapshot().revision,
+    callback => {
+      localeListeners.add(callback)
+      return () => { localeListeners.delete(callback) }
+    },
+    () => `${localeEpoch}:${localeFace === undefined ? 0 : localeFace.getSnapshot().revision}`,
   )
 }
 /* Whether the active surface is Chinese (no locale service counts as Chinese). */
@@ -1240,7 +1348,7 @@ const styles = `
 .dsh-ws-search-line{flex:none;width:32px;color:var(--dsw-alias-label-caption);font-variant-numeric:tabular-nums;text-align:right}
 .dsh-ws-search-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dsh-ws-search-hit{background:var(--dsw-alias-state-business-tertiary);color:var(--dsw-alias-state-business-primary);border-radius:2px}
-.dsh-ws-settings-row{display:flex;align-items:center;gap:10px}.dsh-ws-settings-label{flex:none;min-width:64px;color:var(--dsw-alias-label-primary);font-size:13px}.dsh-ws-settings-slider{flex:1;min-width:0;accent-color:var(--dsw-alias-state-business-primary);cursor:pointer}.dsh-ws-settings-checkbox{flex:none;width:16px;height:16px;margin:0;accent-color:var(--dsw-alias-state-business-primary);cursor:pointer}.dsh-ws-settings-value{flex:none;min-width:48px;color:var(--dsw-alias-label-secondary);font-size:13px;text-align:right;font-variant-numeric:tabular-nums}.dsh-ws-settings-hint{padding:0 14px 12px;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}.dsh-ws-explorer-settings{display:flex;flex-direction:column;gap:12px;width:100%;max-width:560px}.dsh-ws-explorer-settings .dsh-ws-settings-label{min-width:88px}.dsh-ws-explorer-settings .dsh-ws-settings-slider{max-width:320px}.dsh-ws-explorer-settings .dsh-ws-settings-hint{padding:0}.dsh-ws-settings-group{display:flex;flex-direction:column;gap:10px}.dsh-ws-settings-group-title{display:flex;align-items:center;gap:8px;color:var(--dsw-alias-label-primary);font-size:14px;font-weight:600;line-height:22px}.dsh-ws-settings-group-title::before{content:'';flex:none;width:3px;height:14px;border-radius:2px;background:var(--dsw-alias-state-business-primary)}.dsh-ws-explorer-divider{height:1px;margin:0;border:0;background:var(--dsw-alias-border-l2)}.dsh-ws-file-colors{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 14px}.dsh-ws-file-colors-title{font-size:14px;line-height:22px;font-weight:500;color:var(--dsw-alias-label-primary)}.dsh-ws-file-color-row{display:flex;align-items:center;gap:10px;min-height:26px}.dsh-ws-file-color-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:20px}.dsh-ws-file-color-input{flex:none;width:32px;height:24px;padding:0;border:1px solid var(--dsw-alias-border-l2);border-radius:4px;background:transparent;cursor:pointer;box-sizing:border-box}.dsh-ws-file-color-input::-webkit-color-swatch-wrapper{padding:2px}.dsh-ws-file-color-input::-webkit-color-swatch{border:0;border-radius:2px}.dsh-ws-file-color-reset{flex:none;height:24px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:12px;line-height:24px;cursor:pointer}.dsh-ws-file-color-reset:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.dsh-ws-file-color-reset:disabled{cursor:not-allowed;opacity:.55}.dsh-ws-file-colors-actions{display:flex;align-items:center;justify-content:flex-start;gap:8px;padding-top:2px}
+.dsh-ws-settings-row{display:flex;align-items:center;gap:10px}.dsh-ws-settings-label{flex:none;min-width:64px;color:var(--dsw-alias-label-primary);font-size:13px}.dsh-ws-settings-slider{flex:1;min-width:0;accent-color:var(--dsw-alias-state-business-primary);cursor:pointer}.dsh-ws-settings-checkbox{flex:none;width:16px;height:16px;margin:0;accent-color:var(--dsw-alias-state-business-primary);cursor:pointer}.dsh-ws-settings-select{flex:1;min-width:0;max-width:320px;height:28px;padding:0 6px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer}.dsh-ws-settings-select:disabled{opacity:.55;cursor:not-allowed}.dsh-ws-settings-value{flex:none;min-width:48px;color:var(--dsw-alias-label-secondary);font-size:13px;text-align:right;font-variant-numeric:tabular-nums}.dsh-ws-settings-hint{padding:0 14px 12px;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}.dsh-ws-explorer-settings{display:flex;flex-direction:column;gap:12px;width:100%;max-width:560px}.dsh-ws-explorer-settings .dsh-ws-settings-label{min-width:88px}.dsh-ws-explorer-settings .dsh-ws-settings-slider{max-width:320px}.dsh-ws-explorer-settings .dsh-ws-settings-hint{padding:0}.dsh-ws-settings-group{display:flex;flex-direction:column;gap:10px}.dsh-ws-settings-group-title{display:flex;align-items:center;gap:8px;color:var(--dsw-alias-label-primary);font-size:14px;font-weight:600;line-height:22px}.dsh-ws-settings-group-title::before{content:'';flex:none;width:3px;height:14px;border-radius:2px;background:var(--dsw-alias-state-business-primary)}.dsh-ws-explorer-divider{height:1px;margin:0;border:0;background:var(--dsw-alias-border-l2)}.dsh-ws-file-colors{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 14px}.dsh-ws-file-colors-title{font-size:14px;line-height:22px;font-weight:500;color:var(--dsw-alias-label-primary)}.dsh-ws-file-color-row{display:flex;align-items:center;gap:10px;min-height:26px}.dsh-ws-file-color-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:20px}.dsh-ws-file-color-input{flex:none;width:32px;height:24px;padding:0;border:1px solid var(--dsw-alias-border-l2);border-radius:4px;background:transparent;cursor:pointer;box-sizing:border-box}.dsh-ws-file-color-input::-webkit-color-swatch-wrapper{padding:2px}.dsh-ws-file-color-input::-webkit-color-swatch{border:0;border-radius:2px}.dsh-ws-file-color-reset{flex:none;height:24px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:12px;line-height:24px;cursor:pointer}.dsh-ws-file-color-reset:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.dsh-ws-file-color-reset:disabled{cursor:not-allowed;opacity:.55}.dsh-ws-file-colors-actions{display:flex;align-items:center;justify-content:flex-start;gap:8px;padding-top:2px}
 .dsh-ws-chat{--dsw-font-markdown-h1:700 calc(24px * var(--dsh-ws-chat-font-scale,1)) / calc(34px * var(--dsh-ws-chat-font-scale,1)) var(--dsw-font-family);--dsw-font-markdown-h2:700 calc(22px * var(--dsh-ws-chat-font-scale,1)) / calc(32px * var(--dsh-ws-chat-font-scale,1)) var(--dsw-font-family);--dsw-font-markdown-h3:700 calc(20px * var(--dsh-ws-chat-font-scale,1)) / calc(30px * var(--dsh-ws-chat-font-scale,1)) var(--dsw-font-family);--dsw-font-markdown-h4:600 calc(16px * var(--dsh-ws-chat-font-scale,1)) / calc(28px * var(--dsh-ws-chat-font-scale,1)) var(--dsw-font-family);--dsw-font-markdown-base:calc(16px * var(--dsh-ws-chat-font-scale,1)) / calc(28px * var(--dsh-ws-chat-font-scale,1)) var(--dsw-font-family);--dsw-font-markdown-base-strong:600 calc(16px * var(--dsh-ws-chat-font-scale,1)) / calc(28px * var(--dsh-ws-chat-font-scale,1)) var(--dsw-font-family);--dsw-font-markdown-base-italic:italic calc(16px * var(--dsh-ws-chat-font-scale,1)) / calc(28px * var(--dsh-ws-chat-font-scale,1)) var(--dsw-font-family);--dsw-font-markdown-base-strong-italic:italic 600 calc(16px * var(--dsh-ws-chat-font-scale,1)) / calc(28px * var(--dsh-ws-chat-font-scale,1)) var(--dsw-font-family);--dsw-font-markdown-table:calc(15px * var(--dsh-ws-chat-font-scale,1)) / calc(25px * var(--dsh-ws-chat-font-scale,1)) var(--dsw-font-family);--dsw-font-markdown-table-head:500 calc(15px * var(--dsh-ws-chat-font-scale,1)) / calc(25px * var(--dsh-ws-chat-font-scale,1)) var(--dsw-font-family);--dsw-font-markdown-code:calc(14px * var(--dsh-ws-chat-font-scale,1)) / calc(22px * var(--dsh-ws-chat-font-scale,1)) var(--ds-font-family-code);--dsw-font-markdown-code-block:calc(13px * var(--dsh-ws-chat-font-scale,1)) / calc(22px * var(--dsh-ws-chat-font-scale,1)) var(--ds-font-family-code);--dsw-font-markdown-code-block-small:calc(12px * var(--dsh-ws-chat-font-scale,1)) / calc(18px * var(--dsh-ws-chat-font-scale,1)) var(--ds-font-family-code)}
 .dsh-ws-chat [data-chat-flow-kind='user'] [data-time-hover-root] > div:first-child > div:last-child,.dsh-ws-chat [data-chat-flow-kind='steering'] [data-time-hover-root] > div:first-child > div:last-child,.dsh-ws-chat [data-pending-steering] > div:first-child > div:last-child{font-size:calc(16px * var(--dsh-ws-chat-font-scale,1));line-height:calc(24px * var(--dsh-ws-chat-font-scale,1))}
 .dsh-ws-chat [data-tool],.dsh-ws-chat [data-sample='bash'],.dsh-ws-chat [data-variant='think']{font-size:calc(14px * var(--dsh-ws-chat-font-scale,1))}
@@ -1506,7 +1614,7 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-mindmap-node-current{border-color:var(--dsh-ws-mindmap-selected,var(--dsw-alias-state-business-primary));box-shadow:0 0 0 1px var(--dsh-ws-mindmap-selected,var(--dsw-alias-state-business-primary))}
 .dsh-ws-mindmap-node-title{flex:none;display:flex;align-items:center;gap:8px;min-width:0;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:15px}
 .dsh-ws-mindmap-node-title-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transform:translateY(-1px)}
-.dsh-ws-mindmap-node-q{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;font-weight:600;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--dsw-alias-label-primary);flex:1;min-height:0}
+.dsh-ws-mindmap-node-q{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;font-weight:600;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--dsw-alias-label-primary);flex:1;min-height:0}.dsh-ws-mindmap-node-q-summarizing{color:var(--dsw-alias-label-tertiary,var(--dsw-alias-label-secondary));font-style:italic;font-weight:500}
 .dsh-ws-mindmap-node-status{flex:none;font-size:11px;line-height:15px}
 .dsh-ws-mindmap-node-thinking{color:var(--dsw-alias-state-business-primary)}
 .dsh-ws-mindmap-node-done{color:var(--dsw-alias-label-tertiary,var(--dsw-alias-label-secondary))}
@@ -1545,10 +1653,11 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-mindmap-head-current{border-color:var(--dsh-ws-mindmap-selected,var(--dsw-alias-state-business-primary));box-shadow:0 0 0 1px var(--dsh-ws-mindmap-selected,var(--dsw-alias-state-business-primary))}
 .dsh-ws-mindmap-head-row{display:flex;align-items:center;gap:6px;min-width:0}
 .dsh-ws-mindmap-head-icon{flex:none;width:15px;height:15px;color:var(--dsh-ws-mindmap-head,var(--dsw-alias-state-business-primary))}
-.dsh-ws-mindmap-head-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700;font-size:12px;line-height:16px;color:var(--dsw-alias-label-primary)}
-.dsh-ws-mindmap-head-count{font-size:11px;line-height:15px;color:var(--dsw-alias-label-secondary)}
-.dsh-ws-mindmap-head-status{display:flex;align-items:center;gap:6px;font-size:11px;line-height:15px;color:var(--dsw-alias-label-tertiary,var(--dsw-alias-label-secondary))}
-.dsh-ws-mindmap-head-status-live{color:var(--dsw-alias-state-business-primary)}
+.dsh-ws-mindmap-head-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700;font-size:12px;line-height:16px;color:var(--dsw-alias-label-primary);transform:translateY(-1px)}
+.dsh-ws-mindmap-head-meta{display:flex;align-items:center;gap:6px;font-size:11px;line-height:15px;color:var(--dsw-alias-label-secondary)}
+.dsh-ws-mindmap-head-meta-live{color:var(--dsw-alias-state-business-primary)}
+.dsh-ws-mindmap-head-summary{flex:1;min-height:0;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;overflow:hidden;font-size:10px;line-height:14px;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}
+.dsh-ws-mindmap-head-summary-empty{color:var(--dsw-alias-label-tertiary,var(--dsw-alias-label-secondary));font-style:italic}
 .dsh-ws-mindmap-head.dsh-ws-mindmap-node-ring{border:2px solid transparent;padding:8px 9px;border-radius:12px;background:linear-gradient(var(--dsw-alias-bg-layer-1),var(--dsw-alias-bg-layer-1)) padding-box,conic-gradient(from var(--dsw-ws-mm-angle),var(--dsw-ws-mm-c1),var(--dsw-ws-mm-c2),var(--dsw-ws-mm-c3),var(--dsw-ws-mm-c1)) border-box;animation:dsh-ws-mindmap-ring-spin 2.4s linear infinite}
 /* Live streaming cards (turns in flight, ephemeral UI — replaced by normal
    cards once their turns complete): instead of an enclosing frame, each
@@ -1563,6 +1672,10 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-mindmap-node.dsh-ws-mindmap-node-ring.dsh-ws-mindmap-node-streaming{box-shadow:0 0 14px color-mix(in srgb,var(--dsw-ws-mm-c1) 22%,transparent);background:linear-gradient(color-mix(in srgb,var(--dsw-alias-bg-layer-1) 78%,transparent),color-mix(in srgb,var(--dsw-alias-bg-layer-1) 78%,transparent)) padding-box,conic-gradient(from var(--dsw-ws-mm-angle),var(--dsw-ws-mm-c1),var(--dsw-ws-mm-c2),var(--dsw-ws-mm-c3),var(--dsw-ws-mm-c1)) padding-box,conic-gradient(from var(--dsw-ws-mm-angle),var(--dsw-ws-mm-c1),var(--dsw-ws-mm-c2),var(--dsw-ws-mm-c3),var(--dsw-ws-mm-c1)) border-box}
 .dsh-ws-mindmap-node-streaming-status{display:flex;align-items:center;gap:6px;color:var(--dsw-ws-mm-c1,var(--dsw-alias-state-business-primary))}
 .dsh-ws-mindmap-node-streaming-dot{width:7px;height:7px;border-radius:50%;background:var(--dsw-ws-mm-c1,var(--dsw-alias-state-business-primary));animation:dsh-ws-mindmap-dot-pulse 1s ease-in-out infinite}
+/* AI-summary-in-progress status row (方案 B): replaces "已完成" while a summary
+   is being generated; primary blue (no ring var on a normal card), same pulse
+   dot as streaming. */
+.dsh-ws-mindmap-node-summarizing{display:flex;align-items:center;gap:6px;color:var(--dsw-alias-state-business-primary)}
 @keyframes dsh-ws-mindmap-ring-spin{to{--dsw-ws-mm-angle:360deg}}
 @keyframes dsh-ws-mindmap-dot-pulse{0%,100%{opacity:1}50%{opacity:.25}}
 @media (prefers-reduced-motion: reduce){.dsh-ws-mindmap-node.dsh-ws-mindmap-node-ring{animation:none}.dsh-ws-mindmap-edge-flow{animation:none}.dsh-ws-mindmap-node-streaming-dot{animation:none}}
@@ -2380,7 +2493,7 @@ function createLayoutStore() {
       view: 'sessions',
     }),
     actions: {
-      setSidebar: (draft, width, max = SIDEBAR_MAX_FALLBACK) => { draft.sidebar = clamp(width, SIDEBAR_MIN, max) },
+      setSidebar: (draft, width, max = SIDEBAR_MAX_FALLBACK) => { draft.sidebar = width === 0 ? 0 : clamp(width, SIDEBAR_MIN, max) },
       toggleSidebar: (draft) => { draft.sidebar = draft.sidebar === 0 ? SIDEBAR_DEFAULT : 0 },
       openDetails: (draft) => { draft.detailsOpen = true },
       closeDetails: (draft) => { draft.detailsOpen = false },
@@ -2448,6 +2561,12 @@ function createExplorerSettingsStore() {
       mindmapHeadColor: undefined,
       mindmapEndColor: undefined,
       mindmapMountBulge: MINDMAP_MOUNT_BULGE_DEFAULT_X,
+      /* AI card summaries: OFF by default (no hidden token cost); the model is
+         undefined = "follow the session's model" once enabled. */
+      mindmapSummaryEnabled: false,
+      mindmapSummaryModel: undefined,
+      mindmapSummaryLength: MINDMAP_SUMMARY_DEFAULT_LENGTH,
+      mindmapSummarySessionLength: MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH,
       fileColors: {},
       highlightPresets: {},
       previewRight: PREVIEW_RIGHT_DEFAULT,
@@ -2511,6 +2630,26 @@ function createExplorerSettingsStore() {
       },
       resetMindmapEndColor: (draft) => { delete draft.mindmapEndColor },
       setMindmapMountBulge: (draft, value) => { draft.mindmapMountBulge = clampMountBulge(value) },
+      setMindmapSummaryEnabled: (draft, value) => { draft.mindmapSummaryEnabled = Boolean(value) },
+      setMindmapSummaryModel: (draft, value) => {
+        if (value === null || value === undefined) delete draft.mindmapSummaryModel
+        else if (typeof value?.provider === 'string' && value.provider !== ''
+          && typeof value?.model === 'string' && value.model !== '') {
+          draft.mindmapSummaryModel = { provider: value.provider, model: value.model }
+        }
+      },
+      setMindmapSummaryLength: (draft, value) => {
+        const raw = Number(value)
+        if (!Number.isFinite(raw)) { draft.mindmapSummaryLength = MINDMAP_SUMMARY_DEFAULT_LENGTH; return }
+        const stepped = Math.round(raw / MINDMAP_SUMMARY_LENGTH_STEP) * MINDMAP_SUMMARY_LENGTH_STEP
+        draft.mindmapSummaryLength = Math.min(MINDMAP_SUMMARY_MAX_LENGTH, Math.max(MINDMAP_SUMMARY_MIN_LENGTH, stepped))
+      },
+      setMindmapSummarySessionLength: (draft, value) => {
+        const raw = Number(value)
+        if (!Number.isFinite(raw)) { draft.mindmapSummarySessionLength = MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH; return }
+        const stepped = Math.round(raw / MINDMAP_SUMMARY_SESSION_LENGTH_STEP) * MINDMAP_SUMMARY_SESSION_LENGTH_STEP
+        draft.mindmapSummarySessionLength = Math.min(MINDMAP_SUMMARY_SESSION_MAX_LENGTH, Math.max(MINDMAP_SUMMARY_SESSION_MIN_LENGTH, stepped))
+      },
       setFileColor: (draft, group, value) => {
         if (draft.fileColors === undefined) draft.fileColors = {}
         if (String(value).toLowerCase() === fileColorDefault(group).toLowerCase()) delete draft.fileColors[group]
@@ -3147,7 +3286,7 @@ async function requestJson(endpoint, workspaceId, path, signal, encoding) {
     payload = await response.json()
   } catch (error) {
     if (error?.name === 'AbortError') throw error
-    throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.tree', { status: response.status }), response.status)
+    throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, endpoint === 'file' ? 'error.invalid-response.file' : 'error.invalid-response.tree', { status: response.status }), response.status)
   }
   if (!response.ok) {
     const failure = payload?.error
@@ -3175,7 +3314,7 @@ async function checkFileChange(workspaceId, path, previousSnapshot, signal) {
     payload = await response.json()
   } catch (error) {
     if (error?.name === 'AbortError') throw error
-    throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.tree', { status: response.status }), response.status)
+    throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.file', { status: response.status }), response.status)
   }
   if (!response.ok) {
     if (payload?.error?.code === 'path-not-found') return { changed: false, exists: false, snapshot: null }
@@ -3226,7 +3365,7 @@ async function mindmapRequest(endpoint, options) {
     payload = await response.json()
   } catch (error) {
     if (error?.name === 'AbortError') throw error
-    throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.tree', { status: response.status }), response.status)
+    throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.mindmap', { status: response.status }), response.status)
   }
   if (!response.ok) {
     const failure = payload?.error
@@ -3243,17 +3382,68 @@ const writeMindmapDoc = (sessionId, doc, signal, prevSessionId) => mindmapReques
     : { sessionId: String(sessionId), doc, prevSessionId: String(prevSessionId) },
   signal,
 })
-const syncMindmapDoc = (sessionId, liveSessionIds, signal) => {
+const syncMindmapDoc = (sessionId, liveSessionIds, signal, summaryConfig) => {
   const ids = Array.isArray(liveSessionIds) ? liveSessionIds.map(String) : []
+  const body = ids.length > 0
+    ? { sessionId: String(sessionId), liveSessionIds: ids, liveSessionId: ids[0] }
+    : { sessionId: String(sessionId) }
+  /* AI-summary config ({ mode:'session' } or { provider, model } + advisory
+     length); absent = feature off. The Host only enqueues generation as a
+     side effect of this sync, so no extra endpoint is needed for it. */
+  if (summaryConfig !== null && summaryConfig !== undefined) body.summaryModel = summaryConfig
   return mindmapRequest('/sync', {
     method: 'POST',
-    // Singular field for older Hosts during a rolling update; the current Host prefers the plural one.
-    body: ids.length > 0
-      ? { sessionId: String(sessionId), liveSessionIds: ids, liveSessionId: ids[0] }
-      : { sessionId: String(sessionId) },
+    body,
     signal,
   })
 }
+/* Configured models for the AI-summary picker, cached briefly (the catalog
+   rarely changes while the settings panel is open). */
+let mindmapModelsCache = null // { at, payload }
+const fetchMindmapModels = (signal) => {
+  if (mindmapModelsCache !== null && mindmapModelsCache.at + MINDMAP_MODELS_CACHE_MS > Date.now()) {
+    return Promise.resolve(mindmapModelsCache.payload)
+  }
+  return mindmapRequest('/models', { method: 'GET', signal }).then((payload) => {
+    /* Stamp the cache when the fetch COMPLETES so a slow request does not
+       shorten the 60 s window. */
+    mindmapModelsCache = { at: Date.now(), payload }
+    return payload
+  })
+}
+/* Right-click → 重新生成摘要: the Host runs the LLM call synchronously and
+   persists the new summary into the doc; the client applies it optimistically. */
+const regenerateMindmapSummary = (sessionId, seq, config, signal) => mindmapRequest('/regenerate-summary', {
+  method: 'POST',
+  body: {
+    sessionId: String(sessionId),
+    seq: Number(seq),
+    config: config === null || config === undefined ? null : config,
+  },
+  signal,
+})
+/* Toolbar → 重新生成全部摘要: the Host force-enqueues EVERY turn of the doc
+   (old summaries are kept until the new ones land); the per-card
+   "正在生成摘要中…" status arrives via the sync response's `summarizing`. */
+const regenerateAllMindmapSummaries = (sessionId, config, signal) => mindmapRequest('/regenerate-all', {
+  method: 'POST',
+  body: {
+    sessionId: String(sessionId),
+    config: config === null || config === undefined ? null : config,
+  },
+  signal,
+})
+/* 右键会话头 → 总结当前会话: the Host summarizes the session from its card
+   summaries only; missing card summaries are generated first (status 'waiting'
+   — the result arrives via a later sync). */
+const summarizeMindmapSession = (sessionId, config, signal) => mindmapRequest('/summarize-session', {
+  method: 'POST',
+  body: {
+    sessionId: String(sessionId),
+    config: config === null || config === undefined ? null : config,
+  },
+  signal,
+})
 const fetchMindmapDocIndex = signal => mindmapRequest('/index', { method: 'GET', signal })
 const deleteMindmapDoc = (sessionId, signal) => mindmapRequest(`?sessionId=${encodeURIComponent(String(sessionId))}`, { method: 'DELETE', signal })
 /* Rename only the map's OWN title (doc.rootTitle) on the Host — a targeted
@@ -3550,7 +3740,12 @@ async function pruneEmergencyDrafts() {
     const request = store.getAll()
     request.onsuccess = () => {
       for (const value of request.result ?? []) {
-        if (value?.state === 'deleted' && Number(value.updatedAt) < cutoff) store.delete(value.key)
+        if (value?.state !== 'deleted') continue
+        /* A tombstone with a missing/corrupt updatedAt can never satisfy the
+           retention check (NaN < cutoff is false) and would linger forever:
+           treat it as the oldest so it is reclaimed on the first sweep. */
+        const updatedAt = Number(value.updatedAt)
+        if (!Number.isFinite(updatedAt) || updatedAt < cutoff) store.delete(value.key)
       }
     }
     request.onerror = () => { reject(request.error ?? new Error('IndexedDB draft prune failed')) }
@@ -3639,8 +3834,12 @@ function writeEmergencyDraft(workspaceId, scopeId, path, payload) {
 }
 async function readEmergencyDraft(workspaceId, scopeId, path) {
   const key = emergencyDraftKey(workspaceId, scopeId, path)
-  await (emergencyDraftTails.get(key) ?? Promise.resolve()).catch(() => {})
-  return emergencyDraftRequest('readonly', store => store.get(key))
+  /* Queue the read on the same key as every write: a bare "wait for the
+     current tail, then read" leaves a window where a write enqueued right
+     after the wait commits AFTER the read transaction — restore would see
+     the previous snapshot. Serializing the read makes read-after-write
+     strict for this key. */
+  return queueEmergencyDraft(key, () => emergencyDraftRequest('readonly', store => store.get(key)))
 }
 function deleteEmergencyDraft(workspaceId, scopeId, path, generation) {
   const key = emergencyDraftKey(workspaceId, scopeId, path)
@@ -3870,6 +4069,11 @@ function serializePreviewTab(tab) {
   if (clone === null) return null
   // "Saving…" only exists while a save is in flight; never persist it as a stale banner.
   if (tab.saving) clone.status = undefined
+  // Error statuses (autosave failure, save conflict, ...) are session-transient:
+  // replaying them on a later open would flash a stale error banner over the
+  // fresh read. Informational statuses are harmless (the read pass overwrites
+  // them), so only the error flag is dropped.
+  if (clone.status?.error === true) clone.status = undefined
   // Dropped non-workspace files are session-only previews: content lives only
   // in memory (persisting it would re-introduce the quota blow-up the slim
   // serialization prevents), so refresh drops them from every persisted snapshot.
@@ -4444,6 +4648,15 @@ function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShortcut, o
       }
       if (!armed) return
       cancel()
+      /* The arm window may have outlived the focus: if the user moved focus to
+         an external input (chat, rename, search, dialogs) after arming, the
+         completion key belongs to that field — pass it through instead of
+         folding. (The pre-arm guard above already cancels on such targets;
+         this is the same fence at the completion site so a future reorder of
+         the guards cannot swallow a keystroke.) */
+      if (!insideEditor && target instanceof HTMLElement && (target.isContentEditable || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')) {
+        return
+      }
       /* Completion keys must carry NO modifiers: within the 1 s arm window a
          plain J / 1..9 completes the sequence, but Ctrl+J, Ctrl+1, Shift+J etc.
          are the user's own shortcuts and must pass through untouched instead of
@@ -4642,7 +4855,7 @@ function WorkspaceExplorer({
   const encodingMenuRef = useRef(null)
   const requestedEncodingRef = useRef()
   // Set by the preview-header refresh action; the file-read effect consumes it and surfaces a "reloaded" status.
-  const refreshPendingRef = useRef(false)
+  const refreshPendingRef = useRef(null)
   // Like refreshPendingRef but for the cancel action: surfaces the cancel-
   // specific "reloaded from disk" status once the discard re-read completes.
   const cancelRestoreRef = useRef(null)
@@ -4894,8 +5107,8 @@ function WorkspaceExplorer({
       // Flag the read pass to surface the reloaded status (same path as the
       // manual refresh button), then bump the reload token — but only if no
       // manual refresh already armed the pass with its own bump.
-      if (!refreshPendingRef.current) {
-        refreshPendingRef.current = true
+      if (refreshPendingRef.current !== path) {
+        refreshPendingRef.current = path
         setReloadToken(token => token + 1)
       }
       updateTab(path, { status: { text: notice } })
@@ -5325,8 +5538,8 @@ function WorkspaceExplorer({
     // A user-requested file refresh (preview header action) is tracked through
     // this flag: consumed at the start of every read pass so a stale flag
     // never decorates a later ordinary open with the reloaded status.
-    const refreshPending = refreshPendingRef.current
-    refreshPendingRef.current = false
+    const refreshPending = refreshPendingRef.current === activePath
+    if (refreshPending) refreshPendingRef.current = null
     const cancelRestore = activePath !== null && cancelRestoreRef.current === activePath
     if (cancelRestore) cancelRestoreRef.current = null
     if (activePath === null) {
@@ -5689,6 +5902,18 @@ function WorkspaceExplorer({
     try {
       const result = await saveFile(workspace.workspaceId, path, content, revision, controller.signal, encoding)
       if (!mounted.current) return false
+      /* The PUT just rewrote the file on disk: refresh the change-poll
+         baseline so the next tick does not report our own save as an
+         external modification (which would remount the editor and wipe
+         the undo history). The PUT response carries no stat, so mtimeMs
+         is unknown (0 forces the hash comparison) — the hash IS the
+         just-written content, so a clean save reads back as unchanged
+         while a real external edit still trips the poll. */
+      watchSnapshotsRef.current.set(path, {
+        mtimeMs: 0,
+        size: Number.isFinite(result.size) ? result.size : 0,
+        hash: typeof result.revision === 'string' ? result.revision : null,
+      })
       const savedEncoding = result.encoding ?? encoding
       const savedBom = Boolean(result.bom)
       const size = Number.isFinite(result.size) ? result.size : new TextEncoder().encode(content).byteLength
@@ -5775,10 +6000,22 @@ function WorkspaceExplorer({
          window therefore leaves the mirror holding a NEWER content than the
          Host draft (@gen1) — restore's `emergencyGeneration >= hostGeneration`
          would resurrect the reverted-away text on refresh. Reconcile the mirror
-         with a tombstone at a fresh generation so restore falls back to the
-         Host draft (which already equals the current text). */
+         with a LIVE record at a fresh generation carrying the CURRENT text:
+         restore then picks the mirror (newest generation) and shows exactly
+         what the user sees. A tombstone would be wrong here — it suppresses
+         the Host draft too (restore treats a newer tombstone as "no draft at
+         all"), silently losing the unsaved edit on refresh. */
       const reconcileGeneration = nextDraftGeneration(path)
-      void deleteEmergencyDraft(workspace.workspaceId, draftScopeId, path, reconcileGeneration).catch(() => {})
+      void writeEmergencyDraft(workspace.workspaceId, draftScopeId, path, {
+        owner: draftScopeId,
+        encoding: tab.encoding ?? 'utf-8',
+        lineEnding: tab.lineEnding ?? 'none',
+        bom: Boolean(tab.bom),
+        baseText: typeof tab.baseText === 'string' ? tab.baseText : '',
+        baseRevision: tab.baseRevision ?? tab.revision ?? null,
+        draft: text,
+        generation: reconcileGeneration,
+      }).catch(() => {})
       return
     }
     const generation = nextDraftGeneration(path)
@@ -5880,6 +6117,10 @@ function WorkspaceExplorer({
       mounted.current = false
       clearTimeout(copyNoticeTimer.current)
       searchController.current?.abort()
+      /* Drop the identity guard too: a fetch that already resolved before the
+         abort would otherwise still match `searchController.current ===
+         controller` in its .then and setState after unmount. */
+      searchController.current = undefined
       publishEditorContextRef.current(undefined)
       abortRequestsRef.current()
     }
@@ -6062,7 +6303,7 @@ function WorkspaceExplorer({
         const view = editorRef.current
         if (view !== undefined) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: resolved } })
       }
-      if (!ok) setStatus({ error: true, text: translate('editor.saveConflict') })
+      if (!ok && mounted.current && activePathRef.current === path) setStatus({ error: true, text: translate('editor.saveConflict') })
     } catch (error) {
       if (error?.name === 'AbortError' || !mounted.current) return
       const message = error instanceof Error ? error.message : String(error)
@@ -6322,7 +6563,7 @@ function WorkspaceExplorer({
       setStatus({ error: true, text: translate('editor.refreshBlocked') })
       return
     }
-    refreshPendingRef.current = true
+    refreshPendingRef.current = activePath
     if (activePath !== null) reloadingPathsRef.current.add(activePath)
     setReloadToken(token => token + 1)
   }, [activePath, dirty])
@@ -6975,8 +7216,48 @@ function EmptyWorkspaceExplorer({ treePortalTarget, sessionTitle }) {
   return h(Fragment, null,
     treePortalTarget ? createPortal(treeSection, treePortalTarget) : null,
     h('section', { className: 'dsh-ws-preview' }, h(PanelHeader, { title: translate('panel.filePreview'), subtitle: translate('panel.noWorkspace') }), h('div', { className: 'dsh-ws-empty' }, translate('panel.chooseWorkspaceToBrowse'))))
-}function ExplorerSettingsSection({ settingsStore }) {
+}/* Configured models for the AI-summary picker AND the effective summary
+   config: shared by the settings panel and the map view (the 60 s module
+   cache makes the second consumer free). Degraded to an empty list on
+   failure so neither consumer ever blocks. */
+function useMindmapSummaryModels() {
+  const [summaryModels, setSummaryModels] = useState(null) // null = loading; { available, models } after
+  useEffect(() => {
+    let cancelled = false
+    fetchMindmapModels()
+      .then((payload) => { if (!cancelled) setSummaryModels(payload) })
+      .catch(() => { if (!cancelled) setSummaryModels({ available: false, models: [] }) })
+    return () => { cancelled = true }
+  }, [])
+  return summaryModels
+}
+function ExplorerSettingsSection({ settingsStore }) {
   const settings = useSyncExternalStore(settingsStore.subscribe, settingsStore.getSnapshot)
+  const summaryModels = useMindmapSummaryModels()
+  const summaryModelsAvailable = summaryModels !== null && summaryModels?.available === true
+    && Array.isArray(summaryModels?.models) && summaryModels.models.length > 0
+  const summaryModelList = summaryModelsAvailable ? summaryModels.models : []
+  const mindmapSummaryLengthValue = clamp(
+    Number(settings.mindmapSummaryLength) || MINDMAP_SUMMARY_DEFAULT_LENGTH,
+    MINDMAP_SUMMARY_MIN_LENGTH,
+    MINDMAP_SUMMARY_MAX_LENGTH,
+  )
+  const mindmapSummarySessionLengthValue = clamp(
+    Number(settings.mindmapSummarySessionLength) || MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH,
+    MINDMAP_SUMMARY_SESSION_MIN_LENGTH,
+    MINDMAP_SUMMARY_SESSION_MAX_LENGTH,
+  )
+  /* Render-side normalization of the think-collapse delay: the store clamps on
+     write, but a legacy/out-of-range persisted value would otherwise show
+     "50.0s" next to a slider visually pinned at 10 (and keep the reset button
+     enabled). Same min/max + 0.1 rounding as setThinkCollapseDelay. */
+  const thinkCollapseDelayValue = (() => {
+    const seconds = Number(settings.thinkCollapseDelay ?? THINK_COLLAPSE_DELAY_DEFAULT_S)
+    const bounded = Number.isFinite(seconds)
+      ? Math.min(THINK_COLLAPSE_DELAY_MAX_S, Math.max(THINK_COLLAPSE_DELAY_MIN_S, seconds))
+      : THINK_COLLAPSE_DELAY_DEFAULT_S
+    return Math.round(bounded * 10) / 10
+  })()
   const rowHeight = clamp(settings.rowHeight ?? ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MIN, ROW_HEIGHT_MAX)
   const chatFontSize = clamp(settings.chatFontSize ?? CHAT_FONT_SIZE_DEFAULT, CHAT_FONT_SIZE_MIN, CHAT_FONT_SIZE_MAX)
   const conflictFontSize = clamp(settings.conflictFontSize ?? CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MIN, CONFLICT_FONT_SIZE_MAX)
@@ -7118,6 +7399,102 @@ function EmptyWorkspaceExplorer({ treePortalTarget, sessionTitle }) {
           title: translate('settings.mindmapMountBulge.reset.title'),
           type: 'button',
         }, translate('settings.resetDefault'))),
+      h('div', { className: 'dsh-ws-settings-row' },
+        h('label', { className: 'dsh-ws-settings-label', htmlFor: 'dsh-ws-mindmap-summary-enabled' }, translate('settings.mindmapSummary.enabled')),
+        h('input', {
+          'aria-label': translate('settings.mindmapSummary.enabled'),
+          checked: settings.mindmapSummaryEnabled === true,
+          className: 'dsh-ws-settings-checkbox',
+          id: 'dsh-ws-mindmap-summary-enabled',
+          onChange: e => settingsStore.actions.setMindmapSummaryEnabled(e.target.checked),
+          type: 'checkbox',
+        }),
+        h('button', {
+          className: 'dsh-ws-text-button',
+          disabled: settings.mindmapSummaryEnabled !== true || undefined,
+          /* 恢复默认 here ONLY turns the feature off: the chosen model and the
+             length stay as they are, so re-enabling is a single click. */
+          onClick: () => settingsStore.actions.setMindmapSummaryEnabled(false),
+          title: translate('settings.mindmapSummary.reset.title'),
+          type: 'button',
+        }, translate('settings.resetDefault'))),
+      h('div', { className: 'dsh-ws-settings-row' },
+        h('label', { className: 'dsh-ws-settings-label', htmlFor: 'dsh-ws-mindmap-summary-model' }, translate('settings.mindmapSummary.model')),
+        summaryModels === null
+          ? h('span', { className: 'dsh-ws-settings-value' }, translate('settings.loading'))
+          : !summaryModelsAvailable
+            ? h('span', { className: 'dsh-ws-settings-value' }, translate('settings.mindmapSummary.model.missing'))
+            : h('select', {
+              'aria-label': translate('settings.mindmapSummary.model'),
+              className: 'dsh-ws-settings-select',
+              /* Always selectable: the choice is remembered even while the
+                 feature is off, so re-enabling needs no re-picking. */
+              id: 'dsh-ws-mindmap-summary-model',
+              onChange: e => {
+                const raw = e.target.value
+                if (raw === 'session') settingsStore.actions.setMindmapSummaryModel(undefined)
+                else {
+                  const hit = summaryModelList.find(m => `${m.provider}/${m.model}` === raw)
+                  if (hit !== undefined) settingsStore.actions.setMindmapSummaryModel({ provider: hit.provider, model: hit.model })
+                }
+              },
+              /* A stored route that is no longer in the catalog falls back to
+                 "follow session model" visually (the stored value stays so a
+                 re-appearing model is picked up again). */
+              value: settings.mindmapSummaryModel !== undefined && settings.mindmapSummaryModel !== null
+                && summaryModelList.some(m => m.provider === settings.mindmapSummaryModel.provider && m.model === settings.mindmapSummaryModel.model)
+                ? `${settings.mindmapSummaryModel.provider}/${settings.mindmapSummaryModel.model}`
+                : 'session',
+            },
+              h('option', { value: 'session' }, translate('settings.mindmapSummary.model.session')),
+              summaryModelList.map(m => h('option', { key: `${m.provider}/${m.model}`, value: `${m.provider}/${m.model}` }, `${m.name} — ${m.provider}`)))),
+      h('div', { className: 'dsh-ws-settings-row' },
+        h('label', { className: 'dsh-ws-settings-label', htmlFor: 'dsh-ws-mindmap-summary-length' }, translate('settings.mindmapSummary.length')),
+        h('input', {
+          'aria-label': translate('settings.mindmapSummary.length'),
+          className: 'dsh-ws-settings-slider',
+          disabled: settings.mindmapSummaryEnabled !== true || undefined,
+          id: 'dsh-ws-mindmap-summary-length',
+          max: MINDMAP_SUMMARY_MAX_LENGTH,
+          min: MINDMAP_SUMMARY_MIN_LENGTH,
+          onChange: e => settingsStore.actions.setMindmapSummaryLength(Number(e.target.value)),
+          step: MINDMAP_SUMMARY_LENGTH_STEP,
+          title: translate('settings.mindmapSummary.length.hint'),
+          type: 'range',
+          value: mindmapSummaryLengthValue,
+        }),
+        h('span', { className: 'dsh-ws-settings-value' }, translate('settings.mindmapSummary.length.unit', { n: mindmapSummaryLengthValue })),
+        h('button', {
+          className: 'dsh-ws-text-button',
+          disabled: mindmapSummaryLengthValue === MINDMAP_SUMMARY_DEFAULT_LENGTH || undefined,
+          onClick: () => settingsStore.actions.setMindmapSummaryLength(MINDMAP_SUMMARY_DEFAULT_LENGTH),
+          title: translate('settings.mindmapSummary.length.reset.title', { n: MINDMAP_SUMMARY_DEFAULT_LENGTH }),
+          type: 'button',
+        }, translate('settings.resetDefault'))),
+      h('div', { className: 'dsh-ws-settings-row' },
+        h('label', { className: 'dsh-ws-settings-label', htmlFor: 'dsh-ws-mindmap-summary-session-length' }, translate('settings.mindmapSummary.sessionLength')),
+        h('input', {
+          'aria-label': translate('settings.mindmapSummary.sessionLength'),
+          className: 'dsh-ws-settings-slider',
+          disabled: settings.mindmapSummaryEnabled !== true || undefined,
+          id: 'dsh-ws-mindmap-summary-session-length',
+          max: MINDMAP_SUMMARY_SESSION_MAX_LENGTH,
+          min: MINDMAP_SUMMARY_SESSION_MIN_LENGTH,
+          onChange: e => settingsStore.actions.setMindmapSummarySessionLength(Number(e.target.value)),
+          step: MINDMAP_SUMMARY_SESSION_LENGTH_STEP,
+          title: translate('settings.mindmapSummary.sessionLength.hint'),
+          type: 'range',
+          value: mindmapSummarySessionLengthValue,
+        }),
+        h('span', { className: 'dsh-ws-settings-value' }, translate('settings.mindmapSummary.length.unit', { n: mindmapSummarySessionLengthValue })),
+        h('button', {
+          className: 'dsh-ws-text-button',
+          disabled: mindmapSummarySessionLengthValue === MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH || undefined,
+          onClick: () => settingsStore.actions.setMindmapSummarySessionLength(MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH),
+          title: translate('settings.mindmapSummary.sessionLength.reset.title', { n: MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH }),
+          type: 'button',
+        }, translate('settings.resetDefault'))),
+      h('div', { className: 'dsh-ws-settings-hint' }, translate('settings.mindmapSummary.hint')),
     ),
     h('div', { className: 'dsh-ws-explorer-divider' }),
     h('div', { className: 'dsh-ws-settings-group' },
@@ -7309,12 +7686,12 @@ function EmptyWorkspaceExplorer({ treePortalTarget, sessionTitle }) {
           onChange: e => settingsStore.actions.setThinkCollapseDelay(Number(e.target.value)),
           step: THINK_COLLAPSE_DELAY_STEP_S,
           type: 'range',
-          value: settings.thinkCollapseDelay ?? THINK_COLLAPSE_DELAY_DEFAULT_S,
+          value: thinkCollapseDelayValue,
         }),
-        h('span', { className: 'dsh-ws-settings-value' }, `${(settings.thinkCollapseDelay ?? THINK_COLLAPSE_DELAY_DEFAULT_S).toFixed(1)}s`),
+        h('span', { className: 'dsh-ws-settings-value' }, `${thinkCollapseDelayValue.toFixed(1)}s`),
         h('button', {
           className: 'dsh-ws-text-button',
-          disabled: ((settings.autoExpandThink ?? AUTO_EXPAND_THINK_DEFAULT) !== true || (settings.thinkCollapseDelay ?? THINK_COLLAPSE_DELAY_DEFAULT_S) === THINK_COLLAPSE_DELAY_DEFAULT_S) || undefined,
+          disabled: ((settings.autoExpandThink ?? AUTO_EXPAND_THINK_DEFAULT) !== true || thinkCollapseDelayValue === THINK_COLLAPSE_DELAY_DEFAULT_S) || undefined,
           onClick: () => settingsStore.actions.setThinkCollapseDelay(THINK_COLLAPSE_DELAY_DEFAULT_S),
           title: translate('settings.thinkDelay.reset.title'),
           type: 'button',
@@ -7374,7 +7751,11 @@ function SessionSwitcherDropdown({ useSessions, useWorkspaces, sessionId, openSe
     const onPointerDown = event => { if (!inside(event)) close() }
     const onKeyDown = event => { if (event.key === 'Escape') close() }
     // Re-anchor on resize so the 33%-of-column width keeps tracking layout changes while open.
-    const onResize = () => { const next = measurePos(); if (next !== null) setPos(next) }
+    const onResize = () => {
+      const next = measurePos()
+      if (next === null) return
+      setPos(prev => prev !== null && prev.left === next.left && prev.top === next.top && prev.width === next.width ? prev : next)
+    }
     // Scroll outside the panel closes it (capture phase); scrolls inside the scrollable panel
     // must NOT close it — that made long session lists impossible to scroll through.
     const onScroll = event => {
@@ -7386,11 +7767,21 @@ function SessionSwitcherDropdown({ useSessions, useWorkspaces, sessionId, openSe
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('resize', onResize)
     window.addEventListener('scroll', onScroll, true)
+    /* The chat column width also changes when the sidebar/preview splitters
+       move (no window resize fires on those drags): observe the column itself
+       so the panel re-anchors and keeps its 33%-of-column width live. */
+    let chatObserver
+    const chat = triggerRef.current?.closest('.dsh-ws-chat')
+    if (chat !== null && chat !== undefined && typeof ResizeObserver === 'function') {
+      chatObserver = new ResizeObserver(onResize)
+      chatObserver.observe(chat)
+    }
     return () => {
       window.removeEventListener('pointerdown', onPointerDown)
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('resize', onResize)
       window.removeEventListener('scroll', onScroll, true)
+      chatObserver?.disconnect()
     }
   }, [measurePos, open])
   const currentTitle = sessionId === undefined
@@ -7577,8 +7968,15 @@ function mindmapDeletePlan(doc, ownerId, turnSeq, emptyCard) {
     const t = removed[cursor]
     for (const s of sessions) {
       if (pruneIds.has(String(s.sessionId))) continue
+      /* A null/undefined parentTurn child (legacy data) cannot be re-anchored
+         to any surviving card, so it is pruned whenever ANY turn of its parent
+         session is removed (truncation replaces the parent; whole-branch
+         removal archives it) — otherwise it would leak into the sidebar
+         forever, invisible in the map. */
       if (String(s?.parentSessionId) === String(t.sessionId)
-        && (t.n === undefined || Number(s?.parentTurn) === Number(t.n))) {
+        && (t.n === undefined
+          || s?.parentTurn === null || s?.parentTurn === undefined
+          || Number(s?.parentTurn) === Number(t.n))) {
         pruneIds.add(String(s.sessionId))
         for (const turn of s?.turns ?? []) pushTurn(s.sessionId, turn)
       }
@@ -7614,13 +8012,29 @@ function mindmapDeletePlan(doc, ownerId, turnSeq, emptyCard) {
 
 
 
-/* Stable fingerprint of a doc's structure (per-session turn seqs, fork anchors + the map's
-   own title) to skip redundant re-renders after a sync that changed nothing. rootTitle is
-   included so a sidebar rename reaches an open map on the next sync (a seq-only one skipped it). */
+/* Stable fingerprint of a doc's structure (per-session turn seqs + AI summaries,
+   fork anchors + the map's own title) to skip redundant re-renders after a sync
+   that changed nothing. rootTitle is included so a sidebar rename reaches an open
+   map on the next sync (a seq-only one skipped it); the turn summaries AND the
+   session summaries are included so a background AI summary (or a manual
+   regeneration / 总结当前会话) renders without waiting for a structural change. */
 function mindmapDocFingerprint(doc) {
   const sessions = (doc?.sessions ?? []).map(s =>
-    `${String(s?.sessionId)}:${String(s?.parentSessionId ?? '')}:${String(s?.parentTurn ?? '')}:${(s?.turns ?? []).map(turn => turn?.seq).join(',')}`).join(';')
+    `${String(s?.sessionId)}:${String(s?.parentSessionId ?? '')}:${String(s?.parentTurn ?? '')}:${typeof s?.summary === 'string' ? s.summary : ''}:${(s?.turns ?? []).map(turn => `${turn?.seq}:${turn?.n ?? ''}:${String(turn?.user ?? '')}:${typeof turn?.summary === 'string' ? turn.summary : ''}`).join(',')}`).join(';')
   return `${String(doc?.rootTitle ?? '')}|${sessions}`
+}
+
+/* Structure-ONLY fingerprint for the layout memo: everything mindmapDocLayout
+   reads EXCEPT the AI summaries. A summary write must re-render only the
+   affected card (its summary prop), never rebuild the whole canvas — the layout
+   (and every node entry it produces) stays referentially stable across summary
+   changes, so React.memo on the cards keeps working. The question text IS
+   included (the cards render it), so an in-place edit of a turn's user text
+   (same seq/n) still rebuilds the card. */
+function mindmapDocStructureFingerprint(doc) {
+  const sessions = (doc?.sessions ?? []).map(s =>
+    `${String(s?.sessionId)}:${String(s?.parentSessionId ?? '')}:${String(s?.parentTurn ?? '')}:${(s?.turns ?? []).map(turn => `${turn?.seq}:${turn?.n ?? ''}:${String(turn?.user ?? '')}`).join(',')}`).join(';')
+  return `${String(doc?.rootSessionId ?? '')}|${sessions}`
 }
 
 /* Deterministic per-session palette for a streaming card + parent pair (the gradient ring and
@@ -7710,11 +8124,12 @@ function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_MOUNT_BU
     visited.add(sid)
     order.push(s)
     const turns = s.turns ?? []
-    /* A session with no cards can still carry null-parentTurn children: visit
-       them so they are never silently dropped from the layout. */
-    if (turns.length === 0) {
-      for (const kid of (childMap.get(`${sid}\u0000null`) ?? [])) visit(kid)
-    }
+    /* A session can carry null-parentTurn children (legacy v2 migration /
+       defensive): visit them for EVERY session — not only card-less ones —
+       so they are never silently dropped from the layout once the parent
+       gains turns. headCol falls back to 0 and no mount edge renders
+       (defensive), matching the existing null-key handling. */
+    for (const kid of (childMap.get(`${sid}\u0000null`) ?? [])) visit(kid)
     for (let k = 0; k < turns.length; k += 1) {
       const n = Number(turns[k]?.n)
       if (!Number.isSafeInteger(n)) continue
@@ -8037,7 +8452,7 @@ function useMindmapSessionView(useSessions, familyIdsRef) {
 /* One absolutely-positioned map card, extracted so `memo` only rebuilds cards
    whose props actually changed on a doc-triggered re-render. */
 const MindMapCard = memo(function MindMapCard({
-  entry, title, isCurrent, isStreaming, isAncestor, isHover, isHoverAncestor, hintAction, isEnd, ringPalette, onOpen, onMenu, onHover,
+  entry, title, isCurrent, isStreaming, isSummarizing, summary, isAncestor, isHover, isHoverAncestor, hintAction, isEnd, ringPalette, onOpen, onMenu, onHover,
 }) {
   /* Ring cards (the streaming card + its parent, both wearing the flowing
      gradient ring) are the pair's single visual signal: selection/hover
@@ -8057,6 +8472,9 @@ const MindMapCard = memo(function MindMapCard({
     + (isHoverAncestor && !ringed ? ' dsh-ws-mindmap-node-hover-ancestor' : '')
     + (isHover && !ringed ? ' dsh-ws-mindmap-node-hover' : '')
   const turn = entry.turn
+  /* The AI summary arrives as a plain string prop (from the CURRENT doc via
+     summaryByKey — the layout node's turn object may predate the write). The
+     FULL original text stays one hover away via the title attribute below. */
   const style = { left: entry.x, top: entry.y, width: entry.width, height: entry.height }
   if (ringPalette !== undefined) {
     style['--dsw-ws-mm-c1'] = ringPalette[0]
@@ -8082,7 +8500,16 @@ const MindMapCard = memo(function MindMapCard({
     role: 'button',
     tabIndex: 0,
     style,
-    title: isStreaming ? translate('mindmap.streaming.click') : translate('mindmap.open.hint'),
+    title: isStreaming
+      ? translate('mindmap.streaming.click')
+      /* A summarized card shows the FULL original question on hover (the
+         summary is a lossy replacement, so the source text must stay reachable);
+         while the summary is still being generated the placeholder hides the
+         original text (no original→summary flicker), so hover shows it there
+         too. Without either, the card already shows the text — keep the hint. */
+      : (summary !== undefined || isSummarizing)
+        ? String(turn?.user ?? '') || translate('mindmap.open.hint')
+        : translate('mindmap.open.hint'),
   },
     isCurrent ? h('span', { className: 'dsh-ws-mindmap-node-current-badge' }, translate('mindmap.current')) : null,
     h('div', { className: 'dsh-ws-mindmap-node-title' },
@@ -8123,14 +8550,27 @@ const MindMapCard = memo(function MindMapCard({
       ? h('div', { className: 'dsh-ws-mindmap-pending-title' }, translate('mindmap.pending'))
       : isStreaming
         ? h('div', { className: 'dsh-ws-mindmap-node-q' }, mindmapClip(entry.question || translate('mindmap.streaming'), MINDMAP_TEXT_MAX))
-        : h('div', { className: 'dsh-ws-mindmap-node-q' }, mindmapClip(turn.user || translate('mindmap.emptyRound'), MINDMAP_TEXT_MAX)),
+        : h('div', { className: 'dsh-ws-mindmap-node-q' + (isSummarizing && summary === undefined ? ' dsh-ws-mindmap-node-q-summarizing' : '') },
+          /* Three-level card text (A1): summary once ready; a muted
+             "generating" placeholder while the background queue owns the turn
+             (so the original text never flashes in between); the original
+             question otherwise (off / failed / not yet enqueued). */
+          summary !== undefined
+            ? mindmapClip(summary, MINDMAP_TEXT_MAX)
+            : isSummarizing
+              ? mindmapClip(translate('mindmap.summary.generating'), MINDMAP_TEXT_MAX)
+              : mindmapClip(turn.user || translate('mindmap.emptyRound'), MINDMAP_TEXT_MAX)),
     entry.empty
       ? null
       : isStreaming
         ? h('div', { className: 'dsh-ws-mindmap-node-status dsh-ws-mindmap-node-streaming-status' },
             h('span', { className: 'dsh-ws-mindmap-node-streaming-dot' }),
             h('span', null, translate('mindmap.streaming')))
-        : h('div', { className: 'dsh-ws-mindmap-node-status dsh-ws-mindmap-node-done' }, translate('mindmap.done')),
+        : isSummarizing
+          ? h('div', { className: 'dsh-ws-mindmap-node-status dsh-ws-mindmap-node-summarizing' },
+              h('span', { className: 'dsh-ws-mindmap-node-streaming-dot' }),
+              h('span', null, translate('mindmap.summary.generating')))
+          : h('div', { className: 'dsh-ws-mindmap-node-status dsh-ws-mindmap-node-done' }, translate('mindmap.done')),
     /* Hover-only hint chip: tells the user what a click will do. pointer-events
        none so it never intercepts hover/click; absolute so it never shifts
        the layout. */
@@ -8176,7 +8616,7 @@ const MindMapRootNode = memo(function MindMapRootNode({ entry, isAncestor, isHov
    Shows the session title / round count / status; clicking switches to the
    session (the "当前" badge sits here); right-click renames it. */
 const MindMapSessionHead = memo(function MindMapSessionHead({
-  entry, title, isCurrent, isRunning, isAncestor, isHover, isHoverAncestor, hintAction, ringPalette, onOpen, onMenu, onHover,
+  entry, title, isCurrent, isRunning, isAncestor, isHover, isHoverAncestor, hintAction, ringPalette, onOpen, onMenu, onHover, summary, isSummarizing,
 }) {
   const ringed = ringPalette !== undefined
   const classes = 'dsh-ws-mindmap-node dsh-ws-mindmap-head'
@@ -8189,9 +8629,19 @@ const MindMapSessionHead = memo(function MindMapSessionHead({
   const countLabel = turns.length > 0
     ? translate('mindmap.rounds', { n: turns.length })
     : translate('mindmap.session.empty')
+  /* Status priority: streaming (生成中…) > session summary in flight
+     (正在总结中…) > done / waiting. */
   const statusLabel = isRunning
     ? translate('mindmap.streaming')
-    : (turns.length > 0 ? translate('mindmap.done') : translate('mindmap.session.waiting'))
+    : isSummarizing
+      ? translate('mindmap.sessionSummary.summarizing')
+      : (turns.length > 0 ? translate('mindmap.done') : translate('mindmap.session.waiting'))
+  const statusLive = isRunning || isSummarizing
+  /* Session-level AI summary (persisted on the session entry, read from the
+     CURRENT doc — the layout's session object is structure-memoized and would
+     be stale). Shown in the card's remaining space; the FULL text is one hover
+     away via the title attribute. */
+  const hasSummary = typeof summary === 'string' && summary !== ''
   const style = { left: entry.x, top: entry.y, width: entry.width, height: entry.height }
   if (ringPalette !== undefined) {
     style['--dsw-ws-mm-c1'] = ringPalette[0]
@@ -8211,17 +8661,21 @@ const MindMapSessionHead = memo(function MindMapSessionHead({
     role: 'button',
     tabIndex: 0,
     style,
-    title: translate('mindmap.open.hint'),
+    title: hasSummary ? summary : translate('mindmap.open.hint'),
   },
     isCurrent ? h('span', { className: 'dsh-ws-mindmap-node-current-badge' }, translate('mindmap.current')) : null,
     h('div', { className: 'dsh-ws-mindmap-head-row' },
       h('svg', { className: 'dsh-ws-mindmap-head-icon', fill: 'none', viewBox: '0 0 24 24' },
         h('path', { d: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z', stroke: 'currentColor', strokeWidth: '1.7', strokeLinejoin: 'round' })),
       h('span', { className: 'dsh-ws-mindmap-head-title' }, title)),
-    h('div', { className: 'dsh-ws-mindmap-head-count' }, countLabel),
-    h('div', { className: 'dsh-ws-mindmap-head-status' + (isRunning ? ' dsh-ws-mindmap-head-status-live' : '') },
-      isRunning ? h('span', { className: 'dsh-ws-mindmap-node-streaming-dot' }) : null,
-      statusLabel),
+    /* Row 2: turn count + completion status merged (the old count/status rows
+       collapsed into one line so the summary gets the remaining space). */
+    h('div', { className: 'dsh-ws-mindmap-head-meta' + (statusLive ? ' dsh-ws-mindmap-head-meta-live' : '') },
+      statusLive ? h('span', { className: 'dsh-ws-mindmap-node-streaming-dot' }) : null,
+      h('span', null, `${countLabel} · ${statusLabel}`)),
+    /* Remaining space: the session summary, smaller font, 4-line clamp. */
+    h('div', { className: 'dsh-ws-mindmap-head-summary' + (hasSummary ? '' : ' dsh-ws-mindmap-head-summary-empty') },
+      hasSummary ? summary : (turns.length > 0 ? translate('mindmap.head.summaryEmpty') : '')),
     isHover && hintAction !== undefined
       ? h('span', { className: 'dsh-ws-mindmap-node-hint' }, translate(`mindmap.hint.${hintAction}`))
       : null)
@@ -8240,6 +8694,10 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   // rootId) so a pre-switch sync can't apply the previous family's doc.
   const rootIdRef = useRef(null)
   rootIdRef.current = rootId
+  /* Current doc as a ref: async continuations (regenerateSummary) must build
+     optimistic updates from the LATEST doc, not the render-time closure. */
+  const docRef = useRef(null)
+  docRef.current = doc
   /* Doc family ids, kept current BEFORE the narrowed sessions subscription
      below runs: the selector can't close over doc/rootId, and its getSnapshot
      must see the fresh family during this render. */
@@ -8311,11 +8769,29 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [deleteError, setDeleteError] = useState(null)
+  /* Toolbar "重新生成全部摘要" confirm dialog: { count } of turns to regenerate. */
+  const [regenerateAllTarget, setRegenerateAllTarget] = useState(null)
+  const [regenerateAllBusy, setRegenerateAllBusy] = useState(false)
+  const [regenerateAllError, setRegenerateAllError] = useState(null)
+  /* 总结当前会话: the session id being waited on (missing card summaries are
+     generated first — the result lands via a later sync), the session id whose
+     synchronous request is in flight, and the Host-reported set of sessions
+     whose session summary is pending/running (regenerate-all auto-generation).
+     No result dialog: the card itself shows the outcome. */
+  const [sessionSummaryWaiting, setSessionSummaryWaiting] = useState(null)
+  const [sessionSummaryBusyId, setSessionSummaryBusyId] = useState(null)
+  const [sessionSummarizing, setSessionSummarizing] = useState([])
   const [notice, setNotice] = useState(null)
   /* Live-turn info from the latest sync payload: one { sessionId, turn,
      question } per doc-family session with a turn in flight — drives the
      streaming cards. */
   const [live, setLive] = useState([])
+  /* Turns currently generating an AI summary (方案 B status row): the Host
+     reports its background queue per sync (summarizing), and manual
+     regenerations are tracked locally (the Host's synchronous regenerate never
+     enters its in-flight set). */
+  const [summarizing, setSummarizing] = useState([])
+  const [manualSummarizing, setManualSummarizing] = useState([])
   const [dragging, setDragging] = useState(false)
   /* Key of the card under the pointer (undefined when none): drives the hover
      ancestor trace — the same highlight as the selected card's chain, rendered
@@ -8379,6 +8855,9 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
        key matches no node anyway, but resetting keeps state honest).
        In-family switches skip this branch on purpose. */
     setHoverKey(undefined)
+    /* A manual regeneration belongs to the previous family's cards; the new
+       family's in-flight list arrives with the load payload. */
+    setManualSummarizing([])
     /* Switching to a DIFFERENT family (or a fresh doc): reset the view so the
        new map fits on load instead of inheriting the old transform (fittedRef
        was only ever set, never reset, so switches kept the old pan/zoom). */
@@ -8397,6 +8876,8 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
         setRootId(loaded.rootSessionId)
         setDoc(loaded)
         lastFingerprintRef.current = mindmapDocFingerprint(loaded)
+        setSummarizing(Array.isArray(payload?.summarizing) ? payload.summarizing : [])
+        setSessionSummarizing(Array.isArray(payload?.sessionSummarizing) ? payload.sessionSummarizing : [])
         setPhase({ status: 'ready' })
         mindmapRegistry.markDirty()
         if (payload.created === true) showNotice(translate('mindmap.created'))
@@ -8449,6 +8930,8 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
             setRootId(loaded.rootSessionId)
             setDoc(loaded)
             lastFingerprintRef.current = mindmapDocFingerprint(loaded)
+            setSummarizing(Array.isArray(payload?.summarizing) ? payload.summarizing : [])
+            setSessionSummarizing(Array.isArray(payload?.sessionSummarizing) ? payload.sessionSummarizing : [])
             setPhase({ status: 'ready' })
             mindmapRegistry.markDirty()
             if (payload.created === true) showNotice(translate('mindmap.created'))
@@ -8510,6 +8993,31 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       }
       return prev
     })
+    /* The in-flight summary list (Host's background queue): identity-compared
+       like `live` so a static list does not re-render the map every sync. The
+       Host sorts it, so order is stable. */
+    const summarizingNext = Array.isArray(payload?.summarizing) ? payload.summarizing : []
+    setSummarizing(prev => {
+      if (prev.length !== summarizingNext.length) return summarizingNext
+      for (let i = 0; i < summarizingNext.length; i += 1) {
+        const a = prev[i]
+        const b = summarizingNext[i]
+        if (a === null || a === undefined || b === null || b === undefined
+          || String(a.sessionId) !== String(b.sessionId)
+          || Number(a.seq) !== Number(b.seq)) return summarizingNext
+      }
+      return prev
+    })
+    /* Sessions whose SESSION summary is pending/running (Host-reported, sorted):
+       drives the head card's "正在总结中…" status. Identity-compared the same way. */
+    const sessionSummarizingNext = Array.isArray(payload?.sessionSummarizing) ? payload.sessionSummarizing : []
+    setSessionSummarizing(prev => {
+      if (prev.length !== sessionSummarizingNext.length) return sessionSummarizingNext
+      for (let i = 0; i < sessionSummarizingNext.length; i += 1) {
+        if (String(prev[i] ?? '') !== String(sessionSummarizingNext[i] ?? '')) return sessionSummarizingNext
+      }
+      return prev
+    })
   }, [])
 
   /* The doc-family sessions currently running: a live streaming card attaches
@@ -8536,7 +9044,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
          savingRef guard only covers the in-flight window). Drop any response
          that is no longer the latest local state. */
       const issuedSeq = localWriteSeqRef.current
-      Promise.resolve(syncDocRef.current(root, runningFamilyIdsRef.current))
+      Promise.resolve(syncDocRef.current(root, runningFamilyIdsRef.current, undefined, summaryConfigRef.current))
         .then((payload) => {
           if (issuedSeq !== localWriteSeqRef.current) return
           applySync(payload, root)
@@ -8556,7 +9064,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       if (!mountedRef.current || savingRef.current) return
       const root = rootId
       const issuedSeq = localWriteSeqRef.current
-      Promise.resolve(syncDocRef.current(root, runningFamilyIdsRef.current))
+      Promise.resolve(syncDocRef.current(root, runningFamilyIdsRef.current, undefined, summaryConfigRef.current))
         .then((payload) => {
           if (issuedSeq !== localWriteSeqRef.current) return
           applySync(payload, root)
@@ -8587,7 +9095,43 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   }, [live, runningFamilyIds])
 
   const mountBulge = clampMountBulge(settings.mindmapMountBulge)
-  const layout = useMemo(() => mindmapDocLayout(doc, streamingCards, mountBulge), [doc, streamingCards, mountBulge])
+  /* Configured models for the AI-summary picker (shared hook; the 60 s module
+     cache makes this free after the settings panel fetched it). */
+  const summaryModels = useMindmapSummaryModels()
+  const summaryModelList = summaryModels !== null && summaryModels?.available === true && Array.isArray(summaryModels?.models)
+    ? summaryModels.models.filter(m => m !== null && m !== undefined && typeof m?.model === 'string' && m.model !== '')
+    : []
+  /* Effective AI-summary config sent with every sync (and regeneration): off
+     unless enabled; undefined model = "follow the session's model"; otherwise a
+     fixed route. The length is an advisory suggestion, clamped into UI bounds.
+     A stored route missing from the catalog falls back to session mode —
+     mirroring the picker's visual fallback (the stored value stays so a
+     re-appearing model is picked up again). */
+  const summaryLengthRaw = Number(settings.mindmapSummaryLength)
+  const summaryLength = Number.isFinite(summaryLengthRaw)
+    ? Math.min(MINDMAP_SUMMARY_MAX_LENGTH, Math.max(MINDMAP_SUMMARY_MIN_LENGTH, summaryLengthRaw))
+    : MINDMAP_SUMMARY_DEFAULT_LENGTH
+  const summarySessionLengthRaw = Number(settings.mindmapSummarySessionLength)
+  const summarySessionLength = Number.isFinite(summarySessionLengthRaw)
+    ? Math.min(MINDMAP_SUMMARY_SESSION_MAX_LENGTH, Math.max(MINDMAP_SUMMARY_SESSION_MIN_LENGTH, summarySessionLengthRaw))
+    : MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH
+  const summaryConfig = settings.mindmapSummaryEnabled === true
+    ? (settings.mindmapSummaryModel !== undefined && settings.mindmapSummaryModel !== null
+      && typeof settings.mindmapSummaryModel.provider === 'string' && settings.mindmapSummaryModel.provider !== ''
+      && typeof settings.mindmapSummaryModel.model === 'string' && settings.mindmapSummaryModel.model !== ''
+      && summaryModelList.some(m => m.provider === settings.mindmapSummaryModel.provider && m.model === settings.mindmapSummaryModel.model)
+      ? { provider: settings.mindmapSummaryModel.provider, model: settings.mindmapSummaryModel.model, length: summaryLength, sessionLength: summarySessionLength }
+      : { mode: 'session', length: summaryLength, sessionLength: summarySessionLength })
+    : null
+  /* Read at sync-issue time (like runningFamilyIdsRef) so a settings change
+     applies without recreating the timers. */
+  const summaryConfigRef = useRef(summaryConfig)
+  summaryConfigRef.current = summaryConfig
+  /* Structure-only fingerprint: the layout memo depends on THIS (not the whole
+     doc) so an AI-summary write re-renders only the affected card instead of
+     rebuilding every node entry (which would defeat React.memo on the cards). */
+  const structureFp = useMemo(() => mindmapDocStructureFingerprint(doc), [doc])
+  const layout = useMemo(() => mindmapDocLayout(doc, streamingCards, mountBulge), [structureFp, streamingCards, mountBulge])
 
   /* Edge path strings plus per-streaming metadata, derived from the layout and
      stable between doc changes — memoized so a re-render does not rebuild them
@@ -9228,21 +9772,221 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     setDeleteTarget(null)
     setDeleteError(null)
   }, [deleteBusy])
+  /* Right-click a card → 重新生成摘要: the Host runs the LLM call synchronously
+     and persists the new summary; the card updates optimistically here (the
+     periodic sync would converge anyway). In-flight sync responses issued before
+     the optimistic write are dropped so the fresh summary cannot flicker away. */
+  const regenerateSummary = useCallback(() => {
+    if (menu === null || menu.kind !== 'card' || !Number.isSafeInteger(menu.turnSeq)) return
+    const sessionId = String(menu.sessionId)
+    const seq = Number(menu.turnSeq)
+    setMenu(null)
+    /* Local in-flight marker: the Host's synchronous regenerate never enters
+       its background in-flight set, so the status row tracks it here (removed
+       on settle below). */
+    setManualSummarizing(prev => prev.some(p => String(p.sessionId) === sessionId && Number(p.seq) === seq)
+      ? prev
+      : [...prev, { sessionId, seq }])
+    showNotice(translate('mindmap.summary.regenerating'))
+    Promise.resolve(regenerateMindmapSummary(sessionId, seq, summaryConfigRef.current))
+      .then((payload) => {
+        if (payload?.ok === true && typeof payload.summary === 'string') {
+          /* The Host persisted the summary. Apply the optimistic update only
+             while the card's family is still the one on screen: a family
+             switch mid-call must not overwrite the new map's doc with the old
+             one (the next sync would correct it, but the wrong map would
+             flash). Built from the CURRENT doc (docRef) so a sync that landed
+             during the call is never rolled back. */
+          const currentDoc = docRef.current
+          if (currentDoc !== null && familyIdsRef.current.includes(sessionId)) {
+            const next = {
+              ...currentDoc,
+              sessions: currentDoc.sessions.map(s =>
+                String(s?.sessionId) !== sessionId
+                  ? s
+                  : { ...s, turns: (s?.turns ?? []).map(t =>
+                    t !== null && t !== undefined && Number(t?.seq) === seq
+                      ? { ...t, summary: payload.summary }
+                      : t) }),
+            }
+            localWriteSeqRef.current += 1
+            setDoc(next)
+            lastFingerprintRef.current = mindmapDocFingerprint(next)
+          }
+          showNotice(translate('mindmap.summary.regenerated'))
+        } else {
+          const key = payload?.code === 'no-model'
+            ? 'mindmap.summary.fail.noModel'
+            : payload?.code === 'turn-gone'
+              ? 'mindmap.summary.fail.turnGone'
+              : 'mindmap.summary.fail.generationFailed'
+          showNoticeError(translate('mindmap.summary.regenerateFailed', { message: translate(key) }))
+        }
+      })
+      .catch((error) => {
+        showNoticeError(translate('mindmap.summary.regenerateFailed', { message: error?.message ?? String(error) }))
+      })
+      .finally(() => {
+        if (mountedRef.current) {
+          setManualSummarizing(prev => prev.filter(p => !(String(p.sessionId) === sessionId && Number(p.seq) === seq)))
+        }
+      })
+  }, [menu, showNotice, showNoticeError])
+  /* Toolbar → 重新生成全部摘要: count the doc's turns, confirm (token cost is
+     transparent), then ask the Host to force-enqueue every turn. Old summaries
+     stay until the new ones land; the per-card "正在生成摘要中…" status arrives
+     via the sync response, so no optimistic doc change is needed here. */
+  const startRegenerateAll = useCallback(() => {
+    if (doc === null) return
+    let count = 0
+    for (const s of doc.sessions ?? []) {
+      for (const t of s?.turns ?? []) {
+        if (t !== null && t !== undefined && Number.isSafeInteger(t?.seq)) count += 1
+      }
+    }
+    if (count === 0) {
+      showNotice(translate('mindmap.summary.regenerateAll.empty'))
+      return
+    }
+    setRegenerateAllError(null)
+    setRegenerateAllTarget({ count })
+  }, [doc, showNotice])
+  const closeRegenerateAll = useCallback(() => {
+    if (regenerateAllBusy) return
+    setRegenerateAllTarget(null)
+    setRegenerateAllError(null)
+  }, [regenerateAllBusy])
+  const confirmRegenerateAll = useCallback(() => {
+    if (regenerateAllBusy || regenerateAllTarget === null) return
+    const root = rootId
+    if (root === null) return
+    setRegenerateAllBusy(true)
+    setRegenerateAllError(null)
+    Promise.resolve(regenerateAllMindmapSummaries(root, summaryConfigRef.current))
+      .then((payload) => {
+        if (payload?.ok === true) {
+          /* The Host cleared every session summary (they auto-regenerate after
+             the card batch); mirror that locally so the head cards drop their
+             stale paragraphs immediately. */
+          const currentDoc = docRef.current
+          if (currentDoc !== null) {
+            const next = {
+              ...currentDoc,
+              sessions: currentDoc.sessions.map(s => {
+                if (s === null || s === undefined) return s
+                if (typeof s.summary === 'string' && s.summary !== '') {
+                  const copy = { ...s }
+                  delete copy.summary
+                  return copy
+                }
+                return s
+              }),
+            }
+            localWriteSeqRef.current += 1
+            setDoc(next)
+            lastFingerprintRef.current = mindmapDocFingerprint(next)
+          }
+          const count = Number.isSafeInteger(payload.count) ? payload.count : regenerateAllTarget.count
+          showNotice(translate('mindmap.summary.regenerateAll.started', { n: count }))
+        } else {
+          showNoticeError(translate('mindmap.summary.regenerateAll.failed', { message: payload?.code ?? '' }))
+        }
+      })
+      .catch((error) => {
+        showNoticeError(translate('mindmap.summary.regenerateAll.failed', { message: error?.message ?? String(error) }))
+      })
+      .finally(() => {
+        if (mountedRef.current) {
+          setRegenerateAllBusy(false)
+          setRegenerateAllTarget(null)
+        }
+      })
+  }, [regenerateAllBusy, regenerateAllTarget, rootId, showNotice, showNoticeError])
+  /* 右键会话头 → 总结当前会话: ready sessions return synchronously ('done' —
+     show the result dialog + optimistic doc update); sessions with missing or
+     in-flight card summaries return 'waiting' — the Host generates the missing
+     ones and the drain finishes the session summary in the background, which
+     the waiting effect below picks up from a later sync. */
+  const startSummarizeSession = useCallback(() => {
+    if (menu === null || menu.kind !== 'head') return
+    const sessionId = String(menu.sessionId)
+    setMenu(null)
+    if (sessionSummaryBusyId !== null) return
+    setSessionSummaryBusyId(sessionId)
+    showNotice(translate('mindmap.sessionSummary.generating'))
+    Promise.resolve(summarizeMindmapSession(sessionId, summaryConfigRef.current))
+      .then((payload) => {
+        if (payload?.ok === true && payload.status === 'done' && typeof payload.summary === 'string') {
+          /* No result dialog (user decision): the head card shows the summary
+             immediately via the optimistic doc update. */
+          const currentDoc = docRef.current
+          if (currentDoc !== null) {
+            const next = {
+              ...currentDoc,
+              sessions: currentDoc.sessions.map(s =>
+                String(s?.sessionId) !== sessionId
+                  ? s
+                  : { ...s, summary: payload.summary }),
+            }
+            localWriteSeqRef.current += 1
+            setDoc(next)
+            lastFingerprintRef.current = mindmapDocFingerprint(next)
+          }
+        } else if (payload?.ok === true && payload.status === 'waiting') {
+          setSessionSummaryWaiting(sessionId)
+          showNotice(translate('mindmap.sessionSummary.waiting'))
+        } else if (payload?.ok === true && payload.status === 'empty') {
+          showNotice(translate('mindmap.sessionSummary.empty'))
+        } else {
+          const key = payload?.code === 'no-model'
+            ? 'mindmap.summary.fail.noModel'
+            : payload?.code === 'session-gone'
+              ? 'mindmap.summary.fail.turnGone'
+              : 'mindmap.summary.fail.generationFailed'
+          showNoticeError(translate('mindmap.summary.regenerateFailed', { message: translate(key) }))
+        }
+      })
+      .catch((error) => {
+        showNoticeError(translate('mindmap.sessionSummary.failed', { message: error?.message ?? String(error) }))
+      })
+      .finally(() => {
+        if (mountedRef.current) setSessionSummaryBusyId(null)
+      })
+  }, [menu, sessionSummaryBusyId, showNotice, showNoticeError])
+  /* Waiting completion: a later sync brings the session's summary — the head
+     card updates by itself (no dialog). A 5-minute stall (generation failed and
+     cooled down, or the map was closed) surfaces as a timeout notice. */
+  useEffect(() => {
+    if (sessionSummaryWaiting === null) return undefined
+    const session = (doc?.sessions ?? []).find(s => s !== null && s !== undefined && String(s.sessionId) === String(sessionSummaryWaiting))
+    if (session !== undefined && typeof session.summary === 'string' && session.summary !== '') {
+      setSessionSummaryWaiting(null)
+      return undefined
+    }
+    const timer = window.setTimeout(() => {
+      if (mountedRef.current) {
+        setSessionSummaryWaiting(null)
+        showNoticeError(translate('mindmap.sessionSummary.timeout'))
+      }
+    }, 5 * 60 * 1000)
+    return () => clearTimeout(timer)
+  }, [doc, sessionSummaryWaiting, showNoticeError])
   /* Escape closes the archive / delete dialogs (rename and the context menu
      handle their own). The overlay's own Escape handler defers while a
      .dsh-ws-dialog-backdrop is in the DOM, so without this the key does
      nothing while one of these dialogs is open. */
   useEffect(() => {
-    if (archiveTarget === null && deleteTarget === null && archiveBranchTarget === null) return undefined
+    if (archiveTarget === null && deleteTarget === null && archiveBranchTarget === null && regenerateAllTarget === null) return undefined
     const onKeyDown = event => {
       if (event.key !== 'Escape') return
       closeArchive()
       closeDelete()
       closeArchiveBranch()
+      closeRegenerateAll()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [archiveTarget, closeArchive, closeDelete, deleteTarget, archiveBranchTarget, closeArchiveBranch])
+  }, [archiveTarget, closeArchive, closeDelete, deleteTarget, archiveBranchTarget, closeArchiveBranch, regenerateAllTarget, closeRegenerateAll])
   const confirmDelete = useCallback(() => {
     if (deleteBusy || deleteTarget === null) return
     const root = rootId
@@ -9293,10 +10037,19 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
              placeholder later (ACCEPTED). */
           next.sessions = plan.sessions
         }
-        /* Re-anchor when the anchor session itself was removed. */
+        /* Re-anchor when the anchor session itself was removed. A root
+           REPLACEMENT already established the fork child as the new root
+           above (next.rootSessionId = forkedChildId): retire the old root's
+           doc file via prevSessionId directly, instead of re-deriving the
+           anchor from sessions[0] (which is only guaranteed to be the root by
+           an implicit ordering convention — a future reorder would store the
+           doc under the wrong root and orphan the fork child). */
         let saveRoot = String(root)
         let prevRoot = undefined
-        if (!next.sessions.some(s => String(s?.sessionId) === String(saveRoot))) {
+        if (isRootReplacement) {
+          saveRoot = forkedChildId
+          prevRoot = String(root)
+        } else if (!next.sessions.some(s => String(s?.sessionId) === String(saveRoot))) {
           const anchor = next.sessions[0]?.sessionId
           if (anchor !== undefined && anchor !== null && anchor !== '') {
             next.rootSessionId = String(anchor)
@@ -9350,6 +10103,67 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       })
   }, [deleteBusy, deleteTarget, doc, rootId, sessionId, showNotice])
 
+  /* Cards whose AI summary is being generated: union of the Host's background
+     queue (per sync) and local manual regenerations. Keyed like the layout
+     cards (`sessionId:seq`) for O(1) lookup. Must be declared BEFORE the
+     phase early returns below: React requires a stable hook order across
+     renders, and the error/loading/empty branches would otherwise skip this
+     hook and re-add it on the next normal render (React error #310). */
+  const summarizingKeys = useMemo(() => {
+    const set = new Set()
+    for (const item of summarizing) {
+      if (item !== null && item !== undefined) set.add(`${String(item.sessionId)}:${Number(item.seq)}`)
+    }
+    for (const item of manualSummarizing) {
+      if (item !== null && item !== undefined) set.add(`${String(item.sessionId)}:${Number(item.seq)}`)
+    }
+    return set
+  }, [summarizing, manualSummarizing])
+
+  /* AI summaries keyed `sessionId:seq`, read from the CURRENT doc: the layout
+     nodes keep the turn objects of the doc snapshot they were built from, so a
+     summary written after that snapshot would be invisible through entry.turn.
+     The card receives its summary as a plain string prop instead — memo
+     compares it by value, so only the affected card re-renders. */
+  const summaryByKey = useMemo(() => {
+    const map = new Map()
+    for (const s of doc?.sessions ?? []) {
+      if (s === null || s === undefined || typeof s.sessionId !== 'string') continue
+      for (const turn of s.turns ?? []) {
+        if (turn === null || turn === undefined || !Number.isSafeInteger(turn.seq)) continue
+        if (typeof turn.summary === 'string' && turn.summary !== '') {
+          map.set(mindmapDocKey(String(s.sessionId), Number(turn.seq)), turn.summary)
+        }
+      }
+    }
+    return map
+  }, [doc])
+
+  /* Session-level AI summaries keyed by session id, read from the CURRENT doc
+     (same staleness argument as summaryByKey: the layout's session objects are
+     structure-memoized). Drives the head card's summary area + tooltip. */
+  const sessionSummaryByKey = useMemo(() => {
+    const map = new Map()
+    for (const s of doc?.sessions ?? []) {
+      if (s === null || s === undefined || typeof s.sessionId !== 'string') continue
+      if (typeof s.summary === 'string' && s.summary !== '') map.set(String(s.sessionId), s.summary)
+    }
+    return map
+  }, [doc])
+
+  /* Sessions whose SESSION summary is being generated: the Host-reported set
+     (regenerate-all auto-generation) plus the local synchronous request and the
+     waiting flag. Drives the head card's "正在总结中…" status row. */
+  const sessionSummarizingSet = useMemo(() => {
+    const set = new Set()
+    for (const id of sessionSummarizing) {
+      if (id !== null && id !== undefined) set.add(String(id))
+    }
+    if (sessionSummaryBusyId !== null) set.add(String(sessionSummaryBusyId))
+    if (sessionSummaryWaiting !== null) set.add(String(sessionSummaryWaiting))
+    return set
+  }, [sessionSummarizing, sessionSummaryBusyId, sessionSummaryWaiting])
+
   if (phase.status === 'error') {
     return h('div', { className: 'dsh-ws-mindmap dsh-ws-mindmap-status' },
       h('div', { className: 'dsh-ws-mindmap-error' }, translate('mindmap.error', { message: phase.message ?? '' })))
@@ -9375,6 +10189,18 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     const isStreaming = entry.streaming === true
     const title = list.titles[String(entry.sessionId)] || translate('mindmap.session.untitled')
     const isRunning = runningFamilyIds.includes(String(entry.sessionId))
+    /* 方案 B: a completed card whose AI summary is in flight shows
+       "正在生成摘要中…" in its status row instead of "已完成". Streaming and
+       empty cards never summarize (no completed turn to summarize). */
+    const isSummarizing = !isStreaming && entry.empty !== true && entry.turn !== undefined && entry.turn !== null
+      && summarizingKeys.has(mindmapDocKey(String(entry.sessionId), Number(entry.turn.seq)))
+    /* The card's AI summary, read from the CURRENT doc (layout nodes keep the
+       turn objects of the doc snapshot they were built from). A plain string
+       prop: React.memo compares it by value, so a summary write re-renders only
+       this card — never the whole canvas. */
+    const summary = entry.kind === 'card' && entry.empty !== true && entry.turn !== undefined && entry.turn !== null
+      ? summaryByKey.get(mindmapDocKey(String(entry.sessionId), Number(entry.turn.seq)))
+      : undefined
     /* Ring: the streaming card and its parent node (card or head) both wear the
        pair's flowing gradient border. A node that is the parent of several
        streaming cards takes the first pair's palette. */
@@ -9416,12 +10242,16 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
         title,
         isRunning,
         onMenu: openCardMenu,
+        summary: sessionSummaryByKey.get(String(entry.sessionId)),
+        isSummarizing: sessionSummarizingSet.has(String(entry.sessionId)),
       })
     }
     return h(MindMapCard, {
       ...common,
       title,
       isStreaming,
+      isSummarizing,
+      summary,
       onMenu: openCardMenu,
     })
   })
@@ -9442,10 +10272,23 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     },
       menu.kind === 'card' ? h(Fragment, null,
         h('button', { className: 'dsh-ws-context-item', onClick: startRename, role: 'menuitem', title: translate('mindmap.menu.rename'), type: 'button' }, translate('mindmap.menu.rename')),
+        /* 重新生成摘要: only meaningful with the AI-summary feature on AND a
+           real turn (empty placeholder cards have no question to summarize). */
+        settings.mindmapSummaryEnabled === true && menu.empty !== true && Number.isSafeInteger(menu.turnSeq)
+          ? h('button', { className: 'dsh-ws-context-item', onClick: regenerateSummary, role: 'menuitem', title: translate('mindmap.menu.regenerateSummary'), type: 'button' }, translate('mindmap.menu.regenerateSummary'))
+          : null,
         h('div', { className: 'dsh-ws-context-separator', role: 'separator' }),
         h('button', { className: 'dsh-ws-context-item dsh-ws-context-item-danger', onClick: startDelete, role: 'menuitem', title: translate('mindmap.menu.deleteCard'), type: 'button' }, translate('mindmap.menu.deleteCard')))
         : menu.kind === 'head' ? h(Fragment, null,
           h('button', { className: 'dsh-ws-context-item', onClick: startRename, role: 'menuitem', title: translate('mindmap.menu.rename'), type: 'button' }, translate('mindmap.menu.rename')),
+          /* 总结当前会话: only with the AI-summary feature on AND a session
+             that has at least one turn to summarize. */
+          settings.mindmapSummaryEnabled === true
+            && (doc?.sessions ?? []).some(s => s !== null && s !== undefined
+              && String(s.sessionId) === String(menu.sessionId)
+              && Array.isArray(s.turns) && s.turns.length > 0)
+            ? h('button', { className: 'dsh-ws-context-item', onClick: startSummarizeSession, role: 'menuitem', title: translate('mindmap.menu.summarizeSession'), type: 'button' }, translate('mindmap.menu.summarizeSession'))
+            : null,
           h('div', { className: 'dsh-ws-context-separator', role: 'separator' }),
           h('button', { className: 'dsh-ws-context-item dsh-ws-context-item-danger', onClick: startArchiveBranch, role: 'menuitem', title: translate('mindmap.menu.archiveBranch'), type: 'button' }, translate('mindmap.menu.archiveBranch')))
           : h(Fragment, null,
@@ -9534,6 +10377,21 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
         h('button', { className: 'dsh-ws-text-button', disabled: archiveBranchBusy, onClick: closeArchiveBranch, type: 'button' }, translate('dialog.cancel')),
         h('button', { className: 'dsh-ws-text-button', disabled: archiveBranchBusy, onClick: confirmArchiveBranch, type: 'button' }, archiveBranchBusy ? translate('dialog.processing') : translate('mindmap.archiveBranch.action')))))
     : null
+  const regenerateAllView = regenerateAllTarget !== null ? h('div', {
+    className: 'dsh-ws-dialog-backdrop',
+    onMouseDown: event => { if (event.target === event.currentTarget && !regenerateAllBusy) closeRegenerateAll() },
+  },
+    h('div', { 'aria-modal': true, className: 'dsh-ws-dialog dsh-ws-mindmap-confirm-dialog', role: 'dialog' },
+      h('div', { className: 'dsh-ws-dialog-header' },
+        h('div', { className: 'dsh-ws-dialog-title' }, translate('mindmap.summary.regenerateAll')),
+        h('button', { 'aria-label': translate('dialog.close'), className: 'dsh-ws-icon-button', disabled: regenerateAllBusy, onClick: closeRegenerateAll, title: translate('dialog.close'), type: 'button' }, '×')),
+      h('div', { className: 'dsh-ws-dialog-body' },
+        h('div', { className: 'dsh-ws-dialog-message' }, translate('mindmap.summary.regenerateAll.message', { n: regenerateAllTarget.count })),
+        regenerateAllError !== null ? h('div', { className: 'dsh-ws-dialog-error', role: 'alert' }, regenerateAllError) : null),
+      h('div', { className: 'dsh-ws-dialog-footer' },
+        h('button', { className: 'dsh-ws-text-button', disabled: regenerateAllBusy, onClick: closeRegenerateAll, type: 'button' }, translate('dialog.cancel')),
+        h('button', { className: 'dsh-ws-text-button', disabled: regenerateAllBusy, onClick: confirmRegenerateAll, type: 'button' }, regenerateAllBusy ? translate('dialog.processing') : translate('mindmap.summary.regenerateAll.action')))))
+    : null
 
   return h(Fragment, null,
     h('div', { className: 'dsh-ws-mindmap', 'data-conversation-composer-overlay': '' },
@@ -9548,6 +10406,11 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
           ? (previewRight ? 'mindmap.scope.sidebar.right' : 'mindmap.scope.sidebar')
           : (previewRight ? 'mindmap.scope.full.right' : 'mindmap.scope.full'))),
         h('button', { className: 'dsh-ws-mindmap-toolbar-button', onClick: restoreView, title: translate('mindmap.view.restoreTitle'), type: 'button' }, translate('mindmap.view.restore')),
+        /* 重新生成全部摘要: only meaningful with the AI-summary feature on (no
+           model to regenerate with otherwise) — same gate as the card menu item. */
+        settings.mindmapSummaryEnabled === true
+          ? h('button', { className: 'dsh-ws-mindmap-toolbar-button', onClick: startRegenerateAll, title: translate('mindmap.summary.regenerateAll'), type: 'button' }, translate('mindmap.summary.regenerateAll'))
+          : null,
         h('button', { className: 'dsh-ws-mindmap-toolbar-button', onClick: startArchiveAll, title: translate('mindmap.menu.archiveAll'), type: 'button' }, translate('mindmap.menu.archiveAll'))),
       h('div', { className: 'dsh-ws-mindmap-bar' },
         translate('mindmap.rootLabel'),
@@ -9610,7 +10473,8 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     renameView,
     archiveView,
     archiveBranchView,
-    deleteView)
+    deleteView,
+    regenerateAllView)
 }
 
 /* Hides mind-map family sessions (root + every fork descendant) from the
@@ -10965,10 +11829,22 @@ export function apply(ctx) {
       const disposeDicts = localeService.register(EXPLORER_LOCALE_NS, { zh, en })
       translate = localeService.bind(EXPLORER_LOCALE_NS)
       localeFace = localeService
+      /* Bridge the service's notifications into the module-level listener set
+         AND bump the epoch: components that mounted before the service existed
+         re-render now (their subscribe was already registered on the set), so
+         the first language switch reaches them from here on. */
+      const unsubscribeService = typeof localeService.subscribe === 'function'
+        ? localeService.subscribe(notifyLocaleListeners)
+        : undefined
+      localeEpoch += 1
+      notifyLocaleListeners()
       return () => {
+        if (typeof unsubscribeService === 'function') unsubscribeService()
         disposeDicts()
         localeFace = undefined
         translate = zhFallbackTranslate
+        localeEpoch += 1
+        notifyLocaleListeners()
       }
     }, 'workspace-studio: locale dictionaries')
   })
@@ -11086,7 +11962,7 @@ export function apply(ctx) {
       if (!result.ok) throw new Error(result.error.message)
     },
     saveDoc: (id, doc, signal, prevSessionId) => writeMindmapDoc(String(id), doc, signal, prevSessionId),
-    syncDoc: (id, liveSessionIds, signal) => syncMindmapDoc(String(id), liveSessionIds, signal),
+    syncDoc: (id, liveSessionIds, signal, summaryConfig) => syncMindmapDoc(String(id), liveSessionIds, signal, summaryConfig),
     }
   }
 
