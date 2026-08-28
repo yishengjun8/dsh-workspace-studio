@@ -50,6 +50,15 @@ const CONFLICT_FONT_SIZE_DEFAULT = 12, CONFLICT_FONT_SIZE_MIN = 6, CONFLICT_FONT
 const SEARCH_MATCH_EXPAND_DEFAULT = true
 /* File-browser pane sits on the right side of the conversation column instead of the left (user-tunable). */
 const PREVIEW_RIGHT_DEFAULT = false
+/* Watch opened files for external changes and auto-sync the clean preview
+   (user-tunable). When the host watch is unavailable the client polls this
+   cadence as a fallback. */
+const WATCH_FILES_DEFAULT = true
+const AUTO_SYNC_CHECK_MS = 2000
+/* "Auto" = a clean tab reloads itself on change; "watch-only" = only shows a
+   "file changed" status and waits for the user's refresh action. */
+const AUTO_SYNC_MODE_AUTO = 'auto'
+const AUTO_SYNC_MODE_WATCH_ONLY = 'watch-only'
 /* Auto-open streaming Think disclosures and close them when done (user-tunable). */
 const AUTO_EXPAND_THINK_DEFAULT = true
 /* Delay (s) before an auto-expanded Think disclosure collapses; user-tunable (0-10 s, 0.1 s steps), manual interaction cancels. */
@@ -420,6 +429,9 @@ const zh = {
   'status.draftRestoredConflict': '磁盘文件已在草稿保存后更改。草稿已恢复；保存时将自动合并或提示选择。',
   'status.draftNotRestorable': '检测到未保存草稿，但文件当前不可编辑。草稿内容已展示；关闭标签或刷新后将丢弃，无法保存。',
   'status.externalOpened': '已打开外部文件 {name}。',
+  'status.fileChanged': '文件已在磁盘上更改；点击刷新查看最新内容。',
+  'status.fileChangedDirty': '文件已在磁盘上更改（你还有未保存的修改）。保存时将合并或提示选择。',
+  'status.fileRemoved': '文件已被删除。',
   'status.externalOpenedMany': '已打开 {count} 个外部文件。',
   'status.externalFailedMany': '{count} 个文件无法作为文本预览。',
   'status.folderNotPreviewable': '文件夹无法作为文本预览。',
@@ -488,6 +500,8 @@ const zh = {
   'settings.thinkDelay': '思考收起延迟',
   'settings.thinkDelay.reset.title': '恢复默认收起延迟',
   'settings.previewRight': '文件浏览页面显示在右侧',
+  'settings.watchFiles': '监听文件更改并自动同步',
+  'settings.watchOnly': '仅提示，不自动刷新',
   'settings.resetDefault': '恢复默认',
   'settings.hint': '会话浏览设置：调整侧栏导图条目流式输出时旋转图标的速度（倍速 0.0×–3.0×，数值越大越快，默认 1.5× 即 1.2 秒一圈，0 表示不旋转）；导图浏览设置：调整导图视图中悬浮高亮与选中高亮的颜色（默认分别为琥珀与主题蓝，可分别恢复默认），以及导图挂载连线的弯曲幅度（根节点→会话头、分支提问卡→分支会话头的 S 曲线，默认 5.0×，数值越大弯得越明显，0 为直线）；文件浏览设置：调整左侧文件树的行高、搜索结果显示方式与图标徽标配色；内容浏览设置：为每种文件类型选择编辑器代码高亮预设、调整保存冲突弹窗中对比文本的字号、并可选择是否将文件浏览页面显示在对话页面的右侧；对话页面设置：调整对话文字大小，开启思考过程自动展开后，聊天中正在输出的思考内容会自动展开、结束后按设定延迟自动收起（0–10 秒，分度 0.1 秒），期间手动操作可取消；未修改的项使用默认值。',
   'fileColor.directory': '目录',
@@ -858,6 +872,9 @@ const en = {
   'status.draftRestoredConflict': 'The file changed on disk after your draft was saved. The draft was restored; saving will merge or ask you to choose.',
   'status.draftNotRestorable': 'Unsaved draft detected, but the file is not editable right now. The draft is shown; it will be discarded on tab close or refresh and cannot be saved.',
   'status.externalOpened': 'Opened external file {name}.',
+  'status.fileChanged': 'The file changed on disk; click Reload to view the latest content.',
+  'status.fileChangedDirty': 'The file changed on disk (you have unsaved edits). Saving will merge or ask you to choose.',
+  'status.fileRemoved': 'The file was deleted.',
   'status.externalOpenedMany': 'Opened {count} external files.',
   'status.externalFailedMany': '{count} files cannot be previewed as text.',
   'status.folderNotPreviewable': 'Folders cannot be previewed as text.',
@@ -926,6 +943,8 @@ const en = {
   'settings.thinkDelay': 'Think collapse delay',
   'settings.thinkDelay.reset.title': 'Reset collapse delay',
   'settings.previewRight': 'Show the file browser pane on the right',
+  'settings.watchFiles': 'Watch files for changes and sync automatically',
+  'settings.watchOnly': 'Only notify — do not auto-reload',
   'settings.resetDefault': 'Reset',
   'settings.hint': 'Session Browsing: adjust the spin speed of the sidebar mind-map entry icon while the map is streaming (a 0.0x–3.0x speed multiplier, larger is faster; the default 1.5x means one 1.2 s revolution, and 0 means no rotation). Mind Map Browsing: adjust the hover and selected highlight colors in the mind-map view (amber and the theme blue by default; each can be reset), plus the mount-edge curve of the mind map (the S-curves from the root to session heads and from branch question cards to branch session heads; default 5.0x, larger bends more visibly, and 0 draws a straight line). File Browsing: adjust the tree row height, how search results are shown, and the file icon badge colors. Content Browsing: pick a highlight preset per file type, adjust the save-conflict dialog comparison text size, and choose whether the file browser pane sits on the right side of the conversation column. Conversation Page Settings: adjust the chat font size; when auto-expand thinking is on, streaming thinking blocks expand automatically and collapse after the configured delay (0–10 s, 0.1 s steps), and manual interaction cancels a pending collapse. Unchanged items use their defaults.',
   'fileColor.directory': 'Directory',
@@ -1639,6 +1658,7 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-settings-color::-webkit-color-swatch{border:0;border-radius:3px}
 .dsh-ws-settings-color::-moz-color-swatch{border:0;border-radius:3px}
 .dsh-ws-mindmap-hidden-row{display:none!important}
+.dsh-ws-mindmap-no-overflow{display:none!important}
 /* Sidebar mind-map session entries: rendered INSIDE each workspace group's
    session list (one container appended to its group section), so a mind map
    shows among the ordinary sessions of its workspace; flat / search list
@@ -2461,6 +2481,8 @@ function createExplorerSettingsStore() {
       fileColors: {},
       highlightPresets: {},
       previewRight: PREVIEW_RIGHT_DEFAULT,
+      watchFiles: WATCH_FILES_DEFAULT,
+      autoSyncMode: AUTO_SYNC_MODE_AUTO,
     }),
     persist: EXPLORER_SETTINGS_STORE_KEY,
     actions: {
@@ -2534,6 +2556,10 @@ function createExplorerSettingsStore() {
       resetHighlightPreset: (draft, group) => { if (draft.highlightPresets !== undefined) delete draft.highlightPresets[group] },
       resetHighlightPresets: (draft) => { draft.highlightPresets = {} },
       setPreviewRight: (draft, value) => { draft.previewRight = Boolean(value) },
+      setWatchFiles: (draft, value) => { draft.watchFiles = Boolean(value) },
+      setAutoSyncMode: (draft, value) => {
+        draft.autoSyncMode = value === AUTO_SYNC_MODE_WATCH_ONLY ? AUTO_SYNC_MODE_WATCH_ONLY : AUTO_SYNC_MODE_AUTO
+      },
     },
   })
 }
@@ -3151,6 +3177,53 @@ async function requestJson(endpoint, workspaceId, path, signal, encoding) {
   const query = new URLSearchParams({ workspaceId, path })
   if (encoding !== undefined && encoding !== null) query.set('encoding', String(encoding))
   const response = await fetch(`${API_PREFIX}/${endpoint}?${query}`, { method: 'GET', headers: { accept: 'application/json' }, credentials: 'same-origin', signal })
+  let payload
+  try {
+    payload = await response.json()
+  } catch (error) {
+    if (error?.name === 'AbortError') throw error
+    throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.tree', { status: response.status }), response.status)
+  }
+  if (!response.ok) {
+    const failure = payload?.error
+    const code = typeof failure?.code === 'string' ? failure.code : 'request-failed'
+    throw new WorkspaceApiError(code, apiErrorMessage(code, typeof failure?.message === 'string' ? failure.message : undefined, 'error.request-failed', { status: response.status }), response.status)
+  }
+  return payload
+}
+/* Cheap file-change check for open preview tabs: the Host stats the file and
+   compares mtime/size/hash against the previous snapshot (workspace-confined,
+   read-only). Returns `changed` plus the new snapshot the client stores as its
+   baseline; null snapshot means the file is gone. */
+async function checkFileChange(workspaceId, path, previousSnapshot, signal) {
+  const query = new URLSearchParams({ workspaceId: String(workspaceId), path, check: '1' })
+  if (previousSnapshot !== undefined && previousSnapshot !== null) {
+    query.set('prev', JSON.stringify({
+      mtimeMs: previousSnapshot.mtimeMs,
+      size: previousSnapshot.size,
+      hash: previousSnapshot.hash,
+    }))
+  }
+  const response = await fetch(`${API_PREFIX}/file?${query}`, { method: 'GET', headers: { accept: 'application/json' }, credentials: 'same-origin', signal })
+  let payload
+  try {
+    payload = await response.json()
+  } catch (error) {
+    if (error?.name === 'AbortError') throw error
+    throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.tree', { status: response.status }), response.status)
+  }
+  if (!response.ok) {
+    if (payload?.error?.code === 'path-not-found') return { changed: false, exists: false, snapshot: null }
+    const failure = payload?.error
+    const code = typeof failure?.code === 'string' ? failure.code : 'request-failed'
+    throw new WorkspaceApiError(code, apiErrorMessage(code, typeof failure?.message === 'string' ? failure.message : undefined, 'error.request-failed', { status: response.status }), response.status)
+  }
+  return payload
+}
+/* Preview-sync control (host watch registration/unregistration). */
+async function previewSyncRequest(workspaceId, path, clientId, control, signal) {
+  const query = new URLSearchParams({ workspaceId: String(workspaceId), path, clientId: String(clientId), control })
+  const response = await fetch(`${API_PREFIX}/preview-sync?${query}`, { method: 'GET', headers: { accept: 'application/json' }, credentials: 'same-origin', signal })
   let payload
   try {
     payload = await response.json()
@@ -4317,11 +4390,19 @@ function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShortcut, o
       if (Number.isFinite(scrollTop) && scrollTop > 0) view.scrollDOM.scrollTop = scrollTop
     }
     restoreScroll()
+    // A second pass after layout: the first assignment can be clamped while
+    // the browser has not yet sized the freshly inserted editor content; by
+    // the next frame the real height exists and the value sticks.
     const animation = requestAnimationFrame(restoreScroll)
     contextRef.current(view.state)
     return () => {
       cancelAnimationFrame(animation)
-      scrollRef.current?.(file.path, view.scrollDOM.scrollTop)
+      // React removes the editor DOM before passive cleanups run, so a
+      // detached scroller reads scrollTop as 0; reporting that would poison
+      // the live scroll map and wipe the restore target of the next remount.
+      // Only report while still connected (the scroll listener already keeps
+      // the map current while the view was alive).
+      if (view.scrollDOM.isConnected) scrollRef.current?.(file.path, view.scrollDOM.scrollTop)
       view.scrollDOM.removeEventListener('scroll', reportScroll)
       if (editorRef.current === view) editorRef.current = undefined
       view.destroy()
@@ -4527,7 +4608,7 @@ function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShortcut, o
 }
 
 function WorkspaceExplorer({
-  workspace, treePortalTarget, sessionTitle, sessionId, renameSession, publishEditorContext, listDirectory, readFile, saveFile, createEntry, renameEntry, storedPreviewSession, persistPreviewSession, settingsStore, loadDraft, persistDraftFile, removeDraftFile, draftTree,
+  workspace, treePortalTarget, sessionTitle, sessionId, renameSession, publishEditorContext, listDirectory, readFile, saveFile, createEntry, renameEntry, storedPreviewSession, persistPreviewSession, settingsStore, loadDraft, persistDraftFile, removeDraftFile, draftTree, checkFileChange, previewSync,
 }) {
   const settings = useSyncExternalStore(settingsStore.subscribe, settingsStore.getSnapshot)
   const draftScopeId = sessionId === undefined ? `workspace:${workspace.workspaceId}` : `session:${sessionId}`
@@ -4634,6 +4715,17 @@ function WorkspaceExplorer({
   // because a pending auto-save can outlive the active tab.
   const lastWriteRef = useRef(new Map())
   const autosaveTimers = useRef(new Map())
+  // Preview auto-sync state: per-path change snapshots (mtime/size/hash) and
+  // the set of paths with a watcher registered on the Host. Only non-external
+  // workspace tabs are tracked; everything is cleaned up on unmount.
+  const watchSnapshotsRef = useRef(new Map())
+  const watchedPathsRef = useRef(new Set())
+  // Paths currently being re-read by an auto-sync reload. The polling tick
+  // skips these so a second change check racing the in-flight read cannot
+  // bump reloadToken again (a second remount would discard the scroll
+  // position the first reload just restored). Cleared when the read pass
+  // settles or the path is closed.
+  const reloadingPathsRef = useRef(new Set())
   // Draft mutations are serialized per path with a monotonically increasing
   // generation: the promise tail lets an already-arrived stale PUT finish
   // before a newer PUT/DELETE (AbortController cannot retract a request the
@@ -4818,6 +4910,135 @@ function WorkspaceExplorer({
     window.addEventListener('beforeunload', warn)
     return () => window.removeEventListener('beforeunload', warn)
   }, [hasDirtyTabs])
+  /* Preview auto-sync:
+     - register the host watcher when a file is opened (chooseFile);
+     - while at least one tab is open, poll the cheap change-check endpoint as
+       a fallback on a fixed cadence, so a watcher that silently failed (or a
+       platform where fs.watch is unreliable) still syncs the preview;
+     - a clean active tab re-reads itself (auto mode) or only shows the
+       "file changed" status (watch-only mode). Dirty active tabs are NEVER
+       overwritten — they get the status banner and the user decides. */
+  const syncClientIdRef = useRef(`ws-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`)
+  const syncControllerRef = useRef()
+  const registerWatch = useCallback((path) => {
+    if ((settings.watchFiles ?? WATCH_FILES_DEFAULT) !== true) return
+    if (path === '' || path.startsWith('external:')) return
+    if (watchedPathsRef.current.has(path)) return
+    watchedPathsRef.current.add(path)
+    void previewSync(String(workspace.workspaceId), path, syncClientIdRef.current, 'watch').catch(() => {
+      // Watcher registration failed (host without support, transient): the
+      // polling fallback below still covers the tab.
+      watchedPathsRef.current.delete(path)
+    })
+    /* A re-open triggers a re-read; reset the baseline so the change the
+       re-read just applied is not re-reported as external. */
+    watchSnapshotsRef.current.set(path, undefined)
+  }, [previewSync, settings.watchFiles, workspace.workspaceId])
+  const unregisterWatch = useCallback(async (path) => {
+    if (!watchedPathsRef.current.has(path)) return
+    watchedPathsRef.current.delete(path)
+    await previewSync(String(workspace.workspaceId), path, syncClientIdRef.current, 'unwatch').catch(() => {})
+  }, [previewSync, workspace.workspaceId])
+  /* Change handler applied when a change is detected for `path`. */
+  const applyFileChanged = useCallback((path) => {
+    const tab = tabsRef.current.find(item => item.path === path)
+    if (tab === undefined) return
+    const activePathNow = activePathRef.current
+    const activeNow = activePathNow === path
+    const editableActive = activeNow && preview.state === 'ready' && preview.editable !== false && !preview.readOnlyReason
+    if (activeNow && !tab.dirty && !tab.saving) {
+      // Clean active tab: reload from disk in BOTH modes; only the wording
+      // differs — auto mode surfaces the reloaded status, watch-only mode
+      // surfaces the "disk changed" notice. Scroll position is preserved by
+      // the read path (persisted scrollTop is restored on the remount).
+      const notice = (settings.autoSyncMode ?? AUTO_SYNC_MODE_AUTO) === AUTO_SYNC_MODE_AUTO
+        ? translate('editor.refreshed')
+        : translate('status.fileChanged')
+      // Mark this path as reloading so the polling tick skips it until the
+      // read pass settles — a second bump would remount the editor again and
+      // discard the restored scroll.
+      reloadingPathsRef.current.add(path)
+      // Flag the read pass so it surfaces the reloaded status (the same path
+      // the manual refresh button uses), then bump the reload token. A
+      // manual refresh already pending would have armed the pass with its
+      // own bump, so the token is only bumped when the flag was clear.
+      if (!refreshPendingRef.current) {
+        refreshPendingRef.current = true
+        setReloadToken(token => token + 1)
+      }
+      updateTab(path, { status: { text: notice } })
+      if (activeNow) setStatus({ text: notice })
+    } else if (activeNow) {
+      // Dirty or saving tab: NEVER overwrite the draft; surface the change
+      // and let the user decide (save will three-way merge / ask).
+      const dirtyNow = editableActive ? tab.dirty : false
+      const text = dirtyNow
+        ? translate('status.fileChangedDirty')
+        : translate('status.fileChanged')
+      setStatus({ error: dirtyNow, text })
+      updateTab(path, { status: { error: dirtyNow, text } })
+    }
+  }, [preview.state, preview.editable, preview.readOnlyReason, setReloadToken, settings.autoSyncMode, translate, updateTab])
+  /* The polling fallback: every AUTO_SYNC_CHECK_MS checks each open tab whose
+     snapshot baseline we track, against the cheap head endpoint. */
+  useEffect(() => {
+    if ((settings.watchFiles ?? WATCH_FILES_DEFAULT) !== true) return undefined
+    const controller = new AbortController()
+    syncControllerRef.current = controller
+    let timer = 0
+    const tick = () => {
+      if (controller.signal.aborted || !mounted.current) return
+      const open = tabsRef.current.filter(tab => !tab.external && tab.path !== '')
+      if (open.length === 0) return
+      void Promise.all(open.map(async (tab) => {
+        if (controller.signal.aborted) return
+        // A reload triggered by a previous tick is still in flight: skip so
+        // we cannot double-bump reloadToken and force a second remount (which
+        // would wipe the scroll position the first reload restored).
+        if (reloadingPathsRef.current.has(tab.path)) return
+        const snapshot = watchSnapshotsRef.current.get(tab.path)
+        try {
+          const result = await checkFileChange(String(workspace.workspaceId), tab.path, snapshot ?? undefined, controller.signal)
+          if (controller.signal.aborted || result === undefined) return
+          const nextSnapshot = result.snapshot ?? null
+          watchSnapshotsRef.current.set(tab.path, nextSnapshot ?? undefined)
+          if (result.changed === true) {
+            applyFileChanged(tab.path)
+          } else if (nextSnapshot === null && snapshot !== undefined) {
+            // File disappeared: only the active tab surfaces a status; the
+            // snapshot baseline resets so a re-create is reported again.
+            if (tab.path === activePathRef.current) {
+              setStatus({ error: true, text: translate('status.fileRemoved') })
+            }
+            watchSnapshotsRef.current.delete(tab.path)
+          }
+        } catch {
+          // Transient network/host error: keep polling on the next tick.
+        }
+      }))
+    }
+    tick()
+    timer = window.setInterval(tick, AUTO_SYNC_CHECK_MS)
+    return () => {
+      controller.abort()
+      if (timer !== 0) window.clearInterval(timer)
+      syncControllerRef.current = undefined
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applyFileChanged, settings.watchFiles, workspace.workspaceId])
+  /* Cleanup on unmount: drop every host watcher registration. */
+  useEffect(() => {
+    return () => {
+      syncControllerRef.current?.abort()
+      for (const path of watchedPathsRef.current) {
+        void previewSync(String(workspace.workspaceId), path, syncClientIdRef.current, 'unwatch').catch(() => {})
+      }
+      watchedPathsRef.current.clear()
+      watchSnapshotsRef.current.clear()
+      reloadingPathsRef.current.clear()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspace.workspaceId])
   // Restore-time self-heal: a persisted expansion path that no longer exists
   // in the current workspace (server 404 path-not-found) is dropped from the
   // expanded set — including every descendant, which cannot exist under a
@@ -4950,6 +5171,10 @@ function WorkspaceExplorer({
     previewTabsBootstrapped.current = true
     setSelected(entry)
     activatePath(entry.path)
+    /* Re-open of an already-open tab: refresh the auto-sync registration and
+       baseline so the host watcher stays alive for the whole browsing session
+       (registerWatch also re-seeds the change snapshot). */
+    if (!entry.external) registerWatch(entry.path)
     setTabs(current => current.some(tab => tab.path === entry.path)
       ? current
       : [...current, {
@@ -5235,6 +5460,18 @@ function WorkspaceExplorer({
     setDirty(Boolean(tab?.dirty))
     setSaving(Boolean(tab?.saving))
     setStatus(tab?.status)
+    // Any re-read (auto-sync, manual refresh, encoding re-open, tab switch)
+    // marks the path as reloading so the polling tick skips it until this
+    // pass settles — a second bump would remount the editor again and discard
+    // the scroll position this read restores. Idempotent with the marks set
+    // by applyFileChanged / refreshFile / openWithEncoding.
+    reloadingPathsRef.current.add(activePath)
+    // Snapshot the live scroll position BEFORE the loading state unmounts the
+    // editor: the ref holds the last scroll-event value while the view is
+    // still attached, and this copy rides through the re-read in the tab
+    // patch below, so the remount restores it even if the ref is touched
+    // later. Fall back to the tab's persisted value (cold restore).
+    const savedScrollTop = scrollTopRef.current.get(activePath) ?? tab?.scrollTop ?? 0
     setPreview({ state: 'loading', path: activePath })
     readFile(workspace.workspaceId, activePath, controller.signal, effectiveEncoding).then((result) => {
       // The tab may have been switched since the read started (abort covers
@@ -5341,6 +5578,14 @@ function WorkspaceExplorer({
         draftGenerationCounterRef.current = Math.max(draftGenerationCounterRef.current, restoredGeneration, ownerGeneration)
         draftGenerationsRef.current.set(activePath, Math.max(draftGenerationsRef.current.get(activePath) ?? 0, draftGenerationCounterRef.current))
         lastWriteRef.current.set(activePath, { generation: draftGenerationCounterRef.current, content })
+        /* Auto-sync baseline: after any re-read, reset the per-path change
+           snapshot so the watcher/poll does not immediately re-report the
+           content we just loaded as a fresh external change. */
+        watchSnapshotsRef.current.set(activePath, {
+          mtimeMs: Number(result.mtimeMs) || 0,
+          size: Number(result.size) || 0,
+          hash: typeof result.revision === 'string' ? result.revision : null,
+        })
         setDraft(content)
         setPreview(ready)
         setEditing(editable)
@@ -5366,20 +5611,37 @@ function WorkspaceExplorer({
           name: selection.name,
           revision: result.revision ?? null,
           saving: false,
-          scrollTop: tab?.scrollTop ?? 0,
+          scrollTop: savedScrollTop,
           size: Number.isFinite(result.size) ? result.size : null,
           status: cancelRestore ? { text: translate('editor.cancelRestored') } : (refreshPending ? { text: translate('editor.refreshed') } : (canRestore ? restoredStatus : ((hasDiskDraft || hasTabDraft) ? notRestorableStatus : tab?.status))),
           symlink: Boolean(selection.symlink),
         })
+        /* When the re-read was auto-triggered (not a manual refresh), the tab
+           is the clean active one; its status was already set to "reloaded".
+           The read pass itself updates the snapshot baseline above. Release
+           the reloading marker now that the read has settled. */
+        reloadingPathsRef.current.delete(activePath)
       })
     }, (error) => {
+      // Release the reloading marker on a real (non-abort) failure. An abort
+      // leaves it to the cleanup below: it only clears when the active path
+      // actually changed, so a same-path reload-token re-run keeps the marker
+      // armed through the new in-flight read (the tick must not double-bump).
+      if (error?.name !== 'AbortError') reloadingPathsRef.current.delete(activePath)
       if (error?.name !== 'AbortError' && activePathRef.current === activePath) {
         const message = error instanceof Error ? error.message : String(error)
         setPreview({ state: 'error', path: activePath, message })
         updateTab(activePath, { saving: false, status: { error: true, text: message } })
       }
     })
-    return () => controller.abort()
+    return () => {
+      controller.abort()
+      // The read for this path was abandoned (tab switched away or unmount):
+      // drop its reloading marker so a later visit can re-arm and re-sync. A
+      // same-path re-run (reloadToken bump) keeps the marker because the new
+      // read is still in flight.
+      if (activePathRef.current !== activePath) reloadingPathsRef.current.delete(activePath)
+    }
   }, [activePath, draftScopeId, loadDraft, publishEditorContext, readFile, reloadToken, removeDraftFile, updateTab, workspace.workspaceId])
 
   const nextDraftGeneration = useCallback((path) => {
@@ -5437,6 +5699,12 @@ function WorkspaceExplorer({
     clearAutosaveTimer(path)
     lastWriteRef.current.delete(path)
     scrollTopRef.current.delete(path)
+    watchSnapshotsRef.current.delete(path)
+    reloadingPathsRef.current.delete(path)
+    if (watchedPathsRef.current.has(path)) {
+      watchedPathsRef.current.delete(path)
+      void unregisterWatch(path).catch(() => {})
+    }
     /* Keep the per-path generation entry alive while a draft operation is
        still queued for this path: closeTab's non-editable-dirty escape enqueues
        a clearDraftFile DELETE just before forgetPathRefs runs, and
@@ -5736,6 +6004,14 @@ function WorkspaceExplorer({
       if (typeof disk?.content !== 'string') throw new Error('invalid read response')
       const diskText = disk.content
       const diskRevision = typeof disk?.revision === 'string' ? disk.revision : undefined
+      /* Keep the auto-sync baseline in lockstep with the authoritative read
+         the save just performed, so the watcher/poll does not immediately
+         re-report this file as externally changed. */
+      watchSnapshotsRef.current.set(path, {
+        mtimeMs: Number(disk.mtimeMs) || 0,
+        size: Number(disk.size) || 0,
+        hash: typeof disk.revision === 'string' ? disk.revision : null,
+      })
       if (diskText === text) {
         // The source already equals the current draft; commit as-is (the write
         // is idempotent and also clears the staging draft).
@@ -6092,8 +6368,9 @@ function WorkspaceExplorer({
       return
     }
     requestedEncodingRef.current = encodingId
+    if (activePath !== null) reloadingPathsRef.current.add(activePath)
     setReloadToken(token => token + 1)
-  }, [dirty])
+  }, [activePath, dirty])
   const refreshFile = useCallback(() => {
     // Reloading while a draft exists would silently discard unsaved work;
     // refuse loudly instead (the user can save or cancel first).
@@ -6102,8 +6379,9 @@ function WorkspaceExplorer({
       return
     }
     refreshPendingRef.current = true
+    if (activePath !== null) reloadingPathsRef.current.add(activePath)
     setReloadToken(token => token + 1)
-  }, [dirty])
+  }, [activePath, dirty])
   const openEncodingDialog = useCallback((mode) => {
     setEncodingMenu(undefined)
     setEncodingPick(preview.encoding ?? 'utf-8')
@@ -7035,6 +7313,27 @@ function EmptyWorkspaceExplorer({ treePortalTarget, sessionTitle }) {
           className: 'dsh-ws-settings-checkbox',
           id: 'dsh-ws-preview-right',
           onChange: e => settingsStore.actions.setPreviewRight(e.target.checked),
+          type: 'checkbox',
+        })),
+      h('div', { className: 'dsh-ws-settings-row' },
+        h('label', { className: 'dsh-ws-settings-label', htmlFor: 'dsh-ws-watch-files' }, translate('settings.watchFiles')),
+        h('input', {
+          'aria-label': translate('settings.watchFiles'),
+          checked: (settings.watchFiles ?? WATCH_FILES_DEFAULT) === true,
+          className: 'dsh-ws-settings-checkbox',
+          id: 'dsh-ws-watch-files',
+          onChange: e => settingsStore.actions.setWatchFiles(e.target.checked),
+          type: 'checkbox',
+        })),
+      h('div', { className: 'dsh-ws-settings-row' },
+        h('label', { className: 'dsh-ws-settings-label', htmlFor: 'dsh-ws-auto-sync-mode' }, translate('settings.watchOnly')),
+        h('input', {
+          'aria-label': translate('settings.watchOnly'),
+          checked: (settings.autoSyncMode ?? AUTO_SYNC_MODE_AUTO) === AUTO_SYNC_MODE_WATCH_ONLY,
+          className: 'dsh-ws-settings-checkbox',
+          disabled: (settings.watchFiles ?? WATCH_FILES_DEFAULT) !== true || undefined,
+          id: 'dsh-ws-auto-sync-mode',
+          onChange: e => settingsStore.actions.setAutoSyncMode(e.target.checked ? AUTO_SYNC_MODE_WATCH_ONLY : AUTO_SYNC_MODE_AUTO),
           type: 'checkbox',
         })),
     ),
@@ -9434,7 +9733,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
    only when every session with that title is hidden (a visible non-mindmap
    session sharing it keeps it visible); archived sessions add no titles and
    the always-running clearing pass self-heals wrongly hidden rows. */
-function installMindmapBranchHider(getSessionList, getArchivedSessionIds) {
+function installMindmapBranchHider(getSessionList, getArchivedSessionIds, getWorkspaces) {
   if (typeof document === 'undefined') return () => {}
   let timer = 0
   let lastRun = 0
@@ -9450,6 +9749,9 @@ function installMindmapBranchHider(getSessionList, getArchivedSessionIds) {
       if (browser !== null) {
         for (const row of browser.querySelectorAll('[role="treeitem"].dsh-ws-mindmap-hidden-row')) {
           row.classList.remove('dsh-ws-mindmap-hidden-row')
+        }
+        for (const button of browser.querySelectorAll('button.dsh-ws-mindmap-no-overflow')) {
+          button.classList.remove('dsh-ws-mindmap-no-overflow')
         }
       }
       return
@@ -9487,6 +9789,66 @@ function installMindmapBranchHider(getSessionList, getArchivedSessionIds) {
       const matched = titleSpan !== null && hideTitles.has((titleSpan.textContent ?? '').trim())
       row.classList.toggle('dsh-ws-mindmap-hidden-row', matched)
     }
+    /* The harness sizes the overflow button from group.sessions.length, which
+       includes the rows this hider hides — recompute the visible remainder
+       and patch the count (or hide the button when nothing is left behind). */
+    const workspaces = getWorkspaces?.() ?? []
+    for (const header of browser.querySelectorAll('[role="treeitem"][aria-expanded]')) {
+      /* Real-workspace headers sit inside a HoverCard span (the ungrouped
+         bucket header does not), so walk up to the section holding the
+         overflow button. */
+      let section = header.parentElement
+      while (section !== null && section !== browser
+          && section.querySelector(':scope > button[aria-expanded]') === null) {
+        section = section.parentElement
+      }
+      if (section === null || section === browser) continue
+      const button = section.querySelector(':scope > button[aria-expanded]')
+      if (button === null) continue
+      /* Expanded list shows the collapse label — nothing to fix. */
+      if (button.getAttribute('aria-expanded') === 'true') continue
+      /* Session rows are also HoverCard-wrapped (not direct children) —
+         gather all descendant treeitems and drop the header. */
+      const rows = [...section.querySelectorAll('[role="treeitem"]')]
+        .filter(row => !row.hasAttribute('aria-expanded'))
+      const hiddenInRows = rows.filter(row => row.classList.contains('dsh-ws-mindmap-hidden-row')).length
+      /* Match the group by header title: real workspace -> its sessionIds;
+         anything else is the ungrouped bucket (sessions no workspace has). */
+      const titleEl = header.querySelector('span[class*="title"]')
+      const groupTitle = (titleEl?.textContent ?? '').trim()
+      const workspace = workspaces.find(w => w.title === groupTitle)
+      let ids
+      if (workspace !== undefined) {
+        ids = (workspace.sessionIds ?? []).map(String)
+      } else {
+        const accounted = new Set(workspaces.flatMap(w => (w.sessionIds ?? []).map(String)))
+        ids = list.ids.filter(id => !accounted.has(String(id)))
+      }
+      /* Count visible rows the harness renders (non-subagent, non-archived,
+         blank only when current) minus titles this hider hides. */
+      let visibleCount = 0
+      for (const id of ids) {
+        const summary = list.byId[id]
+        if (summary === undefined) continue
+        if (summary.origin === 'subagent') continue
+        if (archived.has(String(id))) continue
+        if (summary.blank && String(id) !== String(list.current)) continue
+        const title = typeof summary.displayTitle === 'string' ? summary.displayTitle.trim() : ''
+        if (title === '' || hideTitles.has(title)) continue
+        visibleCount += 1
+      }
+      const remaining = visibleCount - (rows.length - hiddenInRows)
+      if (remaining > 0) {
+        button.classList.remove('dsh-ws-mindmap-no-overflow')
+        /* The button's only number is the count — swap it in place. */
+        const currentNumber = button.textContent.match(/\d+/)
+        if (currentNumber !== null && Number(currentNumber[0]) !== remaining) {
+          button.textContent = button.textContent.replace(/\d+/, String(remaining))
+        }
+      } else {
+        button.classList.add('dsh-ws-mindmap-no-overflow')
+      }
+    }
   }
   /* Time throttle: the observer fires per DOM mutation (streaming churn), and
      a rAF-only coalesce would still scan up to 60×/s. One scan per throttle
@@ -9510,6 +9872,9 @@ function installMindmapBranchHider(getSessionList, getArchivedSessionIds) {
     if (browser !== null) {
       for (const row of browser.querySelectorAll('[role="treeitem"].dsh-ws-mindmap-hidden-row')) {
         row.classList.remove('dsh-ws-mindmap-hidden-row')
+      }
+      for (const button of browser.querySelectorAll('button.dsh-ws-mindmap-no-overflow')) {
+        button.classList.remove('dsh-ws-mindmap-no-overflow')
       }
     }
   }
@@ -10676,7 +11041,7 @@ function AppFrame(props) {
     props.openSession(String(id))
     mindmapOverlayStore.open(String(id))
   }, [props.openSession])
-  return h('div',{ref:viewportRef,className:'dsh-ws-viewport'},h('main',{className:'dsh-ws-frame','data-explorer-closed':!panes.explorerOpen&&!filesActive||undefined,'data-sidebar-collapsed':collapsed||undefined,'data-sidebar-files':filesActive||undefined,'data-resizing':resizing||undefined,'data-preview-right':settings.previewRight===true||undefined,style:{'--dsh-ws-preview':`${preview}px`,'--dsh-ws-sidebar':`${sidebar}px`,'--dsh-ws-row-height':`${clamp(settings.rowHeight ?? ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MIN, ROW_HEIGHT_MAX)}px`,'--dsh-ws-chat-font-scale':String(chatFontScale),'--dsh-ws-mobile-header-h':`${mobileHeaderHeight}px`,'--dsh-ws-mindmap-spin-duration':mindmapSpinDuration,...fileColorVars}},h('aside',{className:'dsh-ws-sidebar',ref:asideRef},props.renderSlot('sidebar',{collapsed,width:sidebar}),sidebarChrome?.top?createPortal(h(SidebarTopActions,{collapsed,view,width:sidebar,onSelectSessions:()=>{props.actions.setView('sessions')},onSelectFiles:()=>{if(collapsed)props.toggleSidebar();props.actions.setView('files')}}),sidebarChrome.top):null,sidebarChrome&&(sidebarChrome.groups.length>0?sidebarChrome.groups.map(group=>createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:group.title,openSession:openMindmapSession,revealSession:revealSessionById}),group.container)):sidebarChrome.fallback?createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:undefined,openSession:openMindmapSession,revealSession:revealSessionById}),sidebarChrome.fallback):null)),workspace?h(WorkspaceExplorer,{key:`${workspace.workspaceId}:${sessionId ?? 'workspace'}`,createEntry:props.createEntry,listDirectory:props.listDirectory,persistPreviewSession,publishEditorContext,readFile:props.readFile,renameEntry:props.renameEntry,saveFile:props.saveFile,loadDraft:props.loadDraft,persistDraftFile:props.persistDraftFile,removeDraftFile:props.removeDraftFile,draftTree:props.draftTree,settingsStore:props.settingsStore,storedPreviewSession,sessionTitle,sessionId,renameSession:props.renameSession,treePortalTarget,workspace}):h(EmptyWorkspaceExplorer,{sessionTitle,treePortalTarget}),h('section',{className:'dsh-ws-chat',ref:chatSectionRef},props.renderSlot('conversation',{}),chatDropActive?h('div',{className:'dsh-ws-chat-drop-mask',role:'presentation'},h('button',{'aria-label':translate('drop.closeAria'),className:'dsh-ws-chat-drop-close',onClick:()=>{chatDropSuppressed.current=true;setChatDropActive(false)},title:translate('drop.closeTitle'),type:'button'},'×'),h('div',{className:'dsh-ws-chat-drop-card'},translate('drop.releaseImages'))):null),!collapsed?h(ResizeHandle,{label:translate('resize.sidebar'),left:sidebar,max:sidebarMax,min:SIDEBAR_MIN,onDragging:setResizing,onResize:width=>props.actions.setSidebar(width,sidebarMax),value:sidebar}):null,(panes.explorerOpen||filesActive)?h(ResizeHandle,{label:translate('resize.preview'),left:settings.previewRight===true?Math.max(0,viewportWidth-preview):previewBoundary,max:previewMax,min:PREVIEW_MIN,onDragging:setResizing,onResize:width=>props.explorerPaneStore.actions.setPreview(width,previewMax),value:preview,invert:settings.previewRight===true||undefined}):null,h('aside',{className:'dsh-ws-details','data-closed':!panels.detailsOpen||!detailsCapable||undefined},props.renderSlot('details',{})),mobile.on&&mobile.drawerOpen?h('div',{className:'dsh-ws-mobile-scrim',onClick:()=>setDrawerOpen(false)}):null,h('div',{className:'dsh-ws-overlay','data-shell-overlay':true},props.renderSlot('shell.overlay',{})),sessionContextMenu?h('div',{className:'dsh-ws-context-menu',ref:sessionMenuRef,role:'menu',style:{left:Math.max(4,Math.min(sessionContextMenu.x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top:Math.max(4,Math.min(sessionContextMenu.y,window.innerHeight-52))}},h('button',{className:'dsh-ws-context-item',onClick:beginSessionInlineRename,role:'menuitem',type:'button'},translate('context.renameSession')),h('button',{className:'dsh-ws-context-item',onClick:archiveSessionFromMenu,role:'menuitem',type:'button'},translate('context.archiveSession')),h('div',{className:'dsh-ws-context-separator',role:'separator'}),h('button',{className:'dsh-ws-context-item',onClick:revealSessionFromMenu,role:'menuitem',type:'button'},translate('context.reveal'))):null,sessionInlineRename?h(SessionInlineRename,{busy:sessionInlineRenameBusy,error:sessionInlineRenameError,onCancel:cancelSessionInlineRename,onConfirm:confirmSessionInlineRename,row:sessionInlineRename.row,title:sessionInlineRename.title}):null,sessionNotice?h('div',{className:'dsh-ws-copy-notice','data-error':sessionNotice.error||undefined,role:'status'},sessionNotice.text):null),overlay.open?h(MindmapOverlayHost,{actions:props.mindmapActions,chatWidth,mobile:mobile.on,previewRight:settings.previewRight===true,previewWidth:preview,sessionId:overlay.sessionId,settingsStore:props.settingsStore,sidebarWidth:sidebar,useSessions:props.useSessions}):null)}
+  return h('div',{ref:viewportRef,className:'dsh-ws-viewport'},h('main',{className:'dsh-ws-frame','data-explorer-closed':!panes.explorerOpen&&!filesActive||undefined,'data-sidebar-collapsed':collapsed||undefined,'data-sidebar-files':filesActive||undefined,'data-resizing':resizing||undefined,'data-preview-right':settings.previewRight===true||undefined,style:{'--dsh-ws-preview':`${preview}px`,'--dsh-ws-sidebar':`${sidebar}px`,'--dsh-ws-row-height':`${clamp(settings.rowHeight ?? ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MIN, ROW_HEIGHT_MAX)}px`,'--dsh-ws-chat-font-scale':String(chatFontScale),'--dsh-ws-mobile-header-h':`${mobileHeaderHeight}px`,'--dsh-ws-mindmap-spin-duration':mindmapSpinDuration,...fileColorVars}},h('aside',{className:'dsh-ws-sidebar',ref:asideRef},props.renderSlot('sidebar',{collapsed,width:sidebar}),sidebarChrome?.top?createPortal(h(SidebarTopActions,{collapsed,view,width:sidebar,onSelectSessions:()=>{props.actions.setView('sessions')},onSelectFiles:()=>{if(collapsed)props.toggleSidebar();props.actions.setView('files')}}),sidebarChrome.top):null,sidebarChrome&&(sidebarChrome.groups.length>0?sidebarChrome.groups.map(group=>createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:group.title,openSession:openMindmapSession,revealSession:revealSessionById}),group.container)):sidebarChrome.fallback?createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:undefined,openSession:openMindmapSession,revealSession:revealSessionById}),sidebarChrome.fallback):null)),workspace?h(WorkspaceExplorer,{key:`${workspace.workspaceId}:${sessionId ?? 'workspace'}`,createEntry:props.createEntry,listDirectory:props.listDirectory,persistPreviewSession,publishEditorContext,readFile:props.readFile,renameEntry:props.renameEntry,saveFile:props.saveFile,loadDraft:props.loadDraft,persistDraftFile:props.persistDraftFile,removeDraftFile:props.removeDraftFile,draftTree:props.draftTree,checkFileChange:props.checkFileChange,previewSync:props.previewSync,settingsStore:props.settingsStore,storedPreviewSession,sessionTitle,sessionId,renameSession:props.renameSession,treePortalTarget,workspace}):h(EmptyWorkspaceExplorer,{sessionTitle,treePortalTarget}),h('section',{className:'dsh-ws-chat',ref:chatSectionRef},props.renderSlot('conversation',{}),chatDropActive?h('div',{className:'dsh-ws-chat-drop-mask',role:'presentation'},h('button',{'aria-label':translate('drop.closeAria'),className:'dsh-ws-chat-drop-close',onClick:()=>{chatDropSuppressed.current=true;setChatDropActive(false)},title:translate('drop.closeTitle'),type:'button'},'×'),h('div',{className:'dsh-ws-chat-drop-card'},translate('drop.releaseImages'))):null),!collapsed?h(ResizeHandle,{label:translate('resize.sidebar'),left:sidebar,max:sidebarMax,min:SIDEBAR_MIN,onDragging:setResizing,onResize:width=>props.actions.setSidebar(width,sidebarMax),value:sidebar}):null,(panes.explorerOpen||filesActive)?h(ResizeHandle,{label:translate('resize.preview'),left:settings.previewRight===true?Math.max(0,viewportWidth-preview):previewBoundary,max:previewMax,min:PREVIEW_MIN,onDragging:setResizing,onResize:width=>props.explorerPaneStore.actions.setPreview(width,previewMax),value:preview,invert:settings.previewRight===true||undefined}):null,h('aside',{className:'dsh-ws-details','data-closed':!panels.detailsOpen||!detailsCapable||undefined},props.renderSlot('details',{})),mobile.on&&mobile.drawerOpen?h('div',{className:'dsh-ws-mobile-scrim',onClick:()=>setDrawerOpen(false)}):null,h('div',{className:'dsh-ws-overlay','data-shell-overlay':true},props.renderSlot('shell.overlay',{})),sessionContextMenu?h('div',{className:'dsh-ws-context-menu',ref:sessionMenuRef,role:'menu',style:{left:Math.max(4,Math.min(sessionContextMenu.x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top:Math.max(4,Math.min(sessionContextMenu.y,window.innerHeight-52))}},h('button',{className:'dsh-ws-context-item',onClick:beginSessionInlineRename,role:'menuitem',type:'button'},translate('context.renameSession')),h('button',{className:'dsh-ws-context-item',onClick:archiveSessionFromMenu,role:'menuitem',type:'button'},translate('context.archiveSession')),h('div',{className:'dsh-ws-context-separator',role:'separator'}),h('button',{className:'dsh-ws-context-item',onClick:revealSessionFromMenu,role:'menuitem',type:'button'},translate('context.reveal'))):null,sessionInlineRename?h(SessionInlineRename,{busy:sessionInlineRenameBusy,error:sessionInlineRenameError,onCancel:cancelSessionInlineRename,onConfirm:confirmSessionInlineRename,row:sessionInlineRename.row,title:sessionInlineRename.title}):null,sessionNotice?h('div',{className:'dsh-ws-copy-notice','data-error':sessionNotice.error||undefined,role:'status'},sessionNotice.text):null),overlay.open?h(MindmapOverlayHost,{actions:props.mindmapActions,chatWidth,mobile:mobile.on,previewRight:settings.previewRight===true,previewWidth:preview,sessionId:overlay.sessionId,settingsStore:props.settingsStore,sidebarWidth:sidebar,useSessions:props.useSessions}):null)}
 
 export const inject = ['slots', 'theme', 'sessions', 'workspaces']
 export function apply(ctx) {
@@ -10754,6 +11119,8 @@ export function apply(ctx) {
   const persistDraftFile = (workspaceId, path, payload, signal) => writeDraft(String(workspaceId), path, payload, signal)
   const removeDraftFile = (workspaceId, path, signal, owner, generation) => deleteDraft(String(workspaceId), path, signal, owner, generation)
   const draftTree = (workspaceId, payload, signal) => requestDraftTree(String(workspaceId), payload, signal)
+  const checkFileChangeBound = (workspaceId, path, previous, signal) => checkFileChange(String(workspaceId), path, previous, signal)
+  const previewSyncBound = (workspaceId, path, clientId, control, signal) => previewSyncRequest(String(workspaceId), path, clientId, control, signal)
 
   /* The mind-map action face shared by the floating overlay (formerly the
      conversation.view inject): document IO, fork, rename and archive. forkAt
@@ -10790,7 +11157,7 @@ export function apply(ctx) {
       return undefined
     }
     return {
-    archiveSession: async id => { await ctx.workspaces.archiveSession(String(id)) },
+      archiveSession: async id => { await ctx.workspaces.archiveSession(String(id)) },
     createSession: async (recordedCwd, anchorId) => {
       /* A top-level session (created by clicking the mind-map root node) is a
          brand-new BLANK harness session — no inherited turns. It is created in
@@ -10873,6 +11240,8 @@ export function apply(ctx) {
           persistDraftFile,
           removeDraftFile,
           draftTree,
+          checkFileChange: checkFileChangeBound,
+          previewSync: previewSyncBound,
           settingsStore,
           toggleSidebar: () => { layout.toggleSidebar() },
           renameSession: async (sessionId, title) => {
@@ -11003,6 +11372,7 @@ export function apply(ctx) {
   ctx.effect(() => installMindmapBranchHider(
     () => ctx.sessions.list.getSnapshot(),
     () => ctx.workspaces.list.getSnapshot().archivedSessionIds,
+    () => ctx.workspaces.list.getSnapshot().items,
   ), 'workspace-studio: mind-map branch hider')
   /* Background mind-map doc index (feeds the sidebar entries and the hider). */
   ctx.effect(() => {
