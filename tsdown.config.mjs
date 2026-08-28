@@ -4,7 +4,7 @@ const ID = '@yishengjun8/dsh-workspace-studio'
 const EXTERNALS = [
   'react',
   'react-dom',
-  '@deepseek-ai/dsh-client-runtime/client',
+  '@deepseek-ai/dsh-client-store',
   '@deepseek-ai/dsh-client-ui-primitives',
 ]
 

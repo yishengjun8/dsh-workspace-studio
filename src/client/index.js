@@ -1,6 +1,6 @@
 import React from 'react'
 import { createPortal } from 'react-dom'
-import { createSnapshotStore, defineStore } from '@deepseek-ai/dsh-client-runtime/client'
+import { createSnapshotStore, defineStore } from '@deepseek-ai/dsh-client-store'
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import { EditorState, Compartment } from '@codemirror/state'
 import { EditorView, drawSelection, dropCursor, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers, panels } from '@codemirror/view'
@@ -50,13 +50,10 @@ const CONFLICT_FONT_SIZE_DEFAULT = 12, CONFLICT_FONT_SIZE_MIN = 6, CONFLICT_FONT
 const SEARCH_MATCH_EXPAND_DEFAULT = true
 /* File-browser pane sits on the right side of the conversation column instead of the left (user-tunable). */
 const PREVIEW_RIGHT_DEFAULT = false
-/* Watch opened files for external changes and auto-sync the clean preview
-   (user-tunable). When the host watch is unavailable the client polls this
-   cadence as a fallback. */
+/* Watch opened files for external changes and auto-sync the clean preview (user-tunable); polls this cadence when the host watch is unavailable. */
 const WATCH_FILES_DEFAULT = true
 const AUTO_SYNC_CHECK_MS = 2000
-/* "Auto" = a clean tab reloads itself on change; "watch-only" = only shows a
-   "file changed" status and waits for the user's refresh action. */
+/* "Auto" = a clean tab reloads on change; "watch-only" = only shows a "file changed" status and waits for the user's refresh. */
 const AUTO_SYNC_MODE_AUTO = 'auto'
 const AUTO_SYNC_MODE_WATCH_ONLY = 'watch-only'
 /* Auto-open streaming Think disclosures and close them when done (user-tunable). */
@@ -66,17 +63,14 @@ const THINK_COLLAPSE_DELAY_DEFAULT_S = 3
 const THINK_COLLAPSE_DELAY_MIN_S = 0
 const THINK_COLLAPSE_DELAY_MAX_S = 10
 const THINK_COLLAPSE_DELAY_STEP_S = 0.1
-/* Sidebar mind-map icon spin: speed multiplier over the 0.8 s base (default
-   1.5x = 1.2 s per revolution; larger = faster, 0 = no rotation). */
+/* Sidebar mind-map icon spin: speed multiplier over the 0.8 s base (default 1.5x = 1.2 s/rev; larger = faster, 0 = no rotation). */
 const MINDMAP_SPIN_BASE_DURATION_S = 0.8
 const MINDMAP_SPIN_SPEED_DEFAULT_X = 1.5
 const MINDMAP_SPIN_SPEED_MIN_X = 0
 const MINDMAP_SPIN_SPEED_MAX_X = 3
 /* Speed 0 would divide by zero: freeze the spin with a huge duration instead. */
 const MINDMAP_SPIN_STOP_DURATION_S = 1e6
-/* Fractional clamp for the spin speed: preserves 0.1-granular decimals,
-   unlike the shared clamp() which rounds to integers (the round-trip would
-   snap 1.1 back to 1 on the controlled input). */
+/* Fractional clamp: preserves 0.1-granular decimals — the shared clamp() rounds to integers, snapping 1.1 back to 1 on the controlled input. */
 const clampSpinSpeed = (value) => {
   const speed = Number(value ?? MINDMAP_SPIN_SPEED_DEFAULT_X)
   const bounded = Number.isFinite(speed)
@@ -84,11 +78,7 @@ const clampSpinSpeed = (value) => {
     : MINDMAP_SPIN_SPEED_DEFAULT_X
   return Math.round(bounded * 10) / 10
 }
-/* Mount-edge S-curve bulge (root → top-level session head, parent card →
-   nested session head): a scale factor over the "slight" base curve. Default
-   ×5 is the shipped look (start-side up/outward bow + end-side left/up hook);
-   0 collapses each mount edge to the straight chord. The max keeps the left
-   swing of the root→head curve inside the map's left margin. */
+/* Mount-edge S-curve bulge (root → head, parent card → nested head): scale over the "slight" base curve. Default ×5 (start-side up/outward bow + end-side left/up hook); 0 = straight chord. The max keeps the root→head left swing inside the map's left margin. */
 const MINDMAP_MOUNT_BULGE_DEFAULT_X = 5
 const MINDMAP_MOUNT_BULGE_MIN_X = 0
 const MINDMAP_MOUNT_BULGE_MAX_X = 6
@@ -100,29 +90,14 @@ const clampMountBulge = (value) => {
   return Math.round(bounded * 10) / 10
 }
 const EXPLORER_SETTINGS_STORE_KEY = 'dsh.workspace.studio.settings.v1'
-/* Mind-map highlight colors (hover / selected): user-chosen hex, or unset
-   (undefined) = the harness theme default. The theme CSS variables resolve to
-   concrete hexes for the settings color picker; the effective values are
-   published as document-wide custom properties (--dsh-ws-mindmap-hover /
-   --dsh-ws-mindmap-selected) that the highlight CSS rules consume, so the
-   defaults stay theme-adaptive (light/dark) until the user overrides them. */
+/* Mind-map highlight colors (hover / selected): user hex, or unset = harness theme default. Resolved hexes feed the settings color picker and publish as document-wide --dsh-ws-mindmap-hover / --dsh-ws-mindmap-selected for the highlight CSS, so defaults stay theme-adaptive until overridden. */
 const MINDMAP_HOVER_THEME_VAR = '--dsw-alias-state-warn-primary'
 const MINDMAP_SELECTED_THEME_VAR = '--dsw-alias-state-business-primary'
 const MINDMAP_HOVER_COLOR_FALLBACK = '#f59e0b'
 const MINDMAP_SELECTED_COLOR_FALLBACK = '#4176e6'
-/* Session-head card accent color: the identity tint of a session's head card
-   (border + background wash + folder icon), published as the document-wide
-   --dsh-ws-mindmap-head custom property (see the applyMindmapColors effect).
-   Defaults to violet #a78bfa so the session identity is distinct from the
-   primary-blue root/selection and the green "末端" chips; the user can
-   override it in 设置 → 工作区设置 → 导图浏览设置. */
+/* Session-head card accent color (border + background wash + folder icon), published as the document-wide --dsh-ws-mindmap-head property (see applyMindmapColors). Defaults to violet #a78bfa to stay distinct from the blue root/selection and green "末端" chips; overridable in 设置 → 工作区设置 → 导图浏览设置. */
 const MINDMAP_HEAD_COLOR_DEFAULT = '#a78bfa'
-/* End-of-branch card accent color: the whole-card tint (border + background
-   wash + the "末端" capsule) of a card whose click jumps (switch) instead of
-   forking. Published as the document-wide --dsh-ws-mindmap-end custom
-   property (see the applyMindmapColors effect). Defaults to the success
-   green #22c55e — the capsule's current color — so the terminal-point meaning
-   stays green; the user can override it in 设置 → 工作区设置 → 导图浏览设置. */
+/* End-of-branch card accent (whole-card tint: border + wash + "末端" capsule) for cards whose click jumps instead of forking; published as the document-wide --dsh-ws-mindmap-end property (see applyMindmapColors). Defaults to success green #22c55e — the capsule's color — so terminal-point meaning stays green; overridable in 设置 → 工作区设置 → 导图浏览设置. */
 const MINDMAP_END_COLOR_DEFAULT = '#22c55e'
 const cssColorToHex = (color) => {
   if (typeof color !== 'string') return null
@@ -172,17 +147,11 @@ const MOBILE_CLASS = 'dsh-ws-mobile-on'
 const MOBILE_DRAWER_CLASS = 'dsh-ws-mobile-drawer-open'
 const MOBILE_FILES_CLASS = 'dsh-ws-mobile-files-on'
 const MOBILE_HEADER_FALLBACK_H = 52
-/* Mind-map conversation branching ("导图"): a left-side floating window over
-   everything except the chat column, rendering a persisted per-root-session
-   document (trunk from the root's full log + fork branches) left-to-right.
-   Branch sessions are ordinary forks hidden from the sidebar session list. */
+/* Mind-map conversation branching ("导图"): a left-side floating window over everything except the chat column, rendering a persisted per-root-session document (a flat list of session turn-chains + fork branches) left-to-right. Branch sessions are ordinary forks hidden from the sidebar list. */
 const MINDMAP_NODE_W = 236
 /* Card height fits the branch-title row, clamped two-line question, and status row. */
 const MINDMAP_NODE_H = 124
-/* The virtual mind-map ROOT node (the map's top hub: clicking it creates a new
-   top-level session) and the per-session HEAD node (a session's identity
-   card at the left of its question chain; clicking it switches to the
-   session). Both are layout-only nodes, never part of the persisted doc. */
+/* Virtual ROOT node (top hub: click creates a new top-level session) and per-session HEAD node (identity card at the left of its question chain; click switches to the session). Both are layout-only, never part of the persisted doc. */
 const MINDMAP_ROOT_W = 264
 const MINDMAP_ROOT_H = 64
 const MINDMAP_HEAD_W = 180
@@ -190,14 +159,11 @@ const MINDMAP_HEAD_H = 124
 const MINDMAP_DEPTH_GAP = 64
 const MINDMAP_ROW_GAP = 12
 const MINDMAP_TEXT_MAX = 88
-/* Mind-map viewport interaction bounds: wheel-zoom range, the pan overhang
-   (MINDMAP_PAN_MARGIN, the margin the fit view aligns to; the proportional
-   clamp MINDMAP_PAN_OUT_MAX below), and the wheel zoom step. */
+/* Mind-map viewport interaction bounds: wheel-zoom range, pan overhang (MINDMAP_PAN_MARGIN, the margin the fit view aligns to), and wheel zoom step. */
 const MINDMAP_ZOOM_MIN = 0.25
 const MINDMAP_ZOOM_MAX = 3
 const MINDMAP_PAN_MARGIN = 48
-/* Max fraction of the map (per axis, at the current zoom) draggable out of
-   view: 0.8 → at least 20% stays on screen. Applies to grab-pan and wheel-zoom alike. */
+/* Max fraction of the map (per axis, at current zoom) draggable out of view: 0.8 → at least 20% stays on screen; applies to grab-pan and wheel-zoom alike. */
 const MINDMAP_PAN_OUT_MAX = 0.8
 const MINDMAP_WHEEL_STEP = 0.0016
 /* Mind-map doc-index refresh interval (sidebar panel + branch hider read it); also bumped on every doc mutation. */
@@ -209,8 +175,7 @@ const MINDMAP_HIDER_THROTTLE_MS = 400
 /* DeepSeek fish logo path (ui-primitives FishLogo); padded viewBox keeps the 1.4-wide stroke unclipped. */
 const FISH = 'M22.9168 1.43018C22.6713 1.31018 22.5658 1.53918 22.4223 1.65519C22.3733 1.69269 22.3318 1.74169 22.2903 1.78669C21.9317 2.1697 21.5127 2.42121 20.9657 2.39121C20.1657 2.34621 19.4827 2.59771 18.8787 3.20973C18.7502 2.45521 18.3236 2.0047 17.6746 1.71569C17.3351 1.56568 16.9916 1.41518 16.7536 1.08867C16.5876 0.856163 16.5421 0.597155 16.4591 0.341647C16.4061 0.187643 16.3536 0.0301382 16.1761 0.00363739C15.9836 -0.0263635 15.9081 0.135141 15.8326 0.270145C15.5306 0.822162 15.4136 1.43018 15.4251 2.0462C15.4516 3.43174 16.0366 4.53527 17.1991 5.3203C17.3311 5.4103 17.3651 5.5003 17.3236 5.63181C17.2441 5.90231 17.1501 6.16482 17.0671 6.43533C17.0141 6.60784 16.9351 6.64584 16.7501 6.57033C16.1121 6.30383 15.5611 5.90931 15.074 5.4328C14.2475 4.63328 13.5 3.75075 12.568 3.05973C12.349 2.89822 12.13 2.74822 11.9034 2.60522C10.9524 1.68169 12.028 0.923165 12.277 0.833162C12.5375 0.739159 12.3675 0.41615 11.5259 0.42015C10.6844 0.42365 9.91439 0.705658 8.93286 1.08117C8.78935 1.13767 8.63835 1.17867 8.48384 1.21267C7.59332 1.04367 6.66829 1.00617 5.70226 1.11517C3.88321 1.31768 2.43016 2.1777 1.36213 3.64575C0.0790928 5.4103 -0.222916 7.41536 0.146595 9.50642C0.535106 11.7105 1.66014 13.535 3.38869 14.9616C5.18125 16.4406 7.24581 17.1657 9.60138 17.0266C11.0319 16.9441 12.6245 16.7526 14.421 15.2321C14.874 15.4576 15.3496 15.5476 16.1381 15.6151C16.7456 15.6716 17.3306 15.5851 17.7836 15.4911C18.4931 15.3411 18.4441 14.6841 18.1876 14.5636C16.1081 13.595 16.5646 13.9891 16.1496 13.67C17.2061 12.42 18.8202 10.1979 19.3182 7.17235C19.3672 6.83834 19.4297 6.36783 19.4222 6.09732C19.4182 5.93231 19.4562 5.86831 19.6447 5.84931C20.1657 5.78931 20.6712 5.64681 21.1357 5.3913C22.4833 4.65528 23.0268 3.44624 23.1548 1.9972C23.1738 1.77569 23.1508 1.54668 22.9168 1.43018ZM11.1749 14.4736C9.15936 12.889 8.18184 12.3675 7.77832 12.39C7.40081 12.4125 7.46881 12.8445 7.55182 13.126C7.63882 13.404 7.75182 13.5955 7.91033 13.8396C8.01983 14.0011 8.09533 14.2411 7.80083 14.4216C7.15181 14.8231 6.02327 14.2866 5.97027 14.2601C4.65673 13.4865 3.5587 12.4655 2.78467 11.069C2.03715 9.72493 1.60314 8.28289 1.53164 6.74384C1.51264 6.37233 1.62214 6.24082 1.99215 6.17332C2.47916 6.08332 2.98118 6.06432 3.46769 6.13582C5.52476 6.43633 7.27581 7.35586 8.74385 8.8129C9.58188 9.64243 10.2159 10.634 10.8689 11.6025C11.5634 12.631 12.3105 13.611 13.262 14.4146C13.598 14.6961 13.866 14.9101 14.1225 15.0681C13.349 15.1546 12.058 15.1731 11.1749 14.4746L11.1749 14.4736ZM12.141 8.25988C12.141 8.09488 12.273 7.96338 12.439 7.96338C12.4765 7.96338 12.5105 7.97088 12.541 7.98188C12.5825 7.99688 12.6205 8.01938 12.6505 8.05338C12.7035 8.10588 12.7335 8.18088 12.7335 8.25988C12.7335 8.42489 12.6015 8.55639 12.4355 8.55639C12.2695 8.55639 12.141 8.42489 12.141 8.25988ZM15.1415 9.79893C14.949 9.87793 14.7565 9.94544 14.5715 9.95294C14.2845 9.96794 13.9715 9.85143 13.8015 9.70893C13.5375 9.48742 13.3485 9.36342 13.2695 8.97691C13.2355 8.8119 13.2545 8.55639 13.2845 8.40989C13.3525 8.09438 13.277 7.89187 13.0545 7.70787C12.8735 7.55786 12.643 7.51636 12.39 7.51636C12.2955 7.51636 12.209 7.47486 12.1445 7.44136C12.039 7.38886 11.9519 7.25735 12.035 7.09585C12.0615 7.04335 12.19 6.91584 12.22 6.89334C12.5635 6.69784 12.9595 6.76184 13.326 6.90834C13.6655 7.04735 13.9225 7.30236 14.292 7.66287C14.6695 8.09838 14.7375 8.21838 14.9525 8.54539C15.1225 8.8009 15.277 9.06341 15.3831 9.36392C15.4471 9.55142 15.3641 9.70493 15.1415 9.79893Z'
 
-/* Encoding fallback mirroring the server's authoritative list (<API_PREFIX>/encodings),
-   so the menu and badge work even before (or without) the fetch succeeding. */
+/* Encoding fallback mirroring the server's authoritative list (<API_PREFIX>/encodings), so the menu and badge work before (or without) the fetch succeeding. */
 const ENCODING_FALLBACK = Object.freeze([
   { id: 'utf-8', label: 'UTF-8' },
   { id: 'utf-8-bom', label: 'UTF-8（带 BOM）' },
@@ -252,11 +217,7 @@ function encodingLabel(id) {
   return ENCODING_LABEL_FALLBACK[id] ?? String(id ?? '')
 }
 
-/* ---- Locale support ---- Follows the harness language setting (Settings ->
-   General -> Language, via dsh-client-locale): zh is the source of truth and
-   en mirrors every key. All product copy goes through `translate`; render code
-   re-subscribes through useLocaleText() so a language switch re-renders the
-   UI. Without the locale service the plugin falls back to the zh dictionary. */
+/* ---- Locale support ---- Follows the harness language setting (Settings -> General -> Language, via dsh-client-locale): zh is the source of truth, en mirrors every key. Copy goes through `translate`; render code re-subscribes via useLocaleText() so a language switch re-renders. Without the locale service it falls back to the zh dictionary. */
 const EXPLORER_LOCALE_NS = 'workspace.studio'
 const zh = {
   'nav.sessions': '会话列表',
@@ -1144,9 +1105,7 @@ const en = {
   'switcher.subagent': 'subagent',
   'switcher.noSessions': 'No other sessions',
 }
-/* CodeMirror search/goto-line panel phrases (EditorState.phrases keys; keep
-   the $ placeholders). English is CodeMirror's built-in default, so the
-   override is only installed for the Chinese surface. */
+/* CodeMirror search/goto-line panel phrases (EditorState.phrases keys; keep the $ placeholders). English is CodeMirror's default, so the override is only installed for the Chinese surface. */
 const CM_PHRASES_ZH = Object.freeze({
   'Find': '查找',
   'Replace': '替换为',
@@ -1166,19 +1125,16 @@ const CM_PHRASES_ZH = Object.freeze({
   'replaced match on line $': '已在第 $ 行替换匹配',
   'replaced $ matches': '已替换 $ 个匹配项',
 })
-/* The LocaleRuntime face (subscribe/getSnapshot pair) once the harness locale
-   plugin is present; undefined keeps the plugin on the zh dictionary. */
+/* LocaleRuntime face (subscribe/getSnapshot pair) once the harness locale plugin is present; undefined keeps the zh dictionary. */
 let localeFace = undefined
-/* The active-locale translator. Bound to the harness locale registry in
-   apply() when available; without it, falls back to the zh dictionary. */
+/* Active-locale translator; bound to the harness locale registry in apply() when available, else falls back to the zh dictionary. */
 const zhFallbackTranslate = (key, params) => {
   const template = zh[key] ?? key
   if (params === undefined) return template
   return template.replace(/\{(\w+)\}/g, (match, name) => name in params ? String(params[name]) : match)
 }
 let translate = zhFallbackTranslate
-/* Render subscription: re-renders the calling component whenever the active
-   locale (or the dictionary registry) changes. */
+/* Re-renders the calling component whenever the active locale (or dictionary registry) changes. */
 function useLocaleText() {
   return useSyncExternalStore(
     localeFace === undefined ? () => () => {} : callback => localeFace.subscribe(callback),
@@ -1189,11 +1145,7 @@ function useLocaleText() {
 function localeIsZh() {
   return localeFace === undefined || localeFace.getSnapshot().active !== 'en'
 }
-/* ---- Mobile mode state ---- The document classes are the single source of
-   truth (the CSS gates and this store read the same classes), so a remount
-   re-derives state instead of losing it. Components subscribe via useMobile();
-   setMobile turns the gate on (and opens the drawer) or off (and clears the
-   drawer/files sub-states). */
+/* ---- Mobile mode state ---- The document classes are the single source of truth (CSS gates and this store read the same classes), so a remount re-derives state. Components subscribe via useMobile(); setMobile turns the gate on (opens the drawer) or off (clears the drawer/files sub-states). */
 function mobileState() {
   return {
     on: document.documentElement.classList.contains(MOBILE_CLASS),
@@ -1220,9 +1172,7 @@ function setMobile(on) {
 function setDrawerOpen(open) { document.documentElement.classList.toggle(MOBILE_DRAWER_CLASS, open); notifyMobile() }
 function setMobileFiles(open) { document.documentElement.classList.toggle(MOBILE_FILES_CLASS, open); notifyMobile() }
 function useMobile() { return useSyncExternalStore(mobileFace.subscribe, mobileFace.getSnapshot) }
-/* Localize a plugin-API error: the Chinese surface keeps the server message
-   verbatim; the English surface maps known error codes through the dictionary
-   and falls back to the server message or the wrapper key. */
+/* Localize a plugin-API error: zh keeps the server message verbatim; en maps known error codes through the dictionary and falls back to the server message or the wrapper key. */
 function apiErrorMessage(code, serverMessage, fallbackKey, params) {
   if (localeIsZh() && typeof serverMessage === 'string' && serverMessage !== '') return serverMessage
   if (code !== undefined) {
@@ -1290,8 +1240,8 @@ const styles = `
 .dsh-ws-chat [data-chat-flow-kind='user'] [data-time-hover-root] > div:first-child > div:last-child,.dsh-ws-chat [data-chat-flow-kind='steering'] [data-time-hover-root] > div:first-child > div:last-child,.dsh-ws-chat [data-pending-steering] > div:first-child > div:last-child{font-size:calc(16px * var(--dsh-ws-chat-font-scale,1));line-height:calc(24px * var(--dsh-ws-chat-font-scale,1))}
 .dsh-ws-chat [data-tool],.dsh-ws-chat [data-sample='bash'],.dsh-ws-chat [data-variant='think']{font-size:calc(14px * var(--dsh-ws-chat-font-scale,1))}
 .dsh-ws-chat [data-tool] [data-disclosure-row] :is(span,button),.dsh-ws-chat [data-sample='bash'] span,.dsh-ws-chat [data-variant='think'] span,.dsh-ws-chat [data-variant='think'] > div > div{font-size:1em}
-.dsh-ws-chat [data-chat-flow]{gap:calc(12px * var(--dsh-ws-chat-font-scale,1))}
-.dsh-ws-chat [data-chat-flow-kind='assistant-step'] [data-slot='conversation.chat.node'] > div > div{gap:calc(12px * var(--dsh-ws-chat-font-scale,1))}
+.dsh-ws-chat [data-chat-flow]{--dsh-chat-flow-gap:calc(16px * var(--dsh-ws-chat-font-scale,1))}
+.dsh-ws-chat [data-chat-flow-kind='assistant-step'] [data-slot='conversation.chat.node'] > div > div{gap:calc(16px * var(--dsh-ws-chat-font-scale,1))}
 .dsh-ws-chat [data-chat-flow-kind='assistant-step'] p:not(li p),.dsh-ws-chat [data-chat-flow-kind='assistant-step'] :where(ul,ol,h4,h5,h6,pre){margin-top:calc(12px * var(--dsh-ws-chat-font-scale,1));margin-bottom:calc(12px * var(--dsh-ws-chat-font-scale,1))}
 .dsh-ws-chat [data-chat-flow-kind='assistant-step'] :where(h1,h2,h3){margin-top:calc(24px * var(--dsh-ws-chat-font-scale,1));margin-bottom:calc(12px * var(--dsh-ws-chat-font-scale,1))}
 .dsh-ws-chat [data-chat-flow-kind='assistant-step'] hr{margin:calc(24px * var(--dsh-ws-chat-font-scale,1)) 0}
@@ -1560,7 +1510,7 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-mindmap-branch:hover{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary)}
 .dsh-ws-mindmap-branch:disabled{opacity:.55;cursor:not-allowed}
 .dsh-ws-mindmap-node-current-badge{position:absolute;top:3px;right:8px;padding:1px 7px;border-radius:999px;background:var(--dsh-ws-mindmap-selected,var(--dsw-alias-state-business-primary));color:var(--dsw-alias-label-primary-inverted);font-size:10px;line-height:14px}
-/* Branch cards: fork children that cannot overlap the shared trunk window
+/* Branch cards: fork children that cannot overlap the shared chain window
    render as their own card (always visible), with a head row (tag + branch
    title) and, when the branch has visible rounds, a per-round preview list. */
 .dsh-ws-mindmap-pending{border-style:dashed;cursor:pointer;justify-content:flex-start;align-items:stretch}
@@ -1660,11 +1610,9 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-mindmap-hidden-row{display:none!important}
 .dsh-ws-mindmap-no-overflow{display:none!important}
 /* Sidebar mind-map session entries: rendered INSIDE each workspace group's
-   session list (one container appended to its group section), so a mind map
-   shows among the ordinary sessions of its workspace; flat / search list
-   modes (no group sections) use a region-area fallback seat instead. Entries
-   are draggable to reorder (order persisted per group) and carry a right-click
-   menu (rename / reveal). Empty containers collapse. */
+   session list (one container per group section), flat / search modes use a
+   region-area fallback seat instead. Draggable to reorder (order persisted per
+   group); right-click menu (rename / reveal). Empty containers collapse. */
 .dsh-ws-sidebar-mindmaps{min-width:0;display:flex;flex-direction:column;gap:2px;padding:2px 8px 4px;box-sizing:border-box}
 .dsh-ws-sidebar-mindmaps:empty{display:none}
 .dsh-ws-sidebar-mindmaps-fallback{flex:none;padding:2px 2px 6px}
@@ -1676,9 +1624,9 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-sidebar-mindmaps-item[data-drop="before"]{box-shadow:inset 0 2px 0 var(--dsw-alias-state-business-primary)}
 .dsh-ws-sidebar-mindmaps-item[data-drop="after"]{box-shadow:inset 0 -2px 0 var(--dsw-alias-state-business-primary)}
 .dsh-ws-sidebar-mindmaps-icon{flex:none;width:14px;height:14px;color:var(--dsw-alias-state-business-primary)}
-/* While any session in a mind map family is streaming (summary.running flips
-   at generation start, no sync wait), spin the entry's left icon so the
-   sidebar shows the live generation the hidden ordinary rows would have. */
+/* While any session in a mind map family streams (summary.running flips at
+   generation start, no sync wait), spin the left icon to mirror the hidden
+   ordinary rows' live generation. */
 @keyframes dsh-ws-mindmap-spin{to{transform:rotate(360deg)}}
 .dsh-ws-sidebar-mindmaps-item[data-running] .dsh-ws-sidebar-mindmaps-icon{animation:dsh-ws-mindmap-spin var(--dsh-ws-mindmap-spin-duration,0.8s) linear infinite;transform-origin:center}
 @media (prefers-reduced-motion: reduce){.dsh-ws-sidebar-mindmaps-item[data-running] .dsh-ws-sidebar-mindmaps-icon{animation:none}}
@@ -1686,18 +1634,14 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-sidebar-mindmaps-count{flex:none;color:var(--dsw-alias-label-secondary);font-size:10px;line-height:14px}
 .dsh-ws-frame[data-sidebar-files] .dsh-ws-sidebar-mindmaps{display:none}
 .dsh-ws-frame[data-sidebar-collapsed] .dsh-ws-sidebar-mindmaps{display:none}
-/* A collapsed workspace group renders no session rows (deriveGroups empties
-   them), but the injected mind-map seat is a foreign node React leaves in
-   place. Harness wraps the group header in a HoverCard span and the seat is
-   appended to that wrapper — so the seat and the collapsed header share the
-   same direct parent (the span for real workspaces, the group section div
-   for the ungrouped bucket). Fold the seat with the folder by matching
-   whatever element directly holds both; the group-collapse analogue of the
-   files / rail rules above. */
+/* A collapsed group renders no rows, but the injected mind-map seat is a
+   foreign node React leaves in place. Harness wraps the group header in a
+   HoverCard span and appends the seat to it, so both share one direct parent
+   (span for real workspaces, section div for the ungrouped bucket); fold the
+   seat with the folder by matching that parent — like the files / rail rules. */
 [data-slot="sidebar.workspaces"] *:has(> [role="treeitem"][aria-expanded="false"]) > .dsh-ws-sidebar-mindmaps{display:none}
-/* Rendered-Markdown preview overlay inside the preview body: absolute so the
-   kept-mounted CodeMirror editor stays alive underneath, and scrollable so
-   long documents browse like the editor does. */
+/* Rendered-Markdown overlay inside the preview body: absolute keeps the
+   mounted CodeMirror alive underneath; scrollable for long documents. */
 .dsh-ws-md-preview{position:absolute;inset:0;overflow:auto;box-sizing:border-box;padding:16px 20px;background:var(--dsw-alias-bg-base)}
 `
 
@@ -1707,22 +1651,21 @@ const tokenHighlight = HighlightStyle.define([
   { tag: [tags.string, tags.special(tags.string), tags.regexp], color: 'var(--shiki-token-string)' },
   { tag: [tags.number, tags.bool, tags.null], color: 'var(--shiki-token-constant)' },
   { tag: [tags.function(tags.variableName), tags.function(tags.propertyName), tags.typeName, tags.className, tags.namespace], color: 'var(--shiki-token-function)' },
-  // Name-definition tokens (class/namespace/type names in declaration
-  // position) ride the type color; StreamLanguage emits these as
-  // `variableName.definition`, which the bare variableName rule above misses.
+  // Name-definition tokens (declaration position) ride the type color;
+  // StreamLanguage emits them as `variableName.definition`, which the bare
+  // variableName rule above misses.
   { tag: [tags.definition(tags.variableName), tags.definition(tags.typeName), tags.definition(tags.propertyName)], color: 'var(--shiki-token-function)' },
   { tag: [tags.variableName, tags.propertyName, tags.attributeName], color: 'var(--shiki-token-parameter)' },
   { tag: [tags.heading, tags.link, tags.url], color: 'var(--shiki-token-link)' },
-  // Preprocessor directives: purple via the directive variable, with a purple
-  // fallback. NOTE: tags.meta must not reappear in any LATER rule —
-  // @lezer/highlight lets a later rule win per tag, which would strip the
-  // directive color from C# #region/#if and C preprocessor lines.
+  // Preprocessor directives: purple via the directive variable. NOTE: tags.meta
+  // must not reappear in any LATER rule — a later rule wins per tag and would
+  // strip the directive color from C# #region/#if and C preprocessor lines.
   { tag: tags.meta, color: 'var(--dsh-ws-token-directive, #8e44ad)' },
   { tag: tags.inserted, color: 'var(--shiki-token-string-expression)' },
   { tag: tags.punctuation, color: 'var(--shiki-token-punctuation)' },
-  // Markup (XML/HTML) tokens: angleBracket was unstyled and character already
-  // rides the string color; the fallbacks preserve that unless a markup preset
-  // (e.g. VS Code XML) sets the override variables.
+  // Markup tokens: angleBracket was unstyled, character already rides the
+  // string color; fallbacks preserve that unless a markup preset (e.g. VS Code
+  // XML) sets the override variables.
   { tag: tags.angleBracket, color: 'var(--dsh-ws-token-xml-punctuation, inherit)' },
   { tag: tags.character, color: 'var(--dsh-ws-token-xml-entity, var(--shiki-token-string))' },
   { tag: [tags.invalid, tags.deleted], color: 'var(--dsw-alias-state-error-primary)' },
@@ -1759,10 +1702,10 @@ const SCSS_LANGUAGE = language('scss', CSS_LANGUAGE.extension)
 const LESS_LANGUAGE = language('less', CSS_LANGUAGE.extension)
 const MDX_LANGUAGE = language('mdx', MARKDOWN_LANGUAGE.extension)
 const INI_LANGUAGE = language('ini', [])
-/* C# legacy mode: replicates the clike `csharp` export (keywords, types, the
-   @"..." verbatim-string hook) and adds a C/C++-style preprocessor hook so
-   #if/#define/#region lines render as directives (the shipped csharp export
-   has no '#' hook). */
+/* C# legacy mode: replicates the clike `csharp` export (keywords, types,
+   @"..." verbatim-string hook) plus a C/C++-style '#' preprocessor hook so
+   #if/#define/#region render as directives (the shipped csharp export has no
+   '#' hook). */
 const csharpWords = (str) => {
   const obj = {}
   for (const word of str.split(' ')) obj[word] = true
@@ -1844,10 +1787,10 @@ function languageFor(name) {
   return EXTENSION_LANGUAGES[extension] ?? PLAIN_LANGUAGE
 }
 
-/* File-tree badge color groups. Each group owns one accent color used for the
-   leading type badge (text + a translucent tint); users may recolor any group
-   from the browser settings page, and an unset group falls back to its
-   default. Directory and blocked entries are groups like any file type. */
+/* File-tree badge color groups. Each group owns one accent color for the
+   leading type badge (text + translucent tint), user-recolorable in settings
+   with unset groups falling back to their default. Directory and blocked
+   entries are groups like any file type. */
 const FILE_COLOR_GROUPS = Object.freeze([
   { group: 'directory', label: '目录', color: '#3b82f6' },
   { group: 'typescript', label: 'TypeScript', color: '#3178c6' },
@@ -1876,9 +1819,8 @@ function fileColorOf(settings, group) {
   return settings?.fileColors?.[group] ?? fileColorDefault(group)
 }
 
-/* Extension -> color group. Mirrors EXTENSION_LANGUAGES so a file's badge and
-   its editor highlighting stay on the same type; unknown suffixes land in
-   'other'. */
+/* Extension -> color group. Mirrors EXTENSION_LANGUAGES so a file's badge
+   and editor highlighting agree; unknown suffixes land in 'other'. */
 const FILE_GROUP_BY_EXTENSION = Object.freeze({
   ts: 'typescript', tsx: 'typescript', mts: 'typescript', cts: 'typescript',
   js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript',
@@ -1913,10 +1855,9 @@ function colorGroupOf(entry) {
 }
 
 /* Editor syntax-highlight presets. Each non-default preset overrides the
-   --shiki-token-* variables on the editor host (light and dark variants via
-   the body attribute), so the CodeMirror HighlightStyle keeps its single
-   var() mapping and every palette stays theme-consistent. 'default' leaves
-   the app theme's own shiki palette untouched. */
+   --shiki-token-* variables on the editor host (light/dark variants via the
+   body attribute), so the HighlightStyle keeps its single var() mapping.
+   'default' leaves the app theme's shiki palette untouched. */
 const HIGHLIGHT_PRESETS = Object.freeze([
   { id: 'default', label: '默认' },
   { id: 'classic', label: '经典' },
@@ -1937,7 +1878,7 @@ const HIGHLIGHT_PRESETS = Object.freeze([
   { id: 'vs2022', label: 'Visual Studio 2022' },
 ])
 const HIGHLIGHT_PRESET_DEFAULT = 'default'
-/* Per-group default highlight presets. A group with no entry here and no user
+/* Per-group default highlight presets; a group with no entry here and no user
    pick follows the app theme's shiki palette ('default'). */
 const HIGHLIGHT_PRESET_DEFAULT_BY_GROUP = Object.freeze({
   markup: 'vscode-xml',
@@ -1967,8 +1908,8 @@ function lineSeparator(value) {
   return '\n'
 }
 
-/* Read-only reason codes the preview payload may carry, mapped to their
-   dictionary keys (including alias spellings from the server). */
+/* Read-only reason codes the preview may carry, mapped to dictionary keys
+   (including server alias spellings). */
 const READ_ONLY_REASON_KEYS = Object.freeze({
   binary: 'readonly.binary',
   encoding: 'readonly.encoding',
@@ -1998,27 +1939,25 @@ function readOnlyReason(preview) {
 const fileLabel = name => languageFor(name).label
 const clamp = (value, min, max) => {
   const rounded = Math.round(value)
-  // NaN (or non-finite) must not leak through Math.min/max into state; a
-  // non-numeric input resolves to the lower bound as a safe default.
+  // NaN must not leak through Math.min/max into state; non-numeric input
+  // resolves to the lower bound as a safe default.
   return Number.isFinite(rounded) ? Math.min(max, Math.max(min, rounded)) : min
 }
 function formatBytes(bytes) { if (!Number.isFinite(bytes) || bytes < 0) return ''; if (bytes < 1024) return `${bytes} B`; if (bytes < 1048576) return `${(bytes / 1024).toFixed(bytes < 10240 ? 1 : 0)} KB`; return `${(bytes / 1048576).toFixed(1)} MB` }
 
 /* ---- Save-time three-way merge (Git-like conflict resolution) ----
  *
- * When an explicit save finds the file changed on disk by another tool since
- * the editing snapshot, the user's edits and the external edits are merged:
- * - changes in different places are both kept (clean merge);
- * - overlapping changes are reported as conflicts for the user to pick.
- * Inputs are split on '\n' (the editor and the decoded disk text share the
- * same line endings because editable files are never mixed), so the merge
- * preserves the file's line endings without extra normalization.
+ * When an explicit save finds the file changed on disk since the editing
+ * snapshot, user and external edits are merged: non-overlapping changes both
+ * kept (clean merge), overlapping ones become conflicts for the user to pick.
+ * Inputs split on '\n' — editor and disk text share line endings because
+ * editable files are never mixed — preserving line endings without extra
+ * normalization.
  */
 
-/* Compact, budgeted Myers diff: the edit script turning `base` into `mine`
-   as { from, to, added } changes, or null when the trace would exceed the
-   memory budget. Adjacent operations are coalesced so a replacement is one
-   change rather than a deletion followed by an insertion. */
+/* Budgeted Myers diff: the { from, to, added } edit script turning `base`
+   into `mine`, or null when the trace would exceed the memory budget.
+   Adjacent ops coalesce so a replacement is one change, not del + ins. */
 function myersDiff(base, mine) {
   const N = base.length
   const M = mine.length
@@ -2044,8 +1983,8 @@ function myersDiff(base, mine) {
   const changes = []
   let x = N
   let y = M
-  // `d` is one past the iteration that found the end; the trace snapshot for
-  // backtracking step dd was recorded at the start of iteration dd.
+  // `d` is one past the found end; the trace snapshot for backtracking step
+  // dd was recorded at the start of iteration dd.
   for (let dd = d - 1; dd >= 1; dd -= 1) {
     const vPrev = trace[dd]
     const k = x - y
@@ -2061,10 +2000,9 @@ function myersDiff(base, mine) {
     y = prevY
   }
   changes.reverse()
-  // Coalesce adjacent operations (a deletion immediately followed by an
-  // insertion at the same position is one replacement; two insertions at the
-  // same position are one insertion) so the merge walk sees one change per
-  // base span.
+  // Coalesce adjacent operations (deletion + insertion at the same position
+  // = one replacement; two insertions = one) so the merge walk sees one
+  // change per base span.
   const coalesced = []
   for (const change of changes) {
     const previous = coalesced[coalesced.length - 1]
@@ -2085,10 +2023,9 @@ function changesTouch(left, right) {
   const leftInsertion = left.from === left.to
   const rightInsertion = right.from === right.to
   if (leftInsertion && rightInsertion) return left.from === right.from
-  // An insertion is "touching" a span only when it lands INSIDE [from, to):
-  // an insertion exactly at the exclusive end (right.to / left.to) is disjoint
-  // from the deletion (one side deletes the last line while the other appends
-  // after it) and must merge cleanly.
+  // An insertion touches a span only when it lands INSIDE [from, to): at the
+  // exclusive end (right.to / left.to) it is disjoint from the deletion and
+  // must merge cleanly (one side deletes the last line, the other appends).
   if (leftInsertion) return left.from >= right.from && left.from < right.to
   if (rightInsertion) return right.from >= left.from && right.from < left.to
   return left.from < right.to && right.from < left.to
@@ -2096,11 +2033,9 @@ function changesTouch(left, right) {
 
 function changeTouchesSpan(change, start, end) {
   if (change.from === change.to) {
-    // A degenerate span (start === end, a same-point insertion conflict) is
-    // touched by insertions exactly at that point; a non-degenerate span
-    // keeps the half-open rule where an insertion landing exactly at the
-    // exclusive end stays disjoint (deleting the last line while the other
-    // side appends after it must merge cleanly).
+    // A degenerate span (start === end) is touched by insertions exactly at
+    // that point; otherwise the half-open rule holds — an insertion at the
+    // exclusive end stays disjoint and merges cleanly.
     return end === start
       ? change.from === start
       : change.from >= start && change.from < end
@@ -2153,18 +2088,16 @@ function resolveMergeParts(parts, conflicts, choices) {
   return output.join('\n')
 }
 
-/* Merge both edit scripts by collecting every transitively overlapping change
-   into one cluster — the closure that makes one-large-vs-many-small overlaps
-   terminate, since nothing behind the cursor remains after a conflict is
-   emitted. Conflict placement stays structural (`parts`), so user text can
-   never collide with a marker string. */
+/* Merge both edit scripts by clustering every transitively overlapping
+   change — the closure that makes one-large-vs-many-small overlaps terminate.
+   Conflicts stay structural (`parts`), so user text can never collide with a
+   marker string. */
 function threeWayMerge(baseText, mineText, theirsText) {
   const base = baseText.split('\n')
   const mine = mineText.split('\n')
   const theirs = theirsText.split('\n')
-  // The budget guard must run before the identity short-circuits below: an
-  // oversized file that happens to equal one side must still fall back to the
-  // whole-file conflict dialog instead of committing a huge file unchecked.
+  // Budget guard first: an oversized file that happens to equal one side must
+  // still fall back to the whole-file dialog, not commit unchecked.
   if (base.length > MERGE_MAX_LINES || mine.length > MERGE_MAX_LINES || theirs.length > MERGE_MAX_LINES) {
     return wholeFileConflict(base, mine, theirs, 'line-limit')
   }
@@ -2247,15 +2180,12 @@ function threeWayMerge(baseText, mineText, theirsText) {
 
   appendMergeText(parts, base.slice(cursor))
   if (conflicts.length > 0) {
-    /* The conflict structure is only trustworthy when EACH side can be fully
-       reconstructed from it. A non-canonical Myers diff on repeated identical
-       lines can split one replacement into an insertion plus a remote deletion
-       whose coordinates collide with the other side's change; the walk then
-       applies one side's insertion as clean text and the structure cannot
-       reconstruct the other side. If either all-mine or all-theirs fails to
-       round-trip, fall back to the whole-file conflict (both full sides,
-       exact choice) rather than emit a resolution contradicting the user's
-       pick — a wrong save is worse than a manual choice. */
+    /* The conflict structure is trustworthy only when each side round-trips
+       from it: a non-canonical Myers diff on repeated identical lines can
+       split one replacement into an insertion plus a remote deletion whose
+       coordinates collide, so the structure cannot reconstruct one side. If
+       all-mine or all-theirs fails to round-trip, fall back to the whole-file
+       conflict (exact choice) — a wrong save is worse than a manual one. */
     try {
       const allMine = resolveMergeParts(parts, conflicts, conflicts.map(() => 'mine'))
       const allTheirs = resolveMergeParts(parts, conflicts, conflicts.map(() => 'theirs'))
@@ -2270,12 +2200,11 @@ function threeWayMerge(baseText, mineText, theirsText) {
   return { status: 'clean', merged: resolveMergeParts(parts, [], []) }
 }
 
-/* Character-level diff of one conflict side against the common base: coalesced
-   { text, kind } segments ('same' | 'add' | 'del') over the whole side.
-   Unchanged characters keep their color, added render green, removed render
-   as a red strikethrough — all inline on one line. Splitting on codepoints
-   (not UTF-16 code units) keeps surrogate pairs intact. Returns null when the
-   input is too large to diff safely (the caller falls back to line-level). */
+/* Character-level diff of one conflict side against the common base:
+   coalesced { text, kind } segments ('same' | 'add' | 'del'). Unchanged keep
+   color, added green, removed red strikethrough, all inline. Codepoint
+   splitting keeps surrogate pairs intact. Returns null when too large (caller
+   falls back to line-level). */
 const INLINE_DIFF_MAX_CHARS = 20000
 function inlineDiffSegments(baseText, sideText) {
   const baseChars = Array.from(baseText)
@@ -2301,10 +2230,10 @@ function inlineDiffSegments(baseText, sideText) {
   return segments
 }
 
-/* React nodes for one conflict side against the common base: a character-level
-   inline diff (unchanged plain, added green, removed red strikethrough, all on
-   one line); newlines inside any segment keep the <pre>'s exact line layout.
-   Oversized regions fall back to line-level marks. */
+/* React nodes for one conflict side against the common base: character-level
+   inline diff (unchanged plain, added green, removed red strikethrough);
+   newlines in any segment keep the <pre>'s exact line layout. Oversized
+   regions fall back to line-level marks. */
 function diffRows(baseLines, sideLines) {
   const segments = inlineDiffSegments(baseLines.join('\n'), sideLines.join('\n'))
   if (segments !== null) {
@@ -2316,8 +2245,8 @@ function diffRows(baseLines, sideLines) {
     }
     return nodes
   }
-  // Fallback: line-level diff rows (whole deleted lines struck, whole added
-  // lines highlighted) for content too large for the character diff.
+  // Fallback: line-level diff rows (deleted lines struck, added highlighted)
+  // for content too large for the character diff.
   const rows = diffSideLines(baseLines, sideLines)
   const nodes = []
   for (let i = 0; i < rows.length; i += 1) {
@@ -2328,8 +2257,7 @@ function diffRows(baseLines, sideLines) {
 }
 
 /* Line-level diff rows for one conflict side: { text, kind }[] with kind
-   'same' | 'add' | 'del'. Used only as the oversized fallback for the inline
-   character diff. */
+   'same' | 'add' | 'del'; the oversized fallback for the inline diff. */
 function diffSideLines(baseLines, sideLines) {
   if (baseLines.length > MERGE_MAX_LINES || sideLines.length > MERGE_MAX_LINES) {
     return sideLines.map(text => ({ text, kind: 'same' }))
@@ -2349,16 +2277,15 @@ function diffSideLines(baseLines, sideLines) {
 }
 
 // Whether a dropped File is an image. Images go to the chat composer, not the
-// preview: the drop highlight is withheld and an actual drop is rejected by
-// the server with a clear "cannot preview as text" toast (development-notes
-// §17). Empty MIME types count as normal files.
+// preview: the drop highlight is withheld and a real drop is server-rejected
+// with a toast (development-notes §17). Empty MIME types count as files.
 function isImageFile(file) {
   const type = typeof file?.type === 'string' ? file.type : ''
   return type.startsWith('image/')
 }
-// File-drag detection mirroring the harness composer's own check: the
-// dataTransfer.types list is authoritative and stable during the whole drag,
-// while dataTransfer.files is only guaranteed populated at drop time.
+// File-drag detection mirroring the harness composer: dataTransfer.types is
+// authoritative and stable during the drag, while dataTransfer.files is only
+// guaranteed populated at drop time.
 function hasDraggedFiles(event) {
   const dataTransfer = event?.dataTransfer
   if (dataTransfer === null || dataTransfer === undefined) return false
@@ -2369,10 +2296,9 @@ function hasDraggedFiles(event) {
     return false
   }
 }
-// Whether the drag carries a non-image file. Controls only the drop highlight:
-// during dragover File objects may not be inspectable yet, so any file drag
-// counts as "normal". The drop itself does not filter images — the server
-// rejects them with a toast (development-notes §17).
+// Whether the drag carries a non-image file. Controls only the drop
+// highlight: during dragover File objects may not be inspectable, so any file
+// drag counts as "normal" (images are still rejected at drop — see isImageFile).
 function hasNormalFile(event) {
   if (!hasDraggedFiles(event)) return false
   const files = event.dataTransfer?.files
@@ -2381,11 +2307,10 @@ function hasNormalFile(event) {
   return false
 }
 // The persisted sidebar width lives with the explorer pane geometry
-// (EXPLORER_LAYOUT_STORE_KEY): the live value rides the root layout store,
-// which cannot persist its whole value, so the explorer pane store mirrors it
-// on change and this rehydrates it on load. 0 means collapsed; missing or
-// invalid persisted data falls back to the default width (render-time clamping
-// still applies the viewport ceiling).
+// (EXPLORER_LAYOUT_STORE_KEY): the root layout store can't persist its whole
+// value, so the explorer store mirrors it on change and this rehydrates it on
+// load. 0 means collapsed; missing/invalid data falls back to the default
+// width (render-time clamping still applies the viewport ceiling).
 function readPersistedSidebarWidth() {
   if (typeof localStorage === 'undefined') return SIDEBAR_DEFAULT
   try {
@@ -2404,8 +2329,8 @@ function createLayoutStore() {
     init: () => ({
       sidebar: readPersistedSidebarWidth(),
       detailsOpen: false,
-      // Sidebar browsing region: 'sessions' shows the harness workspace/session
-      // browser; 'files' swaps the same region for the workspace file tree.
+      // Sidebar browsing region: 'sessions' = workspace/session browser;
+      // 'files' swaps the same region for the workspace file tree.
       view: 'sessions',
     }),
     actions: {
@@ -2417,11 +2342,10 @@ function createLayoutStore() {
     },
   })
 }
-/* Explorer pane geometry shared by every session: the workspace file-tree
-   width, the file-preview width, the sidebar width (0 = collapsed), and the
-   explorer open state (which controls the on-screen presence of both panes).
-   Persisted globally in localStorage so session switches and page reloads keep
-   one shared set of parameters. */
+/* Explorer pane geometry shared by every session: file-tree width, preview
+   width, sidebar width (0 = collapsed), and explorer open state (controls
+   both panes' on-screen presence). Persisted in localStorage so switches and
+   reloads keep one shared set. */
 function createExplorerPaneStore() {
   return defineStore({
     init: () => ({
@@ -2447,8 +2371,8 @@ function createPreviewSessionStore() {
     persist: PREVIEW_SESSION_STORE_KEY,
     actions: {
       rememberPreviewSession: (draft, key, value) => {
-        // The persisted value is rehydrated wholesale from localStorage; a
-        // polluted or legacy key without the expected shape must not throw.
+        // Rehydrated wholesale from localStorage; a polluted or legacy key
+        // without the expected shape must not throw.
         if (draft.previewSessions === undefined || draft.previewSessions === null || typeof draft.previewSessions !== 'object') draft.previewSessions = {}
         const normalized = normalizePreviewSession(value)
         if (normalized.tabs.length === 0 && (normalized.expanded ?? []).length === 0) delete draft.previewSessions[String(key)]
@@ -2718,12 +2642,11 @@ const SELECTION_CLOSE = '</selection>'
 const MESSAGE_CONTEXT_SELECTOR = '[data-chat-flow-kind="user"],[data-chat-flow-kind="steering"],[data-pending-steering]'
 const MESSAGE_CONTEXT_SUMMARY_ATTR = 'data-dsh-ws-message-context-summary'
 const pendingEditorContextDisplays = new Map()
-/* The queue is consumed only when the message actually mounts and is
-   compacted; a session switch, a rendered-text mismatch, or a skipped
-   fast-path can leave an entry pending forever. Bound the total so a long
-   session cannot grow this module-level map without limit — the oldest pending
-   display is dropped first (the envelope still renders; only the rich summary
-   is lost, the same outcome as a never-consumed entry). */
+/* The queue is consumed only when the message mounts and compacts; a session
+   switch, rendered-text mismatch, or skipped fast-path can leave an entry
+   pending forever. Bound the map so a long session can't grow it without
+   limit — the oldest pending display drops first (the envelope still renders;
+   only the rich summary is lost, the same as a never-consumed entry). */
 const MAX_PENDING_CONTEXT_DISPLAYS = 256
 let pendingContextDisplayCount = 0
 
@@ -2817,11 +2740,8 @@ function parseSelectionContext(text) {
   const headerMatch = /^<selection>The user selected the lines (\d+) to (\d+) from (.*):$/.exec(header)
   if (headerMatch === null) return null
   // The envelope ALWAYS closes with the trailer line directly before
-  // `</selection>`. Anchor on that exact pair instead of the first
-  // `</selection>` so a selected body that itself contains `</selection>`
-  // cannot truncate the fold/summary early. lastIndexOf guarantees the
-  // envelope's OWN closing pair is used even when the body contains the
-  // literal trailer followed by `</selection>`.
+  // `</selection>`. Anchor on that exact pair (via lastIndexOf) so a body that
+  // itself contains `</selection>` can't truncate the fold/summary early.
   const marker = `${SELECTION_TRAILER}${SELECTION_CLOSE}`
   const markerAt = text.lastIndexOf(marker)
   if (markerAt < 0) return null
@@ -2905,9 +2825,9 @@ function installEditorContextMessageCompactor() {
     bubble.textContent = context.visibleText
   }
   const compactContainer = (container) => {
-    // Fast path: most containers never carry an editor-context envelope; the
-    // prefix check skips the element scan for them on every mutation batch
-    // (streaming chat mutates character data continuously).
+    // Fast path: most containers never carry an envelope; the prefix check
+    // skips the element scan on every mutation batch (streaming chat mutates
+    // character data continuously).
     const text = container.textContent ?? ''
     if (!text.startsWith(OPENED_FILE_PREFIX) && !text.startsWith(SELECTION_PREFIX)) return
     const candidate = findEditorContextCandidate(container)
@@ -3008,8 +2928,8 @@ class PromptContextBridge {
       bridge.pendingControllers.clear()
       bridge.sendTails.clear()
       clearEditorContextDisplays()
-      // Cordis returns a fresh trace proxy for each service-method read, so
-      // comparing `conversation.sendSession` by identity cannot detect our wrapper.
+      // Cordis returns a fresh trace proxy per service-method read, so
+      // identity comparison cannot detect our wrapper.
       const currentSendSession = conversation.sendSession
       if (currentSendSession?.[SEND_SESSION_BRIDGE_MARKER] === true) {
         conversation.sendSession = bridge.originalSendSession
@@ -3057,10 +2977,9 @@ class PromptContextBridge {
       }
     })
   }
-  /* The /init command (Claude Code style): resolve the session's workspace
-     and hand the model a generation instruction so the agent analyzes the
-     workspace and writes AGENTS.md at its root. Errors surface in the
-     popupSelect shell (its error strip keeps the shell open for retry). */
+  /* The /init command (Claude Code style): resolve the session's workspace and
+     instruct the model to analyze it and write AGENTS.md at its root. Errors
+     surface in the popupSelect shell (its error strip keeps it open). */
   async runInitCommand(id) {
     if (this.conversation === undefined || this.originalSendSession === undefined) {
       throw new Error(translate('init.error.send-failed', { message: 'conversation seam unavailable' }))
@@ -3102,7 +3021,7 @@ class PromptContextBridge {
     if (this.inputPatches.has(id)) return
     // Missing seams must never escape into the sessions-list subscription
     // dispatch (a throw there could break later subscribers); the session
-    // simply keeps its original input behavior.
+    // keeps its original input behavior.
     try {
       const binding = this.ctx.sessions.binding(id)
       if (binding === undefined || this.conversation === undefined) return
@@ -3193,8 +3112,8 @@ async function requestJson(endpoint, workspaceId, path, signal, encoding) {
 }
 /* Cheap file-change check for open preview tabs: the Host stats the file and
    compares mtime/size/hash against the previous snapshot (workspace-confined,
-   read-only). Returns `changed` plus the new snapshot the client stores as its
-   baseline; null snapshot means the file is gone. */
+   read-only). Returns `changed` plus the new baseline snapshot; null means the
+   file is gone. */
 async function checkFileChange(workspaceId, path, previousSnapshot, signal) {
   const query = new URLSearchParams({ workspaceId: String(workspaceId), path, check: '1' })
   if (previousSnapshot !== undefined && previousSnapshot !== null) {
@@ -3259,10 +3178,10 @@ async function putFile(workspaceId, path, content, revision, signal, encoding) {
   return payload
 }
 // Mind-map document API: the 导图 conversation view is backed by a persisted
-// per-root-session document (trunk turns + fork branches) the Host builds by
-// reverse-parsing the FULL session logs — the single source of truth. The
-// client only re-syncs (folding new turns from the full logs) and persists
-// structural changes (forks, branch removal).
+// per-root-session document (a flat list of session turn-chains + fork branches)
+// the Host reverse-parses from the FULL session logs — the single source of
+// truth. The client only re-syncs (folding new turns) and persists structural
+// changes (forks, branch removal).
 async function mindmapRequest(endpoint, options) {
   const { method = 'GET', body, signal } = options ?? {}
   const response = await fetch(`${API_PREFIX}/mindmap-doc${endpoint}`, {
@@ -3300,8 +3219,7 @@ const syncMindmapDoc = (sessionId, liveSessionIds, signal) => {
   const ids = Array.isArray(liveSessionIds) ? liveSessionIds.map(String) : []
   return mindmapRequest('/sync', {
     method: 'POST',
-    // The singular field lets an older Host serve the first live card during a
-    // rolling update; the current Host prefers the plural field below.
+    // Singular field for older Hosts during a rolling update; the current Host prefers the plural one.
     body: ids.length > 0
       ? { sessionId: String(sessionId), liveSessionIds: ids, liveSessionId: ids[0] }
       : { sessionId: String(sessionId) },
@@ -3311,19 +3229,17 @@ const syncMindmapDoc = (sessionId, liveSessionIds, signal) => {
 const fetchMindmapDocIndex = signal => mindmapRequest('/index', { method: 'GET', signal })
 const deleteMindmapDoc = (sessionId, signal) => mindmapRequest(`?sessionId=${encodeURIComponent(String(sessionId))}`, { method: 'DELETE', signal })
 /* Rename only the map's OWN title (doc.rootTitle) on the Host — a targeted
-   update instead of the GET-then-POST full-doc round trip, which could clobber
-   a turn a concurrent sync had just folded in the window between the two. */
+   update instead of a GET-then-POST round trip, which could clobber a turn a
+   concurrent sync had just folded in between. */
 const renameMindmapDoc = (sessionId, title, signal) => mindmapRequest('/rename', {
   method: 'POST',
   body: { sessionId: String(sessionId), title },
   signal,
 })
 
-/* Module-wide mind-map index registry: the sidebar mind-map panel and the
-   branch hider both need to know which sessions belong to a mind map (roots +
-   documented branches), but they cannot fetch on every render. A background
-   refresh keeps the index current; components subscribe via
-   useSyncExternalStore and the hider reads the sets synchronously. */
+/* Module-wide mind-map index registry: sidebar panel and branch hider need the
+   root/branch session sets without fetching on every render; a background
+   refresh keeps the index current, components subscribe via useSyncExternalStore. */
 const mindmapRegistry = {
   _docs: [],
   _roots: new Set(),
@@ -3343,13 +3259,11 @@ const mindmapRegistry = {
   isBranch(id) { return this._branches.has(String(id)) },
   isMember(id) { const key = String(id); return this._roots.has(key) || this._branches.has(key) },
   _apply(docs) {
-    /* The 5 s poll returns the same index over and over; only a signature
-       change (a doc added/removed, a rootTitle rename, a fork changing the
-       branch set, or an updatedAt bump from a folded turn) may bump the
-       version and re-render the subscribers — an unconditional notify made
-       the sidebar panel and the hider re-run on every idle poll. updatedAt
-       is included so a doc that just gained a turn re-sorts to the top of
-       its sidebar group. */
+    /* Only a signature change (doc added/removed, rootTitle rename, branch-set
+       fork, or updatedAt bump from a folded turn) may bump the version and
+       re-render subscribers — unconditional notify re-ran them on every idle
+       5 s poll. updatedAt is included so a doc that gained a turn re-sorts to
+       the top of its sidebar group. */
     const signature = docs
       .map(doc => `${String(doc.sessionId)}\u0001${String(doc.rootTitle ?? '')}\u0001${(doc.branchSessionIds ?? []).map(String).sort().join(',')}\u0001${Number(doc.updatedAt) || 0}`)
       .sort()
@@ -3390,8 +3304,8 @@ const mindmapRegistry = {
 }
 function useMindmapRegistry() {
   /* Arrow-wrapped so React's bare invocation cannot drop `this` off the
-     method references (a naked method reference would make subscribe read
-     `undefined._listeners` and crash the root slot on mount). */
+     method references (a naked reference would read `undefined._listeners`
+     and crash the root slot on mount). */
   useSyncExternalStore(
     listener => mindmapRegistry.subscribe(listener),
     () => mindmapRegistry.getVersion(),
@@ -3399,12 +3313,11 @@ function useMindmapRegistry() {
   return mindmapRegistry
 }
 
-/* Module-wide floating mind-map overlay state: which session's mind map is
-   shown as the left-side floating window while the chat column stays visible
-   on the right. Driven by the session-header 导图 button, the sidebar mind-map
-   entries, and card clicks inside the map; AppFrame renders the window. The
-   snapshot is replaced only on change so useSyncExternalStore sees a stable
-   reference between updates. */
+/* Module-wide floating mind-map overlay state: which session's map shows as
+   the left-side floating window while chat stays visible on the right. Driven
+   by the session-header 导图 button, sidebar mind-map entries, and card clicks;
+   AppFrame renders the window. Snapshot replaced only on change so
+   useSyncExternalStore sees a stable reference. */
 const mindmapOverlayStore = {
   _snapshot: { open: false, sessionId: null, scope: 'full' },
   _listeners: new Set(),
@@ -3425,16 +3338,15 @@ const mindmapOverlayStore = {
     if (this._snapshot.open && this._snapshot.sessionId === next) this._set(false, null)
     else this._set(true, next)
   },
-  /* Move the highlight inside an open map (the same document family) when a
-     card click switches the right-side conversation to another session. */
+  /* Move the highlight inside an open map when a card click switches the
+     right-side conversation to another session. */
   setSession(sessionId) {
     if (!this._snapshot.open) return
     this._set(true, String(sessionId))
   },
-  /* Window scope: 'full' covers everything left of the chat column (sidebar +
-     file browser), 'sidebar' only the sidebar column. A view preference kept
-     across open/close and session switches while the app is alive (not
-     persisted). */
+  /* Window scope: 'full' covers everything left of the chat column, 'sidebar'
+     only the sidebar column. A view preference kept across open/close and
+     session switches (not persisted). */
   toggleScope() {
     this._snapshot = {
       ...this._snapshot,
@@ -3452,9 +3364,8 @@ function useMindmapOverlay() {
   return mindmapOverlayStore.getSnapshot()
 }
 
-/* Per-group sidebar order of mind-map entries, persisted in localStorage
-   (a small id list per group key; a workspace rename loses the mapping and
-   entries fall back to their default order — accepted trade-off). */
+/* Per-group sidebar order of mind-map entries in localStorage (id list per
+   group key; a workspace rename loses the mapping — accepted trade-off). */
 const MINDMAP_ORDER_STORE_KEY = 'dsh.workspace.studio.mindmap-order.v1'
 function readMindmapOrder() {
   try {
@@ -3469,13 +3380,11 @@ function readMindmapOrder() {
 function writeMindmapOrder(map) {
   try { window.localStorage.setItem(MINDMAP_ORDER_STORE_KEY, JSON.stringify(map)) } catch { /* quota / private mode */ }
 }
-// Draft (staging) file access: while editing, the temporary content lives in a
-// draft file outside the workspace (~/.dsh-plugin/.../drafts), never in the
-// source file. The draft JSON carries { path, encoding, lineEnding, bom,
-// baseText, baseRevision, draft, owner, generation } so a page refresh can
-// restore the whole editing session (content + snapshot) without localStorage.
-// The owner is the session scope; the Host's generation fence rejects stale
-// writes from a discarded or previous mount.
+// Draft (staging) file access: editing content lives in a draft file outside
+// the workspace, never in the source file. The draft JSON carries { path,
+// encoding, lineEnding, bom, baseText, baseRevision, draft, owner, generation }
+// so a refresh restores the whole session without localStorage; the Host's
+// generation fence rejects stale writes from a discarded or previous mount.
 async function readDraft(workspaceId, path, signal, owner) {
   const query = new URLSearchParams({ workspaceId: String(workspaceId), path })
   if (owner !== undefined && owner !== null) query.set('owner', String(owner))
@@ -3550,10 +3459,9 @@ async function requestDraftTree(workspaceId, payload, signal) {
   return result
 }
 
-/* IndexedDB mirrors the newest dirty snapshot immediately. Host drafts remain
-   the long-lived authority, but an unload cannot reliably finish a 1 MiB
-   fetch; the local mirror closes that durability gap and is reconciled on
-   restore. */
+/* IndexedDB mirrors the newest dirty snapshot immediately. Host drafts stay
+   the authority, but an unload cannot reliably finish a 1 MiB fetch; the
+   local mirror closes that durability gap and is reconciled on restore. */
 const EMERGENCY_DRAFT_DB = 'dsh-workspace-studio'
 const EMERGENCY_DRAFT_STORE = 'drafts-v1'
 let emergencyDraftDbPromise
@@ -3561,10 +3469,9 @@ const emergencyDraftTails = new Map()
 function emergencyDraftKey(workspaceId, scopeId, path) {
   return JSON.stringify([String(workspaceId), String(scopeId), path])
 }
-/* Tombstones (state: 'deleted') exist only to suppress restoring a discarded
-   draft; they are reclaimed after a retention window so the emergency IndexedDB
-   mirror cannot grow without bound. Live (non-deleted) records are the user's
-   unsaved work and are never pruned here. */
+/* Tombstones (state: 'deleted') only suppress restoring a discarded draft and
+   are reclaimed after a retention window so the mirror cannot grow without
+   bound; live records are unsaved work and never pruned. */
 const EMERGENCY_DRAFT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 let emergencyDraftPruneScheduled = false
 async function pruneEmergencyDrafts() {
@@ -3604,8 +3511,7 @@ function openEmergencyDraftDb() {
     }
     request.onsuccess = () => {
       resolveDb(request.result)
-      /* One best-effort sweep per page load: reclaim expired tombstones without
-         touching live drafts. */
+      /* One best-effort sweep per page load: reclaim expired tombstones, never live drafts. */
       if (!emergencyDraftPruneScheduled) {
         emergencyDraftPruneScheduled = true
         void pruneEmergencyDrafts().catch(() => {})
@@ -3652,10 +3558,9 @@ function queueEmergencyDraft(key, operation) {
 }
 function writeEmergencyDraft(workspaceId, scopeId, path, payload) {
   const key = emergencyDraftKey(workspaceId, scopeId, path)
-  /* Spread the payload FIRST so the record's identity fields always win: a
-     payload carrying its own path must never override the `path` (and key)
-     the record was derived from, or restore/rewrite would operate on
-     inconsistent records. */
+  /* Spread the payload FIRST so identity fields always win: a payload's own
+     path must never override the record's derived `path` (and key), or
+     restore/rewrite would operate on inconsistent records. */
   const value = { ...payload, key, workspaceId: String(workspaceId), scopeId: String(scopeId), path, updatedAt: Date.now() }
   return queueEmergencyDraft(key, () => emergencyDraftRequest('readwrite', store => store.put(value)))
 }
@@ -3667,8 +3572,7 @@ async function readEmergencyDraft(workspaceId, scopeId, path) {
 function deleteEmergencyDraft(workspaceId, scopeId, path, generation) {
   const key = emergencyDraftKey(workspaceId, scopeId, path)
   const tombstone = { key, workspaceId: String(workspaceId), scopeId: String(scopeId), path, state: 'deleted', generation, updatedAt: Date.now() }
-  // Keep a tombstone rather than deleting immediately: a failed/late restore
-  // must not resurrect a draft that the user explicitly discarded.
+  // Keep a tombstone: a failed/late restore must not resurrect a draft the user discarded.
   return queueEmergencyDraft(key, () => emergencyDraftRequest('readwrite', store => store.put(tombstone)))
 }
 async function rewriteEmergencyDraftPath(workspaceId, scopeId, from, to) {
@@ -3693,10 +3597,8 @@ async function rewriteEmergencyDraftPath(workspaceId, scopeId, from, to) {
     rewrites.push({ oldKey: value.key, value: { ...value, key: emergencyDraftKey(workspaceId, scopeId, path), path, updatedAt: Date.now() } })
   }
   if (rewrites.length === 0) return
-  /* Destination collision handling: an existing record at the moved record's
-     new key must not be blindly overwritten — keep the NEWER side (generation,
-     then updatedAt) so a live draft at the destination never loses newer work
-     to a moved older record. */
+  /* Destination collision: keep the NEWER side (generation, then updatedAt) so
+     a live draft at the destination never loses newer work to a moved older record. */
   const destinationByKey = new Map()
   for (const record of all) if (record.key !== undefined) destinationByKey.set(record.key, record)
   const finalized = []
@@ -3865,8 +3767,7 @@ function clonePreviewTab(tab) {
     bom: Boolean(tab.bom),
     dirty: Boolean(tab.dirty),
     draft: typeof tab.draft === 'string' ? tab.draft : '',
-    // True only when this browser instance holds the tab's actual draft text.
-    // Serialized snapshots deliberately reset it because they omit all content.
+    // True only when this instance holds the tab's actual draft text; serialized snapshots reset it (they omit content).
     draftKnown: Boolean(tab.draftKnown),
     editing: Boolean(tab.editing),
     encoding: typeof tab.encoding === 'string' && tab.encoding !== '' ? tab.encoding : 'utf-8',
@@ -3876,9 +3777,8 @@ function clonePreviewTab(tab) {
     path: tab.path,
     pinned: Boolean(tab.pinned),
     revision: tab.revision === undefined ? null : tab.revision,
-    // The in-flight flag must never be persisted or restored: a refresh
-    // mid-save would otherwise bring back a tab stuck in "saving" with every
-    // action (close/save/cancel) disabled and no recovery path.
+    // Never persist/restore the in-flight flag: a refresh mid-save would leave a
+    // tab stuck in "saving" with every action disabled and no recovery path.
     saving: false,
     scrollTop: Number.isFinite(tab.scrollTop) ? tab.scrollTop : 0,
     size: Number.isFinite(tab.size) ? tab.size : null,
@@ -3888,25 +3788,21 @@ function clonePreviewTab(tab) {
     symlink: Boolean(tab.symlink),
   }
 }
-/* Persisted copy of a tab: identical to the live clone except clean tabs
- * carry no file text. Persisting every tab's full draft ballooned the store
- * into the localStorage quota, making setItem throw and silently disabling
- * persistence (stale tabs on reload). Clean content equals disk and is
- * re-read on restore; only dirty tabs need their draft to survive. */
+/* Persisted copy of a tab: like the live clone, but clean tabs carry no text —
+ * persisting every full draft hit the localStorage quota, making setItem throw
+ * and silently killing persistence (stale tabs on reload). Clean content equals
+ * disk and is re-read on restore; only dirty tabs need their draft to survive. */
 function serializePreviewTab(tab) {
   const clone = clonePreviewTab(tab)
   if (clone === null) return null
-  // The "Saving…" status only exists while a save is in flight; a persisted
-  // copy must not resurrect it as a stale banner after refresh.
+  // "Saving…" only exists while a save is in flight; never persist it as a stale banner.
   if (tab.saving) clone.status = undefined
-  // Dropped non-workspace files are session-only previews: their content lives
-  // only in memory (persisting it would re-introduce the localStorage quota
-  // blow-up the slim serialization was written to prevent), so refresh drops
-  // them and they are excluded from every persisted snapshot.
+  // Dropped non-workspace files are session-only previews: content lives only
+  // in memory (persisting it would re-introduce the quota blow-up the slim
+  // serialization prevents), so refresh drops them from every persisted snapshot.
   if (clone.external) return null
   // localStorage keeps ONLY the dirty marker and tab metadata, never file
-  // content or the snapshot (which live in the draft file and are re-read on
-  // restore) — dropping content from every tab also keeps the value small.
+  // content or the snapshot (those live in the draft file, re-read on restore).
   // An empty draft can be real user input, so the runtime-only marker tells a
   // live tab apart from this content-free persisted representation.
   clone.baseText = ''
@@ -3914,8 +3810,7 @@ function serializePreviewTab(tab) {
   clone.draftKnown = false
   return clone
 }
-/* Cap the stored session count: the freshest key always survives; others keep
- * the PREVIEW_SESSION_MAX most recently updated entries. */
+/* Cap stored sessions: the freshest key survives; others keep the PREVIEW_SESSION_MAX most recently updated. */
 function prunePreviewSessions(draft) {
   const entries = Object.entries(draft.previewSessions ?? {})
   if (entries.length <= PREVIEW_SESSION_MAX) return
@@ -3947,18 +3842,16 @@ function normalizePreviewSession(value) {
   return { activePath, tabs, expanded }
 }
 function selectStoredPreviewSession(previewSessions, workspace, currentSession, workspaceId) {
-  /* Own-key lookup only: a bare `previewSessions[key]` would also match
-     prototype-chain keys (constructor/toString). The root may also be missing/
-     polluted in localStorage: an undefined/null root must not throw — every
-     `has` below short-circuits on it, so the function degrades to an empty
-     restore. */
+  /* Own-key lookup only: a bare `previewSessions[key]` would match
+     prototype-chain keys (constructor/toString). Root may be missing/polluted
+     in localStorage; every `has` short-circuits on null/undefined so the
+     function degrades to an empty restore instead of throwing. */
   const has = key => (previewSessions !== null && previewSessions !== undefined)
     && Object.prototype.hasOwnProperty.call(previewSessions, key)
-  /* A borrowed template must carry real tabs: an entry holding only tree
-     expansion (or a stale empty shell) would restore an empty explorer and
-     shadow a later non-empty snapshot in the same workspace. The current
-     session's OWN snapshot is exempt — its own (possibly empty) state is the
-     correct restore. */
+  /* A borrowed template must carry real tabs: an entry with only tree expansion
+     (or a stale empty shell) would restore an empty explorer and shadow a later
+     non-empty snapshot. The current session's OWN snapshot is exempt — its own
+     (possibly empty) state is the correct restore. */
   const restorable = key => {
     const value = previewSessions[key]
     return Array.isArray(value?.tabs) && value.tabs.length > 0
@@ -3966,9 +3859,8 @@ function selectStoredPreviewSession(previewSessions, workspace, currentSession, 
   if (currentSession !== undefined) {
     const currentKey = String(currentSession)
     if (has(currentKey)) return { key: currentKey, value: previewSessions[currentKey] }
-    // Restore priority ② (development-notes §2): the first snapshot of any
-    // session in this workspace, so a session without its own snapshot still
-    // restores the tabs its workspace previously had instead of an empty explorer.
+    // Restore priority ② (development-notes §2): first snapshot of any session
+    // in this workspace, so one without its own still restores the prior tabs.
     if (workspace !== undefined) {
       for (const sessionId of workspace.sessionIds) {
         const key = String(sessionId)
@@ -4004,8 +3896,7 @@ function serializePreviewSession(activePath, tabs, expanded) {
     if (serialized === null) continue
     normalized.push(serialized)
   }
-  // Root ('') is always expanded by default and never stored; only real
-  // folders participate in the persisted set.
+  // Root ('') is expanded by default and never stored; only real folders persist.
   const expandedList = expanded === undefined || expanded === null
     ? []
     : [...expanded].filter(path => typeof path === 'string' && path !== '').sort()
@@ -4015,17 +3906,15 @@ function serializePreviewSession(activePath, tabs, expanded) {
     expanded: expandedList,
   }
 }
-/* Structural identity of a preview snapshot for persistence dedup: what the
-   restore actually depends on (active path, tab paths + dirty flags, expanded
-   dirs). Volatile fields (status, scrollTop, draft/baseText content) must NOT
-   participate — the serialization drops content anyway, and treating
-   status/scroll changes as new snapshots would rewrite the store every render,
-   remounting the explorer and aborting every in-flight request. */
+/* Structural identity for persistence dedup: what restore actually depends on
+   (active path, tab paths + dirty flags, expanded dirs). Volatile fields
+   (status, scrollTop, draft/baseText) must NOT participate — treating them as
+   new snapshots would rewrite the store every render, remounting the explorer
+   and aborting every in-flight request. */
 function previewSnapshotFingerprint(value) {
   const tabs = Array.isArray(value?.tabs) ? value.tabs : []
-  // Encoding and the other restored-but-not-volatile metadata participate:
-  // switching the display encoding changes ONLY tab.encoding, and a dedup that
-  // ignored it would skip the write and revert the decode after a refresh.
+  // Restored-but-not-volatile metadata (e.g. encoding) participates: ignoring
+  // it would skip the write and revert the decode after a refresh.
   const tabPart = tabs.map(tab =>
     `${tab.path}:${tab.dirty ? 1 : 0}:${tab.pinned ? 1 : 0}:${tab.encoding ?? ''}:${tab.editing ? 1 : 0}:${tab.lineEnding ?? ''}:${tab.bom ? 1 : 0}:${tab.baseRevision ?? ''}`).join(',')
   const expandedPart = Array.isArray(value?.expanded) ? value.expanded.join(',') : ''
@@ -4072,14 +3961,14 @@ function IconCloseWin10(){return h('svg',{'aria-hidden':true,fill:'none',stroke:
 function IconPinVscode(){return h('svg',{'aria-hidden':true,fill:'currentColor',viewBox:'0 0 16 16'},h('path',{d:'M13.5 3C13.303 3 13.109 3.038 12.923 3.114L8.481 4.967L5.659 4.026C5.505 3.976 5.339 4.001 5.209 4.095C5.078 4.189 5.001 4.339 5.001 4.5V7H1.257L0.5 7.5L1.257 8H5V10.5C5 10.661 5.077 10.812 5.208 10.905C5.338 11 5.504 11.023 5.658 10.974L8.48 10.033L12.925 11.887C13.109 11.962 13.302 12 13.499 12C14.326 12 14.999 11.327 14.999 10.5V4.5C14.999 3.673 14.326 3 13.499 3H13.5ZM14 10.5C14 10.843 13.615 11.09 13.308 10.962L8.693 9.038C8.631 9.013 8.566 9 8.501 9C8.447 9 8.395 9.009 8.343 9.025L6.001 9.806V5.193L8.343 5.974C8.457 6.011 8.581 6.007 8.694 5.961L13.306 4.038C13.629 3.902 14.001 4.156 14.001 4.499V10.499L14 10.5Z'}))}
 function IconFolder(){return h('svg',{'aria-hidden':true,fill:'none',viewBox:'0 0 16 16'},h('path',{d:'M1.8 4.3h4l1.2 1.4h7.2v6.8a1.2 1.2 0 0 1-1.2 1.2H3a1.2 1.2 0 0 1-1.2-1.2z',stroke:'currentColor',strokeLinejoin:'round',strokeWidth:1.3}))}
 function IconSessionList(){return h('svg',{'aria-hidden':true,fill:'none',viewBox:'0 0 16 16'},h('path',{d:'M2.5 3.2h11M2.5 8h11M2.5 12.8h7',stroke:'currentColor',strokeLinecap:'round',strokeWidth:1.3}))}
-/* The sidebar's two-button segment replacing the harness New Session button:
-   two exclusive nav tabs — Session List / Workspace Files — that only switch
-   the browsing region. Each button is flex:1 (50%) so the pair tracks the
-   sidebar width while dragged; the collapsed rail stacks icon-only controls. */
+/* Sidebar two-button segment replacing the harness New Session button: two
+   exclusive nav tabs (Session List / Workspace Files) switching only the
+   browsing region. Buttons are flex:1 (50%) so the pair tracks the sidebar
+   width while dragged; the collapsed rail stacks icon-only controls. */
 function SidebarTopActions({ collapsed, view, width, onSelectSessions, onSelectFiles }) {
-  // The harness sidebar shell does not stretch foreign nodes reliably, so the
-  // row width is bound to the sidebar width explicitly (root padding 12px x2
-  // plus the row's 2px x2 margins); AppFrame re-renders on every drag tick.
+  // The harness sidebar shell does not stretch foreign nodes, so bind row width
+  // to the sidebar explicitly (root padding 12px x2 + row margins 2px x2);
+  // AppFrame re-renders on every drag tick.
   const rowStyle = collapsed ? undefined : { width: `${Math.max(0, width - 28)}px` }
   return h('div', { className: 'dsh-ws-sidebar-top-actions', 'data-rail': collapsed || undefined, style: rowStyle },
     h('button', {
@@ -4104,31 +3993,28 @@ function SidebarTopActions({ collapsed, view, width, onSelectSessions, onSelectF
 function ResizeHandle({label,left,value,min,max,onResize,onDragging,invert}){const sign=invert?-1:1;const[dragging,setDragging]=useState(false),origin=useRef(0),base=useRef(0);const start=useCallback(e=>{e.preventDefault();e.currentTarget.setPointerCapture(e.pointerId);origin.current=e.clientX;base.current=value;setDragging(true);onDragging(true)},[onDragging,value]);const move=useCallback(e=>{if(e.currentTarget.hasPointerCapture(e.pointerId))onResize(clamp(base.current+sign*(e.clientX-origin.current),min,max))},[max,min,onResize,sign]);const end=useCallback(e=>{if(!e.currentTarget.hasPointerCapture(e.pointerId))return;e.currentTarget.releasePointerCapture(e.pointerId);onResize(clamp(base.current+sign*(e.clientX-origin.current),min,max));setDragging(false);onDragging(false)},[max,min,onDragging,onResize,sign]);return h('div',{'aria-label':label,'aria-orientation':'vertical','aria-valuemax':max,'aria-valuemin':min,'aria-valuenow':value,className:'dsh-ws-splitter','data-dragging':dragging||undefined,onKeyDown:e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();onResize(clamp(value+sign*(e.key==='ArrowLeft'?-RESIZE_STEP:RESIZE_STEP),min,max))}},onLostPointerCapture:()=>{setDragging(false);onDragging(false)},onPointerCancel:end,onPointerDown:start,onPointerMove:move,onPointerUp:end,role:'separator',style:{left},tabIndex:0})}
 function HeaderAction({action}){return h('button',{'aria-label':action.label,className:'dsh-ws-icon-button','data-active':action.active||undefined,disabled:action.disabled||undefined,onClick:action.onClick,title:action.title??action.label,type:'button'},action.icon)}
 function PanelHeader({title,subtitle,action,actionLabel,actions=[],onContextMenu}){const items=[...actions];if(action)items.push({label:actionLabel,onClick:action,icon:h(IconRefresh)});return h('header',{className:'dsh-ws-panel-header'},h('div',{className:'dsh-ws-panel-title',onContextMenu},h('strong',{title},title),subtitle?h('span',{title:subtitle},subtitle):null),items.length?h('div',{className:'dsh-ws-panel-actions'},items.map(item=>h(HeaderAction,{action:item,key:item.label}))):null)}
-/* Memoized: the tree re-renders when tabs change (typing, tab drags), but a
-   row's own props only change on selection/expansion/directory data, so
-   scrolling and typing skip most row reconciliation entirely. */
+/* Memoized: the tree re-renders on tab changes, but a row's own props only
+   change on selection/expansion/directory data, so scrolling and typing skip most reconciliation. */
 const TreeRow = memo(function TreeRow({entry,depth,expanded,selected,cut,onContextMenu,onDirectory,onFile,onRename}){useLocaleText();const directory=entry.kind==='directory',blocked=entry.kind==='blocked'||entry.kind==='other',label=directory?'dir':fileLabel(entry.name);return h('button',{'aria-expanded':directory?expanded:undefined,className:'dsh-ws-tree-row','data-cut':cut||undefined,'data-selected':selected||undefined,disabled:blocked,onClick:directory?()=>onDirectory(entry):()=>onFile(entry),onContextMenu:e=>onContextMenu(e,entry),onKeyDown:e=>{if(e.key==='F2'){e.preventDefault();onRename(entry)}},style:{'--dsh-ws-depth':depth},title:`${entry.path}${entry.symlink?translate('tree.symlink'):''}`,type:'button'},h('span',{className:'dsh-ws-chevron'},directory?(expanded?'▼':'▶'):''),h('span',{className:'dsh-ws-file-mark','data-kind':entry.kind,'data-group':colorGroupOf(entry)},label.slice(0,3)),h('span',{className:'dsh-ws-row-name'},entry.name),entry.symlink?h('span',{className:'dsh-ws-symlink'},'↗'):null)})
-/* In-place rename of a tree row: TreeRow is swapped for an input mirroring
-   the row layout (same depth indent, chevron and file mark), so the edit
-   happens exactly where the name sits — no modal. Enter confirms (IME-safe);
-   Escape/blur cancels and restores the name. An unchanged name closes quietly;
-   invalid/duplicate input keeps the editor open with an inline error. */
+/* In-place tree-row rename: an input mirrors the row layout (depth indent,
+   chevron, file mark) so the edit sits exactly where the name is — no modal.
+   Enter confirms (IME-safe); Escape/blur cancels and restores the name;
+   unchanged name closes quietly; invalid/duplicate keeps the editor open with
+   an inline error. */
 function TreeRenameRow({busy,depth,entry,expanded,error,onCancel,onConfirm,onDraft,value}){const composingRef=useRef(false),inputRef=useRef(null);const directory=entry.kind==='directory',label=directory?'dir':fileLabel(entry.name);useEffect(()=>{const input=inputRef.current;if(input!==null){input.focus();input.select()}},[]);return h('div',{className:'dsh-ws-tree-rename',style:{'--dsh-ws-depth':depth}},h('div',{className:'dsh-ws-tree-rename-row'},h('span',{className:'dsh-ws-chevron'},directory?(expanded?'▼':'▶'):''),h('span',{className:'dsh-ws-file-mark','data-kind':entry.kind,'data-group':colorGroupOf(entry)},label.slice(0,3)),h('input',{'aria-label':translate('dialog.name'),autoFocus:true,className:'dsh-ws-tree-rename-input',disabled:busy,onBlur:()=>{if(!busy)onCancel()},onChange:event=>onDraft(event.target.value),onCompositionEnd:()=>{composingRef.current=false},onCompositionStart:()=>{composingRef.current=true},onKeyDown:event=>{if(event.key==='Escape'){event.preventDefault();if(!busy)onCancel()}else if(event.key==='Enter'&&!composingRef.current){event.preventDefault();if(value.trim()===entry.name){onCancel();return}onConfirm()}},ref:inputRef,value})),error?h('div',{className:'dsh-ws-tree-rename-error',role:'alert'},error):null)}
 const TreeStatus=({children,error})=>h('div',{className:'dsh-ws-tree-status','data-error':error||undefined},children)
 function TreeContextMenu({entry,menuRef,onRename,onCopyName,onCopyPath,onReveal,onCopy,onPaste,onCut,onDelete,pasteDisabled,pasteTitle,x,y}){const left=Math.max(4,Math.min(x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top=Math.max(4,Math.min(y,window.innerHeight-CONTEXT_MENU_HEIGHT-4));return h('div',{'aria-label':entry.path,className:'dsh-ws-context-menu',ref:menuRef,role:'menu',style:{left,top}},h('button',{className:'dsh-ws-context-item',onClick:()=>onRename(entry),role:'menuitem',title:translate('context.rename.title'),type:'button'},translate('context.rename')),h('button',{className:'dsh-ws-context-item',onClick:()=>onCopyName(entry),role:'menuitem',title:translate('context.copyName.title'),type:'button'},translate('context.copyName')),h('button',{className:'dsh-ws-context-item',onClick:()=>onCopyPath(entry,false),role:'menuitem',title:translate('context.copyPath.title'),type:'button'},translate('context.copyPath')),h('button',{className:'dsh-ws-context-item',onClick:()=>onCopyPath(entry,true),role:'menuitem',title:translate('context.copyRelative.title'),type:'button'},translate('context.copyRelative')),h('div',{className:'dsh-ws-context-separator',role:'separator'}),h('button',{className:'dsh-ws-context-item',onClick:()=>onReveal(entry),role:'menuitem',title:translate('context.reveal.title'),type:'button'},translate('context.reveal')),h('div',{className:'dsh-ws-context-separator',role:'separator'}),h('button',{className:'dsh-ws-context-item',onClick:()=>onCopy(entry),role:'menuitem',title:translate('context.copy.title'),type:'button'},translate('context.copy')),h('button',{className:'dsh-ws-context-item',disabled:pasteDisabled,onClick:()=>onPaste(entry),role:'menuitem',title:pasteDisabled?pasteTitle:translate('context.paste.title'),type:'button'},translate('context.paste')),h('button',{className:'dsh-ws-context-item',onClick:()=>onCut(entry),role:'menuitem',title:translate('context.cut.title'),type:'button'},translate('context.cut')),h('button',{className:'dsh-ws-context-item',onClick:()=>onDelete(entry),role:'menuitem',title:translate('context.delete.title'),type:'button'},translate('context.delete')))}
 function TabContextMenu({menuRef,onCloseOthers,onTogglePin,pinned,x,y}){const left=Math.max(4,Math.min(x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top=Math.max(4,Math.min(y,window.innerHeight-COMPACT_MENU_HEIGHT-4));return h('div',{className:'dsh-ws-context-menu',ref:menuRef,role:'menu',style:{left,top}},h('button',{className:'dsh-ws-context-item',onClick:onTogglePin,role:'menuitem',title:pinned?translate('tab.unpin.title'):translate('tab.pin.title'),type:'button'},pinned?translate('tab.unpin'):translate('tab.pin')),h('button',{className:'dsh-ws-context-item',onClick:onCloseOthers,role:'menuitem',title:translate('tab.closeOthers.title'),type:'button'},translate('tab.closeOthers')))}
 function EntryDialog({dialog,draft,error,busy,blocked,composingRef,onCancel,onConfirm,onDraft}){if(!dialog)return null;const title=entryDialogTitle(dialog),action=entryDialogAction(dialog);return h('div',{className:'dsh-ws-dialog-backdrop',onMouseDown:e=>{if(e.target===e.currentTarget&&!busy)onCancel()}},h('div',{'aria-modal':true,className:'dsh-ws-dialog',role:'dialog'},h('div',{className:'dsh-ws-dialog-header'},h('div',{className:'dsh-ws-dialog-title'},title),h('button',{'aria-label':translate('dialog.close'),className:'dsh-ws-icon-button',disabled:busy,onClick:onCancel,title:translate('dialog.close'),type:'button'},'×')),h('div',{className:'dsh-ws-dialog-body'},h('input',{'aria-label':translate('dialog.name'),autoFocus:true,className:'dsh-ws-dialog-input',disabled:busy,onChange:e=>onDraft(e.target.value),onCompositionEnd:()=>{composingRef.current=false},onCompositionStart:()=>{composingRef.current=true},onFocus:e=>e.target.select(),onKeyDown:e=>{if(e.key==='Escape'){e.preventDefault();if(!busy)onCancel()}else if(e.key==='Enter'&&!composingRef.current){e.preventDefault();if(!busy)onConfirm()}},value:draft}),error?h('div',{className:'dsh-ws-dialog-error',role:'alert'},error):null),h('div',{className:'dsh-ws-dialog-footer'},h('button',{className:'dsh-ws-text-button',disabled:busy,onClick:onCancel,type:'button'},translate('dialog.cancel')),h('button',{className:'dsh-ws-text-button',disabled:blocked,onClick:onConfirm,type:'button'},busy?translate('dialog.processing'):action))))}
 function EncodingMenu({menuRef,onOpen,onSave,canOpen,canSave,x,y}){const left=Math.max(4,Math.min(x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top=Math.max(4,Math.min(y,window.innerHeight-COMPACT_MENU_HEIGHT-4));return h('div',{className:'dsh-ws-context-menu',ref:menuRef,role:'menu',style:{left,top}},h('button',{className:'dsh-ws-context-item',disabled:!canOpen,onClick:onOpen,role:'menuitem',title:canOpen?translate('encoding.open.title'):translate('encoding.open.titleDirty'),type:'button'},translate('encoding.open')),h('button',{className:'dsh-ws-context-item',disabled:!canSave,onClick:onSave,role:'menuitem',title:canSave?translate('encoding.save.title'):translate('encoding.save.titleReadonly'),type:'button'},translate('encoding.save')))}
-/* In-place session rename: an input overlaid on the harness row's title span
-   (harness-rendered, so the plugin never mutates its DOM), fixed-positioned at
-   the span's rect. Enter confirms (IME-safe), Escape/blur cancels; a row that
-   detaches (session removed, list rebuilt) cancels too. */
+/* In-place session rename: an input fixed-positioned over the harness row's
+   title span (harness-rendered; the plugin never mutates its DOM). Enter
+   confirms (IME-safe), Escape/blur cancels; a detached row cancels too. */
 function SessionInlineRename({busy,error,onCancel,onConfirm,row,title}){const composingRef=useRef(false),inputRef=useRef(null);const[draft,setDraft]=useState(title);useEffect(()=>{if(row===null||!row.isConnected){onCancel();return}const input=inputRef.current;if(input!==null){input.focus();input.select()}},[/* mount-only */]);useEffect(()=>{if(row!==null&&row.isConnected)return undefined;onCancel();return undefined},[onCancel,row]);const span=row===null?null:row.querySelector('span[class*="title"]');const rect=span===null?null:span.getBoundingClientRect();const overlayStyle=rect===null||rect.width===0?undefined:{left:rect.left,top:rect.top,width:Math.max(rect.width,140),height:rect.height};return h(Fragment,null,h('div',{className:'dsh-ws-session-rename-overlay',style:overlayStyle},h('input',{'aria-label':translate('dialog.sessionName'),autoFocus:true,className:'dsh-ws-session-rename-input',disabled:busy,onBlur:()=>{if(!busy)onCancel()},onChange:event=>{setDraft(event.target.value)},onCompositionEnd:()=>{composingRef.current=false},onCompositionStart:()=>{composingRef.current=true},onKeyDown:event=>{if(event.key==='Escape'){event.preventDefault();if(!busy)onCancel()}else if(event.key==='Enter'&&!composingRef.current){event.preventDefault();onConfirm(draft)}},ref:inputRef,value:draft})),error?h('div',{className:'dsh-ws-session-rename-error',role:'alert',style:rect===null?undefined:{left:rect.left,top:rect.bottom+4}},error):null)}
 /* Transient banner mirroring the harness Toast look (contrast fill, hold-
    then-fade, warning icon) so a failed external-file open reads like the
-   composer's image-intake rejection. Rendered inside the preview pane
-   (top-center) instead of a viewport portal; remounted per show (keyed by
-   seq) to restart the animation for repeated messages. */
+   composer's image-intake rejection. Rendered top-center in the preview pane;
+   remounted per show (keyed by seq) to restart the animation. */
 const WEL_TOAST_HOLD_MS = 3000
 const WEL_TOAST_FADE_MS = 1000
 const welToastIcon = h('svg',{fill:'none',height:16,viewBox:'0 0 16 16',width:16},h('circle',{cx:8,cy:8,r:6.5,stroke:'currentColor',strokeWidth:1.5}),h('path',{d:'M8 4.75v3.5',stroke:'currentColor',strokeLinecap:'round',strokeWidth:1.5}),h('circle',{cx:8,cy:11.25,fill:'currentColor',r:0.9}))
@@ -4136,18 +4022,16 @@ function PreviewToast({text,onDone,headerRef}){const[top,setTop]=useState(null);
 function EncodingDialog({dialog,options,value,busy,onCancel,onPick,onConfirm}){if(dialog===undefined)return null;const title=dialog.mode==='open'?translate('encoding.dialog.open'):translate('encoding.dialog.save'),action=dialog.mode==='open'?translate('encoding.dialog.openAction'):translate('encoding.dialog.saveAction');return h('div',{className:'dsh-ws-dialog-backdrop',onMouseDown:e=>{if(e.target===e.currentTarget&&!busy)onCancel()}},h('div',{'aria-modal':true,className:'dsh-ws-dialog',role:'dialog'},h('div',{className:'dsh-ws-dialog-header'},h('div',{className:'dsh-ws-dialog-title'},title),h('button',{'aria-label':translate('dialog.close'),className:'dsh-ws-icon-button',disabled:busy,onClick:onCancel,title:translate('dialog.close'),type:'button'},'×')),h('div',{className:'dsh-ws-dialog-body'},h('label',{className:'dsh-ws-settings-label',htmlFor:'dsh-ws-encoding-select'},translate('encoding.badge')),h('select',{'aria-label':translate('encoding.badge'),className:'dsh-ws-highlight-preset-select',disabled:busy,id:'dsh-ws-encoding-select',onChange:e=>onPick(e.target.value),value},options.map(enc=>h('option',{key:enc.id,value:enc.id},encodingLabel(enc.id))))),h('div',{className:'dsh-ws-dialog-footer'},h('button',{className:'dsh-ws-text-button',disabled:busy,onClick:onCancel,type:'button'},translate('dialog.cancel')),h('button',{className:'dsh-ws-text-button',disabled:busy||options.length===0,onClick:onConfirm,type:'button'},busy?translate('dialog.processing'):action))))}
 function SessionRenameDialog({draft,busy,error,onCancel,onConfirm,onDraft,title}){const composingRef=useRef(false);return h('div',{className:'dsh-ws-dialog-backdrop',onMouseDown:e=>{if(e.target===e.currentTarget&&!busy)onCancel()}},h('div',{'aria-modal':true,className:'dsh-ws-dialog',role:'dialog'},h('div',{className:'dsh-ws-dialog-header'},h('div',{className:'dsh-ws-dialog-title'},title ?? translate('dialog.renameSession')),h('button',{'aria-label':translate('dialog.close'),className:'dsh-ws-icon-button',disabled:busy,onClick:onCancel,title:translate('dialog.close'),type:'button'},'×')),h('div',{className:'dsh-ws-dialog-body'},h('input',{'aria-label':translate('dialog.sessionName'),autoFocus:true,className:'dsh-ws-dialog-input',disabled:busy,onChange:e=>onDraft(e.target.value),onCompositionEnd:()=>{composingRef.current=false},onCompositionStart:()=>{composingRef.current=true},onFocus:e=>e.target.select(),onKeyDown:e=>{if(e.key==='Escape'){e.preventDefault();onCancel()}else if(e.key==='Enter'&&!composingRef.current){e.preventDefault();onConfirm()}},value:draft}),error?h('div',{className:'dsh-ws-dialog-error',role:'alert'},error):null),h('div',{className:'dsh-ws-dialog-footer'},h('button',{className:'dsh-ws-text-button',disabled:busy,onClick:onCancel,type:'button'},translate('dialog.cancel')),h('button',{className:'dsh-ws-text-button',disabled:busy||draft.trim()==='',onClick:onConfirm,type:'button'},busy?translate('dialog.processing'):translate('dialog.rename')))))}
 function DeleteDialog({entry,busy,dirtyWarning,onCancel,onConfirm}){if(entry===undefined)return null;return h('div',{className:'dsh-ws-dialog-backdrop',onMouseDown:e=>{if(e.target===e.currentTarget&&!busy)onCancel()}},h('div',{'aria-modal':true,className:'dsh-ws-dialog',role:'dialog'},h('div',{className:'dsh-ws-dialog-header'},h('div',{className:'dsh-ws-dialog-title'},translate('dialog.deleteTitle')),h('button',{'aria-label':translate('dialog.close'),className:'dsh-ws-icon-button',disabled:busy,onClick:onCancel,title:translate('dialog.close'),type:'button'},'×')),h('div',{className:'dsh-ws-dialog-body'},h('div',{className:'dsh-ws-dialog-message'},translate('dialog.deleteMessage',{name:entry.name})),dirtyWarning?h('div',{className:'dsh-ws-dialog-warning',role:'alert'},translate('dialog.deleteDirtyWarning')):null),h('div',{className:'dsh-ws-dialog-footer'},h('button',{className:'dsh-ws-text-button',disabled:busy,onClick:onCancel,type:'button'},translate('dialog.cancel')),h('button',{className:'dsh-ws-danger-button dsh-ws-text-button',disabled:busy,onClick:onConfirm,type:'button'},busy?translate('dialog.processing'):translate('dialog.deleteAction')))))}
-/* Save-time three-way merge conflict prompt: the file changed on disk by
-   another tool and the changes overlap the local edits. Each conflicting
-   region is reviewed one at a time (mine vs theirs) in a large dialog; the
-   footer walks the regions and the final pick set is handed back as
-   { choices } (one 'mine'/'theirs' per conflict, in order) or 'cancel'. */
+/* Save-time three-way merge conflict: disk changed by another tool and the
+   changes overlap local edits. Each region is reviewed one at a time (mine vs
+   theirs); the footer walks them and hands back { choices } (one per conflict,
+   in order) or 'cancel'. */
 function SaveConflictDialog({conflict,fontSize,onResolve}) {
   const [index, setIndex] = useState(0)
   const [choices, setChoices] = useState([])
-  // Escape cancels the whole save, same as the backdrop / × button. The dialog
-  // is modal, so its own window-level Escape must not leak to the mind-map
-  // overlay's Escape-to-close (that listener already yields to any open
-  // .dsh-ws-dialog-backdrop).
+  // Escape cancels the whole save, same as backdrop / ×. The dialog is modal,
+  // so its window-level Escape must not leak to the mind-map overlay's
+  // Escape-to-close (which already yields to any open .dsh-ws-dialog-backdrop).
   useEffect(() => {
     const onKeyDown = event => {
       if (event.key === 'Escape') onResolve('cancel')
@@ -4166,9 +4050,8 @@ function SaveConflictDialog({conflict,fontSize,onResolve}) {
       : `${region.start + 1}–${region.end}`
   const pick = (side) => {
     const next = [...choices, side]
-    // The decision is tied to the actual choices length (the array
-    // `resolveMergeParts` validates), not the display index, so a back+re-pick
-    // cycle can never hand the resolver a mismatched count.
+    // Key the decision to the actual choices length (what `resolveMergeParts`
+    // validates), not the display index, so back+re-pick never mismatches counts.
     if (next.length < total) {
       setChoices(next)
       setIndex(next.length)
@@ -4178,9 +4061,8 @@ function SaveConflictDialog({conflict,fontSize,onResolve}) {
   }
   const goBack = () => {
     if (current === 0) return
-    // Revisiting conflict `current - 1` must drop its stale choice; keeping it
-    // made the final choices array one entry too long and the save failed
-    // with "incomplete conflict choices" after a back+re-pick cycle.
+    // Revisiting `current - 1` must drop its stale choice, or the array grows
+    // one entry too long and save fails with "incomplete conflict choices".
     setIndex(current - 1)
     setChoices(prev => prev.slice(0, current - 1))
   }
@@ -4227,9 +4109,8 @@ function revealPosition(view, reveal) {
   view.dispatch({ selection: { anchor: from, head: to }, effects: EditorView.scrollIntoView(from, { y: 'center' }) })
 }
 
-/* Code-folding helpers backing the Ctrl+K+J / Ctrl+K+<n> shortcuts. Nesting
-   depth is 1-based: a top-level fold region is level 1, one directly inside
-   another fold region is level 2, and so on. */
+/* Code-folding helpers backing Ctrl+K+J / Ctrl+K+<n>. Nesting depth is
+   1-based: a top-level region is level 1, one directly inside another is 2. */
 function collectFoldableRanges(view) {
   const state = view.state
   const seen = new Set()
@@ -4248,10 +4129,9 @@ function collectFoldableRanges(view) {
   }
   return ranges
 }
-/* Nesting depth per foldable range: 1 for a top-level region, +1 per
-   enclosing region. CodeMirror fold regions are disjoint-or-nested and
-   collected in document order, so one stack sweep computes every depth in
-   linear time (the previous per-range scan was quadratic on large files). */
+/* Nesting depth per foldable range: 1 for top-level, +1 per enclosing region.
+   Fold regions are disjoint-or-nested in document order, so one stack sweep
+   computes all depths in linear time (the old per-range scan was quadratic). */
 function foldLevelsOf(ranges) {
   const ordered = [...ranges].sort((a, b) => a.from - b.from || b.to - a.to)
   const levels = new Array(ordered.length)
@@ -4298,9 +4178,8 @@ function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShortcut, o
   scrollRef.current = onScroll
   revealRef.current = reveal
   onRevealAppliedRef.current = onRevealApplied
-  // A reveal request is consumed the first time it is actually applied, so
-  // returning to the tab later restores the persisted scroll instead of
-  // re-jumping to a stale search match.
+  // A reveal is consumed the first time it is applied, so returning to the tab
+  // later restores the persisted scroll instead of re-jumping to a stale match.
   const markRevealApplied = (target) => {
     if (target === null || revealAppliedRef.current === target) return
     revealAppliedRef.current = target
@@ -4321,29 +4200,27 @@ function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShortcut, o
           lineNumbers(), highlightActiveLineGutter(), history(), foldGutter(), drawSelection(), dropCursor(),
           EditorState.allowMultipleSelections.of(true), indentOnInput(), bracketMatching(), closeBrackets(),
           highlightSelectionMatches(), highlightActiveLine(), syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-          /* The search panel is rendered into a container div between the
-             status bar and the preview body: top:true puts it in the top panel
-             group (the @codemirror/search default is bottom), and
-             panels({ topContainer }) places that group in the plugin-owned
-             container instead of inside the editor. */
+          /* The search panel renders into a container div between the status
+             bar and the preview body: top:true puts it in the top panel group
+             (the @codemirror/search default is bottom); panels({ topContainer })
+             places that group in the plugin-owned container, not in the editor. */
           search({ top: true }),
           panels(searchPanelContainer?.current ? { topContainer: searchPanelContainer.current } : undefined),
-          /* CodeMirror's search/goto-line panels render their labels through
-             EditorState.phrase(); without this map they show English. The keys
-             mirror @codemirror/search's phrases; keep the $ placeholders. The
-             compartment follows the active locale (English keeps CodeMirror's
-             built-in default phrases). */
+          /* Search/goto-line panel labels render through EditorState.phrase();
+             without this map they show English. Keys mirror @codemirror/search's
+             phrases; keep the $ placeholders. The compartment follows the
+             active locale (English keeps the built-in defaults). */
           phrasesCompartment.current.of(localeIsZh() ? EditorState.phrases.of(CM_PHRASES_ZH) : []),
           syntaxHighlighting(tokenHighlight),
           keymap.of([
             { key: 'Mod-s', preventDefault: true, run: () => { saveRef.current(); return true } },
             indentWithTab, ...closeBracketsKeymap, ...defaultKeymap,
-            /* Search keys that only make sense inside the editor stay in the
-               keymap: Escape closes the panel; Ctrl+D / Ctrl+Shift+L /
-               Ctrl+Alt+G select occurrences, select matches, or jump to a line.
-               The find workflow (Ctrl/Cmd+F, Ctrl/Cmd+G, F3) is deliberately
-               NOT bound here — the window capture handler below owns it so it
-               works from every focus state (single path, same as Ctrl+K). */
+            /* Editor-only search keys stay in the keymap: Escape closes the
+               panel; Ctrl+D / Ctrl+Shift+L / Ctrl+Alt+G select occurrences,
+               matches, or jump to a line. The find workflow (Ctrl/Cmd+F,
+               Ctrl/Cmd+G, F3) is deliberately NOT bound here — the window
+               capture handler owns it so it works from every focus state
+               (single path, same as Ctrl+K). */
             { key: 'Escape', run: closeSearchPanel, scope: 'editor search-panel' },
             { key: 'Mod-Shift-l', run: selectSelectionMatches },
             { key: 'Mod-Alt-g', run: gotoLine },
@@ -4374,9 +4251,8 @@ function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShortcut, o
     }
     view.scrollDOM.addEventListener('scroll', reportScroll)
     editorRef.current = view
-    // A reveal consumes itself (the parent clears the request), so the second
-    // pass must not fall through to the persisted scrollTop and undo the
-    // reveal; the closure flag scopes that to this mount pass.
+    // A reveal consumes itself (parent clears the request), so the second pass
+    // must not fall through to the persisted scrollTop; the closure flag scopes that.
     let revealHandled = false
     const restoreScroll = () => {
       const target = revealRef.current
@@ -4390,26 +4266,23 @@ function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShortcut, o
       if (Number.isFinite(scrollTop) && scrollTop > 0) view.scrollDOM.scrollTop = scrollTop
     }
     restoreScroll()
-    // A second pass after layout: the first assignment can be clamped while
-    // the browser has not yet sized the freshly inserted editor content; by
-    // the next frame the real height exists and the value sticks.
+    // Second pass after layout: the first assignment can be clamped before the
+    // browser sizes the fresh editor content; next frame the real height exists.
     const animation = requestAnimationFrame(restoreScroll)
     contextRef.current(view.state)
     return () => {
       cancelAnimationFrame(animation)
-      // React removes the editor DOM before passive cleanups run, so a
-      // detached scroller reads scrollTop as 0; reporting that would poison
-      // the live scroll map and wipe the restore target of the next remount.
-      // Only report while still connected (the scroll listener already keeps
-      // the map current while the view was alive).
+      // React removes the editor DOM before passive cleanups, so a detached
+      // scroller reads scrollTop as 0; reporting that would poison the live
+      // scroll map and wipe the next remount's restore target. Only report
+      // while still connected.
       if (view.scrollDOM.isConnected) scrollRef.current?.(file.path, view.scrollDOM.scrollTop)
       view.scrollDOM.removeEventListener('scroll', reportScroll)
       if (editorRef.current === view) editorRef.current = undefined
       view.destroy()
     }
-    // Rebuild only when the document was actually re-read (path/encoding/read
-    // epoch), never on save: a save only advances the revision, and rebuilding
-    // would wipe the undo history and caret position.
+    // Rebuild only on a real re-read (path/encoding/read epoch), never on save:
+    // rebuilding after a save would wipe the undo history and caret position.
   }, [file.path, file.encoding, readEpoch])
 
   useEffect(() => {
@@ -4440,13 +4313,11 @@ function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShortcut, o
     markRevealApplied(reveal)
   }, [reveal])
 
-  // The Ctrl+K+J / Ctrl+K+<n> fold shortcuts are handled here at the window
-  // level (capture phase) so they work in every focus state: browsing keeps
-  // focus on the tree, toolbar, or fold gutter, and even when the editor
-  // content is focused the keymap path proved unreliable. The editor keymap
-  // deliberately does not bind these keys — one handling path avoids folding
-  // twice. Keys are consumed (preventDefault + stopPropagation) only for the
-  // captured Ctrl+K prefix and its completion J / 1..9.
+  // Ctrl+K+J / Ctrl+K+<n> are handled at the window level (capture phase) so
+  // they work in every focus state; the editor keymap path proved unreliable,
+  // so it deliberately does not bind these keys (one handling path avoids
+  // folding twice). Keys are consumed only for the Ctrl+K prefix and its
+  // completion J / 1..9.
   useEffect(() => {
     let armed = false
     let timer
@@ -4454,13 +4325,11 @@ function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShortcut, o
     const onKeyDown = (event) => {
       const view = editorRef.current
       if (view === undefined) return
-      // IME composition must never arm or complete the fold sequence (same
-      // rule the other shortcut paths honor): composing keystrokes pass
-      // through untouched.
+      // IME composition must never arm or complete the fold sequence (same as
+      // other shortcut paths): composing keystrokes pass through untouched.
       if (event.isComposing) { cancel(); return }
       const target = event.target
-      // Let text fields outside the editor (chat, rename, search, dialogs) keep
-      // their keys; the editor's own contenteditable is inside host.
+      // Outside text fields (chat, rename, search, dialogs) keep their keys; the editor's contenteditable is inside host.
       const insideEditor = host.current !== null && target instanceof Node && host.current.contains(target)
       if (!insideEditor && target instanceof HTMLElement && (target.isContentEditable || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')) {
         cancel()
@@ -4499,21 +4368,19 @@ function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShortcut, o
     }
   }, [])
 
-  // The find shortcuts (Ctrl/Cmd+F, Ctrl/Cmd+G, Ctrl/Cmd+Shift+G, F3,
-  // Shift+F3) are handled here at the window level (capture phase) so they
-  // work in every focus state, exactly like Ctrl+K above: browsing keeps focus
-  // on the tree, toolbar, or tab bar. The editor keymap deliberately does not
-  // bind these keys — one handling path. With no editor mounted the keys are
-  // left untouched so the browser's own find still works.
+  // Find shortcuts (Ctrl/Cmd+F, Ctrl/Cmd+G, Ctrl/Cmd+Shift+G, F3, Shift+F3)
+  // are handled at the window level (capture phase) so they work in every
+  // focus state, like Ctrl+K above; the editor keymap deliberately does not
+  // bind them (one handling path). With no editor mounted, keys pass through
+  // so the browser's own find still works.
   useEffect(() => {
     const onKeyDown = (event) => {
       const view = editorRef.current
       if (view === undefined) return
       const target = event.target
-      // Let text fields outside the editor (chat, rename, dialogs) keep their
-      // keys; the editor's own contenteditable and the search panel input
-      // (rendered into the search container) are treated as editor-internal,
-      // so they still reach this handler.
+      // Outside text fields (chat, rename, dialogs) keep their keys; the
+      // editor's contenteditable and the search panel input (in the search
+      // container) are editor-internal and still reach this handler.
       const panelContainer = searchPanelContainer?.current
       const insideEditor = (host.current !== null && target instanceof Node && host.current.contains(target))
         || (panelContainer !== null && target instanceof Node && panelContainer.contains(target))
@@ -4547,11 +4414,11 @@ function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShortcut, o
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [])
 
-  // The search field gets a drag-to-resize grip on its right edge. CodeMirror
-  // builds the panel DOM itself and SearchPanel is not exported, so watch the
-  // panel container for the .cm-panel.cm-search element and wrap its
-  // [main-field] input in an inline-flex wrapper next to a col-resize handle
-  // (once per input; a fresh input is created each time the panel opens).
+  // Search field drag-to-resize grip: CodeMirror builds the panel DOM itself
+  // and SearchPanel is not exported, so watch the panel container for
+  // .cm-panel.cm-search and wrap its [main-field] input in an inline-flex
+  // wrapper with a col-resize handle (once per input; the panel creates a
+  // fresh input each time it opens).
   useEffect(() => {
     const container = searchPanelContainer?.current
     if (container === null || container === undefined) return undefined
@@ -4587,9 +4454,8 @@ function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShortcut, o
         }
         const onPointerUp = () => { detachPointer() }
         // Replace any prior drag state so a second drag cannot leak a stale
-        // pair; the effect cleanup also detaches, so an unmount mid-drag (the
-        // editor rebuilds on path/encoding/readEpoch) never leaves window
-        // listeners bound to a detached input.
+        // pair; the cleanup also detaches, so an unmount mid-drag never leaves
+        // window listeners bound to a detached input.
         detachPointer()
         moveListener = onPointerMove
         upListener = onPointerUp
@@ -4629,9 +4495,8 @@ function WorkspaceExplorer({
   const [saving, setSaving] = useState(false)
   const [status, setStatus] = useState()
   const [reloadToken, setReloadToken] = useState(0)
-  // Bumped once per successful file re-read; the editor rebuilds on this
-  // instead of on the revision, so saving (which only advances the revision)
-  // keeps the undo history and caret position.
+  // Bumped once per successful file re-read; the editor rebuilds on this, not
+  // the revision, so saving keeps the undo history and caret position.
   const [readEpoch, setReadEpoch] = useState(0)
   const [encodingMenu, setEncodingMenu] = useState()
   const [encodingDialog, setEncodingDialog] = useState()
@@ -4675,12 +4540,10 @@ function WorkspaceExplorer({
   const titleMenuRef = useRef(null)
   const encodingMenuRef = useRef(null)
   const requestedEncodingRef = useRef()
-  // Set by the preview-header refresh action; the file-read effect consumes it
-  // at the start of its next pass and surfaces a "reloaded" status on success.
+  // Set by the preview-header refresh action; the file-read effect consumes it and surfaces a "reloaded" status.
   const refreshPendingRef = useRef(false)
-  // Set by the preview-header cancel action; like refreshPendingRef but
-  // surfaces the cancel-specific "reloaded from disk" status once the discard
-  // re-read completes.
+  // Like refreshPendingRef but for the cancel action: surfaces the cancel-
+  // specific "reloaded from disk" status once the discard re-read completes.
   const cancelRestoreRef = useRef(null)
   const previewTabsRef = useRef(null)
   const previewSectionRef = useRef(null)
@@ -4698,10 +4561,9 @@ function WorkspaceExplorer({
   const saveController = useRef()
   const mutationController = useRef()
   // Monotonic sequence for tree mutations (create/rename/paste/delete). Each
-  // operation captures its own sequence and only applies its UI result when it
-  // is still the latest: overlapping operations no longer abort one another's
-  // in-flight request (the Host serializes writes anyway), so a stranded
-  // server-side operation can never corrupt the tree with a stale result.
+  // op applies its UI result only while it is still the latest; overlapping
+  // ops no longer abort one another (the Host serializes writes anyway), so a
+  // stranded server-side op can never corrupt the tree with a stale result.
   const mutationSeqRef = useRef(0)
   const editorRef = useRef()
   const searchPanelContainerRef = useRef(null)
@@ -4709,31 +4571,27 @@ function WorkspaceExplorer({
   const baseText = useRef('')
   const diskBaseRef = useRef('')
   const mounted = useRef(true)
-  // Latest disk state this editor actually wrote (or last read): content plus
-  // revision. Auto-save uses the revision as If-Match and the editor-context
-  // uses the content to decide whether a selection matches disk. Per-path,
-  // because a pending auto-save can outlive the active tab.
+  // Latest disk state this editor wrote (or read): content + revision. Auto-
+  // save uses the revision as If-Match; editor-context uses content to judge
+  // selection-vs-disk. Per-path, since a pending auto-save can outlive the tab.
   const lastWriteRef = useRef(new Map())
   const autosaveTimers = useRef(new Map())
   // Preview auto-sync state: per-path change snapshots (mtime/size/hash) and
-  // the set of paths with a watcher registered on the Host. Only non-external
-  // workspace tabs are tracked; everything is cleaned up on unmount.
+  // paths with a Host watcher; only non-external tabs are tracked, all cleaned on unmount.
   const watchSnapshotsRef = useRef(new Map())
   const watchedPathsRef = useRef(new Set())
-  // Paths currently being re-read by an auto-sync reload. The polling tick
-  // skips these so a second change check racing the in-flight read cannot
-  // bump reloadToken again (a second remount would discard the scroll
-  // position the first reload just restored). Cleared when the read pass
-  // settles or the path is closed.
+  // Paths being re-read by an auto-sync reload. The polling tick skips them so
+  // a change check racing the in-flight read cannot bump reloadToken again (a
+  // second remount would discard the scroll the first reload just restored).
+  // Cleared when the read pass settles or the path closes.
   const reloadingPathsRef = useRef(new Set())
-  // Draft mutations are serialized per path with a monotonically increasing
-  // generation: the promise tail lets an already-arrived stale PUT finish
-  // before a newer PUT/DELETE (AbortController cannot retract a request the
-  // Host has already started). The Host fences every write/delete/tree op
-  // behind ONE owner-level generation (lib/index.js ownerCurrentGeneration),
-  // so all operations share this single counter — separate per-path and
-  // '__tree__' counters collided with that fence (409 draft-generation-
-  // conflict) when a second op reused a generation the Host had consumed.
+  // Draft mutations serialize per path with a monotonic generation: the tail
+  // lets an already-arrived stale PUT finish before a newer PUT/DELETE
+  // (AbortController cannot retract a request the Host has started). The Host
+  // fences every op behind ONE owner-level generation (lib/index.js
+  // ownerCurrentGeneration), so all operations share a single counter —
+  // separate per-path/'__tree__' counters collided with that fence (409
+  // draft-generation-conflict) when a second op reused a consumed generation.
   const draftGenerationCounterRef = useRef(0)
   const draftGenerationsRef = useRef(new Map())
   const draftTailsRef = useRef(new Map())
@@ -4742,22 +4600,19 @@ function WorkspaceExplorer({
   const tabsRef = useRef(initialPreviewSession.tabs)
   const activePathRef = useRef(initialPreviewSession.activePath)
   const expandedRef = useRef(new Set(['', ...(initialPreviewSession.expanded ?? [])]))
-  // Live editor scroll positions: written on every scroll event without
-  // touching React state or the persistence path, merged into the snapshot
-  // only when it is actually serialized.
+  // Live editor scroll positions: written per scroll event without touching
+  // React state or persistence; merged into the snapshot only when serialized.
   const scrollTopRef = useRef(new Map())
   const sessionEstablishedRef = useRef(false)
-  // Paths already confirmed missing in the current workspace while restoring
-  // the persisted expansion. Every later restore pass (in particular the
-  // late-arriving stored session) skips them until the cleaned snapshot has
-  // been persisted, so a pruned path cannot be re-seeded and 404 again within
-  // one mount.
+  // Paths confirmed missing in the current workspace while restoring persisted
+  // expansion. Later restore passes (notably the late-arriving stored session)
+  // skip them until the cleaned snapshot is persisted, so a pruned path cannot
+  // be re-seeded and 404 again within one mount.
   const prunedPathsRef = useRef(new Set())
   const previewTabsBootstrapped = useRef(Boolean(initialPreviewSession.tabs.length > 0 || initialPreviewSession.activePath !== null))
   const selectedDirectoryPath = selectedLevelPath(selected)
   const activatePath = useCallback((path) => {
-    // A cancel marker belongs to one specific file; switching files must not
-    // let a stale marker decorate a later read of the same path.
+    // A cancel marker belongs to one file; switching files must not let a stale marker decorate a later read.
     if (path !== activePathRef.current) cancelRestoreRef.current = null
     activePathRef.current = path
     setActivePath(path)
@@ -4787,23 +4642,19 @@ function WorkspaceExplorer({
     if (persistPreviewSession === undefined) return
     const hasTreeExpansion = Array.from(expandedRef.current).some(path => path !== '')
     const liveTabs = tabsRef.current
-    /* Dropped external files are session-only previews (serializePreviewTab
-       returns null for them). When the ONLY tabs are external and the tree
-       carries no expansion, writing would serialize to an empty snapshot and
+    /* External files serialize to null. When the ONLY tabs are external and the
+       tree carries no expansion, writing would produce an empty snapshot and
        the store action would DELETE the current-session and workspace anchor
        keys — the workspace key may be the only saved copy of ANOTHER session's
-       tabs. Skip the write entirely; external previews must not drive any
-       persisted-state change. */
+       tabs. Skip the write; external previews must not drive persisted state. */
     if (liveTabs.length > 0 && liveTabs.every(tab => tab.external) && !hasTreeExpansion) return
     const meaningful = previewTabsBootstrapped.current || liveTabs.length !== 0 || activePathRef.current !== null || hasTreeExpansion
-    // Skip until this session has established any state: a bare empty mount
-    // must not clobber the workspace-key snapshot of another session. Once
-    // established, keep writing (an empty snapshot deletes the stale entry in
-    // the store action), so collapsing everything back to root also persists.
+    // Skip until this session establishes state: a bare empty mount must not
+    // clobber another session's workspace-key snapshot. Once established, keep
+    // writing (empty snapshot deletes the stale entry, so collapse-to-root persists).
     if (!meaningful && !sessionEstablishedRef.current) return
     if (meaningful) sessionEstablishedRef.current = true
-    // Merge the live scroll positions (kept out of React state so scrolling
-    // never re-renders or triggers a write) into the serialized copy only.
+    // Merge live scroll positions (kept out of React state so scrolling never re-renders or writes) into the serialized copy only.
     const snapshotTabs = liveTabs.map(tab => {
       const live = scrollTopRef.current.get(tab.path)
       return live === undefined ? tab : { ...tab, scrollTop: live }
@@ -4828,8 +4679,7 @@ function WorkspaceExplorer({
 
   const publishContextState = useCallback((state) => {
     if (activeTab === undefined || preview.state !== 'ready') return
-    // Dropped external files are read-only and not workspace-confined; never
-    // leak their synthetic path into the model's editor context.
+    // External files are read-only and not workspace-confined; never leak their synthetic path into the editor context.
     if (activeTab.external) return
     const main = state.selection.main
     const text = state.sliceDoc()
@@ -4838,12 +4688,11 @@ function WorkspaceExplorer({
       : (() => {
           const start = state.doc.lineAt(main.from)
           const end = state.doc.lineAt(main.to)
-          // The editor doc keeps the file's raw line endings (CRLF on Windows
-          // files), but the server verifies editor-context selections in
-          // LF-normalized space (validateDirtySelection / verifyCleanSelection
-          // in lib/index.js): normalize the selection text and map the offsets
-          // to that same space. Columns are line-local, so they are unaffected;
-          // only the absolute offsets shift by one per preceding CRLF.
+          // The editor doc keeps raw line endings (CRLF on Windows), but the
+          // server verifies selections in LF-normalized space (lib/index.js
+          // validateDirtySelection / verifyCleanSelection): normalize the text
+          // and map offsets there. Columns are line-local and unaffected; only
+          // absolute offsets shift by one per preceding CRLF.
           const crlfBefore = (pos) => {
             let count = 0
             for (let i = 0; i + 1 < pos; i += 1) {
@@ -4863,16 +4712,14 @@ function WorkspaceExplorer({
             text: state.sliceDoc(main.from, main.to).replace(/\r\n/g, '\n').replace(/\r/g, '\n'),
           }
         })()
-    // Dirty means "differs from the committed snapshot". The source file is
-    // never polluted by the draft (edits live in the draft file), so a clean
-    // selection can be verified against the source revision; a dirty editor
-    // sends the selection text verbatim instead of verifying against disk.
+    // Dirty = "differs from the committed snapshot". The source file is never
+    // polluted by the draft, so a clean selection verifies against the source
+    // revision; a dirty editor sends the selection verbatim instead.
     publishEditorContext({
       workspaceId: String(workspace.workspaceId),
       path: activeTab.path,
-      // The editor decodes the file with preview.encoding; carrying it lets the
-      // server verify a clean selection against the same decode (not a hard
-      // UTF-8 assumption).
+      // The editor decodes with preview.encoding; carrying it lets the server
+      // verify a clean selection against the same decode (not a hard UTF-8 assumption).
       encoding: preview.encoding,
       dirty: text !== baseText.current || preview.revision === undefined,
       revision: preview.revision ?? undefined,
@@ -4882,8 +4729,7 @@ function WorkspaceExplorer({
     })
   }, [activeTab, preview, publishEditorContext, workspace.workspaceId])
 
-  // A successful save changes the disk revision after CodeMirror keeps the
-  // same view; republish so the next clean selection carries the new revision.
+  // A save changes the disk revision without rebuilding the view; republish so the next clean selection carries it.
   useEffect(() => {
     if (preview.state !== 'ready') return
     const view = editorRef.current
@@ -4912,12 +4758,11 @@ function WorkspaceExplorer({
   }, [hasDirtyTabs])
   /* Preview auto-sync:
      - register the host watcher when a file is opened (chooseFile);
-     - while at least one tab is open, poll the cheap change-check endpoint as
-       a fallback on a fixed cadence, so a watcher that silently failed (or a
-       platform where fs.watch is unreliable) still syncs the preview;
-     - a clean active tab re-reads itself (auto mode) or only shows the
-       "file changed" status (watch-only mode). Dirty active tabs are NEVER
-       overwritten — they get the status banner and the user decides. */
+     - while a tab is open, poll the cheap change-check endpoint on a fixed
+       cadence so a silently-failed watcher (or unreliable fs.watch) still
+       syncs the preview;
+     - a clean active tab re-reads (auto) or shows "file changed" (watch-only);
+       dirty active tabs are NEVER overwritten — banner, user decides. */
   const syncClientIdRef = useRef(`ws-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`)
   const syncControllerRef = useRef()
   const registerWatch = useCallback((path) => {
@@ -4926,12 +4771,12 @@ function WorkspaceExplorer({
     if (watchedPathsRef.current.has(path)) return
     watchedPathsRef.current.add(path)
     void previewSync(String(workspace.workspaceId), path, syncClientIdRef.current, 'watch').catch(() => {
-      // Watcher registration failed (host without support, transient): the
-      // polling fallback below still covers the tab.
+      // Watcher registration failed (unsupported host, transient): the polling
+      // fallback below still covers the tab.
       watchedPathsRef.current.delete(path)
     })
-    /* A re-open triggers a re-read; reset the baseline so the change the
-       re-read just applied is not re-reported as external. */
+    /* Re-open triggers a re-read; reset the baseline so the applied change is
+       not re-reported as external. */
     watchSnapshotsRef.current.set(path, undefined)
   }, [previewSync, settings.watchFiles, workspace.workspaceId])
   const unregisterWatch = useCallback(async (path) => {
@@ -4948,20 +4793,17 @@ function WorkspaceExplorer({
     const editableActive = activeNow && preview.state === 'ready' && preview.editable !== false && !preview.readOnlyReason
     if (activeNow && !tab.dirty && !tab.saving) {
       // Clean active tab: reload from disk in BOTH modes; only the wording
-      // differs — auto mode surfaces the reloaded status, watch-only mode
-      // surfaces the "disk changed" notice. Scroll position is preserved by
-      // the read path (persisted scrollTop is restored on the remount).
+      // differs (auto: "reloaded" status; watch-only: "disk changed"). Scroll
+      // is preserved — the read path restores the persisted scrollTop.
       const notice = (settings.autoSyncMode ?? AUTO_SYNC_MODE_AUTO) === AUTO_SYNC_MODE_AUTO
         ? translate('editor.refreshed')
         : translate('status.fileChanged')
       // Mark this path as reloading so the polling tick skips it until the
-      // read pass settles — a second bump would remount the editor again and
-      // discard the restored scroll.
+      // read settles — a second bump would remount and discard the scroll.
       reloadingPathsRef.current.add(path)
-      // Flag the read pass so it surfaces the reloaded status (the same path
-      // the manual refresh button uses), then bump the reload token. A
-      // manual refresh already pending would have armed the pass with its
-      // own bump, so the token is only bumped when the flag was clear.
+      // Flag the read pass to surface the reloaded status (same path as the
+      // manual refresh button), then bump the reload token — but only if no
+      // manual refresh already armed the pass with its own bump.
       if (!refreshPendingRef.current) {
         refreshPendingRef.current = true
         setReloadToken(token => token + 1)
@@ -4970,7 +4812,7 @@ function WorkspaceExplorer({
       if (activeNow) setStatus({ text: notice })
     } else if (activeNow) {
       // Dirty or saving tab: NEVER overwrite the draft; surface the change
-      // and let the user decide (save will three-way merge / ask).
+      // and let the user decide (save three-way merges / asks).
       const dirtyNow = editableActive ? tab.dirty : false
       const text = dirtyNow
         ? translate('status.fileChangedDirty')
@@ -4979,8 +4821,8 @@ function WorkspaceExplorer({
       updateTab(path, { status: { error: dirtyNow, text } })
     }
   }, [preview.state, preview.editable, preview.readOnlyReason, setReloadToken, settings.autoSyncMode, translate, updateTab])
-  /* The polling fallback: every AUTO_SYNC_CHECK_MS checks each open tab whose
-     snapshot baseline we track, against the cheap head endpoint. */
+  /* Polling fallback: every AUTO_SYNC_CHECK_MS, check each tracked open tab
+     against the cheap head endpoint. */
   useEffect(() => {
     if ((settings.watchFiles ?? WATCH_FILES_DEFAULT) !== true) return undefined
     const controller = new AbortController()
@@ -4992,9 +4834,8 @@ function WorkspaceExplorer({
       if (open.length === 0) return
       void Promise.all(open.map(async (tab) => {
         if (controller.signal.aborted) return
-        // A reload triggered by a previous tick is still in flight: skip so
-        // we cannot double-bump reloadToken and force a second remount (which
-        // would wipe the scroll position the first reload restored).
+        // A previous tick's reload is still in flight: skip so we cannot
+        // double-bump reloadToken and remount (wiping the restored scroll).
         if (reloadingPathsRef.current.has(tab.path)) return
         const snapshot = watchSnapshotsRef.current.get(tab.path)
         try {
@@ -5006,7 +4847,7 @@ function WorkspaceExplorer({
             applyFileChanged(tab.path)
           } else if (nextSnapshot === null && snapshot !== undefined) {
             // File disappeared: only the active tab surfaces a status; the
-            // snapshot baseline resets so a re-create is reported again.
+            // snapshot baseline resets so a re-create reports again.
             if (tab.path === activePathRef.current) {
               setStatus({ error: true, text: translate('status.fileRemoved') })
             }
@@ -5039,13 +4880,12 @@ function WorkspaceExplorer({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace.workspaceId])
-  // Restore-time self-heal: a persisted expansion path that no longer exists
-  // in the current workspace (server 404 path-not-found) is dropped from the
-  // expanded set — including every descendant, which cannot exist under a
-  // missing parent — along with its per-directory state, and the cleaned
-  // snapshot is persisted so the stale paths stop 404-ing on later loads.
-  // Only restore-time loads pass pruneOnMissing; a user clicking a directory
-  // that turns out missing keeps the visible error row instead of vanishing.
+  // Restore-time self-heal: a persisted expansion path missing from the
+  // workspace (server 404 path-not-found) is dropped from the expanded set —
+  // including every descendant, which cannot exist under a missing parent —
+  // with its per-directory state, and the cleaned snapshot is persisted so
+  // stale paths stop 404-ing on later loads. Only restore-time loads pass
+  // pruneOnMissing; a user clicking a missing directory keeps the error row.
   const pruneExpandedPath = useCallback((path) => {
     prunedPathsRef.current.add(path)
     const prefix = `${path}/`
@@ -5065,10 +4905,9 @@ function WorkspaceExplorer({
       for (const key of keys) next.delete(key)
       return next
     })
-    // Persist the cleaned expansion so the stale paths do not 404 again on the
-    // next load. Mark the session established so a tabs-empty snapshot still
-    // writes through — this is exactly the self-heal the bare-mount guard must
-    // not suppress, and the snapshot comes from this restore.
+    // Persist the cleaned expansion so stale paths do not 404 again. Mark the
+    // session established so this restore-time snapshot writes through even
+    // with empty tabs — the bare-mount guard must not suppress the self-heal.
     sessionEstablishedRef.current = true
     schedulePersist()
   }, [schedulePersist])
@@ -5109,9 +4948,9 @@ function WorkspaceExplorer({
     }
   }, [listDirectory, pruneExpandedPath, workspace.workspaceId])
   useEffect(() => { void loadDirectory('') }, [loadDirectory])
-  // Restore the persisted expansion: fetch the listing of every restored
-  // directory so the tree can render its children. Mount-only; the persisted
-  // set already includes every ancestor, so nested folders appear in place.
+  // Restore the persisted expansion: fetch every restored directory's listing
+  // so the tree renders its children. Mount-only; ancestors are already in the
+  // persisted set, so nested folders appear in place.
   useEffect(() => {
     for (const path of initialPreviewSession.expanded ?? []) {
       if (path === '' || path === undefined) continue
@@ -5149,9 +4988,9 @@ function WorkspaceExplorer({
       revealPath(entry)
     }
   }, [activatePath, revealPath, storedPreviewSession])
-  // Late-arriving restore for tree expansion: if storedPreviewSession becomes
-  // available only after mount, merge its expanded paths and load them. The
-  // hasAll guard keeps this idempotent across store updates.
+  // Late-arriving restore: if storedPreviewSession appears only after mount,
+  // merge its expanded paths and load them. The hasAll guard keeps this
+  // idempotent across store updates.
   useLayoutEffect(() => {
     const stored = normalizePreviewSession(storedPreviewSession)
     const paths = (stored.expanded ?? []).filter(path => !prunedPathsRef.current.has(path))
@@ -5172,7 +5011,7 @@ function WorkspaceExplorer({
     setSelected(entry)
     activatePath(entry.path)
     /* Re-open of an already-open tab: refresh the auto-sync registration and
-       baseline so the host watcher stays alive for the whole browsing session
+       baseline so the watcher stays alive for the whole browsing session
        (registerWatch also re-seeds the change snapshot). */
     if (!entry.external) registerWatch(entry.path)
     setTabs(current => current.some(tab => tab.path === entry.path)
@@ -5203,9 +5042,8 @@ function WorkspaceExplorer({
   }, [revealPath])
   // Open a non-workspace file dropped into the preview pane: upload its raw
   // bytes to the plugin endpoint, which decodes them into a read-only preview
-  // payload, then add a session-only external tab with that content. Resolves
-  // true on success and the failure message (to toast) when the file cannot be
-  // loaded as text.
+  // payload, then add a session-only external tab. Resolves true on success,
+  // or the failure message (to toast) when the file is not loadable as text.
   const openExternalFile = useCallback(async (file, encoding) => {
     try {
       const bytes = await file.arrayBuffer()
@@ -5240,9 +5078,8 @@ function WorkspaceExplorer({
       return true
     } catch (error) {
       if (error?.name === 'AbortError' || !mounted.current) return true
-      // The preview pane only responds to normal (text) files; a file that
-      // cannot be loaded as text (binary, image, empty, oversized) reports the
-      // server's message through the same toast surface the composer uses.
+      // Only normal (text) files preview; a file that is not text (binary,
+      // image, empty, oversized) reports the server's message via the toast.
       return error instanceof Error ? error.message : String(error)
     }
   }, [activatePath])
@@ -5252,8 +5089,8 @@ function WorkspaceExplorer({
   }, [])
   const handlePreviewDrop = useCallback(async (event) => {
     setDropActive(false)
-    // Folders carry no File objects; detect them via the drag items so the
-    // drop still announces "cannot preview" instead of doing nothing.
+    // Folders carry no File objects; detect them via drag items so the drop
+    // announces "cannot preview" instead of doing nothing.
     const hasFolder = Array.from(event.dataTransfer?.items ?? []).some((item) => {
       try {
         const entry = typeof item?.getAsEntry === 'function' ? item.getAsEntry() : item?.webkitGetAsEntry?.()
@@ -5267,9 +5104,8 @@ function WorkspaceExplorer({
       return
     }
     // Every dropped file goes through the upload endpoint: the server rejects
-    // anything that is not text (binary, images, empty, oversized, wrong
-    // encoding) with a message that the toast announces, so "cannot load"
-    // always reports instead of silently doing nothing.
+    // non-text files (binary, images, empty, oversized, wrong encoding) with a
+    // message the toast announces — "cannot load" always reports, never silent.
     const files = Array.from(event.dataTransfer?.files ?? [])
     if (files.length === 0) return
     event.preventDefault()
@@ -5289,16 +5125,13 @@ function WorkspaceExplorer({
     }
   }, [openExternalFile, showPreviewToast])
   // File drags are intercepted in the capture phase on the whole preview
-  // section: CodeMirror's own drop handler reads dataTransfer.files and would
-  // otherwise insert the file's text into the editor before this handler runs.
-  // Internal tab reorders carry no files, so they pass through untouched. The
-  // highlight only appears for normal (non-image) file drags. Images (the chat
-  // composer's domain) get no highlight, but if actually dropped they are still
-  // processed and rejected with an explicit "cannot preview" toast — never
-  // silently ignored (see isImageFile / handlePreviewDrop, development-notes
-  // §17). Enter/leave use a depth counter because dragleave's relatedTarget is
-  // null in Chrome. Closing the hint suppresses it for the current drag until
-  // the drop or drag end.
+  // section: CodeMirror's own drop handler would otherwise insert the file's
+  // text into the editor first. Internal tab reorders carry no files, so they
+  // pass through. Highlight only appears for normal (non-image) drags; images
+  // are still processed and rejected with a "cannot preview" toast, never
+  // silently ignored (development-notes §17). Enter/leave use a depth counter
+  // because Chrome's dragleave.relatedTarget is null; closing the hint
+  // suppresses the current drag.
   useEffect(() => {
     const section = previewSectionRef.current
     if (section === null) return undefined
@@ -5310,8 +5143,8 @@ function WorkspaceExplorer({
     }
     const onDragEnter = (event) => {
       if (!hasDraggedFiles(event)) return
-      // Suppress the harness chat drop mask over the preview regardless of file
-      // kind, so each area keeps its own response.
+      // Suppress the harness chat drop mask over the preview (any file kind)
+      // so each area keeps its own response.
       event.preventDefault()
       event.stopPropagation()
       if (dropSuppressedRef.current) return
@@ -5321,8 +5154,8 @@ function WorkspaceExplorer({
         setDropActive(true)
       } else if (event.dataTransfer) {
         // Images/folders are not preview targets (no highlight), but the drop
-        // stays allowed so the drop handler can announce "cannot preview"
-        // instead of the browser silently refusing the drop.
+        // stays allowed so the handler can announce "cannot preview" instead
+        // of the browser silently refusing.
         event.dataTransfer.dropEffect = 'copy'
       }
     }
@@ -5393,9 +5226,9 @@ function WorkspaceExplorer({
   }, [])
   const submitEntryDialog=useCallback(()=>{if(entryBusy||entryDialog===undefined)return;const trimmed=entryDraft.trim();const message=entryNameError(entryDraft);if(message!==undefined){setEntryError(message);return}const parentPathValue=entryDialog.mode==='create'?entryDialog.parentPath:parentPath(entryDialog.entry.path);const siblings=directories.get(parentPathValue)?.entries??[];if(entryDialog.mode==='create'){if(siblings.some(entry=>entry.name===trimmed)){setEntryError(translate('entry.duplicate'));return}}else if(trimmed===entryDialog.entry.name||siblings.some(entry=>entry.name===trimmed&&entry.path!==entryDialog.entry.path)){setEntryError(trimmed===entryDialog.entry.name?translate('entry.nameUnchanged'):translate('entry.duplicate'));return}const controller=new AbortController();mutationController.current=controller;setEntryBusy(true);setEntryError(undefined);const mutationSeq=mutationSeqRef.current+=1;let draftMoveGeneration;const request=(async()=>{if(entryDialog.mode==='rename'){draftMoveGeneration=nextDraftGeneration('__tree__');await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:draftMoveGeneration,fromPath:entryDialog.entry.path,toPath:entryPath(parentPath(entryDialog.entry.path),trimmed)},controller.signal)}return entryDialog.mode==='create'?createEntry(workspace.workspaceId,entryDialog.parentPath,entryDialog.kind,trimmed,controller.signal):renameEntry(workspace.workspaceId,entryDialog.entry.path,trimmed,controller.signal)})();request.then(result=>{if(!mounted.current||mutationSeq!==mutationSeqRef.current)return;const mode=entryDialog.mode;const sourcePath=mode==='create'?entryDialog.parentPath:entryDialog.entry.path;const nextStatus=mode==='create'?result.kind==='directory'?translate('status.createdFolder'):translate('status.createdFile'):result.kind==='directory'?translate('status.renamedFolder'):translate('status.renamedFile');composingRef.current=false;setEntryBusy(false);setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);setStatus({text:nextStatus});if(mode==='create'){setExpanded(cur=>{const next=new Set(cur);next.add(sourcePath);if(result.kind==='directory')next.add(result.path);return next});if(result.kind==='file'){previewTabsBootstrapped.current = true;setTabs(cur=>cur.some(tab=>tab.path===result.path)?cur:[...cur,{baseText:'',dirty:false,draft:'',editing:false,name:result.name,path:result.path,pinned:false,saving:false,scrollTop:0,size:null,status:undefined,symlink:Boolean(result.symlink),bom:false,lineEnding:'none',revision:null}]);activatePath(result.path)}setSelected(result);void loadDirectory(sourcePath);if(result.kind==='directory')void loadDirectory(result.path)}else{setDirectories(cur=>rewriteDirectoryMap(cur,sourcePath,result.path,result));setExpanded(cur=>rewritePathSet(cur,sourcePath,result.path));setTabs(cur=>rewritePreviewTabs(cur,sourcePath,result.path,result));rewriteRuntimePaths(sourcePath,result.path);migratePendingAutosavesRef.current?.(sourcePath,result.path);void rewriteEmergencyDraftPath(workspace.workspaceId,draftScopeId,sourcePath,result.path).catch(error=>{if(mounted.current)setStatus({error:true,text:translate('editor.autosaveFailed',{message:error instanceof Error?error.message:String(error)})})});{const nextActivePath=activePathRef.current===null?null:rewriteRelativePath(activePathRef.current,sourcePath,result.path);if(nextActivePath!==activePathRef.current)setActivePath(nextActivePath)}setSelected(result);void loadDirectory(parentPath(sourcePath))}}).catch(error=>{if(error?.name==='AbortError'||!mounted.current||mutationSeq!==mutationSeqRef.current){return}if(entryDialog?.mode==='rename'&&draftMoveGeneration!==undefined){void rollbackDraftTree(entryDialog.entry.path,entryPath(parentPath(entryDialog.entry.path),trimmed))}setEntryBusy(false);setEntryError(error instanceof Error?error.message:String(error))}).finally(()=>{if(mutationController.current===controller)mutationController.current=undefined;if(mounted.current)setEntryBusy(false)})},[createEntry,directories,draftScopeId,entryBusy,entryDialog,entryDraft,loadDirectory,renameEntry,rewriteRuntimePaths,workspace.workspaceId])
   useLayoutEffect(() => {
-    // A user-requested file refresh (the preview header's action) is tracked
-    // through this flag: consumed at the start of every read pass so a stale
-    // flag can never decorate a later ordinary open with the reloaded status.
+    // A user-requested file refresh (preview header action) is tracked through
+    // this flag: consumed at the start of every read pass so a stale flag
+    // never decorates a later ordinary open with the reloaded status.
     const refreshPending = refreshPendingRef.current
     refreshPendingRef.current = false
     const cancelRestore = activePath !== null && cancelRestoreRef.current === activePath
@@ -5411,9 +5244,9 @@ function WorkspaceExplorer({
       baseText.current = ''
       return undefined
     }
-    // External (dropped) files carry their decoded content in the tab already:
-    // there is no workspace path to re-read and no encoding re-open, so build
-    // the read-only preview synchronously and never hit the workspace API.
+    // External (dropped) files already carry decoded content in the tab: no
+    // workspace path to re-read and no encoding re-open, so build the read-only
+    // preview synchronously and never hit the workspace API.
     const externalTab = tabsRef.current.find(item => item.path === activePath && item.external)
     if (externalTab !== undefined) {
       readController.current?.abort()
@@ -5450,9 +5283,8 @@ function WorkspaceExplorer({
     publishEditorContext(undefined)
     const tab = tabsRef.current.find(item => item.path === activePath)
     const effectiveEncoding = requestedEncodingRef.current ?? tab?.encoding ?? 'utf-8'
-    // Consume a pending encoding-open request immediately: clearing here keeps
-    // an aborted re-read (file switch / tab close mid-flight) from leaking the
-    // stale encoding into the next file read.
+    // Consume the pending encoding-open request: clearing here keeps an aborted
+    // re-read from leaking the stale encoding into the next file read.
     requestedEncodingRef.current = undefined
     const selection = tab === undefined ? { kind: 'file', name: activePath.slice(activePath.lastIndexOf('/') + 1), path: activePath } : entryFromPreviewTab(tab)
     setSelected(selection)
@@ -5461,27 +5293,27 @@ function WorkspaceExplorer({
     setSaving(Boolean(tab?.saving))
     setStatus(tab?.status)
     // Any re-read (auto-sync, manual refresh, encoding re-open, tab switch)
-    // marks the path as reloading so the polling tick skips it until this
-    // pass settles — a second bump would remount the editor again and discard
-    // the scroll position this read restores. Idempotent with the marks set
-    // by applyFileChanged / refreshFile / openWithEncoding.
+    // marks the path as reloading so the polling tick skips it until the pass
+    // settles — a second bump remounts and discards the restored scroll.
+    // Idempotent with the marks set by applyFileChanged / refreshFile /
+    // openWithEncoding.
     reloadingPathsRef.current.add(activePath)
     // Snapshot the live scroll position BEFORE the loading state unmounts the
     // editor: the ref holds the last scroll-event value while the view is
-    // still attached, and this copy rides through the re-read in the tab
-    // patch below, so the remount restores it even if the ref is touched
-    // later. Fall back to the tab's persisted value (cold restore).
+    // attached, and this copy rides through the re-read in the tab patch so
+    // the remount restores it even if the ref is touched later. Fall back to
+    // the tab's persisted value (cold restore).
     const savedScrollTop = scrollTopRef.current.get(activePath) ?? tab?.scrollTop ?? 0
     setPreview({ state: 'loading', path: activePath })
     readFile(workspace.workspaceId, activePath, controller.signal, effectiveEncoding).then((result) => {
-      // The tab may have been switched since the read started (abort covers
-      // most cases; a fetch that already resolved is caught here). Applying a
-      // stale result would flash the wrong file and bump the read epoch.
+      // The tab may have switched since the read started (abort covers most
+      // cases; a fetch already resolved is caught here). Applying a stale
+      // result would flash the wrong file and bump the read epoch.
       if (!mounted.current || activePathRef.current !== activePath) return
       requestedEncodingRef.current = undefined
       // Read the draft file (staging content + snapshot) so a refresh restores
-      // the editing session from disk. A failed draft read is non-critical:
-      // fall back to the source.
+      // the editing session from disk. A failed read is non-critical: fall
+      // back to the source.
       return Promise.all([
         loadDraft(workspace.workspaceId, activePath, controller.signal, draftScopeId).catch(() => ({ exists: false })),
         readEmergencyDraft(workspace.workspaceId, draftScopeId, activePath).catch(() => undefined),
@@ -5499,9 +5331,9 @@ function WorkspaceExplorer({
         const editable = result.editable === true
         const diskDraftPresent = draftData !== null && typeof draftData === 'object'
           && draftData.exists !== false && typeof draftData.draft === 'string'
-        // A clean fallback draft (draft===baseText), or a stale draft whose text
-        // already equals the source, carries no unsaved work and must never
-        // override a later disk revision.
+        // A clean fallback draft (draft===baseText) or a stale draft already
+        // equal to the source carries no unsaved work and must never override
+        // a later disk revision.
         const hasDiskDraft = diskDraftPresent
           && draftData.draft !== draftData.baseText
           && draftData.draft !== result.content
@@ -5511,20 +5343,19 @@ function WorkspaceExplorer({
             void deleteEmergencyDraft(workspace.workspaceId, draftScopeId, activePath, Math.max(hostGeneration, emergencyGeneration)).catch(() => {})
           }
         }
-        /* A live tab knows whether its in-memory draft text is materialized.
-           This keeps a deliberate empty edit distinct from a content-free dirty
-           marker restored from localStorage; cold restores still wait for the
-           durable Host/IndexedDB draft instead of treating their empty field as
-           a request to erase the source. */
+        /* A live tab knows whether its in-memory draft is materialized, so a
+           deliberate empty edit stays distinct from a content-free dirty marker
+           restored from localStorage. Cold restores wait for the durable
+           Host/IndexedDB draft rather than treating an empty field as a request
+           to erase the source. */
         const hasTabDraft = tabDraft !== undefined && tabDraft.draftKnown === true
           && typeof tabDraft.draft === 'string' && tabDraft.draft !== result.content
         /* In-session the in-memory tab draft is ALWAYS at least as new as any
-           disk draft (the host draft and the emergency mirror are only debounced
-           copies of it), so prefer it whenever present. Choosing a stale disk
-           draft over the live tab draft would roll the editor back and, on the
-           next save, write the older text over the source. On a cold restore
-           (refresh) the tab is clean, so the disk draft is still the fallback
-           that rehydrates the editing session. */
+           disk draft (host draft + emergency mirror are only debounced copies
+           of it), so prefer it whenever present; a stale disk draft would roll
+           the editor back and write older text over the source on the next
+           save. On a cold restore (refresh) the tab is clean, so the disk
+           draft remains the fallback that rehydrates the editing session. */
         const restored = hasTabDraft
           ? { content: tabDraft.draft, baseText: tabDraft.baseText, baseRevision: tabDraft.revision }
           : hasDiskDraft
@@ -5538,9 +5369,9 @@ function WorkspaceExplorer({
         const hasRestoredContent = hasDiskDraft || hasTabDraft
         const canRestore = hasRestoredContent && editable
         const restoredDirty = hasRestoredContent && content !== restored.baseText
-        // Compare the SOURCE content to the snapshot: when the source changed
-        // since the snapshot (by an external tool), restore still shows the
-        // draft and defers to the save-time three-way merge.
+        // Compare the SOURCE content to the snapshot: if an external tool
+        // changed it, restore still shows the draft and defers to the save-time
+        // three-way merge.
         const diskText = typeof result.content === 'string' ? result.content : ''
         const externallyChanged = canRestore && diskText !== restored.baseText
         const ready = {
@@ -5563,24 +5394,24 @@ function WorkspaceExplorer({
           ? { error: true, text: translate('status.draftNotRestorable') }
           : undefined
         // The source content (as last read) stays separate from the editing
-        // baseline: cancel restores the committed snapshot even when a draft
-        // restore happened with a stale base.
+        // baseline: cancel restores the committed snapshot even after a draft
+        // restore with a stale base.
         diskBaseRef.current = result.content
         baseText.current = restored.baseText
-        // Seed the auto-save dedup with the restored draft content (or source
-        // content when clean) so the next auto-save only fires after an edit.
+        // Seed the auto-save dedup with the restored draft (or source when
+        // clean) so the next auto-save only fires after an edit.
         const restoredGeneration = Math.max(hostGeneration, emergencyGeneration)
-        // Seed the owner generation counter with the highest generation the
-        // Host already knows (its durable owner generation covers every path
-        // and every tree op), so the next draft write strictly exceeds it and
-        // can never collide with the owner fence after a reload.
+        // Seed the owner generation counter with the highest the Host knows
+        // (its durable owner generation covers every path and tree op) so the
+        // next write strictly exceeds it and never collides with the owner
+        // fence after a reload.
         const ownerGeneration = Number.isSafeInteger(hostDraft?.ownerGeneration) ? hostDraft.ownerGeneration : 0
         draftGenerationCounterRef.current = Math.max(draftGenerationCounterRef.current, restoredGeneration, ownerGeneration)
         draftGenerationsRef.current.set(activePath, Math.max(draftGenerationsRef.current.get(activePath) ?? 0, draftGenerationCounterRef.current))
         lastWriteRef.current.set(activePath, { generation: draftGenerationCounterRef.current, content })
         /* Auto-sync baseline: after any re-read, reset the per-path change
-           snapshot so the watcher/poll does not immediately re-report the
-           content we just loaded as a fresh external change. */
+           snapshot so the watcher/poll does not re-report the just-loaded
+           content as a fresh external change. */
         watchSnapshotsRef.current.set(activePath, {
           mtimeMs: Number(result.mtimeMs) || 0,
           size: Number(result.size) || 0,
@@ -5616,17 +5447,16 @@ function WorkspaceExplorer({
           status: cancelRestore ? { text: translate('editor.cancelRestored') } : (refreshPending ? { text: translate('editor.refreshed') } : (canRestore ? restoredStatus : ((hasDiskDraft || hasTabDraft) ? notRestorableStatus : tab?.status))),
           symlink: Boolean(selection.symlink),
         })
-        /* When the re-read was auto-triggered (not a manual refresh), the tab
-           is the clean active one; its status was already set to "reloaded".
-           The read pass itself updates the snapshot baseline above. Release
-           the reloading marker now that the read has settled. */
+        /* For an auto-triggered re-read, the clean active tab's status was
+           already set to "reloaded"; the read pass updates the baseline above.
+           Release the reloading marker now that the read settled. */
         reloadingPathsRef.current.delete(activePath)
       })
     }, (error) => {
-      // Release the reloading marker on a real (non-abort) failure. An abort
-      // leaves it to the cleanup below: it only clears when the active path
-      // actually changed, so a same-path reload-token re-run keeps the marker
-      // armed through the new in-flight read (the tick must not double-bump).
+      // Release the reloading marker on a real (non-abort) failure; an abort
+      // leaves it to the cleanup below, which only clears when the active path
+      // changed — so a same-path reload-token re-run keeps the marker armed
+      // through the new in-flight read (the tick must not double-bump).
       if (error?.name !== 'AbortError') reloadingPathsRef.current.delete(activePath)
       if (error?.name !== 'AbortError' && activePathRef.current === activePath) {
         const message = error instanceof Error ? error.message : String(error)
@@ -5636,10 +5466,9 @@ function WorkspaceExplorer({
     })
     return () => {
       controller.abort()
-      // The read for this path was abandoned (tab switched away or unmount):
-      // drop its reloading marker so a later visit can re-arm and re-sync. A
-      // same-path re-run (reloadToken bump) keeps the marker because the new
-      // read is still in flight.
+      // This path's read was abandoned (tab switched away or unmount): drop
+      // its reloading marker so a later visit can re-arm. A same-path re-run
+      // (reloadToken bump) keeps the marker — the new read is still in flight.
       if (activePathRef.current !== activePath) reloadingPathsRef.current.delete(activePath)
     }
   }, [activePath, draftScopeId, loadDraft, publishEditorContext, readFile, reloadToken, removeDraftFile, updateTab, workspace.workspaceId])
@@ -5684,17 +5513,16 @@ function WorkspaceExplorer({
         toPath: fromPath,
       }, undefined)
     } catch {
-      // The rollback is best-effort: the fs operation failed, so the drafts at
-      // the target are the only copy of the user's work.
+      // Best-effort rollback: the fs operation failed, so the drafts at the
+      // target are the only copy of the user's work.
     }
   }, [draftScopeId, draftTree, nextDraftGeneration, workspace.workspaceId])
 
-  /* Drop the per-path runtime bookkeeping when a tab is closed, so reopening
-     the same path later starts from a clean slate: no stale scroll position
-     resurrected from the previous session, no stale last-write dedup that could
-     skip the first auto-save of a repeat edit, no orphan draft generation. The
-     tab is guaranteed clean here (dirty/saving tabs cannot be closed), so
-     nothing unsaved is dropped. */
+  /* Drop the per-path runtime bookkeeping when a tab closes, so reopening the
+     path starts clean: no stale scroll position resurrected, no stale last-write
+     dedup skipping the first auto-save of a repeat edit, no orphan draft
+     generation. The tab is guaranteed clean here (dirty/saving tabs cannot be
+     closed), so nothing unsaved is dropped. */
   const forgetPathRefs = useCallback((path) => {
     clearAutosaveTimer(path)
     lastWriteRef.current.delete(path)
@@ -5705,22 +5533,22 @@ function WorkspaceExplorer({
       watchedPathsRef.current.delete(path)
       void unregisterWatch(path).catch(() => {})
     }
-    /* Keep the per-path generation entry alive while a draft operation is
-       still queued for this path: closeTab's non-editable-dirty escape enqueues
-       a clearDraftFile DELETE just before forgetPathRefs runs, and
-       enqueueDraftOperation's staleness gate compares against this entry —
-       deleting it synchronously would judge that DELETE stale and skip it, so
-       the discarded staging draft would survive and resurrect the stuck tab on
-       reopen. Defer the deletion until the queued tail settles. */
+    /* Keep the per-path generation entry alive while a draft op is queued:
+       closeTab's non-editable-dirty escape enqueues a clearDraftFile DELETE
+       just before forgetPathRefs runs, and enqueueDraftOperation's staleness
+       gate compares against this entry — deleting it synchronously would judge
+       that DELETE stale and skip it, so the discarded staging draft would
+       survive and resurrect the stuck tab on reopen. Defer until the tail
+       settles. */
     const tail = draftTailsRef.current.get(path)
     if (tail === undefined) draftGenerationsRef.current.delete(path)
     else tail.catch(() => {}).finally(() => { draftGenerationsRef.current.delete(path) })
   }, [clearAutosaveTimer])
 
-  /* After committing `content` to the source file, remove the staging draft so
-     a later refresh does not resurrect it. If the removal fails (rare), leave a
-     CLEAN draft (baseText === draft === content, fresh revision) so the next
-     restore sees no unsaved state either way. */
+  /* After committing `content` to the source, remove the staging draft so a
+     later refresh does not resurrect it. If removal fails (rare), leave a CLEAN
+     draft (baseText === draft === content, fresh revision) so the next restore
+     sees no unsaved state either way. */
   const clearDraftFile = useCallback((path, content, encoding, lineEnding, bom, revision) => {
     const generation = invalidateDraftPath(path)
     return enqueueDraftOperation(path, generation, async () => {
@@ -5728,8 +5556,8 @@ function WorkspaceExplorer({
       try {
         result = await removeDraftFile(workspace.workspaceId, path, undefined, draftScopeId, generation)
       } catch {
-        // Fall through to a clean generation. Restore treats draft===disk as
-        // clean, so even a failed DELETE cannot resurrect old user edits.
+        // Fall through to a clean generation: restore treats draft===disk as
+        // clean, so even a failed DELETE cannot resurrect old edits.
       }
       if (result?.deleted !== true) {
         result = await persistDraftFile(workspace.workspaceId, path, {
@@ -5744,16 +5572,16 @@ function WorkspaceExplorer({
         }, undefined)
       }
       /* Best-effort: the emergency IndexedDB mirror tombstone is bookkeeping
-         (its only job is suppressing a later restore); a mirror failure must
-         never fail the save/cancel flow the host draft DELETE already drove. */
+         (only suppressing a later restore); a mirror failure must never fail
+         the save/cancel flow the host draft DELETE already drove. */
       await deleteEmergencyDraft(workspace.workspaceId, draftScopeId, path, generation).catch(() => {})
       return result
     })
   }, [draftScopeId, enqueueDraftOperation, invalidateDraftPath, persistDraftFile, removeDraftFile, workspace.workspaceId])
 
   /* Write `content` to the SOURCE file for `path` and mark the tab committed
-     (clean). Used by the explicit save, the clean three-way merge, and the
-     conflict resolution. Returns true on success; throws on failure. */
+     (clean). Used by the explicit save, the clean three-way merge, and conflict
+     resolution. Returns true on success; throws on failure. */
   const commitTab = useCallback(async (path, content, revision, encoding, statusText) => {
     const tab = tabsRef.current.find(item => item.path === path)
     if (tab === undefined) return false
@@ -5769,11 +5597,10 @@ function WorkspaceExplorer({
       try {
         await clearDraftFile(path, content, savedEncoding, tab.lineEnding ?? 'none', savedBom, result.revision ?? revision)
       } catch (error) {
-        // Best-effort: the source write above already succeeded, so a failed
-        // draft cleanup must not fail the save. A stale draft is reconciled by
-        // the restore path (draft===disk is treated as clean) or the next
-        // auto-save; the emergency IndexedDB mirror already holds the newest
-        // content for the unload case.
+        // Best-effort: the source write already succeeded, so a failed draft
+        // cleanup must not fail the save. A stale draft is reconciled by the
+        // restore path (draft===disk is clean) or the next auto-save; the
+        // emergency mirror already holds the newest content for the unload case.
         console.warn('workspace-studio: draft cleanup after save failed:', error)
       }
       if (!mounted.current) return false
@@ -5833,15 +5660,14 @@ function WorkspaceExplorer({
   const scheduleAutosave = useCallback((path, text, force = false) => {
     const tab = tabsRef.current.find(item => item.path === path)
     if (tab === undefined || tab.external || tab.saving || (!force && tab.editing !== true)) return
-    // Drop the pending timer first: an edit that reverts to the last-written
-    // text must not let an earlier (different-content) timer fire afterwards;
-    // the dedup return below skips the generation bump, so the stale timer
-    // would bypass the enqueueDraftOperation staleness check too.
+    // Drop the pending timer first: an edit reverting to the last-written text
+    // must not let an earlier (different-content) timer fire; the dedup return
+    // below skips the generation bump, so the stale timer would bypass the
+    // enqueueDraftOperation staleness check too.
     clearAutosaveTimer(path)
     // Skip a redundant write when the draft equals the last content this owner
-    // persisted for the path (dedup documented in development-notes §15 but
-    // never wired): typing back to the last-written text must not rewrite the
-    // staging file or the IndexedDB mirror.
+    // persisted (dedup in development-notes §15, never wired): typing back to
+    // the last-written text must not rewrite the staging file or the mirror.
     if (lastWriteRef.current.get(path)?.content === text) return
     const generation = nextDraftGeneration(path)
     const snapshot = Object.freeze({
@@ -5875,14 +5701,13 @@ function WorkspaceExplorer({
   }, [performAutosave])
 
   /* When a directory holding a dirty tab is moved or renamed, the tab's
-     pending (debounced, not yet flushed) auto-save must follow the path.
-     Re-keying the pending map alone is not enough: the old timer still
-     captures the old path, and the tree op bumped the generation fence, so
-     the old generation would be rejected. Cancel the old timers, drop the
-     stale entries, and flush each snapshot at the new path with a fresh
-     generation. Otherwise the newest edits would survive only in the
-     IndexedDB mirror, which the restore discards because its generation is
-     older than the moved Host draft's. */
+     pending (debounced) auto-save must follow the path. Re-keying the pending
+     map alone is not enough: the old timer still captures the old path, and
+     the tree op bumped the generation fence, so the old generation would be
+     rejected. Cancel the old timers, drop the stale entries, and flush each
+     snapshot at the new path with a fresh generation. Otherwise the newest
+     edits survive only in the IndexedDB mirror, which restore discards because
+     its generation is older than the moved Host draft's. */
   const migratePendingAutosaves = useCallback((from, to) => {
     const pending = pendingAutosavesRef.current
     const timers = autosaveTimers.current
@@ -5901,9 +5726,8 @@ function WorkspaceExplorer({
     for (const { path, snapshot } of affected) {
       const nextPath = rewriteRelativePath(path, from, to)
       const generation = nextDraftGeneration(nextPath)
-      // Keep the re-keyed entry pending so an unload between now and the
-      // flush still persists it (flushAutosaves covers the map); the timer
-      // fires on the next tick.
+      // Keep the re-keyed entry pending so an unload before the flush still
+      // persists it (flushAutosaves covers the map); the timer fires next tick.
       pending.set(nextPath, { generation, snapshot })
       const timer = setTimeout(() => {
         timers.delete(nextPath)
@@ -5917,7 +5741,7 @@ function WorkspaceExplorer({
   // depends on performAutosave → `preview`, so its identity changes on every
   // preview transition; listing it in the deps would re-run the effect and
   // abort in-flight requests (tree listing + active file read), leaving both
-  // stuck loading. Snapshot the callbacks in refs so the effect stays stable.
+  // stuck loading. Snapshot the callbacks in refs to keep the effect stable.
   const flushAutosavesRef = useRef(flushAutosaves)
   flushAutosavesRef.current = flushAutosaves
   const persistSessionTabsRef = useRef(persistSessionTabs)
@@ -5928,7 +5752,7 @@ function WorkspaceExplorer({
   abortRequestsRef.current = abortRequests
   // migratePendingAutosaves depends on callbacks declared later than the
   // create/rename handlers that call it, so it rides a ref bridge (body
-  // references are lazy and TDZ-safe; the ref identity is stable).
+  // references are lazy and TDZ-safe; ref identity is stable).
   const migratePendingAutosavesRef = useRef(migratePendingAutosaves)
   migratePendingAutosavesRef.current = migratePendingAutosaves
   useEffect(() => {
@@ -5945,8 +5769,8 @@ function WorkspaceExplorer({
   }, [])
 
   // Navigation never unmounts React, so the unmount cleanup above cannot cover
-  // a refresh or tab close. Flush the pending auto-saves and persist the final
-  // tab session synchronously on page hide/unload.
+  // a refresh or tab close. Flush pending auto-saves and persist the final tab
+  // session synchronously on page hide/unload.
   useEffect(() => {
     const flush = () => { flushAutosavesRef.current(); persistSessionTabsRef.current() }
     window.addEventListener('pagehide', flush)
@@ -5959,10 +5783,10 @@ function WorkspaceExplorer({
 
   /* A keystroke can land between the save's text snapshot and the editor
      freeze (the editable compartment reconfigures in a passive effect after
-     the saving flag commits). It stays visible yet is marked clean by the
-     commit; recover it as an unsaved edit so it is never silently dropped.
-     Only relevant while this tab is active (a tab switch swaps editorRef).
-     Declared BEFORE save: save's dependency array references it (TDZ rule). */
+     the saving flag commits); it stays visible yet is marked clean — recover
+     it as an unsaved edit so it is never silently dropped. Only relevant while
+     this tab is active (a tab switch swaps editorRef). Declared BEFORE save:
+     save's dependency array references it (TDZ rule). */
   const preservePostSaveKeystrokes = useCallback((path, committedText) => {
     if (activePathRef.current !== path) return
     const view = editorRef.current
@@ -5984,9 +5808,9 @@ function WorkspaceExplorer({
       return false
     }
     const path = activeTab.path
-    // Capture the complete save transaction before the first await. Switching
-    // tabs may change the active refs, but it must never change this file's
-    // merge base, revision, or source decode.
+    // Capture the complete save transaction before the first await: switching
+    // tabs may change the active refs, but never this file's merge base,
+    // revision, or source decode.
     const baseAtSave = typeof activeTab.baseText === 'string' ? activeTab.baseText : baseText.current
     const sourceRevision = activeTab.revision ?? preview.revision
     const sourceEncoding = activeTab.encoding ?? preview.encoding ?? 'utf-8'
@@ -6005,16 +5829,16 @@ function WorkspaceExplorer({
       const diskText = disk.content
       const diskRevision = typeof disk?.revision === 'string' ? disk.revision : undefined
       /* Keep the auto-sync baseline in lockstep with the authoritative read
-         the save just performed, so the watcher/poll does not immediately
-         re-report this file as externally changed. */
+         the save just performed, so the watcher/poll does not re-report this
+         file as externally changed. */
       watchSnapshotsRef.current.set(path, {
         mtimeMs: Number(disk.mtimeMs) || 0,
         size: Number(disk.size) || 0,
         hash: typeof disk.revision === 'string' ? disk.revision : null,
       })
       if (diskText === text) {
-        // The source already equals the current draft; commit as-is (the write
-        // is idempotent and also clears the staging draft).
+        // The source already equals the draft; commit as-is (idempotent write
+        // also clears the staging draft).
         const ok = await commitTab(path, text, diskRevision ?? sourceRevision, encoding, savedStatusText)
         if (ok) preservePostSaveKeystrokes(path, text)
         return ok
@@ -6031,12 +5855,12 @@ function WorkspaceExplorer({
         const ok = await commitTab(path, merged.merged, diskRevision ?? sourceRevision, encoding, savedStatusText)
         if (ok && activePathRef.current === path) {
           // Show the merged result (it differs from both sides) — but only when
-          // no keystroke landed while the merge ran: dispatching the merged doc
-          // would silently wipe text typed against the pre-merge document, the
-          // same window preservePostSaveKeystrokes covers on the write-back
-          // branches. When the live doc diverged, keep it (nothing dropped) and
-          // mark the tab dirty again; commitTab already wrote merged.merged, so
-          // the next save re-merges against that newer source.
+          // no keystroke landed while the merge ran: dispatching it would wipe
+          // text typed against the pre-merge doc, the window
+          // preservePostSaveKeystrokes covers on the write-back branches. When
+          // the live doc diverged, keep it (nothing dropped) and mark the tab
+          // dirty; commitTab already wrote merged.merged, so the next save
+          // re-merges against that newer source.
           const view = editorRef.current
           if (view !== undefined) {
             const liveBefore = view.state.sliceDoc()
@@ -6054,9 +5878,9 @@ function WorkspaceExplorer({
         return ok
       }
       // Overlapping changes → ask the user to pick; keep the tab busy so no
-      // auto-save races the pending decision. Conflict positions stay
-      // structural — never literal markers in the content — so the file text
-      // cannot collide with an implementation marker.
+      // auto-save races the pending decision. Conflicts stay structural —
+      // never literal markers in the content — so the file text cannot collide
+      // with an implementation marker.
       const dialog = { path, mine: text, theirs: diskText, diskRevision, encoding, savedStatusText, conflicts: merged.conflicts, parts: merged.parts }
       conflictDialogRef.current = dialog
       setConflictDialog(dialog)
@@ -6064,7 +5888,7 @@ function WorkspaceExplorer({
     } catch (error) {
       if (error?.name === 'AbortError' || !mounted.current) return false
       // A 409/412 race on the final write means the file changed mid-save: fall
-      // back to the same conflict messaging as a plain conflict.
+      // back to the plain-conflict messaging.
       const failure = error?.status === 409 || error?.status === 412
         ? translate('editor.saveConflict')
         : translate('editor.saveFailed', { message: error instanceof Error ? error.message : String(error) })
@@ -6081,11 +5905,11 @@ function WorkspaceExplorer({
     }
   }, [activeTab, baseText, commitTab, dirty, draft, preview, preservePostSaveKeystrokes, readFile, scheduleAutosave, saving, updateTab, workspace.workspaceId])
 
-  /* Resolve the pending save conflict. The dialog walks conflicts one at a
-     time and calls back with { choices } ('mine'/'theirs' per conflict, in
-     order) or 'cancel'. The resolved file is the merge skeleton — every
-     non-conflicting change already applied — with each conflict marker line
-     replaced by the chosen side's lines. */
+  /* Resolve the pending save conflict. The dialog walks conflicts one at a time
+     and calls back with { choices } ('mine'/'theirs' per conflict, in order) or
+     'cancel'. The resolved file is the merge skeleton — every non-conflicting
+     change already applied — with each conflict marker line replaced by the
+     chosen side's lines. */
   const resolveConflict = useCallback(async (result) => {
     const dialog = conflictDialogRef.current
     if (dialog === undefined) return
@@ -6140,7 +5964,7 @@ function WorkspaceExplorer({
     const lineEnding = activeTab.lineEnding ?? preview.lineEnding ?? 'none'
     const bom = Boolean(activeTab.bom ?? preview.bom)
     const revision = activeTab.revision ?? preview.revision ?? null
-    // Make the editor read-only while the path queue drains. The queued DELETE
+    // Make the editor read-only while the path queue drains: the queued DELETE
     // is ordered after any PUT already executing, so discarded text cannot be
     // recreated after cancellation.
     setSaving(true)
@@ -6171,10 +5995,10 @@ function WorkspaceExplorer({
     }
   }, [activeTab, clearDraftFile, dirty, draft, preview, saving, updateTab])
   /* A non-editable file (read-only, oversized, editing disabled) with a
-     leftover draft has no save/cancel path — both are gated on editability —
-     so the tab would be stuck dirty with no way to close, save, or refresh.
-     This is the escape: discard the staging draft and re-read the source so
-     the tab returns to a clean read-only preview; the file is never touched. */
+     leftover draft has no save/cancel path (both gated on editability), so the
+     tab would be stuck dirty with no way to close, save, or refresh. This is
+     the escape: discard the staging draft and re-read the source so the tab
+     returns to a clean read-only preview; the file is never touched. */
   const discardDraft = useCallback(async () => {
     if (preview.state !== 'ready' || saving || activeTab === undefined || !dirty) return
     const path = activeTab.path
@@ -6189,7 +6013,7 @@ function WorkspaceExplorer({
       if (!mounted.current) return
       lastWriteRef.current.set(path, { generation: draftGenerationsRef.current.get(path) ?? 0, content: '' })
       // Mark clean BEFORE the re-read so the read pass cannot resurrect the
-      // discarded draft from the tab (same ordering rule as cancel).
+      // discarded draft (same ordering rule as cancel).
       updateTab(path, { dirty: false, draft: '', draftKnown: false, editing: false, saving: false, status: { text: translate('editor.cancelRestored') } })
       if (activePathRef.current === path) {
         setDraft('')
@@ -6224,10 +6048,10 @@ function WorkspaceExplorer({
     const affected = tabsRef.current
       .filter(tab => tab.path === entry.path || (prefix !== '' && tab.path.startsWith(prefix)))
       .map(tab => ({ path: tab.path, draft: tab.draft, dirty: tab.dirty || tab.saving, saving: tab.saving }))
-    // Deleting under an in-flight save would race it: the save's PUT hits a
-    // 404 and its failure toast lands on a tab that no longer exists. Refuse
-    // and close the dialog instead (the warning row also mentions saving tabs,
-    // so the reason is visible before confirming).
+    // Deleting under an in-flight save would race it: the save's PUT hits a 404
+    // and its failure toast lands on a tab that no longer exists. Refuse and
+    // close the dialog instead (the warning row mentions saving tabs, so the
+    // reason is visible before confirming).
     if (affected.some(item => item.saving)) {
       setDeleteDialog(undefined)
       setStatus({ error: true, text: translate('editor.unsavedBlocked') })
@@ -6246,7 +6070,7 @@ function WorkspaceExplorer({
     try {
       await draftTree(workspace.workspaceId, { action: 'delete', owner: draftScopeId, generation: treeGeneration, path: entry.path }, controller.signal)
     } catch (error) {
-      // The source tree was not touched, so the delete can be retried. Keep the
+      // The source tree was not touched, so the delete can be retried: keep the
       // dialog open, release the busy flag, and reschedule the affected drafts
       // exactly like the fs-operation failure path below.
       if (!mounted.current || mutationSeq !== mutationSeqRef.current) return
@@ -6254,15 +6078,14 @@ function WorkspaceExplorer({
       for (const item of affected) {
         if (!item.dirty) continue
         // Use the tab's CURRENT draft, not the stale `affected` snapshot: the
-        // delete dialog keeps focus in the editor, so the user may have typed
-        // after capture, and a failed delete must not roll the staging draft
-        // back to older text. force=true also re-writes staging drafts of
-        // NON-editable dirty tabs (their scheduleAutosave gate would skip them
-        // otherwise), so a failed delete never destroys an orphaned draft.
-        // Drop the autosave dedup for this path FIRST: draftTree already
-        // tombstoned these drafts, yet lastWriteRef still records the same
-        // text, so scheduleAutosave's content-dedup would skip the re-write
-        // and the orphaned draft would stay lost until the next edit.
+        // delete dialog keeps editor focus, so the user may have typed after
+        // capture, and a failed delete must not roll the staging draft back.
+        // force=true also re-writes staging drafts of NON-editable dirty tabs
+        // (their scheduleAutosave gate would skip them), so a failed delete
+        // never destroys an orphaned draft. Drop the autosave dedup FIRST:
+        // draftTree already tombstoned these drafts, yet lastWriteRef still
+        // records the same text, so scheduleAutosave's content-dedup would
+        // skip the re-write and the orphaned draft would stay lost.
         const fresh = tabsRef.current.find(tab => tab.path === item.path)
         lastWriteRef.current.delete(item.path)
         scheduleAutosave(item.path, fresh?.draft ?? item.draft, true)
@@ -6303,15 +6126,14 @@ function WorkspaceExplorer({
       for (const item of affected) {
         if (!item.dirty) continue
         // Use the tab's CURRENT draft, not the stale `affected` snapshot: the
-        // delete dialog keeps focus in the editor, so the user may have typed
-        // after capture, and a failed delete must not roll the staging draft
-        // back to older text. force=true also re-writes staging drafts of
-        // NON-editable dirty tabs (their scheduleAutosave gate would skip them
-        // otherwise), so a failed delete never destroys an orphaned draft.
-        // Drop the autosave dedup for this path FIRST: draftTree already
-        // tombstoned these drafts, yet lastWriteRef still records the same
-        // text, so scheduleAutosave's content-dedup would skip the re-write
-        // and the orphaned draft would stay lost until the next edit.
+        // delete dialog keeps editor focus, so the user may have typed after
+        // capture, and a failed delete must not roll the staging draft back.
+        // force=true also re-writes staging drafts of NON-editable dirty tabs
+        // (their scheduleAutosave gate would skip them), so a failed delete
+        // never destroys an orphaned draft. Drop the autosave dedup FIRST:
+        // draftTree already tombstoned these drafts, yet lastWriteRef still
+        // records the same text, so scheduleAutosave's content-dedup would
+        // skip the re-write and the orphaned draft would stay lost.
         const fresh = tabsRef.current.find(tab => tab.path === item.path)
         lastWriteRef.current.delete(item.path)
         scheduleAutosave(item.path, fresh?.draft ?? item.draft, true)
@@ -6335,8 +6157,8 @@ function WorkspaceExplorer({
       const element=target instanceof Element?target:target instanceof Node?target.parentElement:null
       if(element===null)return
       if(element.tagName==='INPUT'||element.tagName==='TEXTAREA'||element.tagName==='SELECT'||element.isContentEditable)return
-      // The file shortcuts only fire while a tree row is focused (or the tree
-      // context menu is open); editors and inputs keep their native behavior.
+      // File shortcuts fire only while a tree row is focused (or the tree
+      // context menu is open); editors and inputs keep native behavior.
       const treeFocused=element.classList.contains('dsh-ws-tree-row')
       if(!treeFocused&&contextMenu===undefined)return
       if(selected===undefined)return
@@ -6402,8 +6224,8 @@ function WorkspaceExplorer({
       openWithEncoding(selected)
     } else {
       // Close the picker before saving: a three-way conflict opens the
-      // SaveConflictDialog, and two stacked modals would block the UI until
-      // the conflict resolves. Errors surface in the status bar instead.
+      // SaveConflictDialog, and two stacked modals would block the UI until it
+      // resolves. Errors surface in the status bar instead.
       setEncodingDialog(undefined)
       void save(selected)
     }
@@ -6430,8 +6252,8 @@ function WorkspaceExplorer({
     const closing = current[index]
     // A dirty tab is close-guarded only while EDITABLE: a non-editable file
     // with a leftover draft has no save/cancel path (both gated on
-    // editability), so it would be stuck forever — allow closing it and drop
-    // its staging draft below.
+    // editability), so it would be stuck forever — allow closing and drop its
+    // staging draft below.
     const nonEditableDirty = closing.dirty === true && closing.editing === false
     if (closing.saving || (closing.dirty && !nonEditableDirty)) {
       const nextStatus = { error: true, text: translate('editor.unsavedTabClose') }
@@ -6506,8 +6328,7 @@ function WorkspaceExplorer({
       const tab = current.find(item => item.path === path)
       if (tab === undefined || !tab.pinned) return current
       const unpinned = { ...tab, pinned: false }
-      // Move the unpinned tab right after the last pinned one so the pinned
-      // block stays grouped at the front.
+      // Move the unpinned tab right after the last pinned one so the pinned block stays grouped at the front.
       const rest = current.filter(item => item.path !== path)
       let lastPinnedIndex = -1
       for (let i = 0; i < rest.length; i += 1) if (rest[i].pinned) lastPinnedIndex = i
@@ -6544,9 +6365,8 @@ function WorkspaceExplorer({
     setDraggingPath(null)
     setDropIndex(null)
   }, [dropTabAt])
-  // Custom floating scrollbar for the tab strip: the native bar is hidden and
-  // this thin overlay renders below the tabs (over the panel header) only
-  // while the strip is hovered AND has overflow. Pure refs — no state writes.
+  // Custom floating scrollbar for the tab strip (native bar hidden): a thin overlay
+  // below the tabs, shown only while hovered AND overflowed. Pure refs — no state writes.
   const syncPreviewScrollbar = useCallback(() => {
     const strip = previewTabsRef.current
     const track = previewScrollbarRef.current
@@ -6611,8 +6431,7 @@ function WorkspaceExplorer({
     scrollbarDragRef.current = null
     syncPreviewScrollbar()
   }, [syncPreviewScrollbar])
-  // Refresh the floating scrollbar when the strip's box resizes (panel width)
-  // and after every render (tab add/close, pin reorder change scrollWidth).
+  // Refresh the scrollbar on strip resize (panel width) and after every render (tab add/close, pin reorder).
   useEffect(() => {
     const strip = previewTabsRef.current
     if (strip === null) return undefined
@@ -6629,10 +6448,8 @@ function WorkspaceExplorer({
     const frame = requestAnimationFrame(syncPreviewScrollbar)
     return () => cancelAnimationFrame(frame)
   })
-  // Scroll the tab strip so a target tab is fully visible. The target is the
-  // tab requested by pin/unpin or a preview-body click; otherwise it is the
-  // newly activated tab. One-shot: the requested path is consumed after the
-  // check so later active-path changes fall back to the active tab.
+  // Scroll a target tab fully visible — the tab requested by pin/unpin or a preview-body
+  // click, else the newly activated tab. One-shot: consume the path so later changes fall back.
   useLayoutEffect(() => {
     const strip = previewTabsRef.current
     const target = tabScrollPathRef.current ?? activePath
@@ -6645,9 +6462,8 @@ function WorkspaceExplorer({
       }
     }
     if (tabNode === null) {
-      // The requested tab is not (yet) rendered — a pinned tab scrolled for
-      // right after closing. Consume a one-shot scroll request so a later
-      // unrelated activePath change does not re-target the stale path.
+      // Tab not (yet) rendered — e.g. a pinned tab scrolled right after closing. Consume the
+      // one-shot request so a later unrelated activePath change doesn't re-target the stale path.
       if (tabScrollPathRef.current === target) tabScrollPathRef.current = null
       return
     }
@@ -6663,9 +6479,8 @@ function WorkspaceExplorer({
     strip.scrollTo({ left: strip.scrollLeft + delta, behavior: 'smooth' })
     tabScrollPathRef.current = null
   }, [activePath, pinScrollToken])
-  // Hovering the tab strip and rolling the wheel scrolls it horizontally when
-  // it overflows; a native non-passive listener is required so the default
-  // (page) scroll can be prevented.
+  // Wheel over the overflowing strip scrolls it horizontally; a native non-passive listener
+  // is required so the default (page) scroll can be prevented.
   useEffect(() => {
     const strip = previewTabsRef.current
     if (strip === null) return undefined
@@ -6679,8 +6494,7 @@ function WorkspaceExplorer({
     strip.addEventListener('wheel', onWheel, { passive: false })
     return () => { strip.removeEventListener('wheel', onWheel) }
   }, [tabs.length])
-  // Markdown files offer a rendered-preview toggle (same extension table as
-  // the tree badge and the editor highlighting).
+  // Markdown files offer a rendered-preview toggle (same extension table as the tree badge and editor highlighting).
   const isMarkdown = preview.state === 'ready' && colorGroupOf({ kind: 'file', name: preview.name }) === 'markdown'
   let body
   if (preview.state === 'idle') {
@@ -6701,10 +6515,8 @@ function WorkspaceExplorer({
         h(CodeEditor, {
           key: `${preview.path}:${preview.encoding}:${readEpoch}`,
           editorRef,
-          // Prevent edits once the save snapshot has been captured. The freeze
-          // is scoped to the tab being saved (per-tab saving flag), not the
-          // global saving state, so switching to another editable file during
-          // a save no longer briefly locks it.
+          // Freeze edits only for the tab being saved (per-tab saving flag, not the global
+          // saving state), so switching to another editable file during a save doesn't lock it.
           editing: editing && !(activeTab?.saving === true),
           file: preview,
           highlightPreset,
@@ -6721,8 +6533,7 @@ function WorkspaceExplorer({
             if (nextDirty) {
               scheduleAutosave(activePath, text)
             } else {
-              // Reverted exactly to the snapshot: drop the staging draft so a
-              // later refresh does not resurrect the intermediate edits.
+              // Reverted exactly to the snapshot: drop the staging draft so a refresh can't resurrect intermediate edits.
               lastWriteRef.current.set(activePath, { revision: null, content: text })
               void clearDraftFile(activePath, text, preview.encoding ?? 'utf-8', preview.lineEnding ?? 'none', Boolean(preview.bom), preview.revision ?? null)
             }
@@ -6734,8 +6545,7 @@ function WorkspaceExplorer({
             : null,
           scrollTop: scrollTopRef.current.get(activePath) ?? activeTab?.scrollTop ?? 0,
         }),
-        // Rendered-Markdown overlay sits above the (kept-mounted) editor, so
-        // switching back never loses caret/undo state or an unsaved draft.
+        // Rendered-Markdown overlay sits above the kept-mounted editor, so switching back keeps caret/undo state and the draft.
         isMarkdown && mdPreview
           ? h('div', { className: 'dsh-ws-md-preview' }, h(MarkdownText, { text: draft }))
           : null),
@@ -6998,8 +6808,7 @@ function WorkspaceExplorer({
           : null,
       ),
       body,
-      // Merged bottom status bar: an always-visible band holding the action
-      // buttons + file meta info (left) and the transient status notice (right).
+      // Merged bottom status bar: action buttons + file meta (left) and the transient status notice (right).
       h('div', { className: 'dsh-ws-status', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) } },
         h('div', { className: 'dsh-ws-preview-status-actions' },
           preview.state === 'ready'
@@ -7050,26 +6859,21 @@ function EmptyWorkspaceExplorer({ treePortalTarget, sessionTitle }) {
   const chatFontSize = clamp(settings.chatFontSize ?? CHAT_FONT_SIZE_DEFAULT, CHAT_FONT_SIZE_MIN, CHAT_FONT_SIZE_MAX)
   const conflictFontSize = clamp(settings.conflictFontSize ?? CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MIN, CONFLICT_FONT_SIZE_MAX)
   const mindmapSpinSpeed = clampSpinSpeed(settings.mindmapSpinSpeed)
-  /* Effective mind-map highlight colors: the user's hex or the theme default
-     resolved to a concrete hex (for the color input), plus whether the value
-     is customized (drives each reset button's disabled state). */
+  /* Effective mind-map highlight colors: user hex or theme default resolved to a concrete hex
+     (color input), plus whether customized (drives each reset button's disabled state). */
   const mindmapHoverColorHex = mindmapEffectiveColor(settings.mindmapHoverColor, MINDMAP_HOVER_THEME_VAR, MINDMAP_HOVER_COLOR_FALLBACK)
   const mindmapSelectedColorHex = mindmapEffectiveColor(settings.mindmapSelectedColor, MINDMAP_SELECTED_THEME_VAR, MINDMAP_SELECTED_COLOR_FALLBACK)
-  /* "Customized" means the user stored a non-default hex (the store deletes
-     the entry when the picked color equals the theme default). Comparing the
-     stored value against the EFFECTIVE hex was always true — the store's
-     undefined value never equals a hex string — which left both reset buttons
-     permanently disabled. */
+  /* "Customized" = the user stored a non-default hex (the store deletes the entry when the
+     picked color equals the theme default). Comparing the stored value against the EFFECTIVE
+     hex was always true, which left both reset buttons permanently disabled. */
   const mindmapHoverColorCustom = settings.mindmapHoverColor !== undefined
   const mindmapSelectedColorCustom = settings.mindmapSelectedColor !== undefined
-  /* Session-head card accent color: default is the fixed violet (not theme
-     adaptive), so the effective hex is simply the stored override or the
-     default constant. */
+  /* Session-head accent: default is the fixed violet (not theme adaptive), so the effective
+     hex is the stored override or the default constant. */
   const mindmapHeadColorHex = settings.mindmapHeadColor ?? MINDMAP_HEAD_COLOR_DEFAULT
   const mindmapHeadColorCustom = settings.mindmapHeadColor !== undefined
-  /* End-of-branch card accent color: default is the fixed success green (not
-     theme adaptive), so the effective hex is simply the stored override or
-     the default constant. */
+  /* End-of-branch accent: default is the fixed success green (not theme adaptive), so the
+     effective hex is the stored override or the default constant. */
   const mindmapEndColorHex = settings.mindmapEndColor ?? MINDMAP_END_COLOR_DEFAULT
   const mindmapEndColorCustom = settings.mindmapEndColor !== undefined
   const mindmapMountBulge = clampMountBulge(settings.mindmapMountBulge)
@@ -7397,15 +7201,12 @@ function EmptyWorkspaceExplorer({ treePortalTarget, sessionTitle }) {
     h('div', { className: 'dsh-ws-settings-hint' }, translate('settings.hint')),
   )
 }
-/* Session-switcher dropdown: rendered in the conversation header's action
-   row (order -400, leftmost) as the visible session title — the harness's
-   current-title crumb is hidden by CSS (desktop and mobile). Clicking the
-   trigger opens a portalled panel listing every session (most recently
-   updated first, the current one highlighted, each row showing the session
-   title with its workspace name as a distinguishing suffix); clicking a row
-   switches session via the same ctx.sessions.open the sidebar list uses.
-   The panel is portalled to document.body and fixed-positioned from the
-   trigger rect so the chat column's overflow cannot clip it. */
+/* Session-switcher dropdown: rendered in the conversation header's action row (order -400,
+   leftmost) as the visible session title (the harness's current-title crumb is hidden by CSS).
+   The trigger opens a portalled panel listing every session (most recently updated first, the
+   current one highlighted, rows showing title + workspace name as suffix); clicking a row
+   switches session via the same ctx.sessions.open the sidebar uses. The panel is portalled to
+   document.body and fixed-positioned from the trigger rect so the chat column can't clip it. */
 function SessionSwitcherDropdown({ useSessions, useWorkspaces, sessionId, openSession }) {
   const list = useSessions(state => state)
   const workspaces = useWorkspaces(state => state.items)
@@ -7413,10 +7214,8 @@ function SessionSwitcherDropdown({ useSessions, useWorkspaces, sessionId, openSe
   const triggerRef = useRef(null)
   const panelRef = useRef(null)
   const [pos, setPos] = useState(null)
-  /* The panel is as wide as 33% of the conversation column (the chat section
-     that owns the header), re-measured on open and while open on resize so
-     the width tracks live layout changes. The 360px floor keeps the panel at
-     a readable minimum even when 33% of a narrow column would be smaller. */
+  /* Panel width = 33% of the conversation column, re-measured on open and on resize so it
+     tracks live layout changes. The 360px floor keeps it readable on a narrow column. */
   const measurePos = useCallback(() => {
     const trigger = triggerRef.current
     if (trigger === null) return null
@@ -7426,12 +7225,8 @@ function SessionSwitcherDropdown({ useSessions, useWorkspaces, sessionId, openSe
     const width = chatRect !== undefined && chatRect.width > 0
       ? Math.max(360, Math.round(chatRect.width * 0.33))
       : Math.max(360, rect.width)
-    // Keep the panel horizontally inside the conversation column. On mobile
-    // the two leading header icons push the trigger right, so the wide
-    // (360px floor) panel anchored at the trigger would overflow the phone
-    // column; clamping the left edge makes it lean left to stay on screen.
-    // On desktop the trigger sits near the column's left, so the clamp is a
-    // no-op and the panel hangs straight under the title.
+    // Keep the panel inside the conversation column: on mobile the header icons push the
+    // trigger right, so the clamp leans the panel left to stay on screen (desktop: no-op).
     const left = chatRect !== undefined && chatRect.width > 0
       ? Math.max(chatRect.left + 4, Math.min(rect.left, chatRect.right - width - 4))
       : rect.left
@@ -7439,8 +7234,7 @@ function SessionSwitcherDropdown({ useSessions, useWorkspaces, sessionId, openSe
   }, [])
   const toggle = useCallback(() => {
     if (open) { setOpen(false); return }
-    // Measure OUTSIDE the setState updater: updaters must stay pure (StrictMode
-    // double-invokes them), and the DOM measurement is a side effect.
+    // Measure OUTSIDE the setState updater: updaters must stay pure (StrictMode double-invokes them).
     const next = measurePos()
     if (next === null) return
     setPos(next)
@@ -7457,13 +7251,10 @@ function SessionSwitcherDropdown({ useSessions, useWorkspaces, sessionId, openSe
     const close = () => setOpen(false)
     const onPointerDown = event => { if (!inside(event)) close() }
     const onKeyDown = event => { if (event.key === 'Escape') close() }
-    // Re-anchor on resize instead of closing, so the 33%-of-column width keeps
-    // tracking layout changes while the panel stays open.
+    // Re-anchor on resize so the 33%-of-column width keeps tracking layout changes while open.
     const onResize = () => { const next = measurePos(); if (next !== null) setPos(next) }
-    // Scroll anywhere outside the panel closes it (capture phase). Scrolls
-    // inside the panel itself must NOT close it: the panel is scrollable
-    // (overflow-y:auto) and closing on its own scroll made long session lists
-    // impossible to scroll through.
+    // Scroll outside the panel closes it (capture phase); scrolls inside the scrollable panel
+    // must NOT close it — that made long session lists impossible to scroll through.
     const onScroll = event => {
       const panel = panelRef.current
       if (panel !== null && event.target instanceof Node && panel.contains(event.target)) return
@@ -7484,11 +7275,9 @@ function SessionSwitcherDropdown({ useSessions, useWorkspaces, sessionId, openSe
     ? undefined
     : (list.byId[sessionId]?.displayTitle ?? String(sessionId))
   const rows = useMemo(() => {
-    /* The full session list is only needed while the panel is open. The store
-       subscription re-renders this header slot on every session change
-       (streaming churn included), so skip building the sorted rows while
-       closed — the trigger only needs the current title, which the
-       subscription already delivers. */
+    /* The full sorted list is only needed while open; the store re-renders this slot on every
+       session change (streaming churn included), so skip building rows while closed — the
+       trigger only needs the current title the subscription already delivers. */
     if (!open) return []
     const workspaceTitleBySession = new Map()
     for (const item of workspaces) {
@@ -7539,20 +7328,17 @@ function SessionSwitcherDropdown({ useSessions, useWorkspaces, sessionId, openSe
   return h('div', { className: 'dsh-ws-session-switcher' }, trigger, panel)
 }
 /* ---------------------------------------------------------------------------
-   Mind-map conversation branching ("导图").
-   A conversation.view tab backed by a persisted per-root-session document.
-   Opening the tab on a session with no document reverse-parses its FULL event
-   log into trunk turn cards (1-2-3-4-5) and persists it; the session's row is
-   then hidden from the harness sidebar and a self-drawn mind-map session entry
-   takes its place. Clicking a card forks a new branch session at that card
-   (sessions.fork at the turn/end seq) and opens it; the branch's own new turns
-   are folded into the document by the Host sync from the branch session's full
-   log, so the document is always the single source of truth.
+   Mind-map conversation branching ("导图"): a conversation.view tab backed by a
+   persisted per-root-session document. Opening a session with no document
+   reverse-parses its FULL event log into session turn cards and persists it;
+   the session's row then hides from the sidebar and a self-drawn mind-map entry
+   takes its place. Clicking a card forks a new branch session at that card and
+   opens it; Host sync folds the branch's own new turns in from its full log, so
+   the document stays the single source of truth.
    --------------------------------------------------------------------------- */
 
-/* A fork-descendant of a mind-map family (a documented branch or any session
-   whose ancestry reaches a mind-map root/branch, subagent hops aside). The
-   session switcher hides these; the sidebar hider hides the whole family. */
+/* A fork-descendant of a mind-map family (any session whose ancestry reaches a mind-map
+   root/branch, subagent hops aside). The switcher hides these; the sidebar hider hides the family. */
 function isMindmapBranchDescendant(list, id) {
   let cursor = list.byId[String(id)]?.parentId
   const seen = new Set()
@@ -7567,8 +7353,7 @@ function isMindmapBranchDescendant(list, id) {
   return false
 }
 
-/* Walk fork lineage to the ordinary root (subagent hops are transparent, so a
-   branch's family-root title is the first non-subagent ancestor's title). */
+/* Walk fork lineage to the ordinary root; subagent hops are transparent (family-root title = first non-subagent ancestor's title). */
 function mindmapRootTitleOf(list, id) {
   let cursor = String(id)
   const seen = new Set()
@@ -7613,30 +7398,24 @@ const mindmapDocKey = (sessionId, seq) => `${sessionId}:${seq}`
 /* Key of the VIRTUAL root node (the map's top hub, not a session). */
 const MINDMAP_ROOT_KEY = '__mindmap_root__'
 
-/* Key of a session's HEAD node (the identity card at the left of its question
-   chain). Shared by the layout and the current-card highlight so the "当前"
-   badge can light the session's head. */
+/* Key of a session's HEAD node (the identity card at the left of its question chain); shared
+   by the layout and the current-card highlight so "当前" can light the session's head. */
 const mindmapHeadKey = (sessionId) => mindmapDocKey(String(sessionId), `head:${String(sessionId)}`)
 
-/* Key of a session's placeholder card (a session with no turns yet), shared by
-   the layout and the current-card highlight so the "当前" badge can light the
-   "等待新问题" card. */
+/* Key of a session's placeholder card (a session with no turns yet); shared by the layout and
+   the current-card highlight so "当前" can light the "等待新问题" card. */
 const mindmapEmptyKey = (sessionId) => mindmapDocKey(String(sessionId), `empty:${String(sessionId)}`)
 
-/* Plan of a card deletion (right-click → 删除卡片): the card is removed by
-   TRUNCATING its session chain — the card and every later card in the same
-   session are cut, the session is re-created from the previous card (a fork
-   at its turn/end), and the OLD session is archived so the chat shows the
-   truncated conversation. Every session hanging off a removed card is
-   archived too. An empty session's placeholder card — or a session's FIRST
-   card, with no earlier card in the session to truncate at — removes the
-   whole session instead. Removing the LAST remaining session (directly or via
-   a subtree prune) is blocked (the map must keep at least one session; the
-   root node itself is virtual). The doc records NO tombstones: a removed turn
-   only resurfaces through a failed archive of its old session (ACCEPTED —
-   pure fork + archive + replace; see docs/mindmap-notes.md). Returns null
-   when the target card is not in the doc, or a plan { archiveIds, sessions,
-   replaced, wholeBranch, lastSession, next }. */
+/* Plan of a card deletion (right-click → 删除卡片): the card is removed by TRUNCATING its
+   session chain (card + every later card cut, session re-created from the previous card via
+   a fork at its turn/end, OLD session archived so the chat shows the truncated conversation);
+   every session hanging off a removed card is archived too. An empty placeholder card — or a
+   session's FIRST card — removes the whole session instead. Removing the LAST remaining
+   session is blocked (the map must keep at least one; the root node is virtual). The doc
+   records NO tombstones: a removed turn only resurfaces through a failed archive of its old
+   session (ACCEPTED — pure fork + archive + replace; see docs/mindmap-notes.md). Returns null
+   when the target card is not in the doc, or a plan { archiveIds, sessions, replaced,
+   wholeBranch, lastSession, next }. */
 function mindmapDeletePlan(doc, ownerId, turnSeq, emptyCard) {
   const sessions = (doc?.sessions ?? []).filter(s => s !== null && s !== undefined)
   const ownerIdx = sessions.findIndex(s => String(s?.sessionId) === String(ownerId))
@@ -7652,8 +7431,7 @@ function mindmapDeletePlan(doc, ownerId, turnSeq, emptyCard) {
   let idx = -1
   let wholeBranch = false
   if (emptyCard) {
-    /* An empty session's placeholder: no truncation is possible, the whole
-       session (session + subtree) is removed. */
+    /* Empty placeholder: no truncation possible — the whole session (session + subtree) is removed. */
     wholeBranch = true
   } else {
     idx = chain.findIndex(turn => Number(turn?.seq) === Number(turnSeq))
@@ -7663,19 +7441,16 @@ function mindmapDeletePlan(doc, ownerId, turnSeq, emptyCard) {
   if (wholeBranch) {
     pruneIds.add(String(ownerId))
     if (chain.length === 0) {
-      /* An EMPTY session carries no turns, so the subtree worklist below gets
-         no anchor from its own turns: seed it with the session itself so
-         descendants whose parent session is this session are still pruned. */
+      /* An EMPTY session has no turns to anchor the subtree worklist below: seed it with the
+         session itself so descendants whose parent session is this session are still pruned. */
       removed.push({ sessionId: String(ownerId), seq: undefined, n: undefined })
     }
     for (const turn of chain) pushTurn(ownerId, turn)
   } else {
     for (let i = idx; i < chain.length; i += 1) pushTurn(ownerId, chain[i])
   }
-  /* Session subtree: every session whose parent card is one of the removed
-     cards, recursively (grandchildren hang off the removed sessions' cards).
-     An empty-session anchor (seeded above, no card number) matches by session
-     identity alone. */
+  /* Session subtree: every session whose parent card is a removed card, recursively
+     (grandchildren hang off the removed sessions' cards; empty-session anchors match by identity). */
   for (let cursor = 0; cursor < removed.length; cursor += 1) {
     const t = removed[cursor]
     for (const s of sessions) {
@@ -7698,11 +7473,9 @@ function mindmapDeletePlan(doc, ownerId, turnSeq, emptyCard) {
     .map(s => String(s?.sessionId) === String(ownerId) && !wholeBranch
       ? { ...s, turns: (s?.turns ?? []).filter(turn => keep(String(ownerId), turn)) }
       : s)
-  /* Removing the last remaining session (directly, or via a subtree prune)
-     would leave the map with nothing but the virtual root node — blocked. */
+  /* Removing the last remaining session (directly or via a subtree prune) would leave only the virtual root — blocked. */
   if (nextSessions.length === 0) return { lastSession: true }
-  /* Fresh doc-wide counter: continue after the largest remaining card number,
-     so deleted numbers are reused instead of leaving gaps. */
+  /* Fresh doc-wide counter: continue after the largest remaining card number (deleted numbers reused, no gaps). */
   let maxN = 0
   for (const s of nextSessions) for (const turn of s?.turns ?? []) maxN = Math.max(maxN, Number(turn?.n) || 0)
   return {
@@ -7719,26 +7492,21 @@ function mindmapDeletePlan(doc, ownerId, turnSeq, emptyCard) {
 
 
 
-/* Stable fingerprint of a doc's structure (per-session turn seqs, fork
-   anchors + the map's own title), used to skip redundant re-renders after a
-   sync that changed nothing. The rootTitle is included so a sidebar rename of
-   the map title reaches an open map on the next sync (a seq-only fingerprint
-   skipped it). */
+/* Stable fingerprint of a doc's structure (per-session turn seqs, fork anchors + the map's
+   own title) to skip redundant re-renders after a sync that changed nothing. rootTitle is
+   included so a sidebar rename reaches an open map on the next sync (a seq-only one skipped it). */
 function mindmapDocFingerprint(doc) {
   const sessions = (doc?.sessions ?? []).map(s =>
     `${String(s?.sessionId)}:${String(s?.parentSessionId ?? '')}:${String(s?.parentTurn ?? '')}:${(s?.turns ?? []).map(turn => turn?.seq).join(',')}`).join(';')
   return `${String(doc?.rootTitle ?? '')}|${sessions}`
 }
 
-/* Deterministic per-session color palette for a streaming card + parent pair
-   (the flowing gradient ring on both cards and the flowing edge between
-   them): a hash of the session id seeds a PRNG that picks ONE coherent 3-color
-   scheme from the curated pool, so every pair looks different while staying
-   stable across renders (no per-frame re-rolls). Returns a FLAT 3-color array
-   (c1, c2, c3) — a buggy earlier version returned an array of whole palettes,
-   which made every stroke/stop an invalid color list and rendered the edge
-   black. Palettes are cached by session id so the array identity survives
-   layout recomputes and React.memo comparisons. */
+/* Deterministic per-session palette for a streaming card + parent pair (the gradient ring and
+   flowing edge): a hash of the session id seeds a PRNG picking ONE 3-color scheme from the
+   curated pool, stable across renders. Returns a FLAT 3-color array (c1, c2, c3) — a buggy
+   earlier version returned arrays of palettes, making every stroke/stop an invalid color list
+   (edge rendered black). Cached by session id so the array identity survives layout recomputes
+   and React.memo comparisons. */
 const MINDMAP_STREAM_PALETTE = [
   ['#22d3ee', '#818cf8', '#a78bfa'],
   ['#fb923c', '#f472b6', '#e11d48'],
@@ -7771,8 +7539,7 @@ const mindmapStreamPalette = (sessionId) => {
   const sid = String(sessionId)
   const hit = mindmapStreamPaletteCache.get(sid)
   if (hit !== undefined) {
-    // Refresh insertion order so the bounded cache evicts the least recently
-    // used session without changing a live session's deterministic palette.
+    // Refresh insertion order so the bounded cache evicts the LRU session without changing a live palette.
     mindmapStreamPaletteCache.delete(sid)
     mindmapStreamPaletteCache.set(sid, hit)
     return hit
@@ -7787,17 +7554,14 @@ const mindmapStreamPalette = (sessionId) => {
   return out
 }
 
-/* Doc layout (v3): the VIRTUAL root node sits alone at the top (row 0);
-   every session is a horizontal chain of a HEAD node (the session's identity
-   card) plus its question cards, laid out one session per row in DFS order —
-   top-level sessions (children of the root node) first, then each session's
-   nested forks on the rows right after it, indented to the card they hang
-   off. A session with no turns renders one placeholder card. An optional
-   `streaming` descriptor ({ sessionId, question }) appends an ephemeral live
-   card to that session's chain tail (replacing the placeholder of an empty
-   session). Returns { nodes, edges, width, height } — nodes carry
-   key/kind/sessionId/turn/empty/streaming/row/depth/x/y/width/height, edges
-   are { from, to, mount?, d } key pairs with the SVG path precomputed. */
+/* Doc layout (v3): the VIRTUAL root node sits alone at the top (row 0); every session is a
+   horizontal chain of a HEAD node (its identity card) plus its question cards, one session per
+   row in DFS order — top-level sessions first, then each session's nested forks on the rows
+   right after, indented to the card they hang off. A session with no turns renders one
+   placeholder card; an optional `streaming` descriptor ({ sessionId, question }) appends an
+   ephemeral live card to the chain tail (replacing an empty session's placeholder). Returns
+   { nodes, edges, width, height } — nodes carry key/kind/sessionId/turn/empty/streaming/
+   row/depth/x/y/width/height, edges are { from, to, mount?, d } with the SVG path precomputed. */
 function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_MOUNT_BULGE_DEFAULT_X) {
   const nodes = []
   const edges = []
@@ -7812,8 +7576,7 @@ function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_MOUNT_BU
     if (!childMap.has(key)) childMap.set(key, [])
     childMap.get(key).push(s)
   }
-  /* DFS pre-order (stable): top-level sessions in doc order, then each
-     session's children by card order. Every session occupies ONE row. */
+  /* DFS pre-order (stable): top-level sessions in doc order, then children by card order; every session occupies ONE row. */
   const order = []
   const visited = new Set()
   const visit = (s) => {
@@ -7831,9 +7594,8 @@ function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_MOUNT_BU
   for (const s of sessions) {
     if (!s.parentSessionId) visit(s)
   }
-  /* Row + column assignment (row 0 = the virtual root node). A nested
-     session's head sits one card column to the right of the card it hangs
-     off. */
+  /* Row + column assignment (row 0 = the virtual root): a nested session's head sits one card
+     column to the right of the card it hangs off. */
   const entryBySession = new Map()
   let row = 1
   for (const s of order) {
@@ -7904,8 +7666,7 @@ function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_MOUNT_BU
       })
     }
   }
-  /* Root → top-level head edges + nested mount edges (parent card → child
-     head). Both render as the primary dashed mount curve. */
+  /* Root → top-level head edges + nested mount edges (parent card → child head); both render as the dashed mount curve. */
   for (const s of sessions) {
     if (s.parentSessionId) continue
     edges.push({ from: MINDMAP_ROOT_KEY, to: mindmapHeadKey(String(s.sessionId)), mount: true })
@@ -7922,11 +7683,9 @@ function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_MOUNT_BU
       mount: true,
     })
   }
-  /* Live streaming cards: every running doc-family session has a turn in
-     flight — append a card to each one's chain tail (a session awaiting its
-     first turn gets its placeholder replaced instead). The cards are
-     ephemeral UI, never part of the doc: the next sync folds each completed
-     turn into a normal card. */
+  /* Live streaming cards: each running doc-family session with a turn in flight gets a card
+     appended to its chain tail (a session awaiting its first turn gets its placeholder replaced).
+     Ephemeral UI, never part of the doc: the next sync folds completed turns into normal cards. */
   const streamingItems = Array.isArray(streamingList) ? streamingList : []
   for (const streaming of streamingItems) {
     if (streaming === null || streaming === undefined) continue
@@ -7945,8 +7704,7 @@ function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_MOUNT_BU
       turn: undefined,
       empty: false,
       streaming: true,
-      /* A replaced placeholder keeps its position; an appended card goes
-         one depth deeper than the chain tail. */
+      /* A replaced placeholder keeps its position; an appended card goes one depth deeper than the tail. */
       depth: replaceEmpty ? last.depth : last.depth + 1,
       row: last.row,
       width: MINDMAP_NODE_W,
@@ -7955,9 +7713,8 @@ function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_MOUNT_BU
       parentKey: undefined,
     }
     if (replaceEmpty) {
-      /* Replace the placeholder card of a session awaiting its first turn;
-         the parent of the ring is the card the placeholder hung off (the
-         session's head). */
+      /* Replace the placeholder of a session awaiting its first turn; the ring's parent is the
+         card the placeholder hung off (the session's head). */
       const index = nodes.indexOf(last)
       const edge = edges.find(e => e.to === last.key)
       streamingNode.parentKey = edge === undefined ? undefined : edge.from
@@ -7969,8 +7726,7 @@ function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_MOUNT_BU
       edges.push({ from: last.key, to: streamingNode.key })
     }
   }
-  /* Positions: x by column (uniform grid; the head occupies one column slot),
-     y by row (row 0 = root height, then card rows). */
+  /* Positions: x by column (uniform grid; head occupies one column slot), y by row (row 0 = root height). */
   const width = (() => {
     let maxCol = 0
     for (const node of nodes) maxCol = Math.max(maxCol, node.depth)
@@ -7983,9 +7739,8 @@ function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_MOUNT_BU
     node.x = node.kind === 'root'
       ? rootX
       : mindmapXOf(node.depth)
-    /* Row 0 = the virtual root node; every session row is pushed one FULL
-       CARD height below it (the root "sits one card position higher" above
-       the chains, with the node gaps unchanged). */
+    /* Row 0 = the virtual root; every session row is pushed one FULL CARD height below it (the
+       root "sits one card position higher" above the chains, node gaps unchanged). */
     node.y = node.row === 0
       ? rootY
       : rootY + MINDMAP_ROOT_H + MINDMAP_ROW_GAP + MINDMAP_NODE_H + (node.row - 1) * (MINDMAP_NODE_H + MINDMAP_ROW_GAP)
@@ -8006,16 +7761,13 @@ function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_MOUNT_BU
     width: MINDMAP_ROOT_W,
     height: MINDMAP_ROOT_H,
   })
-  /* Precompute each edge's SVG path from the node positions. Non-mount edges
-     (head → card → card → streaming) are orthogonal; mount edges (root →
-     top-level head, parent card → child head) are cubic S-curves that enter
-     the session head's LEFT side (its left edge at mid-height). The bulge
-     factor (user-tunable, default ×5) scales both lobes: the root edge bows
-     up near the root then swings into the head's LEFT margin and enters its
-     left edge LEVEL (no downward sag, horizontal tangent); the branch edge
-     leaves its parent card horizontally, bows OUTWARD (away from the trunk)
-     and hooks into the child head — at ×0 each collapses to the straight
-     chord. */
+  /* Precompute each edge's SVG path from the node positions. Non-mount edges (head → card →
+     streaming) are orthogonal; mount edges (root → top-level head, parent card → child head)
+     are cubic S-curves entering the head's LEFT side at mid-height. The bulge factor
+     (user-tunable, default ×5) scales both lobes: the root edge bows up then swings into the
+     head's LEFT margin, entering LEVEL (no downward sag, horizontal tangent); the branch edge
+     leaves the parent horizontally, bows OUTWARD (away from the chain) and hooks into the
+     child head — at ×0 each collapses to the straight chord. */
   const byKey = new Map()
   for (const node of nodes) byKey.set(node.key, node)
   const mountBulge = clampMountBulge(mountBulgeParam)
@@ -8032,9 +7784,8 @@ function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_MOUNT_BU
         const c1x = sx - 61.2 * mountBulge
         const c1y = sy + 5.4 * mountBulge
         const c2x = tx - 24 * mountBulge
-        /* The head entry stays LEVEL (control y = the entry mid-height): the
-           curve swings into the head's LEFT margin but never sags below the
-           entry, and its tangent at the head's left edge is horizontal. */
+        /* Head entry stays LEVEL (control y = the entry mid-height): swings into the head's LEFT
+           margin but never sags below the entry, with a horizontal tangent at the left edge. */
         const c2y = ty
         edge.d = `M ${sx} ${sy} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${tx} ${ty}`
       } else {
@@ -8043,13 +7794,10 @@ function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_MOUNT_BU
         const tx = to.x
         const ty = to.y + to.height / 2
         const c1x = sx + 13 * mountBulge
-        /* The branch edge leaves the parent card HORIZONTALLY (control y stays
-           on the card's mid-height — no upward bow at the start), then bows
-           outward and hooks into the child head. Both control offsets are
-           balanced so the exit arc (outward, ~13/unit) and the entry arc
-           (leftward, ~12/unit) read as the SAME curve: the exit bows right
-           about as far as the head side bows left, each staying inside the
-           column gap. */
+        /* The branch edge leaves the parent HORIZONTALLY (control y on the card's mid-height,
+           no upward bow), then bows outward and hooks into the child head. Control offsets are
+           balanced so the exit arc (~13/unit outward) and entry arc (~12/unit leftward) read as
+           the SAME curve, each staying inside the column gap. */
         const c1y = sy
         const c2x = tx - 12 * mountBulge
         const c2y = ty + 1.2 * mountBulge
@@ -8072,13 +7820,11 @@ function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_MOUNT_BU
 
 const mindmapXOf = depth => MINDMAP_DEPTH_GAP + depth * (MINDMAP_NODE_W + MINDMAP_DEPTH_GAP)
 
-/* The action a click on a layout node performs — 'new' (create a new
-   top-level session at the root node), 'fork' (create a nested branch at this
-   card) or 'switch' (jump the right-side chat to this node's own session).
-   Exact mirror of the openCard decision tree; the hover hint and the click
-   handler share it so the hint can never drift from the real behavior. A
-   generating session's last completed card is semantically a middle card (its
-   real tail is the streaming card), hence it forks. */
+/* The action a click on a layout node performs — 'new' (new top-level session at the root),
+   'fork' (nested branch at this card) or 'switch' (jump the right-side chat to this node's own
+   session). Exact mirror of the openCard decision tree, shared by hover hint and click handler
+   so the hint can never drift from the real behavior. A generating session's last completed
+   card is semantically a middle card (its real tail is the streaming card), hence it forks. */
 const mindmapCardClickAction = (node, doc, runningFamilyIds) => {
   if (node === undefined) return undefined
   if (node.kind === 'root') return 'new'
@@ -8094,18 +7840,15 @@ const mindmapCardClickAction = (node, doc, runningFamilyIds) => {
   return 'fork'
 }
 
-/* Clamp the view translation so the scaled world always keeps a MINIMUM
-   fraction on screen instead of a fixed pixel ledge: each axis may be dragged
-   out by up to MINDMAP_PAN_OUT_MAX of the world size (e.g. 80%), so the
-   opposite 20% stays visible. A map SMALLER than the viewport can also slide
-   (it is not pinned to the center); 还原视图 restores the fitted position
-   any time the map is pushed out of reach. */
+/* Clamp the view so the scaled world always keeps a MINIMUM fraction on screen: each axis may
+   be dragged out by up to MINDMAP_PAN_OUT_MAX of the world size (e.g. 80%), so the opposite
+   20% stays visible. A map SMALLER than the viewport can also slide (not pinned to the center);
+   还原视图 restores the fitted position when the map is pushed out of reach. */
 function mindmapClampView(view, worldW, worldH, vw, vh) {
   const sw = worldW * view.zoom
   const sh = worldH * view.zoom
   const out = MINDMAP_PAN_OUT_MAX
-  /* x: from the world pushed left (its right 20% at the viewport's left edge)
-     to the world pushed right (its left 20% at the viewport's right edge). */
+  /* x: from the world pushed left (right 20% at the viewport's left edge) to pushed right (left 20% at the right edge). */
   const tx = sw <= 0 || vw <= 0
     ? view.tx
     : Math.max(-out * sw, Math.min(view.tx, vw - (1 - out) * sw))
@@ -8116,8 +7859,7 @@ function mindmapClampView(view, worldW, worldH, vw, vh) {
 }
 
 /* Initial / "还原视图" view: fit the whole map (capped at 1x, never upscaled);
-   a map too large to fit even at the minimum zoom aligns to the top-left so
-   the root stays in view. */
+   a map too large to fit even at min zoom aligns to the top-left. */
 function mindmapFitView(worldW, worldH, vw, vh) {
   if (worldW <= 0 || worldH <= 0 || vw <= 0 || vh <= 0) return null
   const zoom = Math.max(Math.min(Math.min(vw / worldW, vh / worldH), 1), MINDMAP_ZOOM_MIN)
@@ -8128,14 +7870,11 @@ function mindmapFitView(worldW, worldH, vw, vh) {
   return { zoom, tx, ty }
 }
 
-/* Narrowed sessions subscription for the floating map. The map only reads
-   the doc family's running flags and display titles, but `useSessions(state
-   => state)` re-renders every card on ANY session change, including
-   streaming churn in unrelated sessions. The selector returns the SAME
-   projection object while the family's fields are unchanged, so idle store
-   churn never re-renders the map; the projection is rebuilt when a family
-   field changes or the family set grows (the caller keeps `familyIdsRef`
-   current), and it keeps the latest byId reference so reads stay fresh. */
+/* Narrowed sessions subscription: the map only reads the doc family's running
+   flags and titles, but `useSessions(state => state)` re-renders every card on
+   any store churn. The selector returns the SAME projection while those fields
+   are unchanged (so idle churn never re-renders), rebuilds when a family field
+   changes or the family grows, and keeps the latest byId so reads stay fresh. */
 function useMindmapSessionView(useSessions, familyIdsRef) {
   const cacheRef = useRef(null)
   return useSessions((state) => {
@@ -8143,12 +7882,10 @@ function useMindmapSessionView(useSessions, familyIdsRef) {
     const family = familyIdsRef.current
     const runningKey = family.map(id => (byId[id]?.running === true ? '1' : '0')).join('|')
     const titlesKey = family.map(id => byId[id]?.displayTitle ?? '').join('\u0001')
-    /* The cache key must also cover the FAMILY MEMBERSHIP itself: a root
-       replacement (trunk truncation) swaps the root session id while keeping
-       the same titles and running bits, so runningKey+titlesKey alone would
-       serve a stale projection whose `titles` still keys the archived root —
-       leaving the new root's cards with empty titles until the next store
-       change. */
+    /* The cache key must also cover FAMILY MEMBERSHIP: a root replacement
+       (root-session truncation) swaps the root id while titles/running bits stay the
+       same, so runningKey+titlesKey alone would serve a stale projection keyed
+       to the archived root (new root's cards empty until the next change). */
     const familyKey = family.join('\u0002')
     const cache = cacheRef.current
     if (cache !== null && cache.familyKey === familyKey && cache.runningKey === runningKey && cache.titlesKey === titlesKey) {
@@ -8165,23 +7902,20 @@ function useMindmapSessionView(useSessions, familyIdsRef) {
   })
 }
 
-/* One absolutely-positioned map card. Extracted so `memo` can skip rebuilding
-   cards whose props are unchanged: a doc-triggered re-render only rebuilds the
-   added / changed / current-badge-flipped cards. */
+/* One absolutely-positioned map card, extracted so `memo` only rebuilds cards
+   whose props actually changed on a doc-triggered re-render. */
 const MindMapCard = memo(function MindMapCard({
   entry, title, isCurrent, isStreaming, isAncestor, isHover, isHoverAncestor, hintAction, isEnd, ringPalette, onOpen, onMenu, onHover,
 }) {
-  /* Ring cards (the streaming card and its parent, both wearing the flowing
-     gradient ring) are the pair's single visual signal: the selection (blue)
-     and hover (amber) border/glow effect classes are suppressed on BOTH cards
-     so a dashed blue/amber border can never overwrite the ring. The ancestors
-     ABOVE the pair and their edges still trace normally — the immunity is
-     purely presentational and stops at these two cards. The "当前" badge is
-     kept (informational only, no border interference). */
+  /* Ring cards (the streaming card + its parent, both wearing the flowing
+     gradient ring) are the pair's single visual signal: selection/hover
+     border/glow classes are suppressed on BOTH so a dashed border never
+     overwrites the ring — the immunity stops at these two cards, ancestors
+     above still trace normally, and the "当前" badge is kept (informational). */
   const ringed = ringPalette !== undefined
-  /* Every v3 question card is a branch node (there is no trunk anymore); the
-     empty placeholder keeps the dashed pending look (no data-branch), the
-     completed cards are solid + primary-tinted. */
+  /* Every v3 question card is a branch node (no trunk anymore): the empty
+     placeholder keeps the dashed pending look (no data-branch), completed
+     cards are solid + primary-tinted. */
   const classes = 'dsh-ws-mindmap-node dsh-ws-mindmap-branchcard'
     + (isEnd && !isStreaming ? ' dsh-ws-mindmap-endcard' : '')
     + (isCurrent && !ringed ? ' dsh-ws-mindmap-node-current' : '')
@@ -8202,10 +7936,9 @@ const MindMapCard = memo(function MindMapCard({
     'data-branch': entry.empty ? undefined : '',
     key: entry.key,
     onClick: () => { onOpen(entry) },
-    /* Hover drives the additive ancestor trace: entering a card traces its
-       chain to the root on top of the selection's; leaving clears it. React's
-       mouseenter/mouseleave semantics fire only on boundary crossing, so
-       moving within a card does not churn the state. */
+    /* Hover drives the additive ancestor trace: entering traces the card's
+       chain to the root over the selection's; leaving clears it (React fires
+       these only on boundary crossing, so intra-card motion is a no-op). */
     onMouseEnter: () => { onHover(entry.key) },
     onMouseLeave: () => { onHover(undefined) },
     onContextMenu: !isStreaming
@@ -8222,9 +7955,9 @@ const MindMapCard = memo(function MindMapCard({
     isCurrent ? h('span', { className: 'dsh-ws-mindmap-node-current-badge' }, translate('mindmap.current')) : null,
     h('div', { className: 'dsh-ws-mindmap-node-title' },
       h('span', { className: 'dsh-ws-mindmap-pending-label' + (isEnd ? ' dsh-ws-mindmap-end-label' : '') },
-        /* An end-of-branch card (click = jump/switch to its session) carries a
+        /* An end-of-branch card (click switches to its session) carries a
            bullseye chip — the branch's terminal point — instead of the fork
-           glyph, so its meaning never gets confused with a fork point. */
+           glyph, so it is never confused with a fork point. */
         isEnd
           ? h('svg', {
             className: 'dsh-ws-mindmap-pending-icon',
@@ -8266,16 +7999,16 @@ const MindMapCard = memo(function MindMapCard({
             h('span', { className: 'dsh-ws-mindmap-node-streaming-dot' }),
             h('span', null, translate('mindmap.streaming')))
         : h('div', { className: 'dsh-ws-mindmap-node-status dsh-ws-mindmap-node-done' }, translate('mindmap.done')),
-    /* Hover-only click-action hint chip: tells the user what a click will do
-       ('点击分支' / '点击跳转'). pointer-events:none so it never intercepts
-       the card's hover or click; absolute so it never shifts the layout. */
+    /* Hover-only hint chip: tells the user what a click will do. pointer-events
+       none so it never intercepts hover/click; absolute so it never shifts
+       the layout. */
     isHover && hintAction !== undefined
       ? h('span', { className: 'dsh-ws-mindmap-node-hint' }, translate(`mindmap.hint.${hintAction}`))
       : null)
 })
 
 /* The VIRTUAL root node: the map's top hub. Clicking it creates a new
-   top-level session. Not backed by any session — it only exists in the
+   top-level session; not backed by any session — it only exists in the
    layout. */
 const MindMapRootNode = memo(function MindMapRootNode({ entry, isAncestor, isHoverAncestor, isHover, onOpen, onMenu, onHover }) {
   const classes = 'dsh-ws-mindmap-root'
@@ -8298,8 +8031,8 @@ const MindMapRootNode = memo(function MindMapRootNode({ entry, isAncestor, isHov
     title: translate('mindmap.rootNode.hint'),
   },
     h('div', { className: 'dsh-ws-mindmap-root-plus' },
-      /* A symmetric inline SVG plus (geometrically centered in the circle, so
-         the hover 90° rotation maps it onto itself — no position shift). */
+      /* A symmetric inline SVG plus, centered so the hover 90° rotation maps
+         it onto itself — no position shift. */
       h('svg', { 'aria-hidden': true, viewBox: '0 0 16 16' },
         h('path', { d: 'M8 3v10M3 8h10', stroke: 'currentColor', strokeLinecap: 'round', strokeWidth: 2.4 }))),
     h('div', { className: 'dsh-ws-mindmap-root-col' },
@@ -8308,8 +8041,8 @@ const MindMapRootNode = memo(function MindMapRootNode({ entry, isAncestor, isHov
 })
 
 /* A session's HEAD node: the identity card at the left of its question chain.
-   Shows the session title / round count / status; clicking it switches to the
-   session (the "当前" badge sits here); right-click renames the session. */
+   Shows the session title / round count / status; clicking switches to the
+   session (the "当前" badge sits here); right-click renames it. */
 const MindMapSessionHead = memo(function MindMapSessionHead({
   entry, title, isCurrent, isRunning, isAncestor, isHover, isHoverAncestor, hintAction, ringPalette, onOpen, onMenu, onHover,
 }) {
@@ -8362,7 +8095,7 @@ const MindMapSessionHead = memo(function MindMapSessionHead({
       : null)
 })
 
-/* The floating mind map: a persisted turn tree (trunk + fork branches)
+/* The floating mind map: a persisted turn tree (flat session list, no trunk)
    rendered from the doc, with pan/zoom and per-card forking. Rendered inside
    the left-side overlay window; card clicks switch the right-side chat. */
 function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, deleteDoc, forkAt, createSession, listWorkspaces, openSession, renameSession, archiveSession, previewRight, settingsStore }) {
@@ -8371,14 +8104,13 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   const [phase, setPhase] = useState({ status: 'loading' })
   const [doc, setDoc] = useState(null)
   const [rootId, setRootId] = useState(null)
-  // Latest root id as a ref: applySync guards in-flight responses against THIS
-  // (never the closure rootId), so a sync that started before a family switch
-  // cannot apply the previous family's doc after the switch.
+  // Latest root id as a ref: applySync guards against THIS (never the closure
+  // rootId) so a pre-switch sync can't apply the previous family's doc.
   const rootIdRef = useRef(null)
   rootIdRef.current = rootId
-  /* The doc family ids, kept current BEFORE the narrowed sessions subscription
-     below runs (the selector cannot close over doc/rootId directly, and its
-     getSnapshot must see the fresh family during this render). */
+  /* Doc family ids, kept current BEFORE the narrowed sessions subscription
+     below runs: the selector can't close over doc/rootId, and its getSnapshot
+     must see the fresh family during this render. */
   const familyIdsRef = useRef([])
   familyIdsRef.current = doc === null || rootId === null
     ? []
@@ -8409,10 +8141,9 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   const noticeTimerRef = useRef(0)
   const lastFingerprintRef = useRef('')
   const savingRef = useRef(false)
-  /* Synchronous gate for in-flight fork writes: the `forking` STATE guard is
-     only visible after React re-renders, so a same-tick second trigger would
-     otherwise pass it and fork twice (the loser's child then gets adopted back
-     as a duplicate branch by the next sync). */
+  /* Synchronous gate for in-flight fork writes: the `forking` STATE guard only
+     appears after a re-render, so a same-tick second trigger would pass it and
+     fork twice (the loser's child gets adopted back as a duplicate branch). */
   const forkingRef = useRef(false)
   const [forking, setForking] = useState(false)
   const [forkError, setForkError] = useState(null)
@@ -8437,10 +8168,9 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
      streaming cards. */
   const [live, setLive] = useState([])
   const [dragging, setDragging] = useState(false)
-  /* Key of the card currently under the pointer (undefined when none): drives
-     the hover ancestor trace — the same highlight as the selected card's
-     chain, but for the hovered card, rendered additively on top of the
-     selection trace. */
+  /* Key of the card under the pointer (undefined when none): drives the hover
+     ancestor trace — the same highlight as the selected card's chain, rendered
+     additively on top of the selection trace. */
   const [hoverKey, setHoverKey] = useState(undefined)
   const viewportRef = useRef(null)
   const canvasRef = useRef(null)
@@ -8458,9 +8188,8 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     }
   }, [])
   const showNotice = useCallback((text) => {
-    // The notice render expects the object shape ({ error, text }); a bare
-    // string has neither field, so it rendered as an empty div and every
-    // mind-map success toast was invisible.
+    // The notice render expects { error, text }; a bare string has neither, so
+    // it rendered an empty div and every mind-map success toast was invisible.
     setNotice({ error: false, text })
     if (noticeTimerRef.current !== 0) clearTimeout(noticeTimerRef.current)
     noticeTimerRef.current = window.setTimeout(() => {
@@ -8478,15 +8207,14 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   }, [])
 
   /* Load the doc for the current session: the Host resolves a branch session
-     to its root's doc, and builds & persists a fresh doc (full-log split) on
-     first access — the conversion step. */
+     to its root's doc, building & persisting a fresh doc (full-log split) on
+     first access. */
   useEffect(() => {
-    /* A session switch INSIDE the loaded family (the map keeps ONE map per
-       family — every clickable card belongs to it): only the "当前" highlight
-       and the right-side chat follow sessionId; the doc is identical, so a
-       reload would rebuild the whole canvas for nothing. Only a session
-       OUTSIDE the family (another mind map opened over this one) triggers a
-       full reload. rootId/doc are read at call time on purpose. */
+    /* A session switch INSIDE the loaded family (one map per family): only the
+       "当前" highlight and the right-side chat follow sessionId — the doc is
+       identical, so reloading would rebuild the whole canvas for nothing. Only
+       a session OUTSIDE the family (another map opened over this one) triggers
+       a full reload. rootId/doc are read at call time on purpose. */
     if (rootId !== null && (String(sessionId) === String(rootId)
       || (doc?.sessions ?? []).some(s => String(s?.sessionId) === String(sessionId)))) {
       setForkError(null)
@@ -8499,13 +8227,12 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     setPhase({ status: 'loading' })
     setForkError(null)
     /* A different family loads: drop any hover from the previous map (a stale
-       key would match no node in the new layout anyway, but resetting keeps
-       the state honest). In-family switches skip this branch on purpose. */
+       key matches no node anyway, but resetting keeps state honest).
+       In-family switches skip this branch on purpose. */
     setHoverKey(undefined)
     /* Switching to a DIFFERENT family (or a fresh doc): reset the view so the
-       new map is fitted on load instead of inheriting the old transform
-       (fittedRef was only ever set, never reset, so switching maps kept the
-       old pan/zoom). */
+       new map fits on load instead of inheriting the old transform (fittedRef
+       was only ever set, never reset, so switches kept the old pan/zoom). */
     fittedRef.current = false
     viewRef.current = { tx: 0, ty: 0, zoom: 1 }
     const id = String(sessionId)
@@ -8533,11 +8260,10 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     return () => { cancelled = true }
   }, [sessionId])
 
-  /* Empty-state refresh: with phase 'empty', rootId stays null and neither
-     sync effect can run — poll loadDoc so the FIRST completed turn converts
-     the document and the cards appear without a reopen. The probe is cheap: a
-     session without turns answers { exists: false } immediately, and the
-     state is short-lived by nature. */
+  /* Empty-state refresh: with phase 'empty' neither sync effect can run (rootId
+     is null), so poll loadDoc until the first completed turn converts the doc
+     and cards appear without a reopen. The probe is cheap — a session without
+     turns answers { exists: false } immediately. */
   useEffect(() => {
     if (phase.status !== 'empty') return undefined
     let cancelled = false
@@ -8546,10 +8272,10 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       Promise.resolve(loadDocRef.current(id))
         .then((payload) => {
           if (cancelled) return
-          /* The root was archived by a path OUTSIDE the map (harness/sidebar
-             archive): the Host answers { exists: false } and never builds a doc
-             for an archived session. Close the floating window like the sync
-             path does, instead of polling an empty state forever. */
+          /* Root archived OUTSIDE the map (harness/sidebar): the Host answers
+             { exists: false } and never builds a doc for an archived session —
+             close the floating window like the sync path does instead of
+             polling forever. */
           if (payload?.exists === false) {
             mindmapConvertedSessions.delete(String(sessionId))
             mindmapOverlayStore.close()
@@ -8572,20 +8298,19 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   }, [phase.status, sessionId, showNotice])
 
   /* Apply one sync payload: fold the refreshed doc (only when the structure
-     actually changed) and remember the live-turn info for the streaming card
-     (identity-compared so a static question does not re-render the map). */
+     changed) and keep the live-turn info for the streaming card (identity-
+     compared so a static question does not re-render the map). */
   const applySync = useCallback((payload, root) => {
-    /* Apply a response only when its request still matches the CURRENT family
-       (rootIdRef, not the closure rootId) AND no mutation is in flight:
-       - family switch: the closure rootId is stale, so `root === rootId` would
-         overwrite the freshly loaded doc with the previous family's;
-       - fork/delete/truncation: savingRef is set, so a pre-write sync must not
-         overwrite the optimistic doc (the next sync re-fetches the persisted
-         doc and stays consistent). */
+    /* Apply only when the request still matches the CURRENT family (rootIdRef,
+       not the closure rootId) AND no mutation is in flight: after a family
+       switch the closure rootId is stale (would overwrite the fresh doc with
+       the previous family's); during fork/delete/truncation savingRef is set,
+       so a pre-write sync must not overwrite the optimistic doc (the next sync
+       re-fetches and stays consistent). */
     if (!mountedRef.current || root !== rootIdRef.current || savingRef.current) return
-    /* The root was archived outside the map (harness/sidebar archive): the
-       Host answers { exists: false } — close the floating window like the
-       toolbar-archive path instead of leaving a stale map. */
+    /* Root archived outside the map (harness/sidebar): the Host answers
+       { exists: false } — close the floating window instead of leaving a
+       stale map. */
     if (payload?.exists === false) {
       mindmapOverlayStore.close()
       return
@@ -8598,7 +8323,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       setDoc(next)
     }
     /* The live list is identity-compared so a static set of in-flight
-       questions does not re-render the map on every periodic sync. */
+       questions does not re-render the map on every sync. */
     const liveNext = Array.isArray(payload?.live)
       ? payload.live
       : payload?.live !== null && payload?.live !== undefined && typeof payload.live === 'object'
@@ -8625,10 +8350,9 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   }, [])
 
   /* The doc-family sessions currently running: a live streaming card attaches
-     to EACH of their chains, regardless of which session the floating map is
-     "on", and every sync asks for their in-flight questions. Declared BEFORE
-     the debounced effect below — its dependency array reads this binding at
-     call time. */
+     to EACH of their chains (regardless of which session the map is "on"), and
+     every sync asks for their in-flight questions. Declared BEFORE the debounced
+     effect below — its dependency array reads this binding at call time. */
   const runningFamilyIds = useMemo(() => {
     if (doc === null || rootId === null) return []
     const family = [...new Set([String(rootId), ...(doc.sessions ?? []).map(s => String(s?.sessionId))])]
@@ -8638,7 +8362,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   runningFamilyIdsRef.current = runningFamilyIds
 
   /* Periodic sync while mounted: fold new branch turns from the full logs so
-     a branch that completes a turn in the chat appears live. */
+     a branch completing a turn in the chat appears live. */
   useEffect(() => {
     if (rootId === null) return undefined
     const timer = window.setInterval(() => {
@@ -8651,10 +8375,10 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     return () => { clearInterval(timer) }
   }, [applySync, rootId])
 
-  /* Sync shortly after the doc-family running state changes: a run start
-     brings the in-flight questions back quickly; a run end folds the just
-     completed turn (the map may be showing a different session than the one
-     that just ran), debounced against streaming updates. */
+  /* Sync shortly after the doc-family running state changes: a run start brings
+     in-flight questions back quickly; a run end folds the just-completed turn
+     (the map may show a different session than the one that ran). Debounced
+     against streaming updates. */
   useEffect(() => {
     if (rootId === null) return undefined
     const timer = window.setTimeout(() => {
@@ -8668,11 +8392,10 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runningFamilyIds, rootId])
 
-  /* The live streaming cards: every running doc-family session gets a live
-     card appended to its own chain tail. The in-flight question arrives with
-     the next sync payload; until then the card shows the streaming label.
-     Declared BEFORE the layout memo that consumes them (use-before-declaration
-     would throw a TDZ error on every render). */
+  /* The live streaming cards: every running doc-family session gets a live card
+     appended to its own chain tail. The in-flight question arrives with the next
+     sync payload; until then the card shows the streaming label. Declared BEFORE
+     the layout memo that consumes them (use-before-declaration would throw TDZ). */
   const streamingCards = useMemo(() => {
     if (runningFamilyIds.length === 0) return []
     const liveById = new Map()
@@ -8691,10 +8414,9 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   const mountBulge = clampMountBulge(settings.mindmapMountBulge)
   const layout = useMemo(() => mindmapDocLayout(doc, streamingCards, mountBulge), [doc, streamingCards, mountBulge])
 
-  /* Edge path strings plus per-streaming metadata, derived from the layout
-     (edge `d` paths are already precomputed by the layout) and stable between
-     doc changes — memoized so a re-render (rare, after A1 the pan/zoom path
-     never re-renders) does not rebuild them. */
+  /* Edge path strings plus per-streaming metadata, derived from the layout and
+     stable between doc changes — memoized so a re-render does not rebuild them
+     (edge `d` paths are precomputed by the layout). */
   const edgeView = useMemo(() => {
     const byKey = new Map()
     for (const node of layout.nodes) byKey.set(node.key, node)
@@ -8716,18 +8438,17 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       }
       streamingEntries.push(entry)
     }
-    /* An edge that TARGETS a live streaming card (its `to` is a
-       `streaming:<sid>` key, by construction) is a flowing pair edge: it
-       carries its own gradient id + palette derived from the sid embedded in
-       the key, so the flow styling never depends on a node/edge key-matching
-       map. */
+    /* An edge TARGETING a live streaming card (`to` is a `streaming:<sid>` key
+       by construction) is a flowing pair edge: it carries its own gradient id
+       + palette derived from the sid in the key, so flow styling never depends
+       on a key-matching map. */
     const edges = []
     for (const edge of layout.edges) {
       const from = byKey.get(edge.from)
       const to = byKey.get(edge.to)
       if (from === undefined || to === undefined) continue
       /* Keep the edge's from/to identities so the render pass can mark the
-         current card's ancestor-trace edges (from/to are strings). */
+         current card's ancestor-trace edges. */
       let flow
       if (typeof edge.to === 'string' && edge.to.startsWith('streaming:')) {
         const sid = edge.to.slice('streaming:'.length)
@@ -8741,11 +8462,10 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     return { edges, streamingEntries }
   }, [layout])
 
-  /* Viewport interaction: grab-pan on blank area + wheel zoom anchored at the
-     cursor. The transform is applied straight to the canvas element (NOT React
-     state): every wheel tick / drag frame used to re-render the whole map, and
+  /* Viewport interaction: grab-pan on blank area + cursor-anchored wheel zoom.
+     The transform is applied straight to the canvas element (NOT React state):
      a direct style write keeps interaction at frame rate while React only
-     re-renders when the DOC changes. viewRef is the single source of truth. */
+     re-renders when the DOC changes; viewRef is the single source of truth. */
   const applyViewTransform = useCallback(() => {
     const el = canvasRef.current
     if (el === null) return
@@ -8776,21 +8496,21 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     if (fit !== null) updateView(fit)
   }, [layout.height, layout.width, updateView, viewportSize])
   /* Fit once when the map first becomes visible; later layout growth keeps the
-     user's view and 还原视图 restores the fit at any time. */
+     user's view (还原视图 restores the fit at any time). */
   useLayoutEffect(() => {
     if (fittedRef.current) return
     const { vw, vh } = viewportSize()
     const fit = mindmapFitView(layout.width, layout.height, vw, vh)
     if (fit !== null) { fittedRef.current = true; updateView(fit) }
   }, [layout.height, layout.width, updateView, viewportSize])
-  /* Replay the transform after every render: the transform is owned by the
-     DOM, not React state, so a doc-driven re-render must re-apply the current
-     view instead of leaving the canvas at a stale transform. */
+  /* Replay the transform after every render: owned by the DOM, not React state,
+     so a doc-driven re-render re-applies the current view instead of leaving
+     the canvas stale. */
   useLayoutEffect(() => {
     applyViewTransform()
   })
-  /* Wheel zoom with the cursor as the anchor. React attaches wheel as passive
-     at the root, so preventDefault requires a native non-passive listener. */
+  /* Wheel zoom anchored at the cursor. React attaches wheel as passive at the
+     root, so preventDefault requires a native non-passive listener. */
   useEffect(() => {
     const el = viewportRef.current
     if (el === null) return
@@ -8818,8 +8538,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     if (rafRef.current !== 0) { window.cancelAnimationFrame(rafRef.current); rafRef.current = 0 }
   }, [])
   /* Grab-pan: only a press on the viewport/canvas background (not a node)
-     starts a drag; pointer capture keeps tracking motion outside the
-     element. */
+     starts a drag; pointer capture keeps tracking outside the element. */
   const startPan = useCallback((event) => {
     if (event.button !== 0) return
     const target = event.target
@@ -8853,14 +8572,11 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     }
   }, [])
 
-  /* Key of the CURRENT session's chain TAIL for the "当前" highlight (the
-     badge + the solid selection highlight + the ancestor trace all derive
-     from this). The session HEAD card is only an opening/switch identity
-     card and must NEVER carry the badge or the solid current highlight — the
-     badge lands on the chain tail: the last question card, the empty
-     placeholder of a session with no turns yet, or the ephemeral streaming
-     card while the session is generating (which wears its own ring instead
-     of the solid border). */
+  /* Key of the CURRENT session's chain TAIL for the "当前" highlight (badge +
+     solid selection highlight + ancestor trace all derive from it). The HEAD
+     card must NEVER carry the badge or solid highlight — the badge lands on
+     the tail: the last question card, the empty placeholder (no turns yet), or
+     the streaming card while generating (which wears its own ring instead). */
   const currentKey = useMemo(() => {
     if (doc === null || rootId === null) return undefined
     const current = String(sessionId)
@@ -8873,12 +8589,11 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   }, [doc, rootId, runningFamilyIds, sessionId])
 
   /* Ancestor trace of the current card: walk the layout's edges BACKWARD from
-     currentKey (`to → from`) to the root (no incoming edge). Yields the set
-     of parent-node keys — the card itself keeps the solid highlight, hence
-     excluded — and the path's edge identities; the render marks those edges
-     dashed primary-blue and those parent nodes with dashed borders. Memoized
-     on [currentKey, layout] so an in-family session switch re-traces cheaply
-     without touching the pan/zoom path; lookups are O(1) Set reads. */
+     currentKey (`to → from`) to the root (no incoming edge). Yields the parent
+     node keys (the card itself keeps the solid highlight, hence excluded) and
+     the path's edge identities; the render marks those edges dashed primary-blue
+     and those parent nodes with dashed borders. Memoized on [currentKey, layout]
+     so an in-family switch re-traces cheaply without touching the pan/zoom path. */
   const trace = useMemo(() => {
     const ancestorSet = new Set()
     const activeEdgeKeys = new Set()
@@ -8896,12 +8611,10 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     return { ancestorSet, activeEdgeKeys }
   }, [currentKey, layout])
 
-  /* Hover ancestor trace: the SAME backward walk as `trace` above, but rooted
-     at the card currently under the pointer instead of the selected card. The
-     two traces are rendered as a union, so hovering adds its chain on top of
-     the selection's without disturbing it. A stale hoverKey (e.g. the card
-     was replaced by a sync while hovered) matches no node and yields an empty
-     trace. */
+  /* Hover ancestor trace: the SAME backward walk as `trace`, but rooted at the
+     card under the pointer. The two traces render as a union, so hovering adds
+     its chain over the selection's. A stale hoverKey (card replaced by a sync
+     while hovered) matches no node and yields an empty trace. */
   const hoverTrace = useMemo(() => {
     const ancestorSet = new Set()
     const activeEdgeKeys = new Set()
@@ -8919,19 +8632,17 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     return { ancestorSet, activeEdgeKeys }
   }, [hoverKey, layout])
 
-  /* Open a session inside the map: the wrapped openSession switches the
-     right-side conversation to it and moves the "当前" highlight here; the
-     floating overlay itself stays open (there is no view ring anymore). */
+  /* Open a session inside the map: openSession switches the right-side chat to
+     it and moves the "当前" highlight here; the overlay itself stays open. */
   const openBranch = useCallback((id) => {
     openSessionRef.current(String(id))
   }, [])
 
   /* Fork a new branch session at a card's turn/end seq, record it in the doc
      and persist. The child opens ONLY after the doc write completes, so the
-     new branch is already part of the document when shown — its mind-map view
-     can never miss the document and split off a new one. The injected forkAt
-     no longer opens the child; this function opens it into the chat so the
-     conversation continues from the clicked card. */
+     branch is already in the document when shown (its map view can never miss
+     the doc and split off a new one). forkAt no longer opens the child; this
+     function opens it into the chat so the conversation continues from there. */
   const forkBranchAt = useCallback((ownerId, turn) => {
     /* The ref is the authoritative same-tick gate (see forkingRef above); the
        state guard additionally stops a second fork after re-render. */
@@ -8960,21 +8671,20 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
         try {
           await saveDocRef.current(root, next)
         } catch (error) {
-          /* The branch must not outlive its document entry: archive the
-             freshly forked (still empty) session so a failed write cannot
-             leave an orphaned branch session behind. */
+          /* The branch must not outlive its document entry: archive the fresh
+             (still empty) session so a failed write can't leave an orphan. */
           try { await archiveSessionRef.current(String(childId)) } catch { /* best effort */ }
-          /* Roll the optimistic branch back (unless a concurrent sync has
-             since moved the doc on) so a failed fork never leaves a card
-             whose session was just archived in the map — the periodic sync
-             would otherwise keep showing a dead branch for up to 2.5 s. */
+          /* Roll the optimistic branch back (unless a concurrent sync has since
+             moved the doc on) so a failed fork never leaves a card whose session
+             was just archived — the periodic sync would otherwise keep showing
+             a dead branch for up to 2.5 s. */
           setDoc(prev => (prev === next ? currentDoc : prev))
           lastFingerprintRef.current = mindmapDocFingerprint(currentDoc)
           throw error
         }
         if (!mountedRef.current) return
-        /* Open into chat (the child's default view) so the next message
-           extends from exactly the clicked card. */
+        /* Open into chat so the next message extends from exactly the clicked
+           card. */
         openSessionRef.current(String(childId))
       })
       .then(() => {
@@ -8992,13 +8702,12 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       })
   }, [doc, forking, rootId, showNotice])
 
-  /* Click the VIRTUAL root node: create a brand-new EMPTY top-level session
-     (a fresh harness session with no inherited turns) that hangs directly off
-     the root node, record it in the doc and persist, then open it so the user
-     can immediately ask the first question. The session is created in the
-     workspace the map was CREATED in (doc.workspaceCwd, recorded at
-     conversion) so it lands in the same sidebar group regardless of where the
-     anchor session currently lives. */
+  /* Click the VIRTUAL root node: create a brand-new EMPTY top-level session (no
+     inherited turns) hanging directly off the root node, record it in the doc
+     and persist, then open it so the user can ask the first question. It is
+     created in the workspace the map was CREATED in (doc.workspaceCwd, recorded
+     at conversion) so it lands in the same sidebar group wherever the anchor
+     session now lives. */
   const addRootSession = useCallback(() => {
     /* The ref is the authoritative same-tick gate (see forkingRef above); the
        state guard additionally stops a second create after re-render. */
@@ -9030,7 +8739,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
           await saveDocRef.current(root, next)
         } catch (error) {
           /* The fresh session must not outlive its document entry: archive it
-             so a failed write cannot leave an orphaned session behind. */
+             so a failed write can't leave an orphan. */
           try { await archiveSessionRef.current(String(childId)) } catch { /* best effort */ }
           setDoc(prev => (prev === next ? currentDoc : prev))
           lastFingerprintRef.current = mindmapDocFingerprint(currentDoc)
@@ -9055,20 +8764,18 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       })
   }, [doc, forking, rootId, showNotice])
 
-  /* Click a node: the root node creates a NEW top-level session; a head node
-     switches to its session; a card switches (parked tail / streaming / empty
-     placeholder) or forks a nested session (intermediate card, or the last
-     completed card of a session that is CURRENTLY generating — its real tail
-     is the streaming card). The new session joins the SAME document — never a
-     new mind map — and stays hidden from the sidebar list. */
+  /* Click a node: the root creates a NEW top-level session; a head switches to
+     its session; a card switches (parked tail / streaming / empty placeholder)
+     or forks a nested session (intermediate card, or the last completed card of
+     a session CURRENTLY generating — its real tail is the streaming card). The
+     new session joins the SAME document — never a new mind map — and stays
+     hidden from the sidebar list. */
   const openCard = useCallback((node) => {
     if (node === undefined || forking) return
-    /* Single source of truth for the click outcome: the same decision tree
-       the hover hint uses (mindmapCardClickAction), so the hint can never
-       drift from the real behavior. 'new' creates a top-level session at the
-       root node; 'switch' opens the node's own session (head / streaming /
-       empty placeholder / parked tail); 'fork' branches a new session at this
-       card's turn. */
+    /* Single source of truth for the click outcome: the same decision tree the
+       hover hint uses (mindmapCardClickAction), so the hint can never drift.
+       'new' creates a top-level session at the root; 'switch' opens the node's
+       own session; 'fork' branches a new session at this card's turn. */
     const action = mindmapCardClickAction(node, doc, runningFamilyIds)
     if (action === 'new') addRootSession()
     else if (action === 'switch') openBranch(node.sessionId)
@@ -9077,7 +8784,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
 
   /* Right-click a node: remember WHICH node so the menu can rename a session
      (head / card) or delete a card; the root node offers no menu (the toolbar
-     carries 归档整个导图). */
+     has 归档整个导图). */
   const openCardMenu = useCallback((entry, x, y) => {
     if (entry.kind === 'root') {
       /* Root menu: choose the workspace new sessions land in (from the doc's
@@ -9159,9 +8866,9 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       })
   }, [renameBusy, renameTarget, showNotice])
 
-  /* Pick the workspace (from the root node's right-click menu) new top-level
-     sessions created by clicking the root node will land in. Persisted to the
-     doc's workspaceCwd; '' clears the choice (ungrouped). */
+  /* Pick the workspace new top-level sessions (created via the root node's
+     click) will land in. Persisted to the doc's workspaceCwd; '' clears the
+     choice (ungrouped). */
   const selectWorkspace = useCallback((cwd, title) => {
     if (menu === null || menu.kind !== 'root' || doc === null || rootId === null) return
     setMenu(null)
@@ -9188,8 +8895,8 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
 
   /* Archive ONE session branch (right-click a session head): archive the
      session + its whole subtree and remove it from the doc. Re-anchors when
-     the archived session was the doc's anchor; blocked when it would empty
-     the map (use 归档整个导图 instead). */
+     the archived session was the anchor; blocked when it would empty the map
+     (use 归档整个导图 instead). */
   const startArchiveBranch = useCallback(() => {
     if (menu === null || menu.kind !== 'head') return
     const plan = mindmapDeletePlan(doc, String(menu.sessionId), undefined, true)
@@ -9290,9 +8997,8 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       for (const id of unique) await archiveSessionRef.current(String(id))
       if (root !== null && root !== undefined) await deleteDocRef.current(String(root))
       mindmapRegistry.markDirty()
-      /* The document is gone: close the floating window instead of leaving
-         a stale map (a later sync could otherwise resurrect the doc from
-         the root's log). */
+      /* The document is gone: close the floating window instead of leaving a
+         stale map (a later sync could resurrect the doc from the root's log). */
       mindmapOverlayStore.close()
     }
     run()
@@ -9313,7 +9019,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   const startDelete = useCallback(() => {
     if (menu === null || menu.kind !== 'card') return
     /* Pre-compute the plan so the dialog can warn when the CURRENT session is
-       one of the pruned subtree sessions (it will be archived and the view
+       among the pruned subtree sessions (it will be archived and the view
        switched away). */
     const plan = mindmapDeletePlan(doc, String(menu.sessionId), menu.turnSeq, menu.empty === true)
     setMenu(null)
@@ -9338,8 +9044,8 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     setDeleteError(null)
   }, [deleteBusy])
   /* Escape closes the archive / delete dialogs (rename and the context menu
-     already handle their own). The overlay's own Escape handler defers while
-     a .dsh-ws-dialog-backdrop is in the DOM, so without this the key would do
+     handle their own). The overlay's own Escape handler defers while a
+     .dsh-ws-dialog-backdrop is in the DOM, so without this the key does
      nothing while one of these dialogs is open. */
   useEffect(() => {
     if (archiveTarget === null && deleteTarget === null && archiveBranchTarget === null) return undefined
@@ -9369,8 +9075,8 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
        root (and the map file moves to it): it must not get the branch " ›"
        suffix (forkAt renames branch children to it), so the child is told it
        is replacing the root. A whole-session removal of the anchor re-anchors
-       the doc to the first remaining session. Both retire the old root's doc
-       file via prevSessionId. */
+       to the first remaining session. Both retire the old root's doc file via
+       prevSessionId. */
     const isRootReplacement = plan.replaced !== null && String(plan.replaced.sessionId) === String(root)
     Promise.resolve(
       plan.replaced === null
@@ -9379,10 +9085,9 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       .then(async (childId) => {
         if (plan.replaced !== null) {
           /* A truncation fork succeeded: swap the replaced session's entry to
-             the fork child. The kept cards keep their display numbers (the
-             fork child's seed carries the same turn/end seqs), and every
-             surviving session that hung off the replaced session re-anchors
-             to it. */
+             the fork child. The kept cards keep their display numbers (the fork
+             child's seed carries the same turn/end seqs), and every surviving
+             session that hung off the replaced session re-anchors to it. */
           if (childId === null || childId === undefined) throw new Error(translate('mindmap.delete.missing'))
           forkedChildId = String(childId)
           const replacedId = String(plan.replaced.sessionId)
@@ -9391,16 +9096,15 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
           next.sessions = next.sessions.map(s =>
             String(s?.parentSessionId) === replacedId ? { ...s, parentSessionId: forkedChildId } : s)
           if (isRootReplacement) next.rootSessionId = forkedChildId
-          /* No tombstones: the truncated session's log simply lacks the
-             removed turns and the old session (plus every pruned subtree
-             session) is archived, so nothing is recorded about which turns
-             were cut. A failed archive may legitimately resurrect the old
-             session or leak a pruned session into the sidebar later (ACCEPTED
-             behavior — see docs/mindmap-notes.md). */
+          /* No tombstones: the truncated session's log just lacks the removed
+             turns and the old session (plus every pruned subtree session) is
+             archived, so nothing records which turns were cut. A failed archive
+             may legitimately resurrect the old session or leak a pruned session
+             into the sidebar (ACCEPTED — see docs/mindmap-notes.md). */
         } else {
           /* Whole-session removal: prune the session entry; the session (and
              its subtree) is archived. A failed archive may resurrect the
-             placeholder later (ACCEPTED behavior). */
+             placeholder later (ACCEPTED). */
           next.sessions = plan.sessions
         }
         /* Re-anchor when the anchor session itself was removed. */
@@ -9419,11 +9123,11 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
         setDoc(next)
         lastFingerprintRef.current = mindmapDocFingerprint(next)
         /* A root replacement retires the old root's doc file in the SAME
-           request (the Host writes the new doc and leaves an alias stub at
-           the old path), so no stale doc can split the family. */
+           request (the Host writes the new doc and leaves an alias stub at the
+           old path), so no stale doc can split the family. */
         await saveDocRef.current(saveRoot, next, undefined, prevRoot)
-        /* Archive the pruned subtree sessions AND the replaced session (the
-           old session, whose full log now lives only in the archive). */
+        /* Archive the pruned subtree sessions AND the replaced session (whose
+           full log now lives only in the archive). */
         const archiveIds = [...plan.archiveIds]
         if (plan.replaced !== null) archiveIds.push(String(plan.replaced.sessionId))
         await Promise.all(archiveIds.map(id => archiveSessionRef.current(String(id)).catch(() => {})))
@@ -9445,8 +9149,8 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
         /* Roll the in-memory doc back; nothing was archived yet. A fork that
            already happened but whose doc write failed must not outlive the
            document: archive the freshly forked (empty) child. The rollback is
-           identity-checked (like forkBranchAt) so a doc advanced by a
-           concurrent sync mid-operation is preserved instead of reverted. */
+           identity-checked (like forkBranchAt) so a doc advanced by a concurrent
+           sync mid-operation is preserved instead of reverted. */
         if (mountedRef.current) {
           setDoc(prev => (prev === next ? currentDoc : prev))
           lastFingerprintRef.current = mindmapDocFingerprint(currentDoc)
@@ -9473,9 +9177,9 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       h('div', { className: 'dsh-ws-mindmap-empty' }, translate('mindmap.empty')))
   }
 
-  /* The map's header shows the mind map's OWN title (doc.rootTitle), which is
-     independent of the root session's title after a sidebar rename; the
-     session title is only the fallback when the doc has none. */
+  /* The header shows the mind map's OWN title (doc.rootTitle), independent of
+     the root session's title after a sidebar rename; the session title is only
+     the fallback when the doc has none. */
   const rootTitle = doc?.rootTitle
     || (rootId !== null && rootId !== undefined ? (list.titles[rootId] ?? '') : '')
     || ''
@@ -9485,10 +9189,9 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     const isStreaming = entry.streaming === true
     const title = list.titles[String(entry.sessionId)] || translate('mindmap.session.untitled')
     const isRunning = runningFamilyIds.includes(String(entry.sessionId))
-    /* Ring: the streaming card and its parent node (card or head) both wear
-       the pair's flowing gradient border. A node that is the parent of several
-       streaming cards (two sessions forked at it, both generating) takes the
-       first pair's palette. */
+    /* Ring: the streaming card and its parent node (card or head) both wear the
+       pair's flowing gradient border. A node that is the parent of several
+       streaming cards takes the first pair's palette. */
     let ringPalette = undefined
     if (isStreaming) {
       const info = streamingEntries.find(s => s.entry.key === entry.key)
@@ -9500,8 +9203,8 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     /* Single source of truth for what this node IS / does: the same decision
        tree as openCard and the hover hint. The click action is computed once
        and drives BOTH the hover hint ('fork' → 点击分支 / 'switch' → 点击跳转)
-       and the always-visible capsule (fork glyph "分支" vs. end chip "末端"),
-       so the hint and the chip can never drift apart. */
+       and the capsule (fork glyph "分支" vs. end chip "末端"), so the hint and
+       chip can never drift apart. */
     const clickAction = mindmapCardClickAction(entry, doc, runningFamilyIds)
     const common = {
       key: entry.key,
@@ -9698,13 +9401,12 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
                 })
               }
               /* A flowing pair edge renders as a solid underlay (palette c1 —
-                 the connection is always visibly colored even if the gradient
-                 reference cannot resolve) plus the animated gradient dashes on
-                 top. Both strokes are inline styles, which beat every CSS
-                 stroke rule (and never fall back to the default gray). Neither
-                 the selection (blue) nor the hover (amber) trace class is ever
-                 added here, so this edge is immune to both effects — the
-                 flowing look is the stronger signal on the pair. */
+                 the connection stays colored even if the gradient reference
+                 can't resolve) plus the animated gradient dashes on top. Both
+                 strokes are inline styles, beating every CSS stroke rule (never
+                 falling back to gray). Selection/hover trace classes are never
+                 added here, so the edge is immune to both — the flowing look is
+                 the stronger signal on the pair. */
               return h(Fragment, { key: index },
                 h('path', {
                   className: 'dsh-ws-mindmap-edge dsh-ws-mindmap-edge-flow-under',
@@ -9727,12 +9429,10 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
 
 /* Hides mind-map family sessions (root + every fork descendant) from the
    sidebar list; each mind map is shown by its self-drawn entry instead.
-   Rows are matched by title in the workspace browser (role="treeitem"),
-   rescanned on every DOM mutation and mind-map index change so a freshly
-   converted session hides as soon as its doc exists. A title hides a row
-   only when every session with that title is hidden (a visible non-mindmap
-   session sharing it keeps it visible); archived sessions add no titles and
-   the always-running clearing pass self-heals wrongly hidden rows. */
+   Rows are matched by title and rescanned on every DOM mutation / index
+   change. A title hides a row only when every session with that title is
+   hidden (a visible non-mindmap sharing it keeps it visible); archived
+   sessions add no titles and the clearing pass self-heals bad rows. */
 function installMindmapBranchHider(getSessionList, getArchivedSessionIds, getWorkspaces) {
   if (typeof document === 'undefined') return () => {}
   let timer = 0
@@ -9741,9 +9441,8 @@ function installMindmapBranchHider(getSessionList, getArchivedSessionIds, getWor
     timer = 0
     lastRun = Date.now()
     /* No mind-map docs: skip the session walk (the observer fires on every
-       body mutation, so this keeps idle streaming from re-scanning the whole
-       sidebar), but still clear any previously applied hidden class so rows
-       self-heal the moment the last doc disappears. */
+       body mutation) but clear any applied hidden class so rows self-heal
+       the moment the last doc disappears. */
     if (mindmapRegistry.getDocs().length === 0) {
       const browser = document.querySelector('[data-slot="sidebar.workspaces"]')
       if (browser !== null) {
@@ -9778,25 +9477,22 @@ function installMindmapBranchHider(getSessionList, getArchivedSessionIds, getWor
     const browser = document.querySelector('[data-slot="sidebar.workspaces"]')
     if (browser === null) return
     for (const row of browser.querySelectorAll('[role="treeitem"]')) {
-      // Workspace group headers expose aria-expanded; they are NOT session
-      // rows and must never be hidden, even when a group title equals a
-      // family title (the sidebar context-menu matcher applies the same rule).
+      // Workspace group headers expose aria-expanded — not session rows, so
+      // never hidden even when a group title equals a family title.
       if (row.hasAttribute('aria-expanded')) continue
-      // Match the row's title by its title span, not any leaf span: message
-      // count badges and empty spacer spans would otherwise be caught by a
-      // numeric or empty family title.
+      // Match the title via its title span, not any leaf span: badges / empty
+      // spacer spans would be caught by a numeric or empty family title.
       const titleSpan = row.querySelector('span[class*="title"]')
       const matched = titleSpan !== null && hideTitles.has((titleSpan.textContent ?? '').trim())
       row.classList.toggle('dsh-ws-mindmap-hidden-row', matched)
     }
-    /* The harness sizes the overflow button from group.sessions.length, which
-       includes the rows this hider hides — recompute the visible remainder
-       and patch the count (or hide the button when nothing is left behind). */
+    /* The harness sizes the overflow button from group.sessions.length (which
+       includes hidden rows) — recompute the visible remainder, patch the count
+       or hide the button when nothing is left behind. */
     const workspaces = getWorkspaces?.() ?? []
     for (const header of browser.querySelectorAll('[role="treeitem"][aria-expanded]')) {
-      /* Real-workspace headers sit inside a HoverCard span (the ungrouped
-         bucket header does not), so walk up to the section holding the
-         overflow button. */
+      /* Real-workspace headers sit inside a HoverCard span (ungrouped header
+         does not); walk up to the section holding the overflow button. */
       let section = header.parentElement
       while (section !== null && section !== browser
           && section.querySelector(':scope > button[aria-expanded]') === null) {
@@ -9812,8 +9508,8 @@ function installMindmapBranchHider(getSessionList, getArchivedSessionIds, getWor
       const rows = [...section.querySelectorAll('[role="treeitem"]')]
         .filter(row => !row.hasAttribute('aria-expanded'))
       const hiddenInRows = rows.filter(row => row.classList.contains('dsh-ws-mindmap-hidden-row')).length
-      /* Match the group by header title: real workspace -> its sessionIds;
-         anything else is the ungrouped bucket (sessions no workspace has). */
+      /* Match group by header title: real workspace -> its sessionIds; else
+         the ungrouped bucket (sessions no workspace has). */
       const titleEl = header.querySelector('span[class*="title"]')
       const groupTitle = (titleEl?.textContent ?? '').trim()
       const workspace = workspaces.find(w => w.title === groupTitle)
@@ -9824,8 +9520,7 @@ function installMindmapBranchHider(getSessionList, getArchivedSessionIds, getWor
         const accounted = new Set(workspaces.flatMap(w => (w.sessionIds ?? []).map(String)))
         ids = list.ids.filter(id => !accounted.has(String(id)))
       }
-      /* Count visible rows the harness renders (non-subagent, non-archived,
-         blank only when current) minus titles this hider hides. */
+      /* Count visible rows the harness renders minus titles this hider hides. */
       let visibleCount = 0
       for (const id of ids) {
         const summary = list.byId[id]
@@ -9850,9 +9545,8 @@ function installMindmapBranchHider(getSessionList, getArchivedSessionIds, getWor
       }
     }
   }
-  /* Time throttle: the observer fires per DOM mutation (streaming churn), and
-     a rAF-only coalesce would still scan up to 60×/s. One scan per throttle
-     window keeps the sidebar hiding fresh without global jank. */
+  /* Time throttle: the observer fires per DOM mutation (streaming churn); one
+     scan per throttle window keeps the hiding fresh without global jank. */
   const schedule = () => {
     if (timer !== 0) return
     const wait = Math.max(0, MINDMAP_HIDER_THROTTLE_MS - (Date.now() - lastRun))
@@ -9866,8 +9560,8 @@ function installMindmapBranchHider(getSessionList, getArchivedSessionIds, getWor
     observer.disconnect()
     unsubscribe()
     if (timer !== 0) { clearTimeout(timer); timer = 0 }
-    /* Restore every row this hider touched so a hot reload / uninstall cannot
-       leave the hidden class stuck on the DOM. */
+    /* Restore every touched row so hot reload / uninstall cannot leave the
+       hidden class stuck on the DOM. */
     const browser = document.querySelector('[data-slot="sidebar.workspaces"]')
     if (browser !== null) {
       for (const row of browser.querySelectorAll('[role="treeitem"].dsh-ws-mindmap-hidden-row')) {
@@ -9904,14 +9598,12 @@ const MINDMAP_ICON = h('g', { fill: 'none', stroke: 'currentColor', strokeLineca
   h('path', { d: 'M5 7l7 10' }),
   h('path', { d: 'M19 7l-7 10' }))
 
-/* Self-drawn mind-map entries in the sidebar, replacing the hidden ordinary
-   session rows. Rendered per workspace group (groupTitle set): each panel
-   shows only docs whose root session belongs to that group's workspace; with
-   groupTitle undefined (flat/search fallback) every doc is shown. Clicking an
-   entry opens the root session and the floating mind-map overlay. Entries can
-   be dragged to reorder (persisted per group in localStorage) and have a
-   right-click menu (rename the root session / reveal its workspace in the OS
-   explorer). */
+/* Self-drawn sidebar entries replacing the hidden ordinary session rows.
+   Rendered per workspace group: only docs whose root session belongs to that
+   group's workspace; with groupTitle undefined (flat/search) every doc is
+   shown. Clicking opens the root session + floating mind-map overlay; drag
+   reorders (persisted per group in localStorage); right-click renames the
+   root session or reveals its workspace in the OS explorer. */
 const MINDMAP_ORDER_ALL_KEY = '__all__'
 function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, openSession, revealSession }) {
   useMindmapRegistry()
@@ -9938,21 +9630,17 @@ function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, openSess
     const item = workspaces.find(w => (w.sessionIds ?? []).includes(String(doc.sessionId)))
       || (row?.cwd !== undefined ? workspaces.find(w => w.path === row.cwd) : undefined)
     const docTitle = item?.title
-    /* A doc whose workspace resolves to a real Host workspace (accounted by
-       sessionIds, or a canonical cwd match) appears ONLY under that
-       workspace's group, matched by its exact title. */
+    /* A doc whose workspace resolves to a real Host workspace appears ONLY
+       under that workspace's group, matched by its exact title. */
     if (docTitle !== undefined) return docTitle === groupTitle
-    /* A doc with no resolvable workspace (not accounted by any workspace and
-       no cwd match) lives in the ungrouped bucket — the group whose title is
-       not any real workspace's title (or the flat fallback seat). Exact-match
-       grouping is safe here: real workspace group headers render their
-       canonical title and the ungrouped bucket the localized label, so a
-       resolved doc never falls through to the ungrouped bucket. */
+    /* A doc with no resolvable workspace lives in the ungrouped bucket (its
+       title matches no real workspace). Exact-match grouping is safe: real
+       workspace headers render their canonical title and the ungrouped bucket
+       the localized label, so a resolved doc never falls through. */
     return !workspaces.some(w => w.title === groupTitle)
   })
   const groupKey = groupTitle === undefined ? MINDMAP_ORDER_ALL_KEY : groupTitle
-  /* Apply the persisted per-group order; unknown docs keep their default
-     (registry) order at the end. */
+  /* Apply the persisted per-group order; unknown docs keep registry order. */
   const storedOrder = readMindmapOrder()[groupKey] ?? []
   const orderIndex = new Map(storedOrder.map((id, index) => [String(id), index]))
   const ordered = [...entries].sort((a, b) => {
@@ -9963,12 +9651,10 @@ function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, openSess
     if (ib === undefined) return -1
     return ia - ib
   })
-  /* In per-group mode an empty group renders nothing so the seat collapses
-     (CSS :empty); only the region-area fallback shows the empty-state hint.
-     The injected container is the styled seat, so this renders children
-     directly (Fragment) instead of a nested .dsh-ws-sidebar-mindmaps div. */
-  /* NOTE: the early return below must come AFTER every hook (React #310
-     "rendered more hooks than during the previous render" otherwise). */
+  /* In per-group mode an empty group renders nothing (CSS :empty collapses
+     the seat); only the fallback shows the empty hint. The injected container
+     is the styled seat, so children render directly (Fragment). */
+  /* NOTE: the early return below must come after every hook (React #310). */
   useEffect(() => {
     if (contextMenu === null) return undefined
     const close = () => setContextMenu(null)
@@ -10115,8 +9801,8 @@ function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, openSess
           const count = (doc.branchSessionIds ?? []).length
           const sid = String(doc.sessionId)
           /* Any family member streaming (summary.running flips at generation
-             start, no sync wait) spins the entry's icon — the visible signal
-             the hidden ordinary rows would have shown. */
+             start) spins the entry's icon — the signal the hidden rows would
+             have shown. */
           const running = [sid, ...(doc.branchSessionIds ?? [])].some(id => list.byId[id]?.running === true)
           return h('button', {
             className: 'dsh-ws-sidebar-mindmaps-item',
@@ -10126,8 +9812,7 @@ function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, openSess
             draggable: true,
             key: sid,
             /* A genuine drag ends with a click in some engines; suppress the
-               click that lands right after a drag so reordering never opens
-               the session by accident. */
+               click right after a drag so reordering never opens the session. */
             onClick: () => {
               if (Date.now() - lastDragEndRef.current < 400) return
               openSession(sid)
@@ -10151,24 +9836,19 @@ function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, openSess
     renameView)
 }
 /* Sessions the user has converted to a mind map this app session. The doc
-   index registry is only refreshed every 5 s, so right after a conversion
-   `isMember` is still false: without this set the header button would re-offer
-   the convert dialog on the very next click instead of toggling the overlay.
-   Entries become redundant the moment the registry catches up and are pruned
-   then (see MindmapHeaderButton), so the set only ever holds in-flight
-   conversions. */
+   index refreshes only every 5 s, so right after a conversion `isMember` is
+   still false: without this set the button would re-offer the convert dialog.
+   Entries are pruned when the registry catches up (see MindmapHeaderButton),
+   so the set only ever holds in-flight conversions. */
 const mindmapConvertedSessions = new Set()
 /* The session-header mind-map button: opens the floating mind-map overlay
-   for the current session (the chat stays visible on the right) instead of
-   switching to a full-page map. Clicking again (or the overlay's close
-   button / Escape) closes the window. On a NORMAL session (not yet a
-   mind-map member) the first click asks for confirmation before converting
-   it; only on "yes" does the conversion happen — otherwise nothing changes. */
+   for the current session (chat stays visible) instead of a full-page map.
+   Clicking again / close / Escape closes it. On a NORMAL session the first
+   click asks for confirmation before converting; only "yes" converts. */
 function MindmapHeaderButton({ sessionId }) {
   const overlay = useMindmapOverlay()
-  // Track the doc index so isMember sees a fresh conversion (a normal session
-  // becoming a mind-map member) without an unrelated re-render, or the button
-  // would keep offering the convert dialog after the conversion.
+  // Track the doc index so isMember sees a fresh conversion without an
+  // unrelated re-render, or the button keeps offering the convert dialog.
   const registry = useMindmapRegistry()
   const registryVersion = registry.getVersion()
   const [confirmTarget, setConfirmTarget] = useState(null)
@@ -10177,12 +9857,10 @@ function MindmapHeaderButton({ sessionId }) {
       mindmapConvertedSessions.delete(String(sessionId))
     }
   }, [registryVersion, sessionId])
-  /* Escape closes the confirm dialog. The overlay's own Escape handler defers
+  /* Escape closes the confirm dialog: the overlay's own Escape handler defers
      while any .dsh-ws-dialog-backdrop is in the DOM, so this window listener
-     is required while the dialog is open. It sits BEFORE the early return so
-     a transition from sessionId===undefined to a defined id does not change
-     the hook count (React #310; closeConfirm is used lazily in the effect, so
-     its later declaration is safe). */
+     is required. It sits before the early return so a sessionId transition
+     does not change the hook count (React #310). */
   useEffect(() => {
     if (confirmTarget === null) return undefined
     const onKeyDown = event => { if (event.key === 'Escape') closeConfirm() }
@@ -10193,21 +9871,18 @@ function MindmapHeaderButton({ sessionId }) {
   if (sessionId === undefined || sessionId === null) return null
   const key = String(sessionId)
   const active = overlay.open && String(overlay.sessionId) === key
-  /* The background index may be a few seconds behind a fresh conversion, so
-     the "is this already a mind map" check uses the last known registry
-     membership (roots + documented branches) plus the in-flight conversions
-     this session started (see mindmapConvertedSessions). */
+  /* The background index may lag a fresh conversion, so the membership check
+     uses the last known registry state plus in-flight conversions
+     (see mindmapConvertedSessions). */
   const member = mindmapRegistry.isMember(key) || mindmapConvertedSessions.has(key)
   const label = translate('view.mindmap')
   const onButtonClick = () => {
-    /* Once the registry confirms membership, the converted-set entry is
-       redundant — drop it so the set only tracks unconfirmed conversions. */
+    /* Registry confirms membership: drop the redundant converted-set entry. */
     if (mindmapRegistry.isMember(key)) mindmapConvertedSessions.delete(key)
     /* Already a mind-map member (root or branch): plain open/close toggle. */
     if (member) { mindmapOverlayStore.toggle(key); return }
-    /* The overlay is open on this normal session (e.g. an empty session with
-       no turns yet, or the registry has not caught up after a conversion):
-       the button still acts as a close toggle. */
+    /* Overlay open on a normal session (empty session / registry not caught
+       up): the button still acts as a close toggle. */
     if (active) { mindmapOverlayStore.close(); return }
     /* A normal session: ask before converting it into a mind map. */
     setConfirmTarget(key)
@@ -10215,14 +9890,13 @@ function MindmapHeaderButton({ sessionId }) {
   const closeConfirm = () => setConfirmTarget(null)
   const confirmConvert = () => {
     setConfirmTarget(null)
-    /* Remember the conversion so the next click toggles instead of re-asking
-       until the background doc index catches up (see mindmapConvertedSessions). */
+    /* Remember the conversion so the next click toggles until the background
+       index catches up (see mindmapConvertedSessions). */
     mindmapConvertedSessions.add(key)
     mindmapOverlayStore.open(key)
   }
   /* Portal the confirm dialog to body: .dsh-ws-chat clips fixed-position
-     descendants, so the modal would be cut to the chat column instead of
-     covering the viewport (Escape handling lives in the effect above). */
+     descendants, so the modal would be cut to the chat column. */
   const confirmView = confirmTarget !== null ? createPortal(
     h('div', {
       className: 'dsh-ws-dialog-backdrop',
@@ -10251,10 +9925,9 @@ function MindmapHeaderButton({ sessionId }) {
       h('span', { className: 'dsh-ws-mindmap-header-label' }, label)),
     confirmView)
 }
-/* The sidebar-footer mobile toggle: switches the layout to the centered
-   phone column. Entering mobile opens the floating sidebar drawer by default
-   so browsing stays reachable; leaving clears the drawer and file-fullscreen
-   sub-states. */
+/* The sidebar-footer mobile toggle: switches to the centered phone column.
+   Entering mobile opens the floating sidebar drawer by default; leaving
+   clears the drawer and file-fullscreen sub-states. */
 function MobileModeToggle(props) {
   const { on } = useMobile()
   const label = translate('mobile.toggle')
@@ -10274,8 +9947,8 @@ function MobileModeToggle(props) {
     props.wide ? h('span', { className: 'dsh-ws-mobile-toggle-label' }, label) : null,
   )
 }
-/* The whale button that opens/closes the floating sidebar drawer in mobile
-   mode (the shared chrome for the session header and the hero overlay). */
+/* The whale button toggling the mobile floating sidebar drawer (shared by
+   the session header and the hero overlay). */
 function MobileWhaleButton({ open, onToggle }) {
   const label = open ? translate('mobile.sidebarClose') : translate('mobile.sidebarOpen')
   return h('button', {
@@ -10290,8 +9963,8 @@ function MobileWhaleButton({ open, onToggle }) {
       h('path', { d: FISH })))
 }
 /* The file-content-browsing button shared by the session header and the hero
-   overlay: toggles file-fullscreen mode (setMobileFiles) and shows its active
-   state via dsh-ws-mobile-active. */
+   overlay: toggles file-fullscreen (setMobileFiles), showing active state via
+   dsh-ws-mobile-active. */
 function MobileFilesButton() {
   const { files } = useMobile()
   return h('button', {
@@ -10306,10 +9979,10 @@ function MobileFilesButton() {
       h('path', { d: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z', stroke: 'currentColor', strokeLinejoin: 'round', strokeWidth: 1.6 }),
       h('path', { d: 'M14 2v6h6', stroke: 'currentColor', strokeLinejoin: 'round', strokeWidth: 1.6 })))
 }
-/* The session-header mobile controls: the whale (drawer toggle) plus the
-   file-content-browsing button, at the phone column's top-left. CSS hides
-   them outside mobile mode. The drawer's outside-click scrim is drawn by
-   AppFrame (its sibling), so it always stacks between page and drawer. */
+/* Session-header mobile controls: the whale (drawer toggle) + file button at
+   the phone column's top-left; CSS hides them outside mobile. The drawer
+   scrim is drawn by AppFrame (its sibling) so it stacks between page and
+   drawer. */
 function MobileHeaderControls() {
   const { drawerOpen } = useMobile()
   return h('div', { className: 'dsh-ws-mobile-controls' },
@@ -10317,19 +9990,18 @@ function MobileHeaderControls() {
     h(MobileFilesButton))
 }
 /* The hero-page whale + file button, rendered in the shell.overlay seat for
-   the blank-session hero, where there is no session header. Visible only
-   under the mobile gate + hero page (CSS :has gate, mirroring mobile-preview). */
+   the blank-session hero (no session header there). Visible only under the
+   mobile gate + hero page (CSS :has gate). */
 function MobileHeroControls() {
   const { drawerOpen } = useMobile()
   return h('div', { className: 'dsh-ws-mobile-hero' },
     h(MobileWhaleButton, { onToggle: () => setDrawerOpen(!drawerOpen), open: drawerOpen }),
     h(MobileFilesButton))
 }
-/* The floating mind-map window, rendered by AppFrame while the overlay is
+/* The floating mind-map window rendered by AppFrame while the overlay is
    open. It spans everything left of the chat column (100% − chat width,
-   tracked live so resizing the chat reflows the window); on mobile it takes
-   the whole screen. The chat stays visible on the right; card clicks inside
-   the map switch the conversation to the clicked session. */
+   tracked live); on mobile it takes the whole screen. Card clicks switch the
+   conversation to the clicked session. */
 function MindmapOverlayHost({ sessionId, useSessions, actions, chatWidth, mobile, previewRight, previewWidth, sidebarWidth, settingsStore }) {
   const overlay = useMindmapOverlay()
   const closeLabel = translate('mindmap.overlay.close')
@@ -11041,7 +10713,7 @@ function AppFrame(props) {
     props.openSession(String(id))
     mindmapOverlayStore.open(String(id))
   }, [props.openSession])
-  return h('div',{ref:viewportRef,className:'dsh-ws-viewport'},h('main',{className:'dsh-ws-frame','data-explorer-closed':!panes.explorerOpen&&!filesActive||undefined,'data-sidebar-collapsed':collapsed||undefined,'data-sidebar-files':filesActive||undefined,'data-resizing':resizing||undefined,'data-preview-right':settings.previewRight===true||undefined,style:{'--dsh-ws-preview':`${preview}px`,'--dsh-ws-sidebar':`${sidebar}px`,'--dsh-ws-row-height':`${clamp(settings.rowHeight ?? ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MIN, ROW_HEIGHT_MAX)}px`,'--dsh-ws-chat-font-scale':String(chatFontScale),'--dsh-ws-mobile-header-h':`${mobileHeaderHeight}px`,'--dsh-ws-mindmap-spin-duration':mindmapSpinDuration,...fileColorVars}},h('aside',{className:'dsh-ws-sidebar',ref:asideRef},props.renderSlot('sidebar',{collapsed,width:sidebar}),sidebarChrome?.top?createPortal(h(SidebarTopActions,{collapsed,view,width:sidebar,onSelectSessions:()=>{props.actions.setView('sessions')},onSelectFiles:()=>{if(collapsed)props.toggleSidebar();props.actions.setView('files')}}),sidebarChrome.top):null,sidebarChrome&&(sidebarChrome.groups.length>0?sidebarChrome.groups.map(group=>createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:group.title,openSession:openMindmapSession,revealSession:revealSessionById}),group.container)):sidebarChrome.fallback?createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:undefined,openSession:openMindmapSession,revealSession:revealSessionById}),sidebarChrome.fallback):null)),workspace?h(WorkspaceExplorer,{key:`${workspace.workspaceId}:${sessionId ?? 'workspace'}`,createEntry:props.createEntry,listDirectory:props.listDirectory,persistPreviewSession,publishEditorContext,readFile:props.readFile,renameEntry:props.renameEntry,saveFile:props.saveFile,loadDraft:props.loadDraft,persistDraftFile:props.persistDraftFile,removeDraftFile:props.removeDraftFile,draftTree:props.draftTree,checkFileChange:props.checkFileChange,previewSync:props.previewSync,settingsStore:props.settingsStore,storedPreviewSession,sessionTitle,sessionId,renameSession:props.renameSession,treePortalTarget,workspace}):h(EmptyWorkspaceExplorer,{sessionTitle,treePortalTarget}),h('section',{className:'dsh-ws-chat',ref:chatSectionRef},props.renderSlot('conversation',{}),chatDropActive?h('div',{className:'dsh-ws-chat-drop-mask',role:'presentation'},h('button',{'aria-label':translate('drop.closeAria'),className:'dsh-ws-chat-drop-close',onClick:()=>{chatDropSuppressed.current=true;setChatDropActive(false)},title:translate('drop.closeTitle'),type:'button'},'×'),h('div',{className:'dsh-ws-chat-drop-card'},translate('drop.releaseImages'))):null),!collapsed?h(ResizeHandle,{label:translate('resize.sidebar'),left:sidebar,max:sidebarMax,min:SIDEBAR_MIN,onDragging:setResizing,onResize:width=>props.actions.setSidebar(width,sidebarMax),value:sidebar}):null,(panes.explorerOpen||filesActive)?h(ResizeHandle,{label:translate('resize.preview'),left:settings.previewRight===true?Math.max(0,viewportWidth-preview):previewBoundary,max:previewMax,min:PREVIEW_MIN,onDragging:setResizing,onResize:width=>props.explorerPaneStore.actions.setPreview(width,previewMax),value:preview,invert:settings.previewRight===true||undefined}):null,h('aside',{className:'dsh-ws-details','data-closed':!panels.detailsOpen||!detailsCapable||undefined},props.renderSlot('details',{})),mobile.on&&mobile.drawerOpen?h('div',{className:'dsh-ws-mobile-scrim',onClick:()=>setDrawerOpen(false)}):null,h('div',{className:'dsh-ws-overlay','data-shell-overlay':true},props.renderSlot('shell.overlay',{})),sessionContextMenu?h('div',{className:'dsh-ws-context-menu',ref:sessionMenuRef,role:'menu',style:{left:Math.max(4,Math.min(sessionContextMenu.x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top:Math.max(4,Math.min(sessionContextMenu.y,window.innerHeight-52))}},h('button',{className:'dsh-ws-context-item',onClick:beginSessionInlineRename,role:'menuitem',type:'button'},translate('context.renameSession')),h('button',{className:'dsh-ws-context-item',onClick:archiveSessionFromMenu,role:'menuitem',type:'button'},translate('context.archiveSession')),h('div',{className:'dsh-ws-context-separator',role:'separator'}),h('button',{className:'dsh-ws-context-item',onClick:revealSessionFromMenu,role:'menuitem',type:'button'},translate('context.reveal'))):null,sessionInlineRename?h(SessionInlineRename,{busy:sessionInlineRenameBusy,error:sessionInlineRenameError,onCancel:cancelSessionInlineRename,onConfirm:confirmSessionInlineRename,row:sessionInlineRename.row,title:sessionInlineRename.title}):null,sessionNotice?h('div',{className:'dsh-ws-copy-notice','data-error':sessionNotice.error||undefined,role:'status'},sessionNotice.text):null),overlay.open?h(MindmapOverlayHost,{actions:props.mindmapActions,chatWidth,mobile:mobile.on,previewRight:settings.previewRight===true,previewWidth:preview,sessionId:overlay.sessionId,settingsStore:props.settingsStore,sidebarWidth:sidebar,useSessions:props.useSessions}):null)}
+  return h('div',{ref:viewportRef,className:'dsh-ws-viewport'},h('main',{className:'dsh-ws-frame','data-explorer-closed':!panes.explorerOpen&&!filesActive||undefined,'data-sidebar-collapsed':collapsed||undefined,'data-sidebar-files':filesActive||undefined,'data-resizing':resizing||undefined,'data-preview-right':settings.previewRight===true||undefined,style:{'--dsh-ws-preview':`${preview}px`,'--dsh-ws-sidebar':`${sidebar}px`,'--dsh-ws-row-height':`${clamp(settings.rowHeight ?? ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MIN, ROW_HEIGHT_MAX)}px`,'--dsh-ws-chat-font-scale':String(chatFontScale),'--dsh-ws-mobile-header-h':`${mobileHeaderHeight}px`,'--dsh-ws-mindmap-spin-duration':mindmapSpinDuration,...fileColorVars}},h('aside',{className:'dsh-ws-sidebar',ref:asideRef},props.renderSlot('sidebar',{collapsed,width:sidebar}),sidebarChrome?.top?createPortal(h(SidebarTopActions,{collapsed,view,width:sidebar,onSelectSessions:()=>{props.actions.setView('sessions')},onSelectFiles:()=>{if(collapsed)props.toggleSidebar();props.actions.setView('files')}}),sidebarChrome.top):null,sidebarChrome&&(sidebarChrome.groups.length>0?sidebarChrome.groups.map(group=>createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:group.title,openSession:openMindmapSession,revealSession:revealSessionById}),group.container)):sidebarChrome.fallback?createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:undefined,openSession:openMindmapSession,revealSession:revealSessionById}),sidebarChrome.fallback):null)),workspace?h(WorkspaceExplorer,{key:`${workspace.workspaceId}:${sessionId ?? 'workspace'}`,createEntry:props.createEntry,listDirectory:props.listDirectory,persistPreviewSession,publishEditorContext,readFile:props.readFile,renameEntry:props.renameEntry,saveFile:props.saveFile,loadDraft:props.loadDraft,persistDraftFile:props.persistDraftFile,removeDraftFile:props.removeDraftFile,draftTree:props.draftTree,checkFileChange:props.checkFileChange,previewSync:props.previewSync,settingsStore:props.settingsStore,storedPreviewSession,sessionTitle,sessionId,renameSession:props.renameSession,treePortalTarget,workspace}):h(EmptyWorkspaceExplorer,{sessionTitle,treePortalTarget}),h('section',{className:'dsh-ws-chat',ref:chatSectionRef},props.renderSlot('conversation',{}),chatDropActive?h('div',{className:'dsh-ws-chat-drop-mask',role:'presentation'},h('button',{'aria-label':translate('drop.closeAria'),className:'dsh-ws-chat-drop-close',onClick:()=>{chatDropSuppressed.current=true;setChatDropActive(false)},title:translate('drop.closeTitle'),type:'button'},'×'),h('div',{className:'dsh-ws-chat-drop-card'},translate('drop.releaseImages'))):null),!collapsed?h(ResizeHandle,{label:translate('resize.sidebar'),left:sidebar,max:sidebarMax,min:SIDEBAR_MIN,onDragging:setResizing,onResize:width=>props.actions.setSidebar(width,sidebarMax),value:sidebar}):null,(panes.explorerOpen||filesActive)?h(ResizeHandle,{label:translate('resize.preview'),left:settings.previewRight===true?Math.max(0,viewportWidth-preview):previewBoundary,max:previewMax,min:PREVIEW_MIN,onDragging:setResizing,onResize:width=>props.explorerPaneStore.actions.setPreview(width,previewMax),value:preview,invert:settings.previewRight===true||undefined}):null,h('aside',{className:'dsh-ws-details','data-closed':!panels.detailsOpen||!detailsCapable||undefined},h(props.SessionProvider,null,props.renderSlot('details',{}))),mobile.on&&mobile.drawerOpen?h('div',{className:'dsh-ws-mobile-scrim',onClick:()=>setDrawerOpen(false)}):null,h('div',{className:'dsh-ws-overlay','data-shell-overlay':true},props.renderSlot('shell.overlay',{})),sessionContextMenu?h('div',{className:'dsh-ws-context-menu',ref:sessionMenuRef,role:'menu',style:{left:Math.max(4,Math.min(sessionContextMenu.x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top:Math.max(4,Math.min(sessionContextMenu.y,window.innerHeight-52))}},h('button',{className:'dsh-ws-context-item',onClick:beginSessionInlineRename,role:'menuitem',type:'button'},translate('context.renameSession')),h('button',{className:'dsh-ws-context-item',onClick:archiveSessionFromMenu,role:'menuitem',type:'button'},translate('context.archiveSession')),h('div',{className:'dsh-ws-context-separator',role:'separator'}),h('button',{className:'dsh-ws-context-item',onClick:revealSessionFromMenu,role:'menuitem',type:'button'},translate('context.reveal'))):null,sessionInlineRename?h(SessionInlineRename,{busy:sessionInlineRenameBusy,error:sessionInlineRenameError,onCancel:cancelSessionInlineRename,onConfirm:confirmSessionInlineRename,row:sessionInlineRename.row,title:sessionInlineRename.title}):null,sessionNotice?h('div',{className:'dsh-ws-copy-notice','data-error':sessionNotice.error||undefined,role:'status'},sessionNotice.text):null),overlay.open?h(MindmapOverlayHost,{actions:props.mindmapActions,chatWidth,mobile:mobile.on,previewRight:settings.previewRight===true,previewWidth:preview,sessionId:overlay.sessionId,settingsStore:props.settingsStore,sidebarWidth:sidebar,useSessions:props.useSessions}):null)}
 
 export const inject = ['slots', 'theme', 'sessions', 'workspaces']
 export function apply(ctx) {
@@ -11129,7 +10801,7 @@ export function apply(ctx) {
      No increaseTitle: the host derives the title from the fork boundary; the
      child is renamed to the family-root title plus " ›" so its header never
      collides with the root (a root-replacement fork — card-deletion
-     truncation of the trunk — keeps the plain family title instead, asRoot). */
+     truncation of the root session — keeps the plain family title instead, asRoot). */
   const buildMindmapActions = (ctx) => {
     /* Resolve the workspace whose canonical path matches a cwd string (case /
        trailing-separator normalized), so a root-node-created session can be
