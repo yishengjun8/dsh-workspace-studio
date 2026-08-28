@@ -105,10 +105,15 @@ const cssColorToHex = (color) => {
   const shortHex = text.match(/^#([0-9a-fA-F]{3,4})$/)
   if (shortHex !== null) return `#${shortHex[1].slice(0, 3).split('').map(part => `${part}${part}`).join('').toLowerCase()}`
   if (/^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$/.test(text)) return `#${text.slice(1, 7).toLowerCase()}`
-  const rgb = text.match(/^rgba?\(\s*([0-9.]+)(?:\s*,\s*|\s+)([0-9.]+)(?:\s*,\s*|\s+)([0-9.]+)(?:\s*(?:,|\/)\s*[^)]+)?\s*\)$/i)
+  const rgb = text.match(/^rgba?\(\s*(-?[0-9.]+%?)(?:\s*,\s*|\s+)(-?[0-9.]+%?)(?:\s*,\s*|\s+)(-?[0-9.]+%?)(?:\s*(?:,|\/)\s*[^)]+)?\s*\)$/i)
   if (rgb === null) return null
-  const to2 = value => Math.max(0, Math.min(255, Math.round(Number(value)))).toString(16).padStart(2, '0')
-  return `#${to2(rgb[1])}${to2(rgb[2])}${to2(rgb[3])}`
+  /* Percent components map to 255; negatives clamp to 0 (browsers clamp on parse). */
+  const toChannel = value => {
+    const isPercent = value.endsWith('%')
+    const normalized = isPercent ? Number(value) * 255 / 100 : Number(value)
+    return Math.max(0, Math.min(255, Math.round(normalized))).toString(16).padStart(2, '0')
+  }
+  return `#${toChannel(rgb[1])}${toChannel(rgb[2])}${toChannel(rgb[3])}`
 }
 const resolveCssColorToHex = (value) => {
   const direct = cssColorToHex(value)
@@ -1958,9 +1963,13 @@ function formatBytes(bytes) { if (!Number.isFinite(bytes) || bytes < 0) return '
 /* Budgeted Myers diff: the { from, to, added } edit script turning `base`
    into `mine`, or null when the trace would exceed the memory budget.
    Adjacent ops coalesce so a replacement is one change, not del + ins. */
-function myersDiff(base, mine) {
+function myersDiff(base, mine, alt = false) {
   const N = base.length
   const M = mine.length
+  /* Empty-empty is an identity edit: return no changes immediately instead of
+     running the frontier (which would read v[1] out of bounds on a 1-cell
+     array). */
+  if (N === 0 && M === 0) return []
   const max = N + M
   const offset = max
   const v = new Int32Array(2 * max + 1)
@@ -1972,7 +1981,10 @@ function myersDiff(base, mine) {
     trace.push(v.slice())
     for (let k = -d; k <= d; k += 2) {
       let x
-      if (k === -d || (k !== d && v[offset + k - 1] < v[offset + k + 1])) x = v[offset + k + 1]
+      /* The tie-break (< vs <=) selects one canonical shortest path among
+         several when repeated values make the greedy snake ambiguous; `alt`
+         flips it so a merge that clusters poorly on one can try the other. */
+      if (k === -d || (k !== d && (alt ? v[offset + k - 1] <= v[offset + k + 1] : v[offset + k - 1] < v[offset + k + 1]))) x = v[offset + k + 1]
       else x = v[offset + k - 1] + 1
       let y = x - k
       while (x < N && y < M && base[x] === mine[y]) { x += 1; y += 1 }
@@ -1989,7 +2001,7 @@ function myersDiff(base, mine) {
     const vPrev = trace[dd]
     const k = x - y
     let prevK
-    if (k === -dd || (k !== dd && vPrev[offset + k - 1] < vPrev[offset + k + 1])) prevK = k + 1
+    if (k === -dd || (k !== dd && (alt ? vPrev[offset + k - 1] <= vPrev[offset + k + 1] : vPrev[offset + k - 1] < vPrev[offset + k + 1]))) prevK = k + 1
     else prevK = k - 1
     const prevX = vPrev[offset + prevK]
     const prevY = prevX - prevK
@@ -2091,23 +2103,10 @@ function resolveMergeParts(parts, conflicts, choices) {
 /* Merge both edit scripts by clustering every transitively overlapping
    change — the closure that makes one-large-vs-many-small overlaps terminate.
    Conflicts stay structural (`parts`), so user text can never collide with a
-   marker string. */
-function threeWayMerge(baseText, mineText, theirsText) {
-  const base = baseText.split('\n')
-  const mine = mineText.split('\n')
-  const theirs = theirsText.split('\n')
-  // Budget guard first: an oversized file that happens to equal one side must
-  // still fall back to the whole-file dialog, not commit unchecked.
-  if (base.length > MERGE_MAX_LINES || mine.length > MERGE_MAX_LINES || theirs.length > MERGE_MAX_LINES) {
-    return wholeFileConflict(base, mine, theirs, 'line-limit')
-  }
-  if (mineText === theirsText) return { status: 'clean', merged: mineText }
-  if (baseText === mineText) return { status: 'clean', merged: theirsText }
-  if (baseText === theirsText) return { status: 'clean', merged: mineText }
-  const mineChanges = myersDiff(base, mine)
-  const theirsChanges = myersDiff(base, theirs)
-  if (mineChanges === null || theirsChanges === null) return wholeFileConflict(base, mine, theirs, 'diff-budget')
-
+   marker string. Returns { parts, conflicts } on a consistent walk, or
+   { fallback: reason } when the scripts are unusable (caller falls back to
+   the whole-file conflict). */
+function runMergeWalk(base, mine, theirs, mineChanges, theirsChanges) {
   const parts = []
   const conflicts = []
   let mi = 0
@@ -2117,7 +2116,7 @@ function threeWayMerge(baseText, mineText, theirsText) {
   const maxSteps = 4 * (mineChanges.length + theirsChanges.length + 1)
 
   while (mi < mineChanges.length || ti < theirsChanges.length) {
-    if (steps >= maxSteps) return wholeFileConflict(base, mine, theirs, 'merge-progress')
+    if (steps >= maxSteps) return { fallback: 'merge-progress' }
     steps += 1
     const m = mineChanges[mi]
     const t = theirsChanges[ti]
@@ -2148,12 +2147,12 @@ function threeWayMerge(baseText, mineText, theirsText) {
         }
       } while (expanded)
 
-      if (start < cursor || end < start) return wholeFileConflict(base, mine, theirs, 'invalid-cluster')
+      if (start < cursor || end < start) return { fallback: 'invalid-cluster' }
       appendMergeText(parts, base.slice(cursor, start))
       const baseSegment = base.slice(start, end)
       const mineSegment = applyChangesToSpan(base, start, end, mineCluster)
       const theirsSegment = applyChangesToSpan(base, start, end, theirsCluster)
-      if (mineSegment === null || theirsSegment === null) return wholeFileConflict(base, mine, theirs, 'invalid-change')
+      if (mineSegment === null || theirsSegment === null) return { fallback: 'invalid-change' }
       if (linesEqual(mineSegment, theirsSegment)) appendMergeText(parts, mineSegment)
       else if (linesEqual(mineSegment, baseSegment)) appendMergeText(parts, theirsSegment)
       else if (linesEqual(theirsSegment, baseSegment)) appendMergeText(parts, mineSegment)
@@ -2169,7 +2168,7 @@ function threeWayMerge(baseText, mineText, theirsText) {
     const mineFirst = m !== undefined && (t === undefined || m.from < t.from || (m.from === t.from && m.to <= t.to))
     const change = mineFirst ? m : t
     if (change === undefined || change.from < cursor || change.to < change.from) {
-      return wholeFileConflict(base, mine, theirs, 'invalid-progress')
+      return { fallback: 'invalid-progress' }
     }
     appendMergeText(parts, base.slice(cursor, change.from))
     appendMergeText(parts, change.added)
@@ -2179,6 +2178,17 @@ function threeWayMerge(baseText, mineText, theirsText) {
   }
 
   appendMergeText(parts, base.slice(cursor))
+  return { parts, conflicts }
+}
+
+/* Finalize a merge walk: clean when no conflicts, a structural conflict list
+   after the round-trip soundness check, or { fallback: reason } when the walk
+   cannot reconstruct one side (whole-file conflict is safer than a wrong save).
+   Shared by the primary and the alternate-tie-break retry. */
+function tryMergeWithScripts(base, mine, theirs, mineChanges, theirsChanges) {
+  const walked = runMergeWalk(base, mine, theirs, mineChanges, theirsChanges)
+  if (walked.fallback !== undefined) return walked
+  const { parts, conflicts } = walked
   if (conflicts.length > 0) {
     /* The conflict structure is trustworthy only when each side round-trips
        from it: a non-canonical Myers diff on repeated identical lines can
@@ -2189,15 +2199,51 @@ function threeWayMerge(baseText, mineText, theirsText) {
     try {
       const allMine = resolveMergeParts(parts, conflicts, conflicts.map(() => 'mine'))
       const allTheirs = resolveMergeParts(parts, conflicts, conflicts.map(() => 'theirs'))
-      if (allMine !== mineText || allTheirs !== theirsText) {
-        return wholeFileConflict(base, mine, theirs, 'unsound-cluster')
-      }
+      if (allMine !== mineText || allTheirs !== theirsText) return { fallback: 'unsound-cluster' }
     } catch {
-      return wholeFileConflict(base, mine, theirs, 'unsound-cluster')
+      return { fallback: 'unsound-cluster' }
     }
     return { status: 'conflict', conflicts, parts }
   }
   return { status: 'clean', merged: resolveMergeParts(parts, [], []) }
+}
+
+/* Merge both edit scripts by clustering every transitively overlapping
+   change — the closure that makes one-large-vs-many-small overlaps terminate.
+   Conflicts stay structural (`parts`), so user text can never collide with a
+   marker string. */
+function threeWayMerge(baseText, mineText, theirsText) {
+  const base = baseText.split('\n')
+  const mine = mineText.split('\n')
+  const theirs = theirsText.split('\n')
+  // Budget guard first: an oversized file that happens to equal one side must
+  // still fall back to the whole-file dialog, not commit unchecked.
+  if (base.length > MERGE_MAX_LINES || mine.length > MERGE_MAX_LINES || theirs.length > MERGE_MAX_LINES) {
+    return wholeFileConflict(base, mine, theirs, 'line-limit')
+  }
+  if (mineText === theirsText) return { status: 'clean', merged: mineText }
+  if (baseText === mineText) return { status: 'clean', merged: theirsText }
+  if (baseText === theirsText) return { status: 'clean', merged: mineText }
+  const mineChanges = myersDiff(base, mine)
+  const theirsChanges = myersDiff(base, theirs)
+  if (mineChanges === null || theirsChanges === null) return wholeFileConflict(base, mine, theirs, 'diff-budget')
+
+  const primary = tryMergeWithScripts(base, mine, theirs, mineChanges, theirsChanges)
+  if (primary.fallback === undefined) return primary
+  /* A non-canonical Myers tie-break on repeated identical lines can cluster
+     disjoint edits into a false conflict that fails the round-trip check
+     (unsound-cluster). Retry with the alternate canonical shortest path —
+     bounded to ONE retry, and accepted only when it passes the same round-trip
+     verification; otherwise the whole-file conflict stands. */
+  if (primary.fallback === 'unsound-cluster') {
+    const altMine = myersDiff(base, mine, true)
+    const altTheirs = myersDiff(base, theirs, true)
+    if (altMine !== null && altTheirs !== null) {
+      const alt = tryMergeWithScripts(base, mine, theirs, altMine, altTheirs)
+      if (alt.fallback === undefined) return alt
+    }
+  }
+  return wholeFileConflict(base, mine, theirs, primary.fallback)
 }
 
 /* Character-level diff of one conflict side against the common base:
@@ -3362,6 +3408,44 @@ function readMindmapOrder() {
 function writeMindmapOrder(map) {
   try { window.localStorage.setItem(MINDMAP_ORDER_STORE_KEY, JSON.stringify(map)) } catch { /* quota / private mode */ }
 }
+
+/* Per-root last-selected session of a mind map in localStorage (root session id
+   → last selected session id, one small string pair per map). Written whenever
+   a card click lands the selection on a session; restored on the next open of
+   that map so the "当前" highlight (and the right-side chat) return to the last
+   clicked card instead of defaulting to the first branch. A stale entry whose
+   session was archived / re-anchored is harmless: the restore guard falls back
+   to the default first branch. */
+const MINDMAP_LAST_SESSION_STORE_KEY = 'dsh.workspace.studio.mindmap-last-session.v1'
+function readMindmapLastSessionMap() {
+  try {
+    const raw = window.localStorage.getItem(MINDMAP_LAST_SESSION_STORE_KEY)
+    if (raw === null || raw === '') return {}
+    const parsed = JSON.parse(raw)
+    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+function readMindmapLastSession(rootId) {
+  const value = readMindmapLastSessionMap()[String(rootId)]
+  return typeof value === 'string' && value !== '' ? value : null
+}
+function writeMindmapLastSession(rootId, sessionId) {
+  try {
+    const map = readMindmapLastSessionMap()
+    map[String(rootId)] = String(sessionId)
+    window.localStorage.setItem(MINDMAP_LAST_SESSION_STORE_KEY, JSON.stringify(map))
+  } catch { /* quota / private mode */ }
+}
+function removeMindmapLastSession(rootId) {
+  try {
+    const map = readMindmapLastSessionMap()
+    if (!Object.prototype.hasOwnProperty.call(map, String(rootId))) return
+    delete map[String(rootId)]
+    window.localStorage.setItem(MINDMAP_LAST_SESSION_STORE_KEY, JSON.stringify(map))
+  } catch { /* quota / private mode */ }
+}
 // Draft (staging) file access: editing content lives in a draft file outside
 // the workspace, never in the source file. The draft JSON carries { path,
 // encoding, lineEnding, bom, baseText, baseRevision, draft, owner, generation }
@@ -3500,7 +3584,14 @@ function openEmergencyDraftDb() {
       }
     }
     request.onerror = () => { reject(request.error ?? new Error('IndexedDB open failed')) }
-    request.onblocked = () => { reject(new Error('IndexedDB upgrade blocked')) }
+    request.onblocked = () => {
+      /* Another tab holds the old version and the upgrade cannot proceed. The
+         mirror is best-effort (the Host draft stays authoritative), so degrade
+         to "no mirror" instead of rejecting forever — a rejected promise would
+         be retried on every write and keep failing. */
+      console.warn('workspace-studio: IndexedDB draft upgrade blocked; emergency mirror disabled for this session')
+      resolveDb(undefined)
+    }
   }).catch(error => {
     emergencyDraftDbPromise = undefined
     throw error
@@ -3796,7 +3887,11 @@ function serializePreviewTab(tab) {
 function prunePreviewSessions(draft) {
   const entries = Object.entries(draft.previewSessions ?? {})
   if (entries.length <= PREVIEW_SESSION_MAX) return
-  entries.sort((a, b) => (b[1]?.updatedAt ?? -Infinity) - (a[1]?.updatedAt ?? -Infinity))
+  /* A legacy session without `updatedAt` must not be treated as the oldest and
+     evicted first: it pre-dates the timestamp field, and its next write stamps
+     it. Sort missing timestamps as NEWEST so genuinely-old stamped sessions
+     are pruned first; the legacy entry self-heals on the next remember. */
+  entries.sort((a, b) => (b[1]?.updatedAt ?? Infinity) - (a[1]?.updatedAt ?? Infinity))
   for (const [key] of entries.slice(PREVIEW_SESSION_MAX)) delete draft.previewSessions[key]
 }
 /* Stable partition keeping every pinned tab ahead of all unpinned ones. */
@@ -4017,6 +4112,11 @@ function DeleteDialog({entry,busy,dirtyWarning,onCancel,onConfirm}){if(entry===u
 function SaveConflictDialog({conflict,fontSize,onResolve}) {
   const [index, setIndex] = useState(0)
   const [choices, setChoices] = useState([])
+  /* Mirror of `choices` read synchronously in pick: two rapid clicks on the
+     last region both read the same render closure otherwise, and the second
+     would resolve with only its own choice (dropping the first). The ref keeps
+     the accumulate-and-maybe-resolve step atomic per click. */
+  const choicesRef = useRef([])
   // Escape cancels the whole save, same as backdrop / ×. The dialog is modal,
   // so its window-level Escape must not leak to the mind-map overlay's
   // Escape-to-close (which already yields to any open .dsh-ws-dialog-backdrop).
@@ -4029,6 +4129,9 @@ function SaveConflictDialog({conflict,fontSize,onResolve}) {
   }, [onResolve])
   if (conflict === undefined) return null
   const total = conflict.conflicts.length
+  /* Defensive: a malformed conflict with zero regions has nothing to resolve;
+     render nothing rather than indexing conflicts[-1] (region.start throws). */
+  if (total === 0) return null
   const current = Math.min(index, total - 1)
   const region = conflict.conflicts[current]
   const regionLines = region.start === region.end
@@ -4037,7 +4140,8 @@ function SaveConflictDialog({conflict,fontSize,onResolve}) {
       ? String(region.start + 1)
       : `${region.start + 1}–${region.end}`
   const pick = (side) => {
-    const next = [...choices, side]
+    const next = [...choicesRef.current, side]
+    choicesRef.current = next
     // Key the decision to the actual choices length (what `resolveMergeParts`
     // validates), not the display index, so back+re-pick never mismatches counts.
     if (next.length < total) {
@@ -4052,7 +4156,11 @@ function SaveConflictDialog({conflict,fontSize,onResolve}) {
     // Revisiting `current - 1` must drop its stale choice, or the array grows
     // one entry too long and save fails with "incomplete conflict choices".
     setIndex(current - 1)
-    setChoices(prev => prev.slice(0, current - 1))
+    setChoices(prev => {
+      const sliced = prev.slice(0, current - 1)
+      choicesRef.current = sliced
+      return sliced
+    })
   }
   return h('div', { className: 'dsh-ws-dialog-backdrop', onMouseDown: (e) => { if (e.target === e.currentTarget) onResolve('cancel') } },
     h('div', { 'aria-modal': true, className: 'dsh-ws-dialog dsh-ws-conflict-dialog', role: 'dialog', style: fontSize === undefined ? undefined : { '--dsh-ws-conflict-font-size': `${fontSize}px` } },
@@ -4336,13 +4444,18 @@ function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShortcut, o
       }
       if (!armed) return
       cancel()
-      if (key === 'j') {
+      /* Completion keys must carry NO modifiers: within the 1 s arm window a
+         plain J / 1..9 completes the sequence, but Ctrl+J, Ctrl+1, Shift+J etc.
+         are the user's own shortcuts and must pass through untouched instead of
+         being hijacked as a fold command. */
+      const hasModifier = event.ctrlKey || event.metaKey || event.altKey || event.shiftKey
+      if (!hasModifier && key === 'j') {
         event.preventDefault()
         event.stopPropagation()
         unfoldAll(view)
         return
       }
-      if (key.length === 1 && key >= '1' && key <= '9') {
+      if (!hasModifier && key.length === 1 && key >= '1' && key <= '9') {
         event.preventDefault()
         event.stopPropagation()
         foldLevel(view, Number(key))
@@ -4553,6 +4666,14 @@ function WorkspaceExplorer({
   // ops no longer abort one another (the Host serializes writes anyway), so a
   // stranded server-side op can never corrupt the tree with a stale result.
   const mutationSeqRef = useRef(0)
+  // Monotonic sequence for file READS. The read effect re-runs on every
+  // reloadToken bump (refresh / encoding re-open / auto-sync), and a stale
+  // in-flight attempt can resolve AFTER the newer one when the path is the
+  // SAME (the activePathRef guard only catches path switches). Each pass
+  // captures a sequence and applies its result only while it is still the
+  // latest, so a stranded earlier read can never flash stale content, bump the
+  // read epoch twice, or clobber the watch snapshot baseline.
+  const readSeqRef = useRef(0)
   const editorRef = useRef()
   const searchPanelContainerRef = useRef(null)
   const composingRef = useRef(false)
@@ -5255,6 +5376,10 @@ function WorkspaceExplorer({
     readController.current?.abort()
     const controller = new AbortController()
     readController.current = controller
+    /* Capture this pass's read sequence: a same-path re-run (reloadToken bump)
+       supersedes it, and any result applying under a stale sequence must be
+       dropped even though the path never changed (see readSeqRef). */
+    const readSeq = ++readSeqRef.current
     publishEditorContext(undefined)
     const tab = tabsRef.current.find(item => item.path === activePath)
     const effectiveEncoding = requestedEncodingRef.current ?? tab?.encoding ?? 'utf-8'
@@ -5282,9 +5407,10 @@ function WorkspaceExplorer({
     setPreview({ state: 'loading', path: activePath })
     readFile(workspace.workspaceId, activePath, controller.signal, effectiveEncoding).then((result) => {
       // The tab may have switched since the read started (abort covers most
-      // cases; a fetch already resolved is caught here). Applying a stale
-      // result would flash the wrong file and bump the read epoch.
-      if (!mounted.current || activePathRef.current !== activePath) return
+      // cases; a fetch already resolved is caught here). A same-path re-run
+      // supersedes this pass even when the path is unchanged, so applying a
+      // stale result would flash the wrong file and bump the read epoch.
+      if (!mounted.current || readSeq !== readSeqRef.current || activePathRef.current !== activePath) return
       requestedEncodingRef.current = undefined
       // Read the draft file (staging content + snapshot) so a refresh restores
       // the editing session from disk. A failed read is non-critical: fall
@@ -5293,7 +5419,7 @@ function WorkspaceExplorer({
         loadDraft(workspace.workspaceId, activePath, controller.signal, draftScopeId).catch(() => ({ exists: false })),
         readEmergencyDraft(workspace.workspaceId, draftScopeId, activePath).catch(() => undefined),
       ]).then(([hostDraft, emergencyDraft]) => {
-        if (!mounted.current || activePathRef.current !== activePath) return
+        if (!mounted.current || readSeq !== readSeqRef.current || activePathRef.current !== activePath) return
         const hostGeneration = Number.isSafeInteger(hostDraft?.generation) ? hostDraft.generation : 0
         const emergencyGeneration = Number.isSafeInteger(emergencyDraft?.generation) ? emergencyDraft.generation : 0
         const draftData = emergencyDraft?.state === 'deleted' && emergencyGeneration >= hostGeneration
@@ -5433,7 +5559,9 @@ function WorkspaceExplorer({
       // changed — so a same-path reload-token re-run keeps the marker armed
       // through the new in-flight read (the tick must not double-bump).
       if (error?.name !== 'AbortError') reloadingPathsRef.current.delete(activePath)
-      if (error?.name !== 'AbortError' && activePathRef.current === activePath) {
+      // A stale pass (superseded by a same-path re-run) must not surface its
+      // failure over the newer read's state.
+      if (error?.name !== 'AbortError' && readSeq === readSeqRef.current && activePathRef.current === activePath) {
         const message = error instanceof Error ? error.message : String(error)
         setPreview({ state: 'error', path: activePath, message })
         updateTab(activePath, { saving: false, status: { error: true, text: message } })
@@ -5639,7 +5767,20 @@ function WorkspaceExplorer({
     // Skip a redundant write when the draft equals the last content this owner
     // persisted (dedup in development-notes §15, never wired): typing back to
     // the last-written text must not rewrite the staging file or the mirror.
-    if (lastWriteRef.current.get(path)?.content === text) return
+    if (lastWriteRef.current.get(path)?.content === text) {
+      /* The dedup skips the generation bump, but the emergency IndexedDB mirror
+         is written SYNCHRONOUSLY on every keystroke with a fresh generation
+         (below), while lastWriteRef only advances after the debounced Host
+         write. An intermediate edit (mirror @gen2) reverted within the debounce
+         window therefore leaves the mirror holding a NEWER content than the
+         Host draft (@gen1) — restore's `emergencyGeneration >= hostGeneration`
+         would resurrect the reverted-away text on refresh. Reconcile the mirror
+         with a tombstone at a fresh generation so restore falls back to the
+         Host draft (which already equals the current text). */
+      const reconcileGeneration = nextDraftGeneration(path)
+      void deleteEmergencyDraft(workspace.workspaceId, draftScopeId, path, reconcileGeneration).catch(() => {})
+      return
+    }
     const generation = nextDraftGeneration(path)
     const snapshot = Object.freeze({
       owner: draftScopeId,
@@ -5666,8 +5807,13 @@ function WorkspaceExplorer({
   const flushAutosaves = useCallback(() => {
     for (const timer of autosaveTimers.current.values()) clearTimeout(timer)
     autosaveTimers.current.clear()
-    for (const [path, pending] of pendingAutosavesRef.current) {
-      void performAutosave(path, pending.snapshot, pending.generation)
+    /* Swap the pending map out up front: performAutosave only deletes the
+       entry it matches, so a failed write would otherwise leave the entry
+       pending forever (retried on every later flush). */
+    const pending = pendingAutosavesRef.current
+    pendingAutosavesRef.current = new Map()
+    for (const [path, entry] of pending) {
+      void performAutosave(path, entry.snapshot, entry.generation)
     }
   }, [performAutosave])
 
@@ -6133,6 +6279,11 @@ function WorkspaceExplorer({
       const treeFocused=element.classList.contains('dsh-ws-tree-row')
       if(!treeFocused&&contextMenu===undefined)return
       if(selected===undefined)return
+      const isPaste=key==='v'||key==='V'
+      // A paste with an empty/foreign-workspace clipboard would no-op inside
+      // pasteEntry; swallowing the key anyway would kill the browser's native
+      // paste with zero feedback. Let those pass through.
+      if(isPaste&&(clipboard===undefined||clipboard.workspaceId!==workspace.workspaceId))return
       event.preventDefault()
       event.stopPropagation()
       if(key==='Delete'){openDeleteConfirm(selected);return}
@@ -6142,7 +6293,7 @@ function WorkspaceExplorer({
     }
     window.addEventListener('keydown',onKeyDown,true)
     return()=>window.removeEventListener('keydown',onKeyDown,true)
-  },[contextMenu,copyEntryToClipboard,openDeleteConfirm,pasteEntry,selected])
+  },[clipboard,contextMenu,copyEntryToClipboard,openDeleteConfirm,pasteEntry,selected,workspace.workspaceId])
   const openSessionRename=useCallback(()=>{setTitleContextMenu(undefined);setSessionRenameDraft(sessionTitle ?? '');setSessionRenameError(undefined);setSessionRenameOpen(true)},[sessionTitle])
   const closeSessionRename=useCallback(()=>{if(sessionRenameBusy)return;setSessionRenameOpen(false);setSessionRenameDraft('');setSessionRenameError(undefined)},[sessionRenameBusy])
   const confirmSessionRename=useCallback(()=>{if(sessionRenameBusy||sessionId===undefined)return;const trimmed=sessionRenameDraft.trim();if(trimmed==='')return;setSessionRenameBusy(true);setSessionRenameError(undefined);renameSession(String(sessionId),trimmed).then(()=>{if(!mounted.current)return;setSessionRenameBusy(false);setSessionRenameOpen(false);setSessionRenameDraft('')}).catch(error=>{if(!mounted.current)return;setSessionRenameBusy(false);setSessionRenameError(error instanceof Error?error.message:String(error))})},[renameSession,sessionId,sessionRenameBusy,sessionRenameDraft])
@@ -6414,7 +6565,7 @@ function WorkspaceExplorer({
     observer.observe(strip)
     syncPreviewScrollbar()
     return () => { observer.disconnect() }
-  }, [syncPreviewScrollbar])
+  }, [syncPreviewScrollbar, tabs.length])
   useEffect(() => {
     const frame = requestAnimationFrame(syncPreviewScrollbar)
     return () => cancelAnimationFrame(frame)
@@ -7539,11 +7690,14 @@ function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_MOUNT_BU
   const sessions = (doc?.sessions ?? []).filter(s => s !== null && s !== undefined)
   const bySession = new Map()
   for (const s of sessions) bySession.set(String(s.sessionId), s)
-  /* Children of a specific card, keyed `${parentSessionId}\u0000${cardN}`. */
+  /* Children of a specific card, keyed `${parentSessionId}\u0000${cardN}`.
+     A child whose parentTurn is null (legacy v2 migration / defensive) is
+     keyed under the literal `null` so an empty parent session can still reach
+     it — without this it would be silently dropped from the layout. */
   const childMap = new Map()
   for (const s of sessions) {
-    if (!s.parentSessionId || s.parentTurn === undefined || s.parentTurn === null) continue
-    const key = `${String(s.parentSessionId)}\u0000${String(s.parentTurn)}`
+    if (!s.parentSessionId) continue
+    const key = `${String(s.parentSessionId)}\u0000${s.parentTurn === undefined || s.parentTurn === null ? 'null' : String(s.parentTurn)}`
     if (!childMap.has(key)) childMap.set(key, [])
     childMap.get(key).push(s)
   }
@@ -7555,9 +7709,14 @@ function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_MOUNT_BU
     if (visited.has(sid)) return
     visited.add(sid)
     order.push(s)
-    const cardCount = Math.max(1, (s.turns ?? []).length)
-    for (let k = 0; k < cardCount; k += 1) {
-      const n = Number(s.turns?.[k]?.n)
+    const turns = s.turns ?? []
+    /* A session with no cards can still carry null-parentTurn children: visit
+       them so they are never silently dropped from the layout. */
+    if (turns.length === 0) {
+      for (const kid of (childMap.get(`${sid}\u0000null`) ?? [])) visit(kid)
+    }
+    for (let k = 0; k < turns.length; k += 1) {
+      const n = Number(turns[k]?.n)
       if (!Number.isSafeInteger(n)) continue
       for (const kid of (childMap.get(`${sid}\u0000${String(n)}`) ?? [])) visit(kid)
     }
@@ -7860,11 +8019,13 @@ function useMindmapSessionView(useSessions, familyIdsRef) {
     const familyKey = family.join('\u0002')
     const cache = cacheRef.current
     if (cache !== null && cache.familyKey === familyKey && cache.runningKey === runningKey && cache.titlesKey === titlesKey) {
-      cache.view.byId = byId
       return cache.view
     }
+    /* The view carries ONLY the family-projected running bits and titles — no
+       raw byId — so it is a stable object while those fields are unchanged
+       (idle store churn never re-renders the map) AND the selector stays pure
+       (no mutation of a previously-returned object). */
     const view = {
-      byId,
       runningIds: new Set(family.filter(id => byId[id]?.running === true)),
       titles: Object.fromEntries(family.map(id => [id, byId[id]?.displayTitle ?? ''])),
     }
@@ -8103,6 +8264,15 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   listWorkspacesRef.current = listWorkspaces
   const openSessionRef = useRef(openSession)
   openSessionRef.current = openSession
+  /* Every map-internal selection change funnels through here: openSession
+     switches the right-side chat AND moves the "当前" highlight (its wrapper
+     calls setSession). Recording the landing session here keeps the last
+     clicked card remembered per root (rootIdRef read at call time so a family
+     switch writes under the CURRENT root). */
+  const switchToSession = useCallback((id) => {
+    openSessionRef.current(String(id))
+    if (rootIdRef.current !== null) writeMindmapLastSession(String(rootIdRef.current), String(id))
+  }, [])
   const renameSessionRef = useRef(renameSession)
   renameSessionRef.current = renameSession
   const archiveSessionRef = useRef(archiveSession)
@@ -8112,6 +8282,14 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   const noticeTimerRef = useRef(0)
   const lastFingerprintRef = useRef('')
   const savingRef = useRef(false)
+  /* Monotonic counter bumped at the start of every local doc write (fork /
+     delete / archive / rename). A periodic sync issued BEFORE such a write can
+     resolve AFTER the write completes (savingRef is back to false) and apply a
+     stale doc that momentarily wipes the optimistic card; the sync effects
+     capture this counter at issue time and drop any response that is no longer
+     current, so a stale response can never overwrite a newer local write (the
+     next periodic sync re-fetches and stays consistent). */
+  const localWriteSeqRef = useRef(0)
   /* Synchronous gate for in-flight fork writes: the `forking` STATE guard only
      appears after a re-render, so a same-tick second trigger would pass it and
      fork twice (the loser's child gets adopted back as a duplicate branch). */
@@ -8222,6 +8400,20 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
         setPhase({ status: 'ready' })
         mindmapRegistry.markDirty()
         if (payload.created === true) showNotice(translate('mindmap.created'))
+        /* Restore the last selected session of this map family: opening at the
+           ROOT defaults to the first branch; when a remembered session still
+           exists in this doc, open it so the "当前" highlight AND the right-side
+           chat return to the last clicked card. An open from a branch header
+           button (id already inside the family) skips this — the user's
+           explicit choice wins. */
+        const loadedRoot = String(loaded.rootSessionId)
+        if (id === loadedRoot) {
+          const remembered = readMindmapLastSession(loadedRoot)
+          if (remembered !== null && remembered !== loadedRoot
+            && (loaded.sessions ?? []).some(s => String(s?.sessionId) === remembered)) {
+            openSessionRef.current(remembered)
+          }
+        }
       })
       .catch((error) => {
         if (cancelled) return
@@ -8339,8 +8531,16 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     const timer = window.setInterval(() => {
       if (savingRef.current) return
       const root = rootId
+      /* A local doc write that starts after this sync is issued supersedes its
+         response: applying it would momentarily wipe the optimistic card (the
+         savingRef guard only covers the in-flight window). Drop any response
+         that is no longer the latest local state. */
+      const issuedSeq = localWriteSeqRef.current
       Promise.resolve(syncDocRef.current(root, runningFamilyIdsRef.current))
-        .then((payload) => { applySync(payload, root) })
+        .then((payload) => {
+          if (issuedSeq !== localWriteSeqRef.current) return
+          applySync(payload, root)
+        })
         .catch(() => { /* transient sync failure: keep the current doc */ })
     }, MINDMAP_SYNC_MS)
     return () => { clearInterval(timer) }
@@ -8355,8 +8555,12 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     const timer = window.setTimeout(() => {
       if (!mountedRef.current || savingRef.current) return
       const root = rootId
+      const issuedSeq = localWriteSeqRef.current
       Promise.resolve(syncDocRef.current(root, runningFamilyIdsRef.current))
-        .then((payload) => { applySync(payload, root) })
+        .then((payload) => {
+          if (issuedSeq !== localWriteSeqRef.current) return
+          applySync(payload, root)
+        })
         .catch(() => { /* transient */ })
     }, 600)
     return () => { clearTimeout(timer) }
@@ -8606,8 +8810,8 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   /* Open a session inside the map: openSession switches the right-side chat to
      it and moves the "当前" highlight here; the overlay itself stays open. */
   const openBranch = useCallback((id) => {
-    openSessionRef.current(String(id))
-  }, [])
+    switchToSession(String(id))
+  }, [switchToSession])
 
   /* Fork a new branch session at a card's turn/end seq, record it in the doc
      and persist. The child opens ONLY after the doc write completes, so the
@@ -8623,6 +8827,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     setForking(true)
     const root = rootId
     const currentDoc = doc
+    localWriteSeqRef.current += 1
     savingRef.current = true
     Promise.resolve(forkAtRef.current(String(ownerId), turn.seq))
       .then(async (childId) => {
@@ -8656,7 +8861,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
         if (!mountedRef.current) return
         /* Open into chat so the next message extends from exactly the clicked
            card. */
-        openSessionRef.current(String(childId))
+        switchToSession(String(childId))
       })
       .then(() => {
         if (!mountedRef.current) return
@@ -8671,7 +8876,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
         savingRef.current = false
         if (mountedRef.current) setForking(false)
       })
-  }, [doc, forking, rootId, showNotice])
+  }, [doc, forking, rootId, showNotice, switchToSession])
 
   /* Click the VIRTUAL root node: create a brand-new EMPTY top-level session (no
      inherited turns) hanging directly off the root node, record it in the doc
@@ -8688,6 +8893,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     setForking(true)
     const root = rootId
     const currentDoc = doc
+    localWriteSeqRef.current += 1
     savingRef.current = true
     const recordedCwd = (typeof currentDoc?.workspaceCwd === 'string' && currentDoc.workspaceCwd !== '')
       ? currentDoc.workspaceCwd
@@ -8718,7 +8924,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
         }
         if (!mountedRef.current) return
         /* Open the new session into chat so the next message starts it. */
-        openSessionRef.current(String(childId))
+        switchToSession(String(childId))
       })
       .then(() => {
         if (!mountedRef.current) return
@@ -8733,7 +8939,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
         savingRef.current = false
         if (mountedRef.current) setForking(false)
       })
-  }, [doc, forking, rootId, showNotice])
+  }, [doc, forking, rootId, showNotice, switchToSession])
 
   /* Click a node: the root creates a NEW top-level session; a head switches to
      its session; a card switches (parked tail / streaming / empty placeholder)
@@ -8844,6 +9050,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     if (menu === null || menu.kind !== 'root' || doc === null || rootId === null) return
     setMenu(null)
     const next = { ...doc, workspaceCwd: cwd, updatedAt: Date.now() }
+    localWriteSeqRef.current += 1
     savingRef.current = true
     setDoc(next)
     lastFingerprintRef.current = mindmapDocFingerprint(next)
@@ -8900,6 +9107,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     }
     setArchiveBranchBusy(true)
     setArchiveBranchError(null)
+    localWriteSeqRef.current += 1
     savingRef.current = true
     const next = { ...currentDoc, sessions: plan.sessions, next: plan.next, updatedAt: Date.now() }
     /* Re-anchor when the archived session was the anchor (the doc file moves
@@ -8958,6 +9166,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     if (archiveBusy || archiveTarget === null) return
     setArchiveBusy(true)
     setArchiveError(null)
+    localWriteSeqRef.current += 1
     savingRef.current = true
     const run = async () => {
       const root = rootId
@@ -8966,7 +9175,12 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       const unique = [...new Set(ids)].filter(id => id !== undefined && id !== null && id !== '')
       if (unique.includes(String(sessionId))) openSessionRef.current(root)
       for (const id of unique) await archiveSessionRef.current(String(id))
-      if (root !== null && root !== undefined) await deleteDocRef.current(String(root))
+      if (root !== null && root !== undefined) {
+        await deleteDocRef.current(String(root))
+        /* The map is gone: drop its remembered last-selected session so a
+           stale entry never lingers (the archived root can never reopen). */
+        removeMindmapLastSession(String(root))
+      }
       mindmapRegistry.markDirty()
       /* The document is gone: close the floating window instead of leaving a
          stale map (a later sync could resurrect the doc from the root's log). */
@@ -9039,6 +9253,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     if (plan.lastSession === true) { setDeleteError(translate('mindmap.delete.lastSession')); return }
     setDeleteBusy(true)
     setDeleteError(null)
+    localWriteSeqRef.current += 1
     savingRef.current = true
     let forkedChildId = null
     const next = { ...currentDoc }
@@ -9823,6 +10038,10 @@ function MindmapHeaderButton({ sessionId }) {
   const registry = useMindmapRegistry()
   const registryVersion = registry.getVersion()
   const [confirmTarget, setConfirmTarget] = useState(null)
+  /* Declared BEFORE the Escape effect so the effect can reference it (and list
+     it) without the use-before-declaration smell: a reorder keeps the closure
+     and the dependency array in sync. */
+  const closeConfirm = () => setConfirmTarget(null)
   useEffect(() => {
     if (sessionId !== undefined && sessionId !== null && registry.isMember(String(sessionId))) {
       mindmapConvertedSessions.delete(String(sessionId))
@@ -9837,7 +10056,7 @@ function MindmapHeaderButton({ sessionId }) {
     const onKeyDown = event => { if (event.key === 'Escape') closeConfirm() }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [confirmTarget])
+  }, [closeConfirm, confirmTarget])
   /* No current session (hero page / transient): nothing to map yet. */
   if (sessionId === undefined || sessionId === null) return null
   const key = String(sessionId)
@@ -9858,7 +10077,6 @@ function MindmapHeaderButton({ sessionId }) {
     /* A normal session: ask before converting it into a mind map. */
     setConfirmTarget(key)
   }
-  const closeConfirm = () => setConfirmTarget(null)
   const confirmConvert = () => {
     setConfirmTarget(null)
     /* Remember the conversion so the next click toggles until the background
@@ -9975,6 +10193,7 @@ function MobileHeroControls() {
    conversation to the clicked session. */
 function MindmapOverlayHost({ sessionId, useSessions, actions, chatWidth, mobile, previewRight, previewWidth, sidebarWidth, settingsStore }) {
   const overlay = useMindmapOverlay()
+  const overlayRef = useRef(null)
   const closeLabel = translate('mindmap.overlay.close')
   /* Scope 'full' (default) spans everything left of the chat column; scope
      'sidebar' narrows the window to just the sidebar column (the file browser
@@ -10003,12 +10222,19 @@ function MindmapOverlayHost({ sessionId, useSessions, actions, chatWidth, mobile
       if (event.key !== 'Escape') return
       /* Let an open dialog/context menu inside the map handle Escape first. */
       if (document.querySelector('.dsh-ws-dialog-backdrop, .dsh-ws-context-menu') !== null) return
+      /* An Escape aimed at a DIFFERENT surface (session-switcher dropdown,
+         inline rename input, search popover in the chat column) must not also
+         close the map: the target's own handler owns that key, and the target
+         lives outside the overlay. Only close when the event target is inside
+         the overlay (or not focusable at all). */
+      const target = event.target
+      if (target instanceof Node && overlayRef.current !== null && !overlayRef.current.contains(target)) return
       mindmapOverlayStore.close()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
-  return h('div', { className: 'dsh-ws-mindmap-overlay', 'data-side': rightPanel ? 'right' : undefined, style: { width } },
+  return h('div', { className: 'dsh-ws-mindmap-overlay', 'data-side': rightPanel ? 'right' : undefined, ref: overlayRef, style: { width } },
     h('button', {
       'aria-label': closeLabel,
       className: 'dsh-ws-mindmap-overlay-close',
@@ -10287,12 +10513,22 @@ function AppFrame(props) {
      re-open a running block the user already collapsed, only genuinely new
      blocks. */
   const thinkAutoOpenedKnownRef = useRef(new WeakSet())
+  /* Which running blocks THIS behavior auto-opened — persisted across effect
+     re-runs (a delay-slider change re-creates autoOpened otherwise, and a block
+     auto-opened before the re-run would never be auto-collapsed when it ends:
+     the `state === 'ok' && autoOpened.has(root)` check would miss it). */
+  const thinkAutoOpenedRef = useRef(new WeakSet())
   useEffect(() => {
-    if ((settings.autoExpandThink ?? AUTO_EXPAND_THINK_DEFAULT) === false) return undefined
+    if ((settings.autoExpandThink ?? AUTO_EXPAND_THINK_DEFAULT) === false) {
+      /* Toggle off: drop the auto-open tracking so re-enabling starts fresh
+         (and no stale entry survives to skip an auto-collapse). */
+      thinkAutoOpenedRef.current = new WeakSet()
+      return undefined
+    }
     const section = chatSectionRef.current
     if (section === null) return undefined
     const collapseDelayMs = Math.round((settings.thinkCollapseDelay ?? THINK_COLLAPSE_DELAY_DEFAULT_S) * 1000)
-    const autoOpened = new WeakSet()
+    const autoOpened = thinkAutoOpenedRef.current
     const pendingCollapses = new Map()
     const rowOf = root => root.querySelector(':scope [data-disclosure-row]')
     // Flag programmatic row clicks so the interaction listener below does not
