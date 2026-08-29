@@ -2,11 +2,11 @@ import React from 'react'
 import { createPortal } from 'react-dom'
 import { createSnapshotStore, defineStore } from '@deepseek-ai/dsh-client-store'
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
-import { EditorState, Compartment } from '@codemirror/state'
-import { EditorView, drawSelection, dropCursor, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers, panels } from '@codemirror/view'
+import { EditorState, Compartment, Prec } from '@codemirror/state'
+import { Decoration, EditorView, drawSelection, dropCursor, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers, panels, ViewPlugin } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { closeSearchPanel, findNext, findPrevious, gotoLine, highlightSelectionMatches, openSearchPanel, search, selectNextOccurrence, selectSelectionMatches } from '@codemirror/search'
-import { bracketMatching, defaultHighlightStyle, foldable, foldEffect, foldGutter, foldKeymap, HighlightStyle, indentOnInput, syntaxHighlighting, StreamLanguage, unfoldAll } from '@codemirror/language'
+import { bracketMatching, defaultHighlightStyle, foldable, foldEffect, foldGutter, foldKeymap, HighlightStyle, indentOnInput, syntaxHighlighting, StreamLanguage, syntaxTree, unfoldAll } from '@codemirror/language'
 import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
 import { tags } from '@lezer/highlight'
 import { javascript } from '@codemirror/lang-javascript'
@@ -103,7 +103,12 @@ const cssColorToHex = (color) => {
   if (typeof color !== 'string') return null
   const text = color.trim()
   const shortHex = text.match(/^#([0-9a-fA-F]{3,4})$/)
-  if (shortHex !== null) return `#${shortHex[1].slice(0, 3).split('').map(part => `${part}${part}`).join('').toLowerCase()}`
+  if (shortHex !== null) {
+    /* 3-digit #abc → #aabbcc; 4-digit #abcd → #aabbccdd (nibble doubling
+       keeps the alpha channel — slicing to 3 digits silently dropped it). */
+    const doubled = shortHex[1].split('').map(part => `${part}${part}`).join('').toLowerCase()
+    return `#${doubled}`
+  }
   if (/^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$/.test(text)) return `#${text.slice(1, 7).toLowerCase()}`
   const rgb = text.match(/^rgba?\(\s*(-?[0-9.]+%?)(?:\s*,\s*|\s+)(-?[0-9.]+%?)(?:\s*,\s*|\s+)(-?[0-9.]+%?)(?:\s*(?:,|\/)\s*[^)]+)?\s*\)$/i)
   if (rgb === null) return null
@@ -392,6 +397,7 @@ const zh = {
   'editor.unsavedTabClose': '此标签有未保存内容，请先保存或取消编辑。',
   'editor.unsavedTabsClose': '存在有未保存内容的标签，请先保存或取消编辑。',
   'editor.unsavedBlocked': '当前文件有未保存的更改，请先保存或取消编辑。',
+  'editor.operationBusy': '有文件操作正在进行，请稍候再试。',
   'editor.dirtyEncodingSwitch': '有未保存的更改，请先保存或取消后再切换编码打开。',
   'tree.refreshBlocked': '存在未保存的更改，已阻止刷新文件树。请先保存或取消编辑。',
   'editor.previewTruncated': '文件较大，当前仅显示开头部分，不能编辑。',
@@ -649,6 +655,8 @@ const zh = {
   'mindmap.created': '已创建导图会话。',
   'mindmap.forked': '已在此处创建分支。',
   'mindmap.sessionCreated': '已创建新的空会话分支。',
+  'mindmap.newSession': '创建新对话',
+  'mindmap.newSessionTitle': '新建一个顶级空会话分支',
   'mindmap.branchTag': '分支',
   'mindmap.endTag': '末端',
   'mindmap.turnTag': '第 {n} 轮',
@@ -874,6 +882,7 @@ const en = {
   'editor.unsavedTabClose': 'This tab has unsaved content; save or cancel editing first.',
   'editor.unsavedTabsClose': 'Some tabs have unsaved content; save or cancel editing first.',
   'editor.unsavedBlocked': 'The current file has unsaved changes; save or cancel editing first.',
+  'editor.operationBusy': 'A file operation is in progress; please try again in a moment.',
   'editor.dirtyEncodingSwitch': 'You have unsaved changes; save or cancel before switching the encoding.',
   'tree.refreshBlocked': 'Unsaved changes block the file-tree refresh; save or cancel editing first.',
   'editor.previewTruncated': 'The file is large; only the beginning is shown and it cannot be edited.',
@@ -1131,6 +1140,8 @@ const en = {
   'mindmap.created': 'Mind-map session created.',
   'mindmap.forked': 'Branch created here.',
   'mindmap.sessionCreated': 'New empty session branch created.',
+  'mindmap.newSession': 'Create new conversation',
+  'mindmap.newSessionTitle': 'Create a new top-level empty session branch',
   'mindmap.branchTag': 'branch',
   'mindmap.endTag': 'End',
   'mindmap.turnTag': 'Turn {n}',
@@ -1364,14 +1375,14 @@ const styles = `
 .dsh-ws-preview-tab-close[data-pinned]{color:var(--dsw-alias-state-business-primary);width:22px;height:22px}
 .dsh-ws-preview-tab-close[data-pinned] svg{display:block;width:16px;height:16px;transform:translateY(1px) rotate(-45deg)}
 .dsh-ws-highlight-preset-select{flex:1;min-width:0;height:30px;padding:0 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;box-sizing:border-box}.dsh-ws-highlight-preset-select:focus{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}
-.dsh-ws-editor-host[data-highlight-preset='classic']{--shiki-token-constant:#0451a5;--shiki-token-string:#a31515;--shiki-token-comment:#008000;--shiki-token-keyword:#0000ff;--shiki-token-parameter:#001080;--shiki-token-function:#795e26;--shiki-token-string-expression:#a31515;--shiki-token-punctuation:#000000;--shiki-token-link:#0000ff}
-body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='classic']{--shiki-token-constant:#4ec9b0;--shiki-token-string:#ce9178;--shiki-token-comment:#6a9955;--shiki-token-keyword:#569cd6;--shiki-token-parameter:#9cdcfe;--shiki-token-function:#dcdcaa;--shiki-token-string-expression:#ce9178;--shiki-token-punctuation:#d4d4d4;--shiki-token-link:#569cd6}
-.dsh-ws-editor-host[data-highlight-preset='warm']{--shiki-token-constant:#b4452c;--shiki-token-string:#8a5a00;--shiki-token-comment:#a06a4a;--shiki-token-keyword:#c2410c;--shiki-token-parameter:#d97706;--shiki-token-function:#be185d;--shiki-token-string-expression:#9a3412;--shiki-token-punctuation:#6b4a3f;--shiki-token-link:#9a3412}
-body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='warm']{--shiki-token-constant:#ff8a65;--shiki-token-string:#ffd54f;--shiki-token-comment:#c8a48c;--shiki-token-keyword:#ff9e6d;--shiki-token-parameter:#ffb74d;--shiki-token-function:#f472b6;--shiki-token-string-expression:#ffcc80;--shiki-token-punctuation:#e0c8bb;--shiki-token-link:#ffab91}
-.dsh-ws-editor-host[data-highlight-preset='cool']{--shiki-token-constant:#1971c2;--shiki-token-string:#0f766e;--shiki-token-comment:#6f7d94;--shiki-token-keyword:#364fc7;--shiki-token-parameter:#0b7285;--shiki-token-function:#7048e8;--shiki-token-string-expression:#099268;--shiki-token-punctuation:#49576b;--shiki-token-link:#1c7ed6}
-body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='cool']{--shiki-token-constant:#4dabf7;--shiki-token-string:#38d9a9;--shiki-token-comment:#8fa3c2;--shiki-token-keyword:#91a7ff;--shiki-token-parameter:#22b8cf;--shiki-token-function:#b197fc;--shiki-token-string-expression:#63e6be;--shiki-token-punctuation:#b6c2d6;--shiki-token-link:#74c0fc}
-.dsh-ws-editor-host[data-highlight-preset='mono']{--shiki-token-constant:#3f3f3f;--shiki-token-string:#2e2e2e;--shiki-token-comment:#9d9d9d;--shiki-token-keyword:#e8590c;--shiki-token-parameter:#565656;--shiki-token-function:#7a7a7a;--shiki-token-string-expression:#4a4a4a;--shiki-token-punctuation:#8a8a8a;--shiki-token-link:#a0a0a0}
-body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='mono']{--shiki-token-constant:#d0d0d0;--shiki-token-string:#e2e2e2;--shiki-token-comment:#6e6e6e;--shiki-token-keyword:#ffa94d;--shiki-token-parameter:#a8a8a8;--shiki-token-function:#bfbfbf;--shiki-token-string-expression:#cfcfcf;--shiki-token-punctuation:#8f8f8f;--shiki-token-link:#7d7d7d}
+.dsh-ws-editor-host[data-highlight-preset='classic']{--shiki-token-constant:#0451a5;--shiki-token-string:#a31515;--shiki-token-comment:#008000;--shiki-token-keyword:#0000ff;--shiki-token-parameter:#001080;--shiki-token-function:#795e26;--shiki-token-string-expression:#a31515;--shiki-token-punctuation:#000000;--shiki-token-link:#0000ff;--shiki-token-module:#267f99}
+body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='classic']{--shiki-token-constant:#4ec9b0;--shiki-token-string:#ce9178;--shiki-token-comment:#6a9955;--shiki-token-keyword:#569cd6;--shiki-token-parameter:#9cdcfe;--shiki-token-function:#dcdcaa;--shiki-token-string-expression:#ce9178;--shiki-token-punctuation:#d4d4d4;--shiki-token-link:#569cd6;--shiki-token-module:#4ec9b0}
+.dsh-ws-editor-host[data-highlight-preset='warm']{--shiki-token-constant:#b4452c;--shiki-token-string:#8a5a00;--shiki-token-comment:#a06a4a;--shiki-token-keyword:#c2410c;--shiki-token-parameter:#d97706;--shiki-token-function:#be185d;--shiki-token-string-expression:#9a3412;--shiki-token-punctuation:#6b4a3f;--shiki-token-link:#9a3412;--shiki-token-module:#0f766e}
+body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='warm']{--shiki-token-constant:#ff8a65;--shiki-token-string:#ffd54f;--shiki-token-comment:#c8a48c;--shiki-token-keyword:#ff9e6d;--shiki-token-parameter:#ffb74d;--shiki-token-function:#f472b6;--shiki-token-string-expression:#ffcc80;--shiki-token-punctuation:#e0c8bb;--shiki-token-link:#ffab91;--shiki-token-module:#2dd4bf}
+.dsh-ws-editor-host[data-highlight-preset='cool']{--shiki-token-constant:#1971c2;--shiki-token-string:#0f766e;--shiki-token-comment:#6f7d94;--shiki-token-keyword:#364fc7;--shiki-token-parameter:#0b7285;--shiki-token-function:#7048e8;--shiki-token-string-expression:#099268;--shiki-token-punctuation:#49576b;--shiki-token-link:#1c7ed6;--shiki-token-module:#e8590c}
+body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='cool']{--shiki-token-constant:#4dabf7;--shiki-token-string:#38d9a9;--shiki-token-comment:#8fa3c2;--shiki-token-keyword:#91a7ff;--shiki-token-parameter:#22b8cf;--shiki-token-function:#b197fc;--shiki-token-string-expression:#63e6be;--shiki-token-punctuation:#b6c2d6;--shiki-token-link:#74c0fc;--shiki-token-module:#ffa94d}
+.dsh-ws-editor-host[data-highlight-preset='mono']{--shiki-token-constant:#3f3f3f;--shiki-token-string:#2e2e2e;--shiki-token-comment:#9d9d9d;--shiki-token-keyword:#e8590c;--shiki-token-parameter:#565656;--shiki-token-function:#7a7a7a;--shiki-token-string-expression:#4a4a4a;--shiki-token-punctuation:#8a8a8a;--shiki-token-link:#a0a0a0;--shiki-token-module:#6e6e6e}
+body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='mono']{--shiki-token-constant:#d0d0d0;--shiki-token-string:#e2e2e2;--shiki-token-comment:#6e6e6e;--shiki-token-keyword:#ffa94d;--shiki-token-parameter:#a8a8a8;--shiki-token-function:#bfbfbf;--shiki-token-string-expression:#cfcfcf;--shiki-token-punctuation:#8f8f8f;--shiki-token-link:#7d7d7d;--shiki-token-module:#c0c0c0}
 /* VS Code default theme (Light+/Dark+) XML palette: tag names ride the
    function token, attribute names the parameter token, values/entities the
    string token; two extra vars cover angle brackets and entity characters. */
@@ -1379,10 +1390,14 @@ body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='mono']{--shi
 body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-xml']{--shiki-token-comment:#6A9955;--shiki-token-function:#569cd6;--shiki-token-parameter:#9cdcfe;--shiki-token-string:#ce9178;--shiki-token-string-expression:#569cd6;--dsh-ws-token-xml-punctuation:#808080;--dsh-ws-token-xml-entity:#569cd6}
 /* VS Code default theme (Light+/Dark+) shared token palette: one rule serves
    every non-XML vscode-* preset. */
-.dsh-ws-editor-host[data-highlight-preset='vscode-python'],.dsh-ws-editor-host[data-highlight-preset='vscode-json'],.dsh-ws-editor-host[data-highlight-preset='vscode-typescript'],.dsh-ws-editor-host[data-highlight-preset='vscode-javascript'],.dsh-ws-editor-host[data-highlight-preset='vscode-css'],.dsh-ws-editor-host[data-highlight-preset='vscode-markdown'],.dsh-ws-editor-host[data-highlight-preset='vscode-shell'],.dsh-ws-editor-host[data-highlight-preset='vscode-config'],.dsh-ws-editor-host[data-highlight-preset='vscode-cpp'],.dsh-ws-editor-host[data-highlight-preset='vscode-csharp']{--shiki-token-constant:#098658;--shiki-token-string:#a31515;--shiki-token-comment:#008000;--shiki-token-keyword:#0000ff;--shiki-token-parameter:#001080;--shiki-token-function:#795e26;--shiki-token-string-expression:#795e26;--shiki-token-punctuation:#000000;--shiki-token-link:#0000ff}
-body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-python'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-json'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-typescript'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-javascript'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-css'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-markdown'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-shell'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-config'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-cpp'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-csharp']{--shiki-token-constant:#b5cea8;--shiki-token-string:#ce9178;--shiki-token-comment:#6a9955;--shiki-token-keyword:#569cd6;--shiki-token-parameter:#9cdcfe;--shiki-token-function:#dcdcaa;--shiki-token-string-expression:#dcdcaa;--shiki-token-punctuation:#d4d4d4;--shiki-token-link:#569cd6}
-.dsh-ws-editor-host[data-highlight-preset='vs2022']{--shiki-token-constant:#098658;--shiki-token-string:#a31515;--shiki-token-comment:#008000;--shiki-token-keyword:#0000ff;--shiki-token-parameter:#000000;--shiki-token-function:#2b91af;--shiki-token-string-expression:#a31515;--shiki-token-punctuation:#000000;--shiki-token-link:#0000ff}
-body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vs2022']{--shiki-token-constant:#b5cea8;--shiki-token-string:#d69d85;--shiki-token-comment:#57a64a;--shiki-token-keyword:#569cd6;--shiki-token-parameter:#dcdcdc;--shiki-token-function:#4ec9b0;--shiki-token-string-expression:#d69d85;--shiki-token-punctuation:#b4b4b4;--shiki-token-link:#569cd6}
+.dsh-ws-editor-host[data-highlight-preset='vscode-python'],.dsh-ws-editor-host[data-highlight-preset='vscode-json'],.dsh-ws-editor-host[data-highlight-preset='vscode-typescript'],.dsh-ws-editor-host[data-highlight-preset='vscode-javascript'],.dsh-ws-editor-host[data-highlight-preset='vscode-css'],.dsh-ws-editor-host[data-highlight-preset='vscode-markdown'],.dsh-ws-editor-host[data-highlight-preset='vscode-shell'],.dsh-ws-editor-host[data-highlight-preset='vscode-config'],.dsh-ws-editor-host[data-highlight-preset='vscode-cpp'],.dsh-ws-editor-host[data-highlight-preset='vscode-csharp']{--shiki-token-constant:#098658;--shiki-token-string:#a31515;--shiki-token-comment:#008000;--shiki-token-keyword:#0000ff;--shiki-token-parameter:#001080;--shiki-token-function:#795e26;--shiki-token-string-expression:#795e26;--shiki-token-punctuation:#000000;--shiki-token-link:#0000ff;--shiki-token-module:#267f99}
+body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-python'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-json'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-typescript'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-javascript'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-css'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-markdown'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-shell'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-config'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-cpp'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-csharp']{--shiki-token-constant:#b5cea8;--shiki-token-string:#ce9178;--shiki-token-comment:#6a9955;--shiki-token-keyword:#569cd6;--shiki-token-parameter:#9cdcfe;--shiki-token-function:#dcdcaa;--shiki-token-string-expression:#dcdcaa;--shiki-token-punctuation:#d4d4d4;--shiki-token-link:#569cd6;--shiki-token-module:#4ec9b0}
+.dsh-ws-editor-host[data-highlight-preset='vs2022']{--shiki-token-constant:#098658;--shiki-token-string:#a31515;--shiki-token-comment:#008000;--shiki-token-keyword:#0000ff;--shiki-token-parameter:#000000;--shiki-token-function:#2b91af;--shiki-token-string-expression:#a31515;--shiki-token-punctuation:#000000;--shiki-token-link:#0000ff;--shiki-token-module:#267f99}
+body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vs2022']{--shiki-token-constant:#b5cea8;--shiki-token-string:#d69d85;--shiki-token-comment:#57a64a;--shiki-token-keyword:#569cd6;--shiki-token-parameter:#dcdcdc;--shiki-token-function:#4ec9b0;--shiki-token-string-expression:#d69d85;--shiki-token-punctuation:#b4b4b4;--shiki-token-link:#569cd6;--shiki-token-module:#4ec9b0}
+/* Python import-module names (dsh-ws-token-module decoration): per-preset
+   --shiki-token-module, falling back to the function color. The 3-class
+   selector outranks any single-class HighlightStyle rule on the same span. */
+.dsh-ws-editor-host .cm-line .dsh-ws-token-module{color:var(--shiki-token-module,var(--shiki-token-function))}
 /* Preprocessor directive color (C# #if/#region, ...): purple, lighter in dark
    for contrast; overridable per preset. */
 .dsh-ws-editor-host{--dsh-ws-token-directive:#8e44ad}
@@ -1565,12 +1580,39 @@ html.dsh-ws-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal=
    live in the mind map). */
 .dsh-ws-mindmap{height:100%;position:relative;box-sizing:border-box;padding:14px 16px 190px;display:flex;flex-direction:column;overflow:hidden}
 .dsh-ws-mindmap-toolbar{flex:none;display:flex;align-items:center;gap:8px;margin-bottom:8px}
-.dsh-ws-mindmap-toolbar-button{flex:none;padding:3px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:16px;cursor:pointer}
+.dsh-ws-mindmap-toolbar-button{flex:none;display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:16px;cursor:pointer;transition:background .12s ease,border-color .12s ease,color .12s ease}
 .dsh-ws-mindmap-toolbar-button:hover{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary)}
-/* The window-scope toggle (full left area vs sidebar column only): pressed
-   state mirrors the session-header button pattern; hidden on mobile where the
-   overlay is always full screen. */
-.dsh-ws-mindmap-toolbar-button[aria-pressed='true']{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-interactive-bg-active)}
+/* Danger variant for the "archive entire mind map" button: red border + red
+   text (warning), hover gets a faint red fill. Rules sit AFTER the base hover
+   rule so the red wins at equal specificity. */
+.dsh-ws-mindmap-toolbar-button-danger{border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 55%,transparent);color:var(--dsw-alias-state-error-primary)}
+.dsh-ws-mindmap-toolbar-button-danger:hover{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 8%,transparent)}
+/* Highlighted "new session" action: a light-blue pill echoing the virtual
+   root node's style — blue circular plus badge (same symmetric SVG path),
+   blue-tinted gradient fill, blue border and a soft glow. Hover lifts the
+   button 1px, scales the badge and rotates the plus 90°, mirroring the root
+   node's hover animation. */
+.dsh-ws-mindmap-toolbar-button-new{flex:none;display:inline-flex;align-items:center;gap:6px;padding:3px 10px 3px 6px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 55%,transparent);border-radius:999px;background:linear-gradient(180deg,color-mix(in srgb,var(--dsw-alias-state-business-primary) 20%,var(--dsw-alias-bg-layer-1)),color-mix(in srgb,var(--dsw-alias-state-business-primary) 8%,var(--dsw-alias-bg-layer-1)));color:var(--dsw-alias-state-business-primary);font:inherit;font-size:11px;line-height:16px;cursor:pointer;box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent);transition:transform .12s ease,box-shadow .12s ease;white-space:nowrap}
+.dsh-ws-mindmap-toolbar-button-new:hover{transform:translateY(-1px);box-shadow:0 0 0 5px color-mix(in srgb,var(--dsw-alias-state-business-primary) 18%,transparent)}
+.dsh-ws-mindmap-toolbar-button-new-plus{flex:none;width:15px;height:15px;border-radius:50%;background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-primary-inverted);display:flex;align-items:center;justify-content:center;transition:transform .15s ease}
+.dsh-ws-mindmap-toolbar-button-new-plus svg{display:block;width:9px;height:9px;transition:transform .15s ease}
+.dsh-ws-mindmap-toolbar-button-new:hover .dsh-ws-mindmap-toolbar-button-new-plus{transform:scale(1.08)}
+.dsh-ws-mindmap-toolbar-button-new:hover .dsh-ws-mindmap-toolbar-button-new-plus svg{transform:rotate(90deg)}
+/* Badge-family icons (approved scheme D): every toolbar button carries a
+   small circular icon badge echoing the new-session plus badge — neutral
+   gray at rest, turning solid blue on hover; the danger (archive) badge
+   stays solid red regardless. No pressed-state styling: the scope toggle
+   is an action button (its text flips between 全部/仅侧栏), not a
+   kept-highlight selection. These rules sit AFTER the generic hover rules
+   so the red badge wins at equal specificity. */
+.dsh-ws-mindmap-toolbar-badge{flex:none;width:15px;height:15px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--dsw-alias-label-secondary) 28%,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-label-secondary);transition:background .15s ease,color .15s ease}
+.dsh-ws-mindmap-toolbar-badge svg{display:block;width:9px;height:9px}
+.dsh-ws-mindmap-toolbar-button:hover .dsh-ws-mindmap-toolbar-badge{background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-primary-inverted)}
+.dsh-ws-mindmap-toolbar-button-danger .dsh-ws-mindmap-toolbar-badge,.dsh-ws-mindmap-toolbar-button-danger:hover .dsh-ws-mindmap-toolbar-badge{background:var(--dsw-alias-state-error-primary);color:#fff}
+/* Archive button: right-aligned within the toolbar, parked one close-button
+   width (28px) left of the overlay close button (see the toolbar JSX comment
+   for the 50px derivation). */
+.dsh-ws-mindmap-toolbar-archive{margin-left:auto;margin-right:50px}
 html.dsh-ws-mobile-on .dsh-ws-mindmap-scope-toggle{display:none}
 .dsh-ws-mindmap-viewport{position:relative;flex:1;min-height:0;overflow:hidden;cursor:grab;touch-action:none}
 .dsh-ws-mindmap-viewport[data-dragging]{cursor:grabbing;user-select:none}
@@ -1594,6 +1636,25 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-scope-toggle{display:none}
 .dsh-ws-mindmap-confirm-cancel:hover{border-color:var(--dsw-alias-label-secondary);color:var(--dsw-alias-label-primary)}
 .dsh-ws-mindmap-confirm-ok{border:1px solid var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent)}
 .dsh-ws-mindmap-confirm-ok:hover{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 16%,transparent);border-color:var(--dsw-alias-state-business-primary)}
+/* Archive-entire-mind-map confirm dialog (approved scheme A): an enlarged
+   480px warning dialog — red border + red glow, a red→amber gradient band
+   across the top, an amber ⚠ badge, the message in a faint-red card, and a
+   solid red-gradient confirm pill. All colors are theme vars (error/warn),
+   so both themes adapt automatically. */
+.dsh-ws-mindmap-archive-dialog{width:min(480px,100%);border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary) 55%,transparent);border-radius:14px;box-shadow:0 0 0 4px color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,transparent),var(--dsw-shadow-elevated,0 12px 36px rgba(0,0,0,.24));overflow:hidden}
+.dsh-ws-mindmap-archive-dialog .dsh-ws-dialog-header{justify-content:flex-start;gap:10px;padding:16px 18px 0;border-bottom:0}
+.dsh-ws-mindmap-archive-dialog .dsh-ws-dialog-title{flex:1;font-size:16px;font-weight:700;color:var(--dsw-alias-state-error-primary)}
+.dsh-ws-mindmap-archive-band{flex:none;height:4px;background:linear-gradient(90deg,var(--dsw-alias-state-error-primary) 0%,color-mix(in srgb,var(--dsw-alias-state-error-primary) 55%,var(--dsw-alias-state-warn-primary)) 45%,var(--dsw-alias-state-warn-primary) 100%)}
+.dsh-ws-mindmap-archive-badge{flex:none;width:34px;height:34px;border-radius:50%;background:var(--dsw-alias-state-warn-primary);color:#1f2430;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px color-mix(in srgb,var(--dsw-alias-state-warn-primary) 45%,transparent)}
+.dsh-ws-mindmap-archive-badge svg{display:block;width:19px;height:19px;transform:translateY(-1.5px)}
+.dsh-ws-mindmap-archive-dialog .dsh-ws-dialog-body{padding:16px 18px 0;gap:10px}
+.dsh-ws-mindmap-archive-dialog .dsh-ws-dialog-message{font-size:14px;line-height:23px;background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 6%,var(--dsw-alias-bg-layer-1));border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary) 22%,transparent);border-radius:10px;padding:12px 14px}
+.dsh-ws-mindmap-archive-dialog .dsh-ws-dialog-footer{padding:18px 18px 16px;gap:10px}
+.dsh-ws-mindmap-archive-dialog .dsh-ws-text-button{height:36px;padding:0 20px;border-radius:999px;font-size:13px}
+.dsh-ws-mindmap-archive-ok{border:0;background:linear-gradient(180deg,color-mix(in srgb,var(--dsw-alias-state-error-primary) 88%,#fff 12%),var(--dsw-alias-state-error-primary));color:#fff;font-weight:600;box-shadow:0 2px 10px color-mix(in srgb,var(--dsw-alias-state-error-primary) 40%,transparent);transition:filter .15s ease,box-shadow .15s ease}
+.dsh-ws-mindmap-archive-ok:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 72%,#000 28%);color:#fff;box-shadow:inset 0 2px 6px rgba(0,0,0,.22),0 2px 10px color-mix(in srgb,var(--dsw-alias-state-error-primary) 40%,transparent)}
+.dsh-ws-mindmap-archive-ok:active:not(:disabled){filter:brightness(.85);box-shadow:inset 0 3px 8px rgba(0,0,0,.3)}
+.dsh-ws-mindmap-archive-ok:focus-visible{outline:2px solid var(--dsw-alias-state-error-primary);outline-offset:2px}
 /* The session-header 导图 toggle button. */
 .dsh-ws-mindmap-header-button{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 9px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:1;cursor:pointer;box-sizing:border-box}
 .dsh-ws-mindmap-header-button:hover{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary)}
@@ -1789,6 +1850,284 @@ const tokenHighlight = HighlightStyle.define([
   { tag: [tags.invalid, tags.deleted], color: 'var(--dsw-alias-state-error-primary)' },
 ])
 
+/* Python import-module highlighting: the module-path names inside import
+   statements AND later usages of plain-import bindings (`import os` makes
+   every `os` that resolves to that binding a module). lezer-python trees
+   are flat inside ImportStatement (dottedName/importedNames elided at
+   grammar compile time), so styleTags selectors cannot tell modules from
+   variables. A ViewPlugin walks the tree with a scope stack modelled from
+   the syntax nodes:
+   - binding scope: `import X`, `import a.b.c` → X/a; alias `import X as Y`
+     → Y. `from X import Y` names are NOT tracked (unresolvable without
+     semantics) — only the from-module path is coloured in-statement;
+   - shadowing: params, assignment/for/with/except targets, def/class
+     names, lambda params, comprehension targets, walrus targets and match
+     captures define a name in their scope; a usage resolves to the NEAREST
+     binding on the scope chain, so a local definition hides every outer
+     binding (Python compile-time scoping);
+   - class scopes are skipped by lookups from nested functions (LEGB: a
+     method does not see class attributes).
+   Correctness requirements, both mirroring the official TreeHighlighter:
+   1. Prec.highest — mark decorations nest by facet precedence and the text
+      renders inside the INNERMOST span. The syntax-highlight plugin is
+      Prec.high, so without an even higher precedence my mark wraps the
+      highlight span and its color is overridden — the decoration exists
+      but is invisible.
+   2. Rebuild on tree identity change, not just docChanged: the Lezer parse
+      advances in background chunks (Language.setState transactions with
+      stateChanged but no docChanged), so a docChanged-only rebuild misses
+      imports beyond the synchronously parsed prefix. */
+const pythonModuleMark = Decoration.mark({ class: 'dsh-ws-token-module' })
+const pythonImportModules = Prec.highest(ViewPlugin.fromClass(class {
+  constructor(view) { this.tree = syntaxTree(view.state); this.decorations = this.build(view) }
+  update(update) {
+    const tree = syntaxTree(update.state)
+    if (tree !== this.tree) {
+      this.tree = tree
+      this.decorations = this.build(update.view)
+    }
+  }
+  build(view) {
+    const tree = syntaxTree(view.state)
+    const state = view.state
+    const ranges = []
+    const mark = (from, to) => ranges.push(pythonModuleMark.range(from, to))
+    const text = (node) => state.sliceDoc(node.from, node.to)
+    // Scope stack; index 0 is the module scope. isClass scopes are skipped
+    // by lookups from nested functions (LEGB).
+    const scopes = [{ isClass: false, defined: new Set(), imports: new Map() }]
+    const cur = () => scopes[scopes.length - 1]
+    const def = (name) => cur().defined.add(name)
+    const bind = (name, kind) => cur().imports.set(name, kind)
+    // A name usage resolves to the nearest binding on the scope chain; a
+    // local definition of the name shadows every outer binding.
+    const usage = (node) => {
+      const name = text(node)
+      for (let i = scopes.length - 1; i >= 0; i--) {
+        const scope = scopes[i]
+        if (scope.isClass && i !== scopes.length - 1) continue
+        if (scope.defined.has(name)) return
+        const kind = scope.imports.get(name)
+        if (kind === 'module') { mark(node.from, node.to); return }
+        if (kind !== undefined) return
+      }
+    }
+    // Register every direct VariableName target of an assignment-like node;
+    // MemberExpression roots stay usages (`obj.attr = 1`).
+    const defTargets = (node) => {
+      for (let ch = node.firstChild; ch; ch = ch.nextSibling) {
+        if (ch.name === 'VariableName') def(text(ch))
+        else if (ch.name === 'MemberExpression') walk(ch)
+        else if (ch.name === 'TupleExpression' || ch.name === 'ParenthesizedExpression') defTargets(ch)
+        else if (ch.name === 'TypeDef') walk(ch)
+      }
+    }
+    const typeParams = (node) => {
+      for (let tp = node.firstChild; tp; tp = tp.nextSibling) {
+        if (tp.name === 'TypeParam') {
+          for (let v = tp.firstChild; v; v = v.nextSibling) {
+            if (v.name === 'VariableName') def(text(v))
+          }
+        }
+      }
+    }
+    const walk = (node) => {
+      switch (node.name) {
+        case 'VariableName': usage(node); return
+        case 'ImportStatement': return importStatement(node)
+        case 'FunctionDefinition': return functionDefinition(node)
+        case 'ClassDefinition': return classDefinition(node)
+        case 'LambdaExpression': return lambdaExpression(node)
+        case 'ArrayComprehensionExpression':
+        case 'SetComprehensionExpression':
+        case 'DictionaryComprehensionExpression':
+        case 'ComprehensionExpression': return comprehension(node)
+        case 'AssignStatement': {
+          let lastAssign = null
+          for (let ch = node.firstChild; ch; ch = ch.nextSibling) {
+            if (ch.name === 'AssignOp') lastAssign = ch
+          }
+          for (let ch = node.firstChild; ch; ch = ch.nextSibling) {
+            // LHS targets precede the last `=`; RHS/annotations follow it.
+            if (lastAssign !== null && ch.from >= lastAssign.from) { walk(ch); continue }
+            if (ch.name === 'VariableName') def(text(ch))
+            else if (ch.name === 'TupleExpression' || ch.name === 'ParenthesizedExpression') defTargets(ch)
+            else if (ch.name === 'MemberExpression') walk(ch) // `obj.attr = ...`: root stays a usage
+            else if (ch.name === 'TypeDef') walk(ch) // annotation on the LHS
+          }
+          return
+        }
+        case 'UpdateStatement': defTargets(node); return
+        case 'ForStatement': {
+          let inKw = null
+          for (let ch = node.firstChild; ch; ch = ch.nextSibling) {
+            if (ch.name === 'in') inKw = ch
+          }
+          for (let ch = node.firstChild; ch; ch = ch.nextSibling) {
+            if (inKw !== null && ch.from >= inKw.from) walk(ch)
+            else if (ch.name === 'VariableName') def(text(ch))
+            else if (ch.name === 'TupleExpression' || ch.name === 'ParenthesizedExpression') defTargets(ch)
+          }
+          return
+        }
+        case 'WithStatement':
+        case 'TryStatement': {
+          // `with x as y` / `except E as e`: the name right after `as` binds.
+          for (let ch = node.firstChild; ch; ch = ch.nextSibling) {
+            if (ch.name === 'VariableName' && ch.prevSibling !== null && ch.prevSibling.name === 'as') def(text(ch))
+            else walk(ch)
+          }
+          return
+        }
+        case 'NamedExpression': {
+          // Walrus `(x := ...)`: the first VariableName is the target.
+          for (let ch = node.firstChild; ch; ch = ch.nextSibling) {
+            if (ch.name === 'VariableName') { def(text(ch)); continue }
+            walk(ch)
+          }
+          return
+        }
+        case 'CapturePattern': {
+          // Match patterns bind their captured names.
+          for (let ch = node.firstChild; ch; ch = ch.nextSibling) {
+            if (ch.name === 'VariableName') def(text(ch))
+          }
+          return
+        }
+        default:
+          for (let ch = node.firstChild; ch; ch = ch.nextSibling) walk(ch)
+      }
+    }
+    const importStatement = (node) => {
+      let importKw = null
+      let fromKw = null
+      for (let ch = node.firstChild; ch; ch = ch.nextSibling) {
+        if (ch.name === 'import') importKw = ch
+        else if (ch.name === 'from') fromKw = ch
+      }
+      if (fromKw !== null) {
+        // from-imports: only the module path (before `import`) is coloured;
+        // imported names stay ordinary variables (unresolvable statically).
+        for (let ch = node.firstChild; ch; ch = ch.nextSibling) {
+          if (ch.name === 'VariableName' && importKw !== null && ch.from < importKw.from) mark(ch.from, ch.to)
+        }
+        return
+      }
+      // Plain imports: module-path parts AND aliases are coloured. The
+      // binding of each comma group is its root (`import X` / `import a.b.c`
+      // → X/a), unless the group has an alias (`import X as Y` → Y).
+      let root = null
+      for (let ch = node.firstChild; ch; ch = ch.nextSibling) {
+        if (ch.name === 'VariableName') {
+          mark(ch.from, ch.to)
+          const prev = ch.prevSibling
+          if (prev === null || prev.name === 'import' || prev.name === ',') {
+            root = ch
+          } else if (prev.name === 'as') {
+            bind(text(ch), 'module')
+            root = null
+          }
+        } else if (ch.name === ',') {
+          if (root !== null) {
+            bind(text(root), 'module')
+            root = null
+          }
+        }
+      }
+      if (root !== null) bind(text(root), 'module')
+    }
+    const functionDefinition = (node) => {
+      for (let ch = node.firstChild; ch; ch = ch.nextSibling) {
+        if (ch.name === 'VariableName') { def(text(ch)); break }
+      }
+      scopes.push({ isClass: false, defined: new Set(), imports: new Map() })
+      const funcScope = scopes[scopes.length - 1]
+      for (let ch = node.firstChild; ch; ch = ch.nextSibling) {
+        if (ch.name === 'VariableName') continue // def name, already registered
+        if (ch.name === 'ParamList') {
+          // Direct param names bind in the function scope; defaults and
+          // annotations evaluate in the enclosing scope.
+          for (let pch = ch.firstChild; pch; pch = pch.nextSibling) {
+            if (pch.name === 'VariableName') def(text(pch))
+            else {
+              scopes.pop()
+              walk(pch)
+              scopes.push(funcScope)
+            }
+          }
+        } else if (ch.name === 'TypeParamList') {
+          typeParams(ch)
+        } else {
+          walk(ch) // Body, return TypeDef, async/def keywords
+        }
+      }
+      scopes.pop()
+    }
+    const classDefinition = (node) => {
+      for (let ch = node.firstChild; ch; ch = ch.nextSibling) {
+        if (ch.name === 'VariableName') { def(text(ch)); break }
+      }
+      scopes.push({ isClass: true, defined: new Set(), imports: new Map() })
+      const classScope = scopes[scopes.length - 1]
+      for (let ch = node.firstChild; ch; ch = ch.nextSibling) {
+        if (ch.name === 'VariableName') continue // class name, already registered
+        if (ch.name === 'ArgList') {
+          // Base classes evaluate in the enclosing scope.
+          scopes.pop()
+          walk(ch)
+          scopes.push(classScope)
+        } else if (ch.name === 'TypeParamList') {
+          typeParams(ch)
+        } else {
+          walk(ch) // Body, class keyword
+        }
+      }
+      scopes.pop()
+    }
+    const lambdaExpression = (node) => {
+      scopes.push({ isClass: false, defined: new Set(), imports: new Map() })
+      const lambdaScope = scopes[scopes.length - 1]
+      for (let ch = node.firstChild; ch; ch = ch.nextSibling) {
+        if (ch.name === 'ParamList') {
+          for (let pch = ch.firstChild; pch; pch = pch.nextSibling) {
+            if (pch.name === 'VariableName') def(text(pch))
+            else {
+              scopes.pop()
+              walk(pch)
+              scopes.push(lambdaScope)
+            }
+          }
+        } else {
+          walk(ch) // lambda keyword, body
+        }
+      }
+      scopes.pop()
+    }
+    const comprehension = (node) => {
+      scopes.push({ isClass: false, defined: new Set(), imports: new Map() })
+      // Register the `for` targets first so body usages before the `for`
+      // keyword already see them (Python compile-time scoping).
+      let targeting = false
+      for (let ch = node.firstChild; ch; ch = ch.nextSibling) {
+        if (ch.name === 'for') targeting = true
+        else if (ch.name === 'in') targeting = false
+        else if (targeting && ch.name === 'VariableName') def(text(ch))
+        else if (targeting && (ch.name === 'TupleExpression' || ch.name === 'ParenthesizedExpression')) defTargets(ch)
+      }
+      let afterFor = false
+      for (let ch = node.firstChild; ch; ch = ch.nextSibling) {
+        if (ch.name === 'for') { afterFor = true; continue }
+        if (ch.name === 'in') { afterFor = false; continue }
+        if (afterFor) continue // targets already registered
+        walk(ch) // body, iterables, if clauses (nested comps open their own scope)
+      }
+      scopes.pop()
+    }
+    walk(tree.topNode)
+    return Decoration.set(ranges, true)
+  }
+}, { decorations: (v) => v.decorations }))
+
 const PLAIN_LANGUAGE = Object.freeze({ label: 'text', extension: [] })
 const language = (label, extension) => Object.freeze({ label, extension })
 const JS_LANGUAGE = language('js', javascript())
@@ -1799,7 +2138,7 @@ const JSON_LANGUAGE = language('json', json())
 const HTML_LANGUAGE = language('html', html())
 const CSS_LANGUAGE = language('css', css())
 const MARKDOWN_LANGUAGE = language('md', markdown())
-const PYTHON_LANGUAGE = language('py', python())
+const PYTHON_LANGUAGE = language('py', [python(), pythonImportModules])
 const SQL_LANGUAGE = language('sql', sql())
 const XML_LANGUAGE = language('xml', xml())
 const YAML_LANGUAGE = language('yaml', yaml())
@@ -2297,8 +2636,10 @@ function runMergeWalk(base, mine, theirs, mineChanges, theirsChanges) {
 /* Finalize a merge walk: clean when no conflicts, a structural conflict list
    after the round-trip soundness check, or { fallback: reason } when the walk
    cannot reconstruct one side (whole-file conflict is safer than a wrong save).
-   Shared by the primary and the alternate-tie-break retry. */
-function tryMergeWithScripts(base, mine, theirs, mineChanges, theirsChanges) {
+   Shared by the primary and the alternate-tie-break retry. `mineText` /
+   `theirsText` are the ORIGINAL side texts (the arrays are split copies), used
+   by the round-trip check below. */
+function tryMergeWithScripts(base, mine, theirs, mineChanges, theirsChanges, mineText, theirsText) {
   const walked = runMergeWalk(base, mine, theirs, mineChanges, theirsChanges)
   if (walked.fallback !== undefined) return walked
   const { parts, conflicts } = walked
@@ -2341,7 +2682,7 @@ function threeWayMerge(baseText, mineText, theirsText) {
   const theirsChanges = myersDiff(base, theirs)
   if (mineChanges === null || theirsChanges === null) return wholeFileConflict(base, mine, theirs, 'diff-budget')
 
-  const primary = tryMergeWithScripts(base, mine, theirs, mineChanges, theirsChanges)
+  const primary = tryMergeWithScripts(base, mine, theirs, mineChanges, theirsChanges, mineText, theirsText)
   if (primary.fallback === undefined) return primary
   /* A non-canonical Myers tie-break on repeated identical lines can cluster
      disjoint edits into a false conflict that fails the round-trip check
@@ -2352,7 +2693,7 @@ function threeWayMerge(baseText, mineText, theirsText) {
     const altMine = myersDiff(base, mine, true)
     const altTheirs = myersDiff(base, theirs, true)
     if (altMine !== null && altTheirs !== null) {
-      const alt = tryMergeWithScripts(base, mine, theirs, altMine, altTheirs)
+      const alt = tryMergeWithScripts(base, mine, theirs, altMine, altTheirs, mineText, theirsText)
       if (alt.fallback === undefined) return alt
     }
   }
@@ -2797,7 +3138,10 @@ function EditorContextPrefix({ useEditorContext, useSessions, toggle, ensureSess
     const observer = new MutationObserver(updateGap)
     observer.observe(parent, { childList: true })
     return () => { observer.disconnect() }
-  }, [context.present, direct])
+    /* sessionId: a session switch re-renders this component in a different
+       slot — without it the observer keeps watching the OLD parent (leaking
+       until present/direct change) and the gap stops tracking the new row. */
+  }, [context.present, direct, sessionId])
   if (!context.present || !direct) return null
   const range = context.selection === undefined
     ? ''
@@ -2836,7 +3180,12 @@ const MAX_PENDING_CONTEXT_DISPLAYS = 256
 let pendingContextDisplayCount = 0
 
 function rememberEditorContextDisplay(text, display) {
-  if (pendingContextDisplayCount >= MAX_PENDING_CONTEXT_DISPLAYS && !pendingEditorContextDisplays.has(text)) {
+  /* Bound the GLOBAL entry count, not just the key count: repeated context-only
+     sends with the same selection produce the same key, and that key's queue
+     would otherwise grow without limit when consumption fails (session switch,
+     rendered-text mismatch, skipped fast-path). Evict the oldest key's whole
+     queue once the cap is reached. */
+  if (pendingContextDisplayCount >= MAX_PENDING_CONTEXT_DISPLAYS) {
     const oldest = pendingEditorContextDisplays.keys().next().value
     if (oldest !== undefined) {
       const queue = pendingEditorContextDisplays.get(oldest)
@@ -2925,10 +3274,19 @@ function parseSelectionContext(text) {
   const headerMatch = /^<selection>The user selected the lines (\d+) to (\d+) from (.*):$/.exec(header)
   if (headerMatch === null) return null
   // The envelope ALWAYS closes with the trailer line directly before
-  // `</selection>`. Anchor on that exact pair (via lastIndexOf) so a body that
-  // itself contains `</selection>` can't truncate the fold/summary early.
+  // `</selection>`, and the bridge appends the user's own text after a blank
+  // line (`rendered + '\n\n' + text`). Anchor on the LAST marker whose tail
+  // starts with that blank-line separator (or is empty): a marker inside the
+  // envelope body can't truncate the fold early, and a marker inside the
+  // user's own text (which would otherwise be picked by a bare lastIndexOf,
+  // folding part of the user's message) is skipped.
   const marker = `${SELECTION_TRAILER}${SELECTION_CLOSE}`
-  const markerAt = text.lastIndexOf(marker)
+  let markerAt = text.lastIndexOf(marker)
+  while (markerAt >= 0) {
+    const after = text.slice(markerAt + marker.length)
+    if (after === '' || after.startsWith('\n\n') || after.startsWith('\r\n\r\n')) break
+    markerAt = text.lastIndexOf(marker, markerAt - 1)
+  }
   if (markerAt < 0) return null
   const closeAt = markerAt + marker.length - SELECTION_CLOSE.length
   const body = text.slice(headerEnd + 1, closeAt)
@@ -2954,6 +3312,14 @@ function parseEditorContextEnvelope(text) {
 function findEditorContextBubble(candidate) {
   for (let current = candidate; current instanceof HTMLElement; current = current.parentElement) {
     if (current.parentElement?.parentElement?.hasAttribute('data-time-hover-root')) return current
+    /* Pending steering messages render as
+       [data-pending-steering] > div:first-child > div:last-child WITHOUT a
+       data-time-hover-root ancestor (see the CSS at .dsh-ws-chat
+       [data-pending-steering]): the bubble is the last child of the first
+       child of the pending container. Without this branch the walk falls
+       through to body and returns the DEEPEST prefix-matching element (often
+       just the header paragraph), so a split envelope never folds. */
+    if (current.parentElement?.parentElement?.hasAttribute('data-pending-steering')) return current
   }
   return candidate instanceof HTMLElement ? candidate : null
 }
@@ -3083,17 +3449,25 @@ class PromptContextBridge {
     this.conversation = undefined
     this.originalSendSession = undefined
     this.wrappedSendSession = undefined
+    this.installToken = 0
+    /* Bounded retry timers for ensure() on a not-yet-ready session binding. */
+    this.ensureRetries = new Map()
   }
   install() {
     const conversation = this.ctx.get('conversation')
     if (conversation === undefined) return () => {}
-    this.conversation = conversation
-    this.originalSendSession = conversation.sendSession
-    if (typeof this.originalSendSession !== 'function') {
-      this.conversation = undefined
-      this.originalSendSession = undefined
+    /* Local captures, not instance fields: a re-install (HMR / service rebuild)
+       overlapping the previous cleanup must restore THIS install's original
+       sendSession, and the older cleanup must not clobber the newer install's
+       state (the shared instance fields would otherwise cross-wire them). */
+    const originalSendSession = conversation.sendSession
+    if (typeof originalSendSession !== 'function') {
       throw new Error('workspace-studio requires the Harness 0.1.x conversation.sendSession seam')
     }
+    const token = this.installToken + 1
+    this.installToken = token
+    this.conversation = conversation
+    this.originalSendSession = originalSendSession
     const bridge = this
     const wrappedSendSession = async function sendSessionWithEditorContext(session, text, imageIds, mode) {
       return bridge.sendSessionWithEditorContext(session, text, imageIds, mode)
@@ -3106,6 +3480,11 @@ class PromptContextBridge {
     reconcile()
     return () => {
       off()
+      /* A newer install superseded this one: leave its state (and its own
+         cleanup) alone — restoring here would put the WRONG original back. */
+      if (this.installToken !== token) return
+      for (const timer of bridge.ensureRetries.values()) clearTimeout(timer)
+      bridge.ensureRetries.clear()
       for (const [id, patch] of bridge.inputPatches) bridge.restoreInput(id, patch)
       bridge.inputPatches.clear()
       bridge.contextOnlyInFlight.clear()
@@ -3117,7 +3496,7 @@ class PromptContextBridge {
       // identity comparison cannot detect our wrapper.
       const currentSendSession = conversation.sendSession
       if (currentSendSession?.[SEND_SESSION_BRIDGE_MARKER] === true) {
-        conversation.sendSession = bridge.originalSendSession
+        conversation.sendSession = originalSendSession
       }
       bridge.conversation = undefined
       bridge.originalSendSession = undefined
@@ -3209,7 +3588,21 @@ class PromptContextBridge {
     // keeps its original input behavior.
     try {
       const binding = this.ctx.sessions.binding(id)
-      if (binding === undefined || this.conversation === undefined) return
+      if (binding === undefined || this.conversation === undefined) {
+        /* A brand-new session's binding may not be ready on the first frame
+           (the input dock can render before the subscription callback runs):
+           retry briefly instead of silently leaving the input unpatched — an
+           early send with an empty draft + active context would otherwise
+           no-op through the original submit. */
+        if (!this.ensureRetries.has(id)) {
+          const timer = setTimeout(() => {
+            this.ensureRetries.delete(id)
+            this.ensure(id)
+          }, 50)
+          this.ensureRetries.set(id, timer)
+        }
+        return
+      }
       const input = this.conversation.input.for(binding.ctx)
       const original = input.submit
       const originalSteerQueue = input.steerQueue
@@ -3467,6 +3860,9 @@ const mindmapRegistry = {
   _timer: 0,
   _inflight: null,
   _signature: undefined,
+  /* A markDirty/refresh that arrived while a refresh was in flight: the
+     in-flight result predates that mutation, so re-run once it settles. */
+  _dirtyDuringRefresh: false,
   subscribe(listener) {
     this._listeners.add(listener)
     return () => { this._listeners.delete(listener) }
@@ -3499,14 +3895,27 @@ const mindmapRegistry = {
     for (const listener of [...this._listeners]) listener()
   },
   async refresh() {
-    if (this._inflight !== null) return this._inflight
+    if (this._inflight !== null) {
+      /* A mutation landed while a refresh was in flight: its result would be
+         stale, so remember to re-run once the current one settles. */
+      this._dirtyDuringRefresh = true
+      return this._inflight
+    }
     const pending = fetchMindmapDocIndex()
       .then((payload) => {
         this._apply(Array.isArray(payload?.docs) ? payload.docs : [])
         return payload
       })
       .catch(() => { /* keep the last known index */ })
-      .finally(() => { this._inflight = null })
+      .finally(() => {
+        this._inflight = null
+        /* Re-run when a markDirty/refresh arrived during the in-flight window:
+           the just-applied index predates that mutation. */
+        if (this._dirtyDuringRefresh) {
+          this._dirtyDuringRefresh = false
+          void this.refresh()
+        }
+      })
     this._inflight = pending
     return pending
   },
@@ -3585,6 +3994,18 @@ function useMindmapOverlay() {
 /* Per-group sidebar order of mind-map entries in localStorage (id list per
    group key; a workspace rename loses the mapping — accepted trade-off). */
 const MINDMAP_ORDER_STORE_KEY = 'dsh.workspace.studio.mindmap-order.v1'
+/* Cross-tab serialization for the read-modify-write of the whole map: two GUI
+   tabs writing different maps concurrently would otherwise overwrite each
+   other's entries (lost update). Web Locks serializes the read+write; without
+   the API the write still happens (single-tab behavior unchanged). */
+async function withMindmapStoreLock(name, operation) {
+  if (typeof navigator !== 'undefined' && navigator.locks !== undefined) {
+    try {
+      return await navigator.locks.request(name, operation)
+    } catch { /* lock unavailable: fall through to the unlocked write */ }
+  }
+  return operation()
+}
 function readMindmapOrder() {
   try {
     const raw = window.localStorage.getItem(MINDMAP_ORDER_STORE_KEY)
@@ -3596,7 +4017,9 @@ function readMindmapOrder() {
   }
 }
 function writeMindmapOrder(map) {
-  try { window.localStorage.setItem(MINDMAP_ORDER_STORE_KEY, JSON.stringify(map)) } catch { /* quota / private mode */ }
+  return withMindmapStoreLock('dsh-workspace-studio:mindmap-order', () => {
+    try { window.localStorage.setItem(MINDMAP_ORDER_STORE_KEY, JSON.stringify(map)) } catch { /* quota / private mode */ }
+  })
 }
 
 /* Per-root last-selected session of a mind map in localStorage (root session id
@@ -3622,19 +4045,24 @@ function readMindmapLastSession(rootId) {
   return typeof value === 'string' && value !== '' ? value : null
 }
 function writeMindmapLastSession(rootId, sessionId) {
-  try {
-    const map = readMindmapLastSessionMap()
-    map[String(rootId)] = String(sessionId)
-    window.localStorage.setItem(MINDMAP_LAST_SESSION_STORE_KEY, JSON.stringify(map))
-  } catch { /* quota / private mode */ }
+  /* Re-read INSIDE the lock so a concurrent tab's write is never clobbered. */
+  return withMindmapStoreLock('dsh-workspace-studio:mindmap-last-session', () => {
+    try {
+      const map = readMindmapLastSessionMap()
+      map[String(rootId)] = String(sessionId)
+      window.localStorage.setItem(MINDMAP_LAST_SESSION_STORE_KEY, JSON.stringify(map))
+    } catch { /* quota / private mode */ }
+  })
 }
 function removeMindmapLastSession(rootId) {
-  try {
-    const map = readMindmapLastSessionMap()
-    if (!Object.prototype.hasOwnProperty.call(map, String(rootId))) return
-    delete map[String(rootId)]
-    window.localStorage.setItem(MINDMAP_LAST_SESSION_STORE_KEY, JSON.stringify(map))
-  } catch { /* quota / private mode */ }
+  return withMindmapStoreLock('dsh-workspace-studio:mindmap-last-session', () => {
+    try {
+      const map = readMindmapLastSessionMap()
+      if (!Object.prototype.hasOwnProperty.call(map, String(rootId))) return
+      delete map[String(rootId)]
+      window.localStorage.setItem(MINDMAP_LAST_SESSION_STORE_KEY, JSON.stringify(map))
+    } catch { /* quota / private mode */ }
+  })
 }
 // Draft (staging) file access: editing content lives in a draft file outside
 // the workspace, never in the source file. The draft JSON carries { path,
@@ -3759,6 +4187,7 @@ function openEmergencyDraftDb() {
   if (emergencyDraftDbPromise !== undefined) return emergencyDraftDbPromise
   emergencyDraftDbPromise = new Promise((resolveDb, reject) => {
     let request
+    let blocked = false
     try {
       request = indexedDB.open(EMERGENCY_DRAFT_DB, 1)
     } catch (error) {
@@ -3771,6 +4200,14 @@ function openEmergencyDraftDb() {
       }
     }
     request.onsuccess = () => {
+      /* The upgrade may have been blocked at open time (we already resolved
+         undefined) and only now succeeded after the blocking tab closed: close
+         the late connection instead of leaking it — the mirror stays disabled
+         for this session by design. */
+      if (blocked) {
+        request.result.close()
+        return
+      }
       resolveDb(request.result)
       /* One best-effort sweep per page load: reclaim expired tombstones, never live drafts. */
       if (!emergencyDraftPruneScheduled) {
@@ -3784,6 +4221,7 @@ function openEmergencyDraftDb() {
          mirror is best-effort (the Host draft stays authoritative), so degrade
          to "no mirror" instead of rejecting forever — a rejected promise would
          be retried on every write and keep failing. */
+      blocked = true
       console.warn('workspace-studio: IndexedDB draft upgrade blocked; emergency mirror disabled for this session')
       resolveDb(undefined)
     }
@@ -3851,54 +4289,54 @@ async function rewriteEmergencyDraftPath(workspaceId, scopeId, from, to) {
   await Promise.all([...emergencyDraftTails.values()].map(tail => tail.catch(() => {})))
   const db = await openEmergencyDraftDb()
   if (db === undefined) return
-  const readAll = () => new Promise((resolveRead, reject) => {
-    const transaction = db.transaction(EMERGENCY_DRAFT_STORE, 'readonly')
-    const store = transaction.objectStore(EMERGENCY_DRAFT_STORE)
-    const request = store.getAll()
-    request.onsuccess = () => { resolveRead(request.result ?? []) }
-    request.onerror = () => { reject(request.error ?? new Error('IndexedDB draft rewrite failed')) }
-    transaction.onerror = () => { reject(transaction.error ?? new Error('IndexedDB draft rewrite failed')) }
-    transaction.onabort = () => { reject(transaction.error ?? new Error('IndexedDB draft rewrite aborted')) }
-  })
-  const all = await readAll()
-  const rewrites = []
-  for (const value of all) {
-    if (value.workspaceId !== String(workspaceId) || value.scopeId !== String(scopeId)) continue
-    const path = rewriteRelativePath(value.path, from, to)
-    if (path === value.path) continue
-    rewrites.push({ oldKey: value.key, value: { ...value, key: emergencyDraftKey(workspaceId, scopeId, path), path, updatedAt: Date.now() } })
-  }
-  if (rewrites.length === 0) return
-  /* Destination collision: keep the NEWER side (generation, then updatedAt) so
-     a live draft at the destination never loses newer work to a moved older record. */
-  const destinationByKey = new Map()
-  for (const record of all) if (record.key !== undefined) destinationByKey.set(record.key, record)
-  const finalized = []
-  const seen = new Set()
-  for (const rewrite of rewrites) {
-    if (seen.has(rewrite.value.key)) continue
-    seen.add(rewrite.value.key)
-    const existing = destinationByKey.get(rewrite.value.key)
-    if (existing !== undefined && existing !== null) {
-      const existingGeneration = Number.isSafeInteger(existing.generation) ? existing.generation : -1
-      const movedGeneration = Number.isSafeInteger(rewrite.value.generation) ? rewrite.value.generation : -1
-      const existingAt = Number(existing.updatedAt) || 0
-      const movedAt = Number(rewrite.value.updatedAt) || 0
-      if (existingGeneration > movedGeneration || (existingGeneration === movedGeneration && existingAt > movedAt)) {
-        finalized.push({ delete: rewrite.oldKey })
-        continue
-      }
-    }
-    finalized.push({ delete: rewrite.oldKey, put: rewrite.value })
-  }
-  if (finalized.length === 0) return
+  /* Read ALL + decide + delete/put inside ONE readwrite transaction: a write
+     enqueued between a separate read transaction and a later write transaction
+     could otherwise be overwritten by the stale snapshot (or deleted along
+     with the old key). IndexedDB serializes transactions on the same store, so
+     the whole read-modify-write is atomic against concurrent mirror writes. */
   await new Promise((resolveRewrite, reject) => {
     const transaction = db.transaction(EMERGENCY_DRAFT_STORE, 'readwrite')
     const store = transaction.objectStore(EMERGENCY_DRAFT_STORE)
-    for (const step of finalized) {
-      store.delete(step.delete)
-      if (step.put !== undefined) store.put(step.put)
+    const request = store.getAll()
+    request.onsuccess = () => {
+      const all = request.result ?? []
+      const rewrites = []
+      for (const value of all) {
+        if (value.workspaceId !== String(workspaceId) || value.scopeId !== String(scopeId)) continue
+        const path = rewriteRelativePath(value.path, from, to)
+        if (path === value.path) continue
+        rewrites.push({ oldKey: value.key, value: { ...value, key: emergencyDraftKey(workspaceId, scopeId, path), path, updatedAt: Date.now() } })
+      }
+      if (rewrites.length === 0) return
+      /* Destination collision: keep the NEWER side (generation, then updatedAt)
+         so a live draft at the destination never loses newer work to a moved
+         older record. */
+      const destinationByKey = new Map()
+      for (const record of all) if (record.key !== undefined) destinationByKey.set(record.key, record)
+      const finalized = []
+      const seen = new Set()
+      for (const rewrite of rewrites) {
+        if (seen.has(rewrite.value.key)) continue
+        seen.add(rewrite.value.key)
+        const existing = destinationByKey.get(rewrite.value.key)
+        if (existing !== undefined && existing !== null) {
+          const existingGeneration = Number.isSafeInteger(existing.generation) ? existing.generation : -1
+          const movedGeneration = Number.isSafeInteger(rewrite.value.generation) ? rewrite.value.generation : -1
+          const existingAt = Number(existing.updatedAt) || 0
+          const movedAt = Number(rewrite.value.updatedAt) || 0
+          if (existingGeneration > movedGeneration || (existingGeneration === movedGeneration && existingAt > movedAt)) {
+            finalized.push({ delete: rewrite.oldKey })
+            continue
+          }
+        }
+        finalized.push({ delete: rewrite.oldKey, put: rewrite.value })
+      }
+      for (const step of finalized) {
+        store.delete(step.delete)
+        if (step.put !== undefined) store.put(step.put)
+      }
     }
+    request.onerror = () => { reject(request.error ?? new Error('IndexedDB draft rewrite failed')) }
     transaction.oncomplete = () => { resolveRewrite() }
     transaction.onerror = () => { reject(transaction.error ?? new Error('IndexedDB draft rewrite failed')) }
     transaction.onabort = () => { reject(transaction.error ?? new Error('IndexedDB draft rewrite aborted')) }
@@ -4137,13 +4575,16 @@ function selectStoredPreviewSession(previewSessions, workspace, currentSession, 
     const value = previewSessions[key]
     return Array.isArray(value?.tabs) && value.tabs.length > 0
   }
+  /* A malformed workspace object (missing sessionIds) must degrade like every
+     other bad input here — never throw out of the render path. */
+  const sessionIdsOf = workspace => Array.isArray(workspace?.sessionIds) ? workspace.sessionIds : []
   if (currentSession !== undefined) {
     const currentKey = String(currentSession)
     if (has(currentKey)) return { key: currentKey, value: previewSessions[currentKey] }
     // Restore priority ② (development-notes §2): first snapshot of any session
     // in this workspace, so one without its own still restores the prior tabs.
     if (workspace !== undefined) {
-      for (const sessionId of workspace.sessionIds) {
+      for (const sessionId of sessionIdsOf(workspace)) {
         const key = String(sessionId)
         if (has(key) && restorable(key)) return { key, value: previewSessions[key] }
       }
@@ -4155,7 +4596,7 @@ function selectStoredPreviewSession(previewSessions, workspace, currentSession, 
     return { key: currentKey, value: undefined }
   }
   if (workspace !== undefined) {
-    for (const sessionId of workspace.sessionIds) {
+    for (const sessionId of sessionIdsOf(workspace)) {
       const key = String(sessionId)
       if (has(key) && restorable(key)) return { key, value: previewSessions[key] }
     }
@@ -4196,9 +4637,12 @@ function previewSnapshotFingerprint(value) {
   const tabs = Array.isArray(value?.tabs) ? value.tabs : []
   // Restored-but-not-volatile metadata (e.g. encoding) participates: ignoring
   // it would skip the write and revert the decode after a refresh.
-  const tabPart = tabs.map(tab =>
-    `${tab.path}:${tab.dirty ? 1 : 0}:${tab.pinned ? 1 : 0}:${tab.encoding ?? ''}:${tab.editing ? 1 : 0}:${tab.lineEnding ?? ''}:${tab.bom ? 1 : 0}:${tab.baseRevision ?? ''}`).join(',')
-  const expandedPart = Array.isArray(value?.expanded) ? value.expanded.join(',') : ''
+  // JSON.stringify (not ','/':' joins): file names may legally contain commas
+  // and colons, and two different states could otherwise collide into the
+  // same fingerprint, silently skipping a needed persistence write.
+  const tabPart = JSON.stringify(tabs.map(tab =>
+    [tab.path, tab.dirty ? 1 : 0, tab.pinned ? 1 : 0, tab.encoding ?? '', tab.editing ? 1 : 0, tab.lineEnding ?? '', tab.bom ? 1 : 0, tab.baseRevision ?? '']))
+  const expandedPart = JSON.stringify(Array.isArray(value?.expanded) ? [...value.expanded].sort() : [])
   return `${value?.activePath ?? ''}|${tabPart}|${expandedPart}`
 }
 function dropIndexFromEvent(event) {
@@ -4307,7 +4751,7 @@ const WEL_TOAST_FADE_MS = 1000
 const welToastIcon = h('svg',{fill:'none',height:16,viewBox:'0 0 16 16',width:16},h('circle',{cx:8,cy:8,r:6.5,stroke:'currentColor',strokeWidth:1.5}),h('path',{d:'M8 4.75v3.5',stroke:'currentColor',strokeLinecap:'round',strokeWidth:1.5}),h('circle',{cx:8,cy:11.25,fill:'currentColor',r:0.9}))
 function PreviewToast({text,onDone,headerRef}){const[top,setTop]=useState(null);const onDoneRef=useRef(onDone);onDoneRef.current=onDone;useLayoutEffect(()=>{const header=headerRef?.current;if(header===null||header===undefined)return;const section=header.parentElement;if(section===null)return;const headerBottom=header.getBoundingClientRect().bottom;const sectionTop=section.getBoundingClientRect().top;setTop(headerBottom-sectionTop+8)},[headerRef]);useEffect(()=>{const timer=setTimeout(()=>{onDoneRef.current()},WEL_TOAST_HOLD_MS+WEL_TOAST_FADE_MS);return()=>clearTimeout(timer)},[]);return h('div',{className:'dsh-ws-toast',role:'alert',style:top===null?undefined:{top}},h('span',{'aria-hidden':true,className:'dsh-ws-toast-icon'},welToastIcon),h('span',{className:'dsh-ws-toast-text'},text))}
 function EncodingDialog({dialog,options,value,busy,onCancel,onPick,onConfirm}){if(dialog===undefined)return null;const title=dialog.mode==='open'?translate('encoding.dialog.open'):translate('encoding.dialog.save'),action=dialog.mode==='open'?translate('encoding.dialog.openAction'):translate('encoding.dialog.saveAction');return h('div',{className:'dsh-ws-dialog-backdrop',onMouseDown:e=>{if(e.target===e.currentTarget&&!busy)onCancel()}},h('div',{'aria-modal':true,className:'dsh-ws-dialog',role:'dialog'},h('div',{className:'dsh-ws-dialog-header'},h('div',{className:'dsh-ws-dialog-title'},title),h('button',{'aria-label':translate('dialog.close'),className:'dsh-ws-icon-button',disabled:busy,onClick:onCancel,title:translate('dialog.close'),type:'button'},'×')),h('div',{className:'dsh-ws-dialog-body'},h('label',{className:'dsh-ws-settings-label',htmlFor:'dsh-ws-encoding-select'},translate('encoding.badge')),h('select',{'aria-label':translate('encoding.badge'),className:'dsh-ws-highlight-preset-select',disabled:busy,id:'dsh-ws-encoding-select',onChange:e=>onPick(e.target.value),value},options.map(enc=>h('option',{key:enc.id,value:enc.id},encodingLabel(enc.id))))),h('div',{className:'dsh-ws-dialog-footer'},h('button',{className:'dsh-ws-text-button',disabled:busy,onClick:onCancel,type:'button'},translate('dialog.cancel')),h('button',{className:'dsh-ws-text-button',disabled:busy||options.length===0,onClick:onConfirm,type:'button'},busy?translate('dialog.processing'):action))))}
-function SessionRenameDialog({draft,busy,error,onCancel,onConfirm,onDraft,title}){const composingRef=useRef(false);return h('div',{className:'dsh-ws-dialog-backdrop',onMouseDown:e=>{if(e.target===e.currentTarget&&!busy)onCancel()}},h('div',{'aria-modal':true,className:'dsh-ws-dialog',role:'dialog'},h('div',{className:'dsh-ws-dialog-header'},h('div',{className:'dsh-ws-dialog-title'},title ?? translate('dialog.renameSession')),h('button',{'aria-label':translate('dialog.close'),className:'dsh-ws-icon-button',disabled:busy,onClick:onCancel,title:translate('dialog.close'),type:'button'},'×')),h('div',{className:'dsh-ws-dialog-body'},h('input',{'aria-label':translate('dialog.sessionName'),autoFocus:true,className:'dsh-ws-dialog-input',disabled:busy,onChange:e=>onDraft(e.target.value),onCompositionEnd:()=>{composingRef.current=false},onCompositionStart:()=>{composingRef.current=true},onFocus:e=>e.target.select(),onKeyDown:e=>{if(e.key==='Escape'){e.preventDefault();onCancel()}else if(e.key==='Enter'&&!composingRef.current){e.preventDefault();onConfirm()}},value:draft}),error?h('div',{className:'dsh-ws-dialog-error',role:'alert'},error):null),h('div',{className:'dsh-ws-dialog-footer'},h('button',{className:'dsh-ws-text-button',disabled:busy,onClick:onCancel,type:'button'},translate('dialog.cancel')),h('button',{className:'dsh-ws-text-button',disabled:busy||draft.trim()==='',onClick:onConfirm,type:'button'},busy?translate('dialog.processing'):translate('dialog.rename')))))}
+function SessionRenameDialog({draft,busy,error,onCancel,onConfirm,onDraft,title}){const composingRef=useRef(false);return h('div',{className:'dsh-ws-dialog-backdrop',onMouseDown:e=>{if(e.target===e.currentTarget&&!busy)onCancel()}},h('div',{'aria-modal':true,className:'dsh-ws-dialog',role:'dialog'},h('div',{className:'dsh-ws-dialog-header'},h('div',{className:'dsh-ws-dialog-title'},title ?? translate('dialog.renameSession')),h('button',{'aria-label':translate('dialog.close'),className:'dsh-ws-icon-button',disabled:busy,onClick:onCancel,title:translate('dialog.close'),type:'button'},'×')),h('div',{className:'dsh-ws-dialog-body'},h('input',{'aria-label':translate('dialog.sessionName'),autoFocus:true,className:'dsh-ws-dialog-input',disabled:busy,onChange:e=>onDraft(e.target.value),onCompositionEnd:()=>{composingRef.current=false},onCompositionStart:()=>{composingRef.current=true},onFocus:e=>e.target.select(),onKeyDown:e=>{if(e.key==='Escape'){if(busy)return;e.preventDefault();onCancel()}else if(e.key==='Enter'&&!composingRef.current){if(busy)return;e.preventDefault();onConfirm()}},value:draft}),error?h('div',{className:'dsh-ws-dialog-error',role:'alert'},error):null),h('div',{className:'dsh-ws-dialog-footer'},h('button',{className:'dsh-ws-text-button',disabled:busy,onClick:onCancel,type:'button'},translate('dialog.cancel')),h('button',{className:'dsh-ws-text-button',disabled:busy||draft.trim()==='',onClick:onConfirm,type:'button'},busy?translate('dialog.processing'):translate('dialog.rename')))))}
 function DeleteDialog({entry,busy,dirtyWarning,onCancel,onConfirm}){if(entry===undefined)return null;return h('div',{className:'dsh-ws-dialog-backdrop',onMouseDown:e=>{if(e.target===e.currentTarget&&!busy)onCancel()}},h('div',{'aria-modal':true,className:'dsh-ws-dialog',role:'dialog'},h('div',{className:'dsh-ws-dialog-header'},h('div',{className:'dsh-ws-dialog-title'},translate('dialog.deleteTitle')),h('button',{'aria-label':translate('dialog.close'),className:'dsh-ws-icon-button',disabled:busy,onClick:onCancel,title:translate('dialog.close'),type:'button'},'×')),h('div',{className:'dsh-ws-dialog-body'},h('div',{className:'dsh-ws-dialog-message'},translate('dialog.deleteMessage',{name:entry.name})),dirtyWarning?h('div',{className:'dsh-ws-dialog-warning',role:'alert'},translate('dialog.deleteDirtyWarning')):null),h('div',{className:'dsh-ws-dialog-footer'},h('button',{className:'dsh-ws-text-button',disabled:busy,onClick:onCancel,type:'button'},translate('dialog.cancel')),h('button',{className:'dsh-ws-danger-button dsh-ws-text-button',disabled:busy,onClick:onConfirm,type:'button'},busy?translate('dialog.processing'):translate('dialog.deleteAction')))))}
 /* Save-time three-way merge conflict: disk changed by another tool and the
    changes overlap local edits. Each region is reviewed one at a time (mine vs
@@ -4609,6 +5053,11 @@ function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShortcut, o
   useEffect(() => {
     const view = editorRef.current
     if (view === undefined || reveal === null) return
+    /* Same path guard as the mount-time restoreScroll: in a fast file switch
+       the effect can fire with a stale reveal while editorRef already points
+       at the NEW file's editor — jumping to the old file's line would be wrong
+       (and would consume the reveal). */
+    if (reveal.path !== file.path) return
     revealPosition(view, reveal)
     markRevealApplied(reveal)
   }, [reveal])
@@ -4837,6 +5286,11 @@ function WorkspaceExplorer({
   const tabScrollPathRef = useRef(null)
   const [copyNotice, setCopyNotice] = useState()
   const [clipboard, setClipboard] = useState()
+  /* Live mirror of the clipboard for in-flight guards: a paste's success
+     handler must not clear a clipboard the user re-filled while the move was
+     in flight (the closure `clipboard` is the render-time snapshot). */
+  const clipboardRef = useRef(clipboard)
+  clipboardRef.current = clipboard
   const [deleteDialog, setDeleteDialog] = useState()
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [conflictDialog, setConflictDialog] = useState()
@@ -4848,7 +5302,6 @@ function WorkspaceExplorer({
   const [searchExpanded, setSearchExpanded] = useState(() => new Set())
   const [searchReveal, setSearchReveal] = useState()
   const searchController = useRef()
-  const searchRevealToken = useRef(0)
   const menuRef = useRef(null)
   const tabMenuRef = useRef(null)
   const titleMenuRef = useRef(null)
@@ -5016,7 +5469,10 @@ function WorkspaceExplorer({
           // absolute offsets shift by one per preceding CRLF.
           const crlfBefore = (pos) => {
             let count = 0
-            for (let i = 0; i + 1 < pos; i += 1) {
+            /* Count every CRLF pair whose LF lands AT or before pos: a boundary
+               exactly on the LF character (raw position = the \n) must still
+               shift by this pair, or the normalized offset is off by one. */
+            for (let i = 0; i + 1 <= pos; i += 1) {
               if (text.charCodeAt(i) === 13 && text.charCodeAt(i + 1) === 10) count += 1
             }
             return count
@@ -5144,6 +5600,11 @@ function WorkspaceExplorer({
         try {
           const result = await checkFileChange(String(workspace.workspaceId), tab.path, snapshot ?? undefined, controller.signal)
           if (controller.signal.aborted || result === undefined) return
+          /* The tab may have been closed while the check was in flight: do not
+             re-seed a baseline for a path that no longer has a tab (a stale
+             entry would make the next open of that path report a spurious
+             change until the read pass re-seeds it). */
+          if (!tabsRef.current.some(item => item.path === tab.path)) return
           const nextSnapshot = result.snapshot ?? null
           if (nextSnapshot !== null) {
             watchSnapshotsRef.current.set(tab.path, nextSnapshot)
@@ -5758,7 +6219,7 @@ function WorkspaceExplorer({
           saving: false,
           scrollTop: savedScrollTop,
           size: Number.isFinite(result.size) ? result.size : null,
-          status: cancelRestore ? { text: translate('editor.cancelRestored') } : (refreshPending ? { text: translate('editor.refreshed') } : (canRestore ? restoredStatus : ((hasDiskDraft || hasTabDraft) ? notRestorableStatus : tab?.status))),
+          status: cancelRestore ? { text: translate('editor.cancelRestored') } : (refreshPending ? { text: translate('editor.refreshed') } : (canRestore ? restoredStatus : ((hasDiskDraft || hasTabDraft) ? notRestorableStatus : (tab?.status?.error === true ? undefined : tab?.status)))),
           symlink: Boolean(selection.symlink),
         })
         /* For an auto-triggered re-read, the clean active tab's status was
@@ -5842,6 +6303,17 @@ function WorkspaceExplorer({
   const forgetPathRefs = useCallback((path) => {
     clearAutosaveTimer(path)
     lastWriteRef.current.delete(path)
+    /* Merge the LIVE scroll position into the tab before dropping the ref: the
+       ref only ever holds the last scroll-event value, and the in-memory tab
+       keeps the mount-time value — without this, closing and reopening the tab
+       in the same session would restore the stale mount-time scroll (while a
+       page refresh, which serializes the live value, restores the real one). */
+    const liveScroll = scrollTopRef.current.get(path)
+    if (liveScroll !== undefined) {
+      setTabs(current => current.map(tab => tab.path === path && Number.isFinite(liveScroll)
+        ? { ...tab, scrollTop: liveScroll }
+        : tab))
+    }
     scrollTopRef.current.delete(path)
     watchSnapshotsRef.current.delete(path)
     reloadingPathsRef.current.delete(path)
@@ -5855,7 +6327,7 @@ function WorkspaceExplorer({
     const tail = draftTailsRef.current.get(path)
     if (tail === undefined) draftGenerationsRef.current.delete(path)
     else tail.catch(() => {}).finally(() => { draftGenerationsRef.current.delete(path) })
-  }, [clearAutosaveTimer])
+  }, [clearAutosaveTimer, setTabs])
 
   /* After committing `content` to the source, remove the staging draft so a
      later refresh does not resurrect it. If removal fails (rare), leave a CLEAN
@@ -6396,7 +6868,7 @@ function WorkspaceExplorer({
   const copyEntryName=useCallback((entry)=>{void copyText(entry.name).then(ok=>{if(!mounted.current)return;setContextMenu(undefined);setCopyNotice(ok?translate('status.copiedName'):translate('status.copyFailed'));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},1600)})},[])
   const openInExplorer=useCallback((entry)=>{setContextMenu(undefined);const controller=new AbortController();revealInExplorer(workspace.workspaceId,entry.path,controller.signal).then(()=>{if(!mounted.current)return;setCopyNotice(translate('status.revealed'));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},1600)}).catch(error=>{if(!mounted.current||error?.name==='AbortError')return;setCopyNotice(translate('status.revealFailed',{message:error instanceof Error?error.message:String(error)}));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},3000)})},[workspace.workspaceId])
   const copyEntryToClipboard=useCallback((entry,cut)=>{setContextMenu(undefined);setClipboard({workspaceId:workspace.workspaceId,path:entry.path,name:entry.name,kind:entry.kind,cut});setCopyNotice(cut?translate('status.cut'):translate('status.copied'));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},1600)},[workspace.workspaceId])
-  const pasteEntry=useCallback((targetEntry)=>{if(clipboard===undefined||clipboard.workspaceId!==workspace.workspaceId)return;const targetDir=targetEntry.kind==='directory'?targetEntry.path:parentPath(targetEntry.path);const targetPath=entryPath(targetDir,pathBaseName(clipboard.path));if(clipboard.cut&&clipboard.path===targetPath)return;const wasCut=clipboard.cut;const affectedPrefix=clipboard.path===''?'':`${clipboard.path}/`;if(wasCut&&tabsRef.current.some(tab=>{if(!tab.dirty&&!tab.saving)return false;return tab.path===clipboard.path||(affectedPrefix!==''&&tab.path.startsWith(affectedPrefix))})){setStatus({error:true,text:translate('editor.unsavedBlocked')});return}const controller=new AbortController();mutationController.current=controller;const mutationSeq=mutationSeqRef.current+=1;let draftMoveGeneration;let draftMoveFailed=false;const request=(async()=>{const result=await requestFsOperation(workspace.workspaceId,{action:wasCut?'move':'copy',source:clipboard.path,target:targetPath},controller.signal);if(wasCut){draftMoveGeneration=nextDraftGeneration('__tree__');await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:draftMoveGeneration,fromPath:clipboard.path,toPath:result.path},controller.signal).catch(async error=>{if(!mounted.current)return;draftMoveFailed=true;console.warn('workspace-studio: draft move after fs move failed:',error);setStatus({error:true,text:translate('status.movedDraftWarning')});try{await draftTree(workspace.workspaceId,{action:'delete',owner:draftScopeId,generation:nextDraftGeneration('__tree__'),path:clipboard.path},controller.signal)}catch(cleanupError){if(mounted.current)console.warn('workspace-studio: draft cleanup after failed move also failed:',cleanupError)}})}return result})();request.then(result=>{if(!mounted.current||mutationSeq!==mutationSeqRef.current)return;setContextMenu(undefined);setStatus(draftMoveFailed?{error:true,text:translate('status.movedDraftWarning')}:{text:wasCut?translate('status.moved'):translate('status.pasted')});if(wasCut){const source=clipboard.path;setClipboard(undefined);setSelected(result);setDirectories(cur=>rewriteDirectoryMap(cur,source,result.path,result));setExpanded(cur=>rewritePathSet(cur,source,result.path));setTabs(cur=>rewritePreviewTabs(cur,source,result.path,result));rewriteRuntimePaths(source,result.path);migratePendingAutosavesRef.current?.(source,result.path);void rewriteEmergencyDraftPath(workspace.workspaceId,draftScopeId,source,result.path).catch(error=>{if(mounted.current)setStatus({error:true,text:translate('editor.autosaveFailed',{message:error instanceof Error?error.message:String(error)})})});const nextActivePath=activePathRef.current===null?null:rewriteRelativePath(activePathRef.current,source,result.path);if(nextActivePath!==activePathRef.current)setActivePath(nextActivePath);void loadDirectory(parentPath(source));void loadDirectory(targetDir)}else{void loadDirectory(targetDir)}}).catch(error=>{if(error?.name==='AbortError'||!mounted.current||mutationSeq!==mutationSeqRef.current)return;setCopyNotice(translate(wasCut?'status.cutFailed':'status.pasteFailed',{message:error instanceof Error?error.message:String(error)}));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},3000)}).finally(()=>{if(mutationController.current===controller)mutationController.current=undefined})},[clipboard,draftScopeId,draftTree,loadDirectory,nextDraftGeneration,rewriteRuntimePaths,workspace.workspaceId])
+  const pasteEntry=useCallback((targetEntry)=>{if(clipboard===undefined||clipboard.workspaceId!==workspace.workspaceId)return;const targetDir=targetEntry.kind==='directory'?targetEntry.path:parentPath(targetEntry.path);const targetPath=entryPath(targetDir,pathBaseName(clipboard.path));if(clipboard.cut&&clipboard.path===targetPath)return;const wasCut=clipboard.cut;const affectedPrefix=clipboard.path===''?'':`${clipboard.path}/`;if(wasCut&&tabsRef.current.some(tab=>{if(!tab.dirty&&!tab.saving)return false;return tab.path===clipboard.path||(affectedPrefix!==''&&tab.path.startsWith(affectedPrefix))})){setStatus({error:true,text:translate('editor.unsavedBlocked')});return}/* A concurrent mutation (rename/delete/another paste) would bump mutationSeq and drop this paste's bookkeeping after the fs move already succeeded — refuse while one is in flight. */if(mutationController.current!==undefined){setStatus({error:true,text:translate('editor.operationBusy')});return}const controller=new AbortController();mutationController.current=controller;const mutationSeq=mutationSeqRef.current+=1;let draftMoveGeneration;let draftMoveFailed=false;const request=(async()=>{const result=await requestFsOperation(workspace.workspaceId,{action:wasCut?'move':'copy',source:clipboard.path,target:targetPath},controller.signal);if(wasCut){draftMoveGeneration=nextDraftGeneration('__tree__');await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:draftMoveGeneration,fromPath:clipboard.path,toPath:result.path},controller.signal).catch(async error=>{if(!mounted.current)return;draftMoveFailed=true;console.warn('workspace-studio: draft move after fs move failed:',error);setStatus({error:true,text:translate('status.movedDraftWarning')});try{await draftTree(workspace.workspaceId,{action:'delete',owner:draftScopeId,generation:nextDraftGeneration('__tree__'),path:clipboard.path},controller.signal)}catch(cleanupError){if(mounted.current)console.warn('workspace-studio: draft cleanup after failed move also failed:',cleanupError)}})}return result})();request.then(result=>{if(!mounted.current||mutationSeq!==mutationSeqRef.current)return;setContextMenu(undefined);setStatus(draftMoveFailed?{error:true,text:translate('status.movedDraftWarning')}:{text:wasCut?translate('status.moved'):translate('status.pasted')});if(wasCut){const source=clipboard.path;if(clipboardRef.current?.path===source&&clipboardRef.current?.cut===true)setClipboard(undefined);setSelected(result);setDirectories(cur=>rewriteDirectoryMap(cur,source,result.path,result));setExpanded(cur=>rewritePathSet(cur,source,result.path));setTabs(cur=>rewritePreviewTabs(cur,source,result.path,result));rewriteRuntimePaths(source,result.path);migratePendingAutosavesRef.current?.(source,result.path);void rewriteEmergencyDraftPath(workspace.workspaceId,draftScopeId,source,result.path).catch(error=>{if(mounted.current)setStatus({error:true,text:translate('editor.autosaveFailed',{message:error instanceof Error?error.message:String(error)})})});const nextActivePath=activePathRef.current===null?null:rewriteRelativePath(activePathRef.current,source,result.path);if(nextActivePath!==activePathRef.current)setActivePath(nextActivePath);void loadDirectory(parentPath(source));void loadDirectory(targetDir)}else{void loadDirectory(targetDir)}}).catch(error=>{if(error?.name==='AbortError'||!mounted.current||mutationSeq!==mutationSeqRef.current)return;setCopyNotice(translate(wasCut?'status.cutFailed':'status.pasteFailed',{message:error instanceof Error?error.message:String(error)}));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},3000)}).finally(()=>{if(mutationController.current===controller)mutationController.current=undefined})},[clipboard,draftScopeId,draftTree,loadDirectory,nextDraftGeneration,rewriteRuntimePaths,workspace.workspaceId])
   const openDeleteConfirm=useCallback(entry=>{setContextMenu(undefined);setDeleteDialog(entry);setDeleteBusy(false)},[])
   const closeDeleteDialog=useCallback(()=>{if(deleteBusy)return;setDeleteDialog(undefined)},[deleteBusy])
   const confirmDelete = useCallback(async () => {
@@ -6540,7 +7012,7 @@ function WorkspaceExplorer({
   const confirmSessionRename=useCallback(()=>{if(sessionRenameBusy||sessionId===undefined)return;const trimmed=sessionRenameDraft.trim();if(trimmed==='')return;setSessionRenameBusy(true);setSessionRenameError(undefined);renameSession(String(sessionId),trimmed).then(()=>{if(!mounted.current)return;setSessionRenameBusy(false);setSessionRenameOpen(false);setSessionRenameDraft('')}).catch(error=>{if(!mounted.current)return;setSessionRenameBusy(false);setSessionRenameError(error instanceof Error?error.message:String(error))})},[renameSession,sessionId,sessionRenameBusy,sessionRenameDraft])
   const runSearch=useCallback(async(query)=>{searchController.current?.abort();if(query.trim()===''){setSearchState({state:'idle'});setSearchExpanded(new Set());return}const controller=new AbortController();searchController.current=controller;setSearchState({state:'searching'});try{const result=await requestSearch(workspace.workspaceId,query,searchCaseSensitive,searchNameOnly,controller.signal);if(searchController.current===controller){setSearchState({state:'done',result});setSearchExpanded(new Set((settings.expandSearchMatches ?? SEARCH_MATCH_EXPAND_DEFAULT)?result.files.map(file=>file.path):[]))}}catch(error){if(error?.name==='AbortError')return;if(searchController.current===controller)setSearchState({state:'error',message:error instanceof Error?error.message:String(error)})}},[searchCaseSensitive,searchNameOnly,settings.expandSearchMatches,workspace.workspaceId])
   const closeSearch=useCallback(()=>{searchController.current?.abort();searchController.current=undefined;setSearchExpanded(new Set());setSearchOpen(false)},[])
-  const openSearchMatch=useCallback((file,match)=>{const entry={kind:'file',name:file.name,path:file.path,symlink:false};chooseFile(entry);searchRevealToken.current+=1;setSearchReveal({column:match.startLineColumn??match.startColumn,endColumn:match.endLineColumn??match.endColumn,line:match.line,path:file.path,token:searchRevealToken.current})},[chooseFile])
+  const openSearchMatch=useCallback((file,match)=>{const entry={kind:'file',name:file.name,path:file.path,symlink:false};chooseFile(entry);setSearchReveal({column:match.startLineColumn??match.startColumn,endColumn:match.endLineColumn??match.endColumn,line:match.line,path:file.path})},[chooseFile])
   const openSearchEntry=useCallback((file)=>{const entry={kind:file.kind==='directory'?'directory':'file',name:file.name,path:file.path,symlink:false};if(entry.kind==='directory'){chooseDirectory(entry);closeSearch()}else chooseFile(entry)},[chooseDirectory,chooseFile,closeSearch])
   const toggleSearchFile=useCallback((path)=>{setSearchExpanded(prev=>{const next=new Set(prev);if(next.has(path))next.delete(path);else next.add(path);return next})},[])
   useEffect(()=>{if(!searchOpen)return undefined;const timer=setTimeout(()=>{void runSearch(searchQuery)},300);return()=>clearTimeout(timer)},[runSearch,searchOpen,searchQuery])
@@ -6590,9 +7062,15 @@ function WorkspaceExplorer({
       // SaveConflictDialog, and two stacked modals would block the UI until it
       // resolves. Errors surface in the status bar instead.
       setEncodingDialog(undefined)
+      /* save() silently returns false while another save is in flight — say so
+         instead of dropping the user's encoding choice without a trace. */
+      if (saving) {
+        setStatus({ error: true, text: translate('editor.operationBusy') })
+        return
+      }
       void save(selected)
     }
-  }, [encodingDialog, encodingPick, openWithEncoding, save])
+  }, [encodingDialog, encodingPick, openWithEncoding, save, saving])
   useEffect(() => {
     if (encodingMenu === undefined) return undefined
     const inside = event => { const node = encodingMenuRef.current; return node !== null && event.target instanceof Node && node.contains(event.target) }
@@ -7038,9 +7516,13 @@ function WorkspaceExplorer({
         : h('button', {
           'aria-label': translate('tab.closeAria', { name: tab.name }),
           className: 'dsh-ws-preview-tab-close',
-          disabled: tab.dirty || tab.saving || undefined,
+          /* A dirty tab is close-guarded only while EDITABLE: a non-editable
+             file with a leftover draft has no save/cancel path, so its close
+             must stay enabled (closeTab drops the staging draft — the escape
+             documented in development-notes §15). */
+          disabled: (tab.dirty && tab.editing !== false) || tab.saving || undefined,
           onClick: event => { event.stopPropagation(); closeTab(tab.path) },
-          title: tab.dirty || tab.saving ? translate('tab.close.title') : translate('tab.close'),
+          title: (tab.dirty && tab.editing !== false) || tab.saving ? translate('tab.close.title') : translate('tab.close'),
           type: 'button',
         }, h(IconCloseWin10)),
     ))
@@ -7714,7 +8196,8 @@ function SessionSwitcherDropdown({ useSessions, useWorkspaces, sessionId, openSe
   const panelRef = useRef(null)
   const [pos, setPos] = useState(null)
   /* Panel width = 33% of the conversation column, re-measured on open and on resize so it
-     tracks live layout changes. The 360px floor keeps it readable on a narrow column. */
+     tracks live layout changes. The 360px floor keeps it readable on a narrow column, but
+     it must never exceed the column itself (a 320px chat column would overflow). */
   const measurePos = useCallback(() => {
     const trigger = triggerRef.current
     if (trigger === null) return null
@@ -7722,7 +8205,7 @@ function SessionSwitcherDropdown({ useSessions, useWorkspaces, sessionId, openSe
     const chat = trigger.closest('.dsh-ws-chat')
     const chatRect = chat?.getBoundingClientRect()
     const width = chatRect !== undefined && chatRect.width > 0
-      ? Math.max(360, Math.round(chatRect.width * 0.33))
+      ? Math.min(Math.max(360, Math.round(chatRect.width * 0.33)), Math.max(120, chatRect.width - 8))
       : Math.max(360, rect.width)
     // Keep the panel inside the conversation column: on mobile the header icons push the
     // trigger right, so the clamp leans the panel left to stay on screen (desktop: no-op).
@@ -8681,6 +9164,20 @@ const MindMapSessionHead = memo(function MindMapSessionHead({
       : null)
 })
 
+/* Toolbar badge icons (scheme D): 16-viewBox stroke glyphs matching the
+   plus badge's line style, rendered inside .dsh-ws-mindmap-toolbar-badge.
+   One path (possibly several M/Z sub-segments) + one stroke width each. */
+const MINDMAP_TOOLBAR_ICONS = {
+  /* Expand/bracket corners — "fill scope" toggle. */
+  scope: { d: 'M4 7V5.5C4 4.67 4.67 4 5.5 4H7M9 4h1.5c.83 0 1.5.67 1.5 1.5V7M12 9v1.5c0 .83-.67 1.5-1.5 1.5H9M7 12H5.5C4.67 12 4 11.33 4 10.5V9', sw: 1.7 },
+  /* Counter-clockwise return arrow — "restore view". */
+  restore: { d: 'M3 12a9 9 0 1 0 2.64-6.36L3 8M3 3v5h5', sw: 1.7 },
+  /* Twin sparkles — "regenerate all summaries". */
+  regen: { d: 'M8 2.5L9.22 6.78 13.5 8 9.22 9.22 8 13.5 6.78 9.22 2.5 8 6.78 6.78ZM13.4 3.2 13.9 4.6 15.3 5.1 13.9 5.6 13.4 7 12.9 5.6 11.5 5.1 12.9 4.6Z', sw: 1.4 },
+  /* Archive box with slot — "archive entire mind map". */
+  archive: { d: 'M2.5 4h11M3 4v8.5A1.5 1.5 0 0 0 4.5 14h7a1.5 1.5 0 0 0 1.5-1.5V4M6.5 8h3', sw: 1.5 },
+}
+
 /* The floating mind map: a persisted turn tree (flat session list, no trunk)
    rendered from the doc, with pan/zoom and per-card forking. Rendered inside
    the left-side overlay window; card clicks switch the right-side chat. */
@@ -8739,7 +9236,12 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   const mountedRef = useRef(true)
   const noticeTimerRef = useRef(0)
   const lastFingerprintRef = useRef('')
-  const savingRef = useRef(false)
+  const savingRef = useRef(0)
+  /* Counter (not a boolean): every doc-writing operation increments it on
+     entry and decrements in its finally, so the sync guard stays armed until
+     the LAST writer settles — a boolean cleared by the first finisher let a
+     periodic sync slip through while a second write was still in flight and
+     momentarily roll back its optimistic update. */
   /* Monotonic counter bumped at the start of every local doc write (fork /
      delete / archive / rename). A periodic sync issued BEFORE such a write can
      resolve AFTER the write completes (savingRef is back to false) and apply a
@@ -8858,6 +9360,10 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     /* A manual regeneration belongs to the previous family's cards; the new
        family's in-flight list arrives with the load payload. */
     setManualSummarizing([])
+    /* A pending session summary belongs to the previous family: its doc check
+       would never match the new map, and the 5-minute timeout would misfire. */
+    setSessionSummaryWaiting(null)
+    setSessionSummaryBusyId(null)
     /* Switching to a DIFFERENT family (or a fresh doc): reset the view so the
        new map fits on load instead of inheriting the old transform (fittedRef
        was only ever set, never reset, so switches kept the old pan/zoom). */
@@ -8866,13 +9372,17 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     const id = String(sessionId)
     Promise.resolve(loadDocRef.current(id))
       .then((payload) => {
-        if (cancelled) return
         const loaded = payload?.doc
         if (loaded === null || loaded === undefined || (loaded.sessions ?? []).length === 0) {
+          /* A failed/empty conversion must not leave the converted-set entry
+             behind (the button would never re-offer the dialog). Delete even
+             when the overlay was closed before the load settled (cancelled). */
           mindmapConvertedSessions.delete(id)
+          if (cancelled) return
           setPhase({ status: 'empty' })
           return
         }
+        if (cancelled) return
         setRootId(loaded.rootSessionId)
         setDoc(loaded)
         lastFingerprintRef.current = mindmapDocFingerprint(loaded)
@@ -8897,8 +9407,10 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
         }
       })
       .catch((error) => {
-        if (cancelled) return
+        /* Same rule as the empty path: a failed conversion must not leave the
+           converted-set entry behind, even when the overlay closed early. */
         mindmapConvertedSessions.delete(id)
+        if (cancelled) return
         setPhase({ status: 'error', message: error instanceof Error ? error.message : String(error) })
       })
     return () => { cancelled = true }
@@ -8988,7 +9500,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
         const b = liveNext[i]
         if (a === null || a === undefined || b === null || b === undefined
           || String(a.sessionId) !== String(b.sessionId)
-          || Number(a.turn) !== Number(b.turn)
+          || String(a.turn ?? '') !== String(b.turn ?? '')
           || String(a.question ?? '') !== String(b.question ?? '')) return liveNext
       }
       return prev
@@ -9031,6 +9543,11 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   }, [doc, list, rootId])
   const runningFamilyIdsRef = useRef([])
   runningFamilyIdsRef.current = runningFamilyIds
+  /* Monotonic sync-issue id: the periodic (2.5 s) and the debounced (600 ms)
+     sync can overlap, and without a sync-vs-sync guard an OLDER response
+     arriving last would overwrite the newer one (momentary rollback until the
+     next sync). Each issued sync captures the id; only the latest may apply. */
+  const syncSeqRef = useRef(0)
 
   /* Periodic sync while mounted: fold new branch turns from the full logs so
      a branch completing a turn in the chat appears live. */
@@ -9044,9 +9561,11 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
          savingRef guard only covers the in-flight window). Drop any response
          that is no longer the latest local state. */
       const issuedSeq = localWriteSeqRef.current
+      const issuedSync = syncSeqRef.current + 1
+      syncSeqRef.current = issuedSync
       Promise.resolve(syncDocRef.current(root, runningFamilyIdsRef.current, undefined, summaryConfigRef.current))
         .then((payload) => {
-          if (issuedSeq !== localWriteSeqRef.current) return
+          if (issuedSeq !== localWriteSeqRef.current || issuedSync !== syncSeqRef.current) return
           applySync(payload, root)
         })
         .catch(() => { /* transient sync failure: keep the current doc */ })
@@ -9064,9 +9583,11 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       if (!mountedRef.current || savingRef.current) return
       const root = rootId
       const issuedSeq = localWriteSeqRef.current
+      const issuedSync = syncSeqRef.current + 1
+      syncSeqRef.current = issuedSync
       Promise.resolve(syncDocRef.current(root, runningFamilyIdsRef.current, undefined, summaryConfigRef.current))
         .then((payload) => {
-          if (issuedSeq !== localWriteSeqRef.current) return
+          if (issuedSeq !== localWriteSeqRef.current || issuedSync !== syncSeqRef.current) return
           applySync(payload, root)
         })
         .catch(() => { /* transient */ })
@@ -9372,7 +9893,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     const root = rootId
     const currentDoc = doc
     localWriteSeqRef.current += 1
-    savingRef.current = true
+    savingRef.current += 1
     Promise.resolve(forkAtRef.current(String(ownerId), turn.seq))
       .then(async (childId) => {
         /* A nested fork: the new session hangs off the clicked card. */
@@ -9385,7 +9906,12 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
           forkSeq: Number(turn.seq),
           turns: [],
         }
-        const next = { ...currentDoc, sessions: [...(currentDoc?.sessions ?? []), session], updatedAt: Date.now() }
+        /* Build from the LATEST doc (docRef), not the render-time closure, so a
+           sync or summary write that landed while forkAt was in flight is kept
+           (the closure doc would otherwise clobber it in the optimistic update
+           and in the persisted write). */
+        const base = docRef.current ?? currentDoc
+        const next = { ...base, sessions: [...(base?.sessions ?? []), session], updatedAt: Date.now() }
         setDoc(next)
         lastFingerprintRef.current = mindmapDocFingerprint(next)
         try {
@@ -9398,8 +9924,8 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
              moved the doc on) so a failed fork never leaves a card whose session
              was just archived — the periodic sync would otherwise keep showing
              a dead branch for up to 2.5 s. */
-          setDoc(prev => (prev === next ? currentDoc : prev))
-          lastFingerprintRef.current = mindmapDocFingerprint(currentDoc)
+          setDoc(prev => (prev === next ? base : prev))
+          lastFingerprintRef.current = mindmapDocFingerprint(base)
           throw error
         }
         if (!mountedRef.current) return
@@ -9417,7 +9943,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       })
       .finally(() => {
         forkingRef.current = false
-        savingRef.current = false
+        savingRef.current -= 1
         if (mountedRef.current) setForking(false)
       })
   }, [doc, forking, rootId, showNotice, switchToSession])
@@ -9438,7 +9964,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     const root = rootId
     const currentDoc = doc
     localWriteSeqRef.current += 1
-    savingRef.current = true
+    savingRef.current += 1
     const recordedCwd = (typeof currentDoc?.workspaceCwd === 'string' && currentDoc.workspaceCwd !== '')
       ? currentDoc.workspaceCwd
       : undefined
@@ -9453,7 +9979,11 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
           forkSeq: null,
           turns: [],
         }
-        const next = { ...currentDoc, sessions: [...(currentDoc?.sessions ?? []), session], updatedAt: Date.now() }
+        /* Build from the LATEST doc (docRef), not the render-time closure, so a
+           sync or summary write that landed while the session was being created
+           is kept (the closure doc would otherwise clobber it). */
+        const base = docRef.current ?? currentDoc
+        const next = { ...base, sessions: [...(base?.sessions ?? []), session], updatedAt: Date.now() }
         setDoc(next)
         lastFingerprintRef.current = mindmapDocFingerprint(next)
         try {
@@ -9462,8 +9992,8 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
           /* The fresh session must not outlive its document entry: archive it
              so a failed write can't leave an orphan. */
           try { await archiveSessionRef.current(String(childId)) } catch { /* best effort */ }
-          setDoc(prev => (prev === next ? currentDoc : prev))
-          lastFingerprintRef.current = mindmapDocFingerprint(currentDoc)
+          setDoc(prev => (prev === next ? base : prev))
+          lastFingerprintRef.current = mindmapDocFingerprint(base)
           throw error
         }
         if (!mountedRef.current) return
@@ -9480,11 +10010,24 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       })
       .finally(() => {
         forkingRef.current = false
-        savingRef.current = false
+        savingRef.current -= 1
         if (mountedRef.current) setForking(false)
       })
   }, [doc, forking, rootId, showNotice, switchToSession])
 
+  /* Stable ref bridges for the card click/menu callbacks: openCard/openCardMenu
+     are passed to EVERY memoized card, so their identities must NOT change when
+     the doc does (a summary-only write would otherwise defeat React.memo and
+     rebuild the whole canvas — the structureFp optimization). The refs always
+     hold the latest callbacks/state; the callbacks themselves are stable. */
+  const openBranchRef = useRef(openBranch)
+  openBranchRef.current = openBranch
+  const forkBranchAtRef = useRef(forkBranchAt)
+  forkBranchAtRef.current = forkBranchAt
+  const addRootSessionRef = useRef(addRootSession)
+  addRootSessionRef.current = addRootSession
+  const listRef = useRef(list)
+  listRef.current = list
   /* Click a node: the root creates a NEW top-level session; a head switches to
      its session; a card switches (parked tail / streaming / empty placeholder)
      or forks a nested session (intermediate card, or the last completed card of
@@ -9492,16 +10035,16 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
      new session joins the SAME document — never a new mind map — and stays
      hidden from the sidebar list. */
   const openCard = useCallback((node) => {
-    if (node === undefined || forking) return
+    if (node === undefined || forkingRef.current) return
     /* Single source of truth for the click outcome: the same decision tree the
        hover hint uses (mindmapCardClickAction), so the hint can never drift.
        'new' creates a top-level session at the root; 'switch' opens the node's
        own session; 'fork' branches a new session at this card's turn. */
-    const action = mindmapCardClickAction(node, doc, runningFamilyIds)
-    if (action === 'new') addRootSession()
-    else if (action === 'switch') openBranch(node.sessionId)
-    else if (action === 'fork') forkBranchAt(node.sessionId, node.turn)
-  }, [doc, forking, runningFamilyIds, forkBranchAt, openBranch, addRootSession])
+    const action = mindmapCardClickAction(node, docRef.current, runningFamilyIdsRef.current)
+    if (action === 'new') addRootSessionRef.current()
+    else if (action === 'switch') openBranchRef.current(node.sessionId)
+    else if (action === 'fork') forkBranchAtRef.current(node.sessionId, node.turn)
+  }, [])
 
   /* Right-click a node: remember WHICH node so the menu can rename a session
      (head / card) or delete a card; the root node offers no menu (the toolbar
@@ -9513,7 +10056,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
          synchronously from the host action face. */
       const raw = listWorkspacesRef.current?.()
       const items = Array.isArray(raw) ? raw : []
-      const current = (typeof doc?.workspaceCwd === 'string' && doc.workspaceCwd !== '') ? doc.workspaceCwd : ''
+      const current = (typeof docRef.current?.workspaceCwd === 'string' && docRef.current.workspaceCwd !== '') ? docRef.current.workspaceCwd : ''
       setMenu({ kind: 'root', workspaces: items, current, x, y })
       return
     }
@@ -9521,7 +10064,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       setMenu({
         kind: 'head',
         sessionId: String(entry.sessionId),
-        sessionTitle: (list.titles[String(entry.sessionId)] ?? ''),
+        sessionTitle: (listRef.current.titles[String(entry.sessionId)] ?? ''),
         x, y,
       })
       return
@@ -9529,14 +10072,14 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     setMenu({
       kind: 'card',
       sessionId: String(entry.sessionId),
-      sessionTitle: (list.titles[String(entry.sessionId)] ?? ''),
+      sessionTitle: (listRef.current.titles[String(entry.sessionId)] ?? ''),
       question: entry.empty ? undefined : String(entry.turn?.user ?? ''),
       turnSeq: entry.empty ? undefined : Number(entry.turn?.seq),
       turnN: entry.empty ? undefined : Number(entry.turn?.n),
       empty: entry.empty === true,
       x, y,
     })
-  }, [doc, list])
+  }, [])
   const closeMenu = useCallback(() => { setMenu(null) }, [])
   useEffect(() => {
     if (menu === null) return undefined
@@ -9591,11 +10134,17 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
      click) will land in. Persisted to the doc's workspaceCwd; '' clears the
      choice (ungrouped). */
   const selectWorkspace = useCallback((cwd, title) => {
-    if (menu === null || menu.kind !== 'root' || doc === null || rootId === null) return
+    /* Shared write gate: refuse while any doc write (fork/delete/archive) is in
+       flight so two writers can never interleave their read-modify-write. */
+    if (forkingRef.current || menu === null || menu.kind !== 'root' || doc === null || rootId === null) return
+    forkingRef.current = true
     setMenu(null)
-    const next = { ...doc, workspaceCwd: cwd, updatedAt: Date.now() }
+    /* Build from the LATEST doc (docRef), not the render-time closure, so a
+       sync/regenerate that landed since this callback was created is kept. */
+    const base = docRef.current ?? doc
+    const next = { ...base, workspaceCwd: cwd, updatedAt: Date.now() }
     localWriteSeqRef.current += 1
-    savingRef.current = true
+    savingRef.current += 1
     setDoc(next)
     lastFingerprintRef.current = mindmapDocFingerprint(next)
     Promise.resolve(saveDocRef.current(String(rootId), next))
@@ -9608,11 +10157,11 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       })
       .catch((error) => {
         if (!mountedRef.current) return
-        setDoc(prev => (prev === next ? doc : prev))
-        lastFingerprintRef.current = mindmapDocFingerprint(doc)
+        setDoc(prev => (prev === next ? base : prev))
+        lastFingerprintRef.current = mindmapDocFingerprint(base)
         showNoticeError(error instanceof Error ? error.message : String(error))
       })
-      .finally(() => { savingRef.current = false })
+      .finally(() => { savingRef.current -= 1; forkingRef.current = false })
   }, [doc, menu, rootId, showNotice, showNoticeError])
 
   /* Archive ONE session branch (right-click a session head): archive the
@@ -9624,7 +10173,13 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     const plan = mindmapDeletePlan(doc, String(menu.sessionId), undefined, true)
     setMenu(null)
     setArchiveBranchError(null)
-    if (plan !== null && plan.lastSession === true) {
+    if (plan === null) {
+      /* The session is not in the doc (a concurrent sync removed it): say so
+         instead of the misleading "last session" message. */
+      showNoticeError(translate('mindmap.delete.missing'))
+      return
+    }
+    if (plan.lastSession === true) {
       showNoticeError(translate('mindmap.delete.lastSession'))
       return
     }
@@ -9640,20 +10195,29 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     setArchiveBranchError(null)
   }, [archiveBranchBusy])
   const confirmArchiveBranch = useCallback(() => {
-    if (archiveBranchBusy || archiveBranchTarget === null) return
+    if (forkingRef.current || archiveBranchBusy || archiveBranchTarget === null) return
     const root = rootId
     const currentDoc = doc
     if (root === null || currentDoc === null) return
     const plan = mindmapDeletePlan(currentDoc, archiveBranchTarget.sessionId, undefined, true)
-    if (plan === null || plan.lastSession === true) {
+    if (plan === null) {
+      setArchiveBranchError(translate('mindmap.delete.missing'))
+      return
+    }
+    if (plan.lastSession === true) {
       setArchiveBranchError(translate('mindmap.delete.lastSession'))
       return
     }
+    forkingRef.current = true
     setArchiveBranchBusy(true)
     setArchiveBranchError(null)
     localWriteSeqRef.current += 1
-    savingRef.current = true
-    const next = { ...currentDoc, sessions: plan.sessions, next: plan.next, updatedAt: Date.now() }
+    savingRef.current += 1
+    /* Build from the LATEST doc (docRef) so a sync/regenerate that landed since
+       this callback was created is kept (the plan was computed on the closure
+       doc, which is still the same family — only newer turns/summaries differ). */
+    const base = docRef.current ?? currentDoc
+    const next = { ...base, sessions: plan.sessions, next: plan.next, updatedAt: Date.now() }
     /* Re-anchor when the archived session was the anchor (the doc file moves
        via prevSessionId). */
     let saveRoot = String(root)
@@ -9672,23 +10236,30 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       .then(() => Promise.all(plan.archiveIds.map(id => archiveSessionRef.current(String(id)).catch(() => {}))))
       .then(() => {
         if (!mountedRef.current) return
-        if (String(saveRoot) !== String(root)) setRootId(String(saveRoot))
+        if (String(saveRoot) !== String(root)) {
+          setRootId(String(saveRoot))
+          /* Keep the ref in lockstep so switchToSession below remembers the
+             last-selected session under the NEW root. */
+          rootIdRef.current = String(saveRoot)
+        }
         setArchiveBranchTarget(null)
         mindmapRegistry.markDirty()
         /* If the current chat session was archived, switch to the (re-anchored)
-           root so the view is never left on a dead session. */
-        if ((plan.archiveIds ?? []).includes(String(sessionId))) openSessionRef.current(String(saveRoot))
+           root so the view is never left on a dead session. switchToSession
+           (not openSessionRef) also records the last-selected session. */
+        if ((plan.archiveIds ?? []).includes(String(sessionId))) switchToSession(String(saveRoot))
         showNotice(translate('mindmap.branchArchived'))
       })
       .catch((error) => {
         if (mountedRef.current) {
-          setDoc(prev => (prev === next ? currentDoc : prev))
-          lastFingerprintRef.current = mindmapDocFingerprint(currentDoc)
+          setDoc(prev => (prev === next ? base : prev))
+          lastFingerprintRef.current = mindmapDocFingerprint(base)
           setArchiveBranchError(error instanceof Error ? error.message : String(error))
         }
       })
       .finally(() => {
-        savingRef.current = false
+        savingRef.current -= 1
+        forkingRef.current = false
         if (mountedRef.current) setArchiveBranchBusy(false)
       })
   }, [archiveBranchBusy, archiveBranchTarget, doc, rootId, sessionId, showNotice])
@@ -9707,18 +10278,22 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     setArchiveError(null)
   }, [archiveBusy])
   const confirmArchive = useCallback(() => {
-    if (archiveBusy || archiveTarget === null) return
+    if (forkingRef.current || archiveBusy || archiveTarget === null) return
+    forkingRef.current = true
     setArchiveBusy(true)
     setArchiveError(null)
     localWriteSeqRef.current += 1
-    savingRef.current = true
+    savingRef.current += 1
     const run = async () => {
       const root = rootId
       const ids = [root]
       for (const s of doc?.sessions ?? []) ids.push(s?.sessionId)
       const unique = [...new Set(ids)].filter(id => id !== undefined && id !== null && id !== '')
       if (unique.includes(String(sessionId))) openSessionRef.current(root)
-      for (const id of unique) await archiveSessionRef.current(String(id))
+      /* Per-id best effort: one failed archive must not abort the whole map
+         teardown (the doc delete + overlay close below still run; the failed
+         session self-heals via the next sync's archived-set reconcile). */
+      for (const id of unique) await archiveSessionRef.current(String(id)).catch(() => {})
       if (root !== null && root !== undefined) {
         await deleteDocRef.current(String(root))
         /* The map is gone: drop its remembered last-selected session so a
@@ -9742,7 +10317,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
         setArchiveBusy(false)
         setArchiveError(error instanceof Error ? error.message : String(error))
       })
-      .finally(() => { savingRef.current = false })
+      .finally(() => { savingRef.current -= 1; forkingRef.current = false })
   }, [archiveBusy, archiveTarget, doc, rootId, sessionId, showNotice])
 
   const startDelete = useCallback(() => {
@@ -9788,6 +10363,10 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
       ? prev
       : [...prev, { sessionId, seq }])
     showNotice(translate('mindmap.summary.regenerating'))
+    /* Arm the sync guard for the whole LLM round-trip (up to 25 s): a periodic
+       sync resolving mid-call must not roll back the optimistic summary. No
+       forkingRef gate here — blocking forks for the whole call would be worse. */
+    savingRef.current += 1
     Promise.resolve(regenerateMindmapSummary(sessionId, seq, summaryConfigRef.current))
       .then((payload) => {
         if (payload?.ok === true && typeof payload.summary === 'string') {
@@ -9827,6 +10406,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
         showNoticeError(translate('mindmap.summary.regenerateFailed', { message: error?.message ?? String(error) }))
       })
       .finally(() => {
+        savingRef.current -= 1
         if (mountedRef.current) {
           setManualSummarizing(prev => prev.filter(p => !(String(p.sessionId) === sessionId && Number(p.seq) === seq)))
         }
@@ -9862,6 +10442,9 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     if (root === null) return
     setRegenerateAllBusy(true)
     setRegenerateAllError(null)
+    /* Arm the sync guard for the whole Host round-trip (the optimistic
+       session-summary clear below must not be rolled back by a stale sync). */
+    savingRef.current += 1
     Promise.resolve(regenerateAllMindmapSummaries(root, summaryConfigRef.current))
       .then((payload) => {
         if (payload?.ok === true) {
@@ -9896,6 +10479,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
         showNoticeError(translate('mindmap.summary.regenerateAll.failed', { message: error?.message ?? String(error) }))
       })
       .finally(() => {
+        savingRef.current -= 1
         if (mountedRef.current) {
           setRegenerateAllBusy(false)
           setRegenerateAllTarget(null)
@@ -9914,6 +10498,9 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     if (sessionSummaryBusyId !== null) return
     setSessionSummaryBusyId(sessionId)
     showNotice(translate('mindmap.sessionSummary.generating'))
+    /* Arm the sync guard for the whole LLM round-trip (up to 25 s): a sync
+       resolving mid-call must not roll back the optimistic session summary. */
+    savingRef.current += 1
     Promise.resolve(summarizeMindmapSession(sessionId, summaryConfigRef.current))
       .then((payload) => {
         if (payload?.ok === true && payload.status === 'done' && typeof payload.summary === 'string') {
@@ -9950,6 +10537,7 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
         showNoticeError(translate('mindmap.sessionSummary.failed', { message: error?.message ?? String(error) }))
       })
       .finally(() => {
+        savingRef.current -= 1
         if (mountedRef.current) setSessionSummaryBusyId(null)
       })
   }, [menu, sessionSummaryBusyId, showNotice, showNoticeError])
@@ -9988,19 +10576,24 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [archiveTarget, closeArchive, closeDelete, deleteTarget, archiveBranchTarget, closeArchiveBranch, regenerateAllTarget, closeRegenerateAll])
   const confirmDelete = useCallback(() => {
-    if (deleteBusy || deleteTarget === null) return
+    if (forkingRef.current || deleteBusy || deleteTarget === null) return
     const root = rootId
     const currentDoc = doc
     if (root === null || currentDoc === null) return
     const plan = mindmapDeletePlan(currentDoc, deleteTarget.sessionId, deleteTarget.turnSeq, deleteTarget.empty)
     if (plan === null) { setDeleteError(translate('mindmap.delete.missing')); return }
     if (plan.lastSession === true) { setDeleteError(translate('mindmap.delete.lastSession')); return }
+    forkingRef.current = true
     setDeleteBusy(true)
     setDeleteError(null)
     localWriteSeqRef.current += 1
-    savingRef.current = true
+    savingRef.current += 1
     let forkedChildId = null
-    const next = { ...currentDoc }
+    /* Build from the LATEST doc (docRef) so a sync/regenerate that landed since
+       this callback was created is kept (the plan was computed on the closure
+       doc, which is still the same family — only newer turns/summaries differ). */
+    const base = docRef.current ?? currentDoc
+    const next = { ...base }
     /* A truncation of the ANCHOR session makes the fork child the doc's new
        root (and the map file moves to it): it must not get the branch " ›"
        suffix (forkAt renames branch children to it), so the child is told it
@@ -10071,16 +10664,23 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
         if (plan.replaced !== null) archiveIds.push(String(plan.replaced.sessionId))
         await Promise.all(archiveIds.map(id => archiveSessionRef.current(String(id)).catch(() => {})))
         if (!mountedRef.current) return
-        if (String(saveRoot) !== String(root)) setRootId(String(saveRoot))
+        if (String(saveRoot) !== String(root)) {
+          setRootId(String(saveRoot))
+          /* Keep the ref in lockstep so switchToSession below remembers the
+             last-selected session under the NEW root (the ref only re-syncs on
+             the next render, which is after this handler). */
+          rootIdRef.current = String(saveRoot)
+        }
         /* Close the dialog before the notice and any session switch. */
         setDeleteTarget(null)
         mindmapRegistry.markDirty()
         /* Switch the chat (and the map highlight) to the truncated session,
-           or back to the root when the current one was archived. */
+           or back to the root when the current one was archived. switchToSession
+           (not openSessionRef) also records the last-selected session. */
         if (forkedChildId !== null) {
-          openSessionRef.current(forkedChildId)
+          switchToSession(forkedChildId)
         } else if ((plan.archiveIds ?? []).includes(String(sessionId))) {
-          openSessionRef.current(String(saveRoot))
+          switchToSession(String(saveRoot))
         }
         showNotice(forkedChildId !== null ? translate('mindmap.truncated') : translate('mindmap.deleted'))
       })
@@ -10091,14 +10691,15 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
            identity-checked (like forkBranchAt) so a doc advanced by a concurrent
            sync mid-operation is preserved instead of reverted. */
         if (mountedRef.current) {
-          setDoc(prev => (prev === next ? currentDoc : prev))
-          lastFingerprintRef.current = mindmapDocFingerprint(currentDoc)
+          setDoc(prev => (prev === next ? base : prev))
+          lastFingerprintRef.current = mindmapDocFingerprint(base)
           setDeleteError(error instanceof Error ? error.message : String(error))
         }
         if (forkedChildId !== null) archiveSessionRef.current(forkedChildId).catch(() => {})
       })
       .finally(() => {
-        savingRef.current = false
+        savingRef.current -= 1
+        forkingRef.current = false
         if (mountedRef.current) setDeleteBusy(false)
       })
   }, [deleteBusy, deleteTarget, doc, rootId, sessionId, showNotice])
@@ -10333,17 +10934,26 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
     className: 'dsh-ws-dialog-backdrop',
     onMouseDown: event => { if (event.target === event.currentTarget && !archiveBusy) closeArchive() },
   },
-    h('div', { 'aria-modal': true, className: 'dsh-ws-dialog', role: 'dialog' },
+    h('div', { 'aria-modal': true, className: 'dsh-ws-dialog dsh-ws-mindmap-archive-dialog', role: 'dialog' },
+      /* Red→amber warning band across the very top of the dialog. */
+      h('div', { className: 'dsh-ws-mindmap-archive-band' }),
       h('div', { className: 'dsh-ws-dialog-header' },
+        /* Amber ⚠ badge: the "warning" cue before the title. */
+        h('span', { 'aria-hidden': true, className: 'dsh-ws-mindmap-archive-badge' },
+          h('svg', { viewBox: '0 0 24 24' },
+            h('path', { d: 'M12 3 2.8 20.2A1 1 0 0 0 3.7 21.7h16.6a1 1 0 0 0 .9-1.5Z', fill: 'none', stroke: 'currentColor', strokeLinejoin: 'round', strokeWidth: 1.9 }),
+            h('path', { d: 'M12 9.5v4.4M12 16.9v.2', stroke: 'currentColor', strokeLinecap: 'round', strokeWidth: 2 }))),
         h('div', { className: 'dsh-ws-dialog-title' }, translate('mindmap.menu.archiveAll')),
-        h('button', { 'aria-label': translate('dialog.close'), className: 'dsh-ws-icon-button', disabled: archiveBusy, onClick: closeArchive, title: translate('dialog.close'), type: 'button' }, '×')),
+        h('button', { 'aria-label': translate('dialog.close'), className: 'dsh-ws-icon-button', disabled: archiveBusy, onClick: closeArchive, title: translate('dialog.close'), type: 'button' },
+          h('svg', { 'aria-hidden': true, viewBox: '0 0 24 24' },
+            h('path', { d: 'M6.2 6.2 17.8 17.8M17.8 6.2 6.2 17.8', fill: 'none', stroke: 'currentColor', strokeLinecap: 'round', strokeWidth: 2.2 })))),
       h('div', { className: 'dsh-ws-dialog-body' },
         h('div', { className: 'dsh-ws-dialog-message' },
           translate('mindmap.archiveAll.message', { name: archiveTarget.title })),
         archiveError !== null ? h('div', { className: 'dsh-ws-dialog-error', role: 'alert' }, archiveError) : null),
       h('div', { className: 'dsh-ws-dialog-footer' },
         h('button', { className: 'dsh-ws-text-button', disabled: archiveBusy, onClick: closeArchive, type: 'button' }, translate('dialog.cancel')),
-        h('button', { className: 'dsh-ws-text-button', disabled: archiveBusy, onClick: confirmArchive, type: 'button' }, archiveBusy ? translate('dialog.processing') : translate('mindmap.archive.action')))))
+        h('button', { className: 'dsh-ws-text-button dsh-ws-mindmap-archive-ok', disabled: archiveBusy, onClick: confirmArchive, type: 'button' }, archiveBusy ? translate('dialog.processing') : translate('mindmap.archive.action')))))
     : null
   const deleteView = deleteTarget !== null ? h('div', {
     className: 'dsh-ws-dialog-backdrop',
@@ -10396,22 +11006,86 @@ function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, delete
   return h(Fragment, null,
     h('div', { className: 'dsh-ws-mindmap', 'data-conversation-composer-overlay': '' },
       h('div', { className: 'dsh-ws-mindmap-toolbar' },
+        /* Create a new top-level empty session — the same action as clicking
+           the virtual root node (addRootSession), exposed as a highlighted
+           toolbar button (light-blue pill + plus badge echoing the root). */
+        h('button', {
+          className: 'dsh-ws-mindmap-toolbar-button dsh-ws-mindmap-toolbar-button-new',
+          onClick: addRootSession,
+          title: translate('mindmap.newSessionTitle'),
+          type: 'button',
+        },
+          h('span', { 'aria-hidden': true, className: 'dsh-ws-mindmap-toolbar-button-new-plus' },
+            /* Same symmetric plus as the root node badge; the hover 90°
+               rotation maps it onto itself — no position shift. */
+            h('svg', { viewBox: '0 0 16 16' },
+              h('path', { d: 'M8 3v10M3 8h10', stroke: 'currentColor', strokeLinecap: 'round', strokeWidth: 2.4 }))),
+          translate('mindmap.newSession')),
         h('button', {
           'aria-pressed': overlay.scope === 'sidebar' ? 'true' : 'false',
           className: 'dsh-ws-mindmap-toolbar-button dsh-ws-mindmap-scope-toggle',
           onClick: () => { mindmapOverlayStore.toggleScope() },
           title: translate(previewRight ? 'mindmap.scope.title.right' : 'mindmap.scope.title'),
           type: 'button',
-        }, translate(overlay.scope === 'sidebar'
-          ? (previewRight ? 'mindmap.scope.sidebar.right' : 'mindmap.scope.sidebar')
-          : (previewRight ? 'mindmap.scope.full.right' : 'mindmap.scope.full'))),
-        h('button', { className: 'dsh-ws-mindmap-toolbar-button', onClick: restoreView, title: translate('mindmap.view.restoreTitle'), type: 'button' }, translate('mindmap.view.restore')),
+        },
+          h('span', { 'aria-hidden': true, className: 'dsh-ws-mindmap-toolbar-badge' },
+            h('svg', { viewBox: '0 0 16 16' },
+              h('path', {
+                d: MINDMAP_TOOLBAR_ICONS.scope.d,
+                fill: 'none',
+                stroke: 'currentColor',
+                strokeLinecap: 'round',
+                strokeLinejoin: 'round',
+                strokeWidth: MINDMAP_TOOLBAR_ICONS.scope.sw,
+              }))),
+          translate(overlay.scope === 'sidebar'
+            ? (previewRight ? 'mindmap.scope.sidebar.right' : 'mindmap.scope.sidebar')
+            : (previewRight ? 'mindmap.scope.full.right' : 'mindmap.scope.full'))),
+        h('button', { className: 'dsh-ws-mindmap-toolbar-button', onClick: restoreView, title: translate('mindmap.view.restoreTitle'), type: 'button' },
+          h('span', { 'aria-hidden': true, className: 'dsh-ws-mindmap-toolbar-badge' },
+            h('svg', { viewBox: '0 0 16 16' },
+              h('path', {
+                d: MINDMAP_TOOLBAR_ICONS.restore.d,
+                fill: 'none',
+                stroke: 'currentColor',
+                strokeLinecap: 'round',
+                strokeLinejoin: 'round',
+                strokeWidth: MINDMAP_TOOLBAR_ICONS.restore.sw,
+              }))),
+          translate('mindmap.view.restore')),
         /* 重新生成全部摘要: only meaningful with the AI-summary feature on (no
            model to regenerate with otherwise) — same gate as the card menu item. */
         settings.mindmapSummaryEnabled === true
-          ? h('button', { className: 'dsh-ws-mindmap-toolbar-button', onClick: startRegenerateAll, title: translate('mindmap.summary.regenerateAll'), type: 'button' }, translate('mindmap.summary.regenerateAll'))
+          ? h('button', { className: 'dsh-ws-mindmap-toolbar-button', onClick: startRegenerateAll, title: translate('mindmap.summary.regenerateAll'), type: 'button' },
+            h('span', { 'aria-hidden': true, className: 'dsh-ws-mindmap-toolbar-badge' },
+              h('svg', { viewBox: '0 0 16 16' },
+                h('path', {
+                  d: MINDMAP_TOOLBAR_ICONS.regen.d,
+                  fill: 'none',
+                  stroke: 'currentColor',
+                  strokeLinecap: 'round',
+                  strokeLinejoin: 'round',
+                  strokeWidth: MINDMAP_TOOLBAR_ICONS.regen.sw,
+                }))),
+            translate('mindmap.summary.regenerateAll'))
           : null,
-        h('button', { className: 'dsh-ws-mindmap-toolbar-button', onClick: startArchiveAll, title: translate('mindmap.menu.archiveAll'), type: 'button' }, translate('mindmap.menu.archiveAll'))),
+        /* Archive the whole map: pushed to the right end of the toolbar
+           (margin-left:auto) and parked one close-button width (28px) left of
+           the overlay close button — the close button's left edge sits 38px
+           from the overlay's right edge, the toolbar's right padding is 16px,
+           so margin-right: 50px = 38 + 28 - 16. Red = destructive warning. */
+        h('button', { className: 'dsh-ws-mindmap-toolbar-button dsh-ws-mindmap-toolbar-button-danger dsh-ws-mindmap-toolbar-archive', onClick: startArchiveAll, title: translate('mindmap.menu.archiveAll'), type: 'button' },
+          h('span', { 'aria-hidden': true, className: 'dsh-ws-mindmap-toolbar-badge' },
+            h('svg', { viewBox: '0 0 16 16' },
+              h('path', {
+                d: MINDMAP_TOOLBAR_ICONS.archive.d,
+                fill: 'none',
+                stroke: 'currentColor',
+                strokeLinecap: 'round',
+                strokeLinejoin: 'round',
+                strokeWidth: MINDMAP_TOOLBAR_ICONS.archive.sw,
+              }))),
+          translate('mindmap.menu.archiveAll'))),
       h('div', { className: 'dsh-ws-mindmap-bar' },
         translate('mindmap.rootLabel'),
         h('span', { className: 'dsh-ws-mindmap-bar-title' }, rootTitle)),
@@ -10487,6 +11161,19 @@ function installMindmapBranchHider(getSessionList, getArchivedSessionIds, getWor
   if (typeof document === 'undefined') return () => {}
   let timer = 0
   let lastRun = 0
+  /* Original textContent of every overflow button whose count this hider
+     patched, so the number can be restored when the patch no longer applies
+     (all docs gone, group fully hidden, or dispose) — the harness re-renders
+     the button on session changes, but a static group would keep the patched
+     small number forever. */
+  const patchedButtons = new WeakMap()
+  const restoreButtonText = (button) => {
+    const original = patchedButtons.get(button)
+    if (original !== undefined) {
+      button.textContent = original
+      patchedButtons.delete(button)
+    }
+  }
   const apply = () => {
     timer = 0
     lastRun = Date.now()
@@ -10501,6 +11188,7 @@ function installMindmapBranchHider(getSessionList, getArchivedSessionIds, getWor
         }
         for (const button of browser.querySelectorAll('button.dsh-ws-mindmap-no-overflow')) {
           button.classList.remove('dsh-ws-mindmap-no-overflow')
+          restoreButtonText(button)
         }
       }
       return
@@ -10585,13 +11273,16 @@ function installMindmapBranchHider(getSessionList, getArchivedSessionIds, getWor
       const remaining = visibleCount - (rows.length - hiddenInRows)
       if (remaining > 0) {
         button.classList.remove('dsh-ws-mindmap-no-overflow')
-        /* The button's only number is the count — swap it in place. */
+        /* The button's only number is the count — swap it in place, keeping the
+           original text so it can be restored later. */
         const currentNumber = button.textContent.match(/\d+/)
         if (currentNumber !== null && Number(currentNumber[0]) !== remaining) {
+          if (!patchedButtons.has(button)) patchedButtons.set(button, button.textContent)
           button.textContent = button.textContent.replace(/\d+/, String(remaining))
         }
       } else {
         button.classList.add('dsh-ws-mindmap-no-overflow')
+        restoreButtonText(button)
       }
     }
   }
@@ -10619,6 +11310,7 @@ function installMindmapBranchHider(getSessionList, getArchivedSessionIds, getWor
       }
       for (const button of browser.querySelectorAll('button.dsh-ws-mindmap-no-overflow')) {
         button.classList.remove('dsh-ws-mindmap-no-overflow')
+        restoreButtonText(button)
       }
     }
   }
@@ -11483,6 +12175,13 @@ function AppFrame(props) {
     for (const root of section.querySelectorAll('[data-variant="think"][data-state="running"]')) {
       if (!thinkAutoOpenedKnownRef.current.has(root)) openRow(root)
     }
+    /* A re-run (delay slider change) also dropped the pending-collapse timers
+       (they live in the effect-local Map): an auto-opened block that already
+       finished (state ok) must be re-scheduled, or it would stay expanded
+       forever. On a first mount autoOpened is empty, so this is a no-op. */
+    for (const root of section.querySelectorAll('[data-variant="think"][data-state="ok"]')) {
+      if (autoOpened.has(root)) scheduleClose(root)
+    }
     return () => {
       observer.disconnect()
       section.removeEventListener('click', onSectionClick, true)
@@ -11646,7 +12345,13 @@ function AppFrame(props) {
       const title = titleSpan?.textContent?.trim() ?? ''
       if (title === '') return
       const snapshot = props.getSessionList()
-      const candidates = snapshot.ids.filter(id => snapshot.byId[id]?.displayTitle === title)
+      /* Subagent sessions are excluded: their rows are not the right-click
+         target (the menu's rename/archive actions must never hit a subagent —
+         archiveSessionFromMenu skips them explicitly, so the lookup must too). */
+      const candidates = snapshot.ids.filter(id => {
+        const summary = snapshot.byId[id]
+        return summary !== undefined && summary.origin !== 'subagent' && summary.displayTitle === title
+      })
       if (candidates.length === 0) return
       let sessionId = candidates[0]
       if (snapshot.current !== undefined && candidates.includes(snapshot.current)) sessionId = snapshot.current
