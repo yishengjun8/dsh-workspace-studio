@@ -132,10 +132,18 @@ export function useMindmapViewport({ layoutRef }) {
   }, [])
 
   /* Reset on family switch: drop the fitted flag and zero the transform so the
-     new map fits on load instead of inheriting the old pan/zoom. */
+     new map fits on load instead of inheriting the old pan/zoom. Also cancel
+     any queued rAF frame: a pan/zoom scheduled just before the switch would
+     otherwise apply the OLD map's transform to the new canvas on the next
+     frame (visible when both maps happen to share the same size). */
   const resetView = useCallback(() => {
     fittedRef.current = false
     viewRef.current = { tx: 0, ty: 0, zoom: 1 }
+    pendingViewRef.current = null
+    if (rafRef.current !== 0) {
+      window.cancelAnimationFrame(rafRef.current)
+      rafRef.current = 0
+    }
   }, [])
   /* Fit once when the map first becomes visible; later layout growth keeps the
      user's view (还原视图 restores the fit at any time). The component re-arms

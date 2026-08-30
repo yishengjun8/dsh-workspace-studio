@@ -71,8 +71,8 @@ export function sendJson(req, res, status, value, extraHeaders = {}) {
   res.end(req.method === 'HEAD' ? undefined : body)
 }
 
-export function sendError(req, res, status, code, message, extraHeaders) {
-  sendJson(req, res, status, { error: { code, message } }, extraHeaders)
+export function sendError(req, res, status, code, message, extraHeaders, data) {
+  sendJson(req, res, status, { error: { code, message, ...(data === undefined ? {} : { data }) } }, extraHeaders)
 }
 export function requiredQuery(url, name) {
   const value = url.searchParams.get(name)
@@ -113,6 +113,15 @@ export function readBody(
       if (settled) return
       settled = true
       reject(error)
+    })
+    /* Some Node versions / connection teardown paths fire only 'close'
+       (destroy() mid-body, keep-alive reuse) without 'aborted': without this
+       the promise would never settle and the request handler would hang. The
+       settled guard makes the normal end-then-close sequence a no-op. */
+    req.on('close', () => {
+      if (settled) return
+      settled = true
+      reject(new HttpError(400, 'request-aborted', abortedMessage))
     })
   })
 }

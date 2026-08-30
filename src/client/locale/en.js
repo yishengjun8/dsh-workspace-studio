@@ -27,6 +27,8 @@ export const en = {
   'context.rename.title': 'Rename this file or folder in place',
   'context.renameSession': 'Rename',
   'context.archiveSession': 'Archive This Session',
+  'context.archiveAmbiguousConfirm': 'Multiple sessions share this title, so the right-click target cannot be confirmed. Archive the matched session (id: {id}) and its branches?',
+  'context.ambiguousTitle': 'Multiple sessions share this title; menu actions target the matched session (id: {id})',
   'context.copy': 'Copy',
   'context.copy.title': 'Copy this file or folder',
   'context.paste': 'Paste',

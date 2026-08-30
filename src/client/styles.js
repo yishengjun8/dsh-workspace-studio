@@ -129,10 +129,12 @@ body[data-ds-dark-theme] .dsh-ws-editor-host{--dsh-ws-token-directive:#c586c0}
 .dsh-ws-drop-overlay{position:absolute;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent);pointer-events:none}
 .dsh-ws-drop-hint{display:inline-flex;align-items:center;padding:8px 14px;border:1px dashed var(--dsw-alias-state-business-primary);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-state-business-primary);font-size:12px;box-shadow:var(--dsw-shadow-elevated,0 8px 24px rgba(0,0,0,.18))}
 .dsh-ws-preview[data-drop-active] .dsh-ws-preview-tabs,.dsh-ws-preview[data-drop-active] .dsh-ws-panel-header,.dsh-ws-preview[data-drop-active] .dsh-ws-editor-host{pointer-events:none}
-/* Hide the harness's full-viewport chat drop mask (the only role="status"
-   element portaled directly to body); the layout draws its own chat-confined
-   mask so it covers the chat pane instead of the whole page. */
-body > [role="status"]{display:none!important}
+/* Hide the harness's full-viewport chat drop mask (DropOverlay: a
+   body-portaled role="status" whose wrap contains the upload illustration
+   svg); the layout draws its own chat-confined mask so it covers the chat
+   pane instead of the whole page. Scoped with :has(svg) so a future
+   body-level role="status" toast or live region is NOT hidden. */
+body > [role="status"]:has(svg){display:none!important}
 .dsh-ws-chat-drop-mask{position:absolute;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;background:var(--dsw-alias-bg-mask-drop,rgba(0,0,0,.32));backdrop-filter:blur(6px);pointer-events:none}
 .dsh-ws-chat-drop-card{display:flex;align-items:center;gap:10px;padding:12px 16px;border:1px dashed var(--dsw-alias-state-business-primary);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:13px;box-shadow:var(--dsw-shadow-elevated,0 10px 28px rgba(0,0,0,.2))}
 .dsh-ws-chat-drop-close{position:absolute;top:12px;right:12px;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0 0 2px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:16px;line-height:1;cursor:pointer;box-sizing:border-box;pointer-events:auto}
@@ -159,6 +161,11 @@ body > [role="status"]{display:none!important}
    titleCluster's 10px gap would otherwise leave a phantom gap before the
    switcher trigger. The panel is portalled to body with fixed positioning,
    so the chat column's overflow never clips it. */
+/* KNOWN FRAGILITY: these four-plus-level structural selectors couple to the
+   harness conversation-header DOM. A harness header restructure silently
+   breaks them (the crumb reappears and overlaps the switcher trigger) — the
+   harness owns that DOM, so there is no stable data attribute to anchor on.
+   Re-check on every harness upgrade. */
 [data-slot="conversation.session.header"] > header > div:first-child > div:first-child > nav > span:last-child{display:none}
 [data-slot="conversation.session.header"] > header > div:first-child > div:first-child > nav:has(> span:last-child:only-child){display:none}
 .dsh-ws-session-switcher{display:inline-flex;align-items:center;min-width:0;flex:0 0 auto}

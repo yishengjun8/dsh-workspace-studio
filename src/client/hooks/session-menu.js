@@ -63,9 +63,14 @@ export function useSessionMenu({ props, mountedRef }) {
       if (snapshot.current !== undefined && candidates.includes(snapshot.current)) sessionId = snapshot.current
       const summary = snapshot.byId[sessionId]
       if (summary === undefined || summary.blank) return
+      /* Duplicate titles are ambiguous: the row carries no session id, so the
+         matched session may not be the one the user right-clicked. Flag the
+         menu so items show the target id and archive asks for confirmation
+         (archiving removes the whole fork tree — a wrong target is data loss). */
+      const ambiguous = candidates.length > 1
       event.preventDefault()
       sessionContextRowRef.current = row
-      setSessionContextMenu({ sessionId, title, x: event.clientX, y: event.clientY })
+      setSessionContextMenu({ sessionId, title, x: event.clientX, y: event.clientY, ambiguous })
     }
     document.addEventListener('contextmenu', onContextMenu, true)
     return () => document.removeEventListener('contextmenu', onContextMenu, true)
@@ -125,6 +130,13 @@ export function useSessionMenu({ props, mountedRef }) {
   const archiveSessionFromMenu = useCallback(() => {
     const menu = sessionContextMenu
     if (menu === undefined) return
+    /* A duplicate-title match may target the wrong session: archiving is
+       destructive (it removes the whole fork tree), so require explicit
+       confirmation naming the matched session. */
+    if (menu.ambiguous === true) {
+      const shortId = String(menu.sessionId).slice(0, 8)
+      if (typeof window === 'undefined' || !window.confirm(translate('context.archiveAmbiguousConfirm', { id: shortId }))) return
+    }
     setSessionContextMenu(undefined)
     setSessionInlineRename(undefined)
     // A fork root archives its whole derived branch tree (same rule as the

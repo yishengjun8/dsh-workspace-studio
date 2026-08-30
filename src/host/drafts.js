@@ -116,12 +116,19 @@ export async function readDraftFile(workspaceId, relativePath, owner) {
   return { exists: false, owner, generation: ownerGeneration, ownerGeneration }
 }
 
+/* Generations are monotonic per owner; a sane client advances by 1 per
+   operation. A huge jump (2^53-1) would permanently lock the owner fence with
+   no recovery API, so cap the absolute value and reject absurd jumps at the
+   write sites. */
+const DRAFT_GENERATION_MAX = 2 ** 31
+const DRAFT_GENERATION_JUMP_MAX = 10000
+
 function parseDraftGeneration(value, required = false) {
   if (value === undefined || value === null || value === '') {
     if (required) throw new HttpError(400, 'invalid-draft', '暂存请求必须提供 generation')
     return undefined
   }
-  if (!Number.isSafeInteger(value) || value < 0) {
+  if (!Number.isSafeInteger(value) || value < 0 || value > DRAFT_GENERATION_MAX) {
     throw new HttpError(400, 'invalid-draft', 'generation 无效')
   }
   return value
@@ -260,15 +267,21 @@ export async function saveDraftFile(workspaceId, payload, config, queues) {
     const current = snapshot.current
     const existing = snapshot.existing
     const state = snapshot.ownerState
-    if (generation < current) throw new HttpError(409, 'draft-generation-conflict', '暂存写入已过期，请重新读取草稿')
+    /* A generation far above the owner's current value is a corrupt/malicious
+       client, not a legitimate advance: reject it so the fence cannot be
+       jumped to a value that locks the owner forever. */
+    if (generation > current + DRAFT_GENERATION_JUMP_MAX) {
+      throw new HttpError(400, 'invalid-draft', 'generation 跳变过大', { currentGeneration: current })
+    }
+    if (generation < current) throw new HttpError(409, 'draft-generation-conflict', '暂存写入已过期，请重新读取草稿', { currentGeneration: current })
     if (generation === current && current >= 0 && state.operation !== undefined && state.operation !== operation) {
-      throw new HttpError(409, 'draft-generation-conflict', '暂存 generation 已被其他操作占用')
+      throw new HttpError(409, 'draft-generation-conflict', '暂存 generation 已被其他操作占用', { currentGeneration: current })
     }
     if (generation === current && existing !== null) {
       if (!existing.deleted && draftPayloadEqual(existing, payload)) {
         return { workspaceId: String(workspaceId), path: payload.path, owner, generation, saved: true, idempotent: true }
       }
-      throw new HttpError(409, 'draft-generation-conflict', '暂存 generation 已被其他操作占用')
+      throw new HttpError(409, 'draft-generation-conflict', '暂存 generation 已被其他操作占用', { currentGeneration: current })
     }
     if (generation > current) await writeOwnerGeneration(workspaceId, owner, generation, operation)
     await writeJsonAtomic(draftFilePath(workspaceId, payload.path, owner), { version: 2, ...payload })
@@ -283,19 +296,27 @@ export async function deleteDraftFile(workspaceId, relativePath, config, queues,
   return serializeWrite(queues, draftQueueKey(workspaceId, owner), async () => {
     const state = await ownerCurrentGeneration(workspaceId, owner, relativePath)
     const operation = draftOperationToken('delete', { path: relativePath })
-    if (generation < state.current) throw new HttpError(409, 'draft-generation-conflict', '暂存删除已过期，请重新读取草稿')
+    if (generation > state.current + DRAFT_GENERATION_JUMP_MAX) {
+      throw new HttpError(400, 'invalid-draft', 'generation 跳变过大', { currentGeneration: state.current })
+    }
+    if (generation < state.current) throw new HttpError(409, 'draft-generation-conflict', '暂存删除已过期，请重新读取草稿', { currentGeneration: state.current })
     if (generation === state.current && state.current >= 0
       && state.ownerState.operation !== undefined && state.ownerState.operation !== operation) {
-      throw new HttpError(409, 'draft-generation-conflict', '暂存 generation 已被其他操作占用')
+      throw new HttpError(409, 'draft-generation-conflict', '暂存 generation 已被其他操作占用', { currentGeneration: state.current })
     }
     if (generation === state.current && state.existing?.deleted === true) {
       return { workspaceId: String(workspaceId), path: relativePath, owner, generation, deleted: true, idempotent: true }
     }
     if (generation === state.current && state.existing !== null) {
-      throw new HttpError(409, 'draft-generation-conflict', '暂存 generation 已被其他操作占用')
+      throw new HttpError(409, 'draft-generation-conflict', '暂存 generation 已被其他操作占用', { currentGeneration: state.current })
     }
     if (generation > state.current) await writeOwnerGeneration(workspaceId, owner, generation, operation)
     await writeJsonAtomic(draftFilePath(workspaceId, relativePath, owner), { version: 2, owner, path: relativePath, generation, deleted: true })
+    /* Single-file deletes only write tombstones; reclaim expired ones here so
+       an owner that only ever deletes single drafts still stays bounded (the
+       tree-op path already prunes). */
+    const records = await listDraftRecords(workspaceId, owner)
+    await pruneDraftTombstones(records, owner)
     return { workspaceId: String(workspaceId), path: relativePath, owner, generation, deleted: true }
   })
 }
@@ -411,10 +432,13 @@ export async function draftTreeOperation(workspaceId, payload, config, queues) {
   return serializeWrite(queues, draftQueueKey(workspaceId, owner), async () => {
     const state = await readOwnerGenerationState(workspaceId, owner)
     const operation = draftOperationToken(`tree-${action}`, { fromPath, toPath, owner })
-    if (generation < state.generation) throw new HttpError(409, 'draft-generation-conflict', '暂存树操作已过期，请重新读取草稿')
+    if (generation > state.generation + DRAFT_GENERATION_JUMP_MAX) {
+      throw new HttpError(400, 'invalid-draft', 'generation 跳变过大', { currentGeneration: state.generation })
+    }
+    if (generation < state.generation) throw new HttpError(409, 'draft-generation-conflict', '暂存树操作已过期，请重新读取草稿', { currentGeneration: state.generation })
     if (generation === state.generation && state.generation >= 0
       && state.operation !== undefined && state.operation !== operation) {
-      throw new HttpError(409, 'draft-generation-conflict', '暂存 generation 已被其他操作占用')
+      throw new HttpError(409, 'draft-generation-conflict', '暂存 generation 已被其他操作占用', { currentGeneration: state.generation })
     }
     if (generation > state.generation) await writeOwnerGeneration(workspaceId, owner, generation, operation)
     const records = await listDraftRecords(workspaceId, owner)

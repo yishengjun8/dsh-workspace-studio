@@ -7,7 +7,7 @@ import { ENCODINGS } from './encodings.js'
 import { listTree, readExternalPreview, readPreview, readPreviewHead, revealInExplorer, searchWorkspace } from './fs.js'
 import { createEntry, fsOperation, renameEntry, saveFile } from './write.js'
 import { deleteDraftFile, draftTreeOperation, parseDraftGenerationQuery, readDraftFile, saveDraftFile, validateDraftOwner, validateDraftPayload, writeJsonAtomic } from './drafts.js'
-import { adoptMindmapOrphans, buildMindmapDoc, deleteMindmapDoc, findMindmapDocWithAncestors, indexMindmapDocs, isValidMindmapDoc, listMindmapModels, MINDMAP_DOC_MAX_BYTES, mindmapDocPath, mindmapDrainPendingSessionSummaries, mindmapLock, mindmapSessionSummarizingOf, mindmapSummarizingOf, mindmapSyncCache, parseMindmapSummaryConfig, purgeArchivedMindmapDocs, readMindmapDocFile, refreshMindmapDocCore, regenerateAllMindmapSummaries, regenerateMindmapSummary, renameMindmapDoc, summarizeMindmapSession, syncMindmapDoc, validateMindmapSession, writeMindmapDoc } from './mindmap.js'
+import { adoptMindmapOrphans, buildMindmapDoc, deleteMindmapDoc, findMindmapDocWithAncestors, indexMindmapDocs, isValidMindmapDoc, listMindmapModels, MINDMAP_DOC_MAX_BYTES, mindmapDocPath, mindmapDrainPendingSessionSummaries, mindmapLock, mindmapLocks, mindmapSessionSummarizingOf, mindmapSummarizingOf, mindmapSyncCache, parseMindmapSummaryConfig, purgeArchivedMindmapDocs, readMindmapDocFile, refreshMindmapDocCore, regenerateAllMindmapSummaries, regenerateMindmapSummary, renameMindmapDoc, summarizeMindmapSession, syncMindmapDoc, validateMindmapSession, writeMindmapDoc } from './mindmap.js'
 import { renderPromptContext } from './prompt-context.js'
 import { workspaceFor } from './workspace.js'
 /** Stable Cordis plugin name. */
@@ -38,6 +38,36 @@ export const Config = z.object({
 })
 
 const API_PREFIX = '/workspace-studio/api'
+/* Shared GET-load refresh: reconcile + adopt under the caller's lock, write
+   back when changed, invalidate the sync cache, and serve the last good disk
+   doc when the refresh degraded (a partial in-memory mutation must never be
+   served or written). */
+async function refreshMindmapDocLoad(ctx, persistence, doc) {
+  const refresh = await refreshMindmapDocCore(ctx, persistence, doc)
+  if (refresh.changed) {
+    doc.updatedAt = Date.now()
+    try {
+      await writeJsonAtomic(mindmapDocPath(doc.rootSessionId), doc)
+    } catch (error) {
+      ctx.logger.warn(`[workspace-studio] mindmap doc load write failed: ${String(error)}`)
+    }
+    /* This load path WRITES the doc (adoption or folded turn) without
+       touching any log — invalidate the sync cache like every other
+       doc write, or the next sync serves the stale pre-adopt doc for
+       up to the TTL (an adopted branch briefly vanishing). */
+    mindmapSyncCache.delete(String(doc.rootSessionId))
+  }
+  /* A degraded reconcile/adopt (warnings) may have PARTIALLY mutated
+     `doc` in memory; `changed` is false so nothing was written —
+     serve the last good DISK doc instead of the half-reconciled copy
+     (the next sync retries the refresh). */
+  let result = doc
+  if (refresh.warnings.length > 0) {
+    const disk = await readMindmapDocFile(String(doc.rootSessionId))
+    if (disk !== null && isValidMindmapDoc(disk)) result = disk
+  }
+  return { doc: result, warnings: refresh.warnings }
+}
 async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
   if (!isTrustedRequest(req, trustedHosts)) {
     sendError(req, res, 403, 'request-not-trusted', '请求来源未获授权')
@@ -240,30 +270,19 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
         const loaded = await mindmapLock(String(existing.rootSessionId), async () => {
           const fresh = await findMindmapDocWithAncestors(ctx, persistence, sessionId)
           if (fresh === null) return null
-          const refresh = await refreshMindmapDocCore(ctx, persistence, fresh)
-          if (refresh.changed) {
-            fresh.updatedAt = Date.now()
-            try {
-              await writeJsonAtomic(mindmapDocPath(fresh.rootSessionId), fresh)
-            } catch (error) {
-              ctx.logger.warn(`[workspace-studio] mindmap doc load write failed: ${String(error)}`)
-            }
-            /* This load path WRITES the doc (adoption or folded turn) without
-               touching any log — invalidate the sync cache like every other
-               doc write, or the next sync serves the stale pre-adopt doc for
-               up to the TTL (an adopted branch briefly vanishing). */
-            mindmapSyncCache.delete(String(fresh.rootSessionId))
+          /* A root replacement may have landed between the outer probe and this
+             re-read: the doc now lives under a DIFFERENT root id, and writing
+             it under the old root's lock would race the new root's concurrent
+             sync (the two locks do not serialize). Re-acquire under BOTH roots
+             (sorted, deadlock-free) and re-read before refreshing. */
+          if (String(fresh.rootSessionId) !== String(existing.rootSessionId)) {
+            return mindmapLocks([String(existing.rootSessionId), String(fresh.rootSessionId)], async () => {
+              const reRead = await findMindmapDocWithAncestors(ctx, persistence, sessionId)
+              if (reRead === null) return null
+              return refreshMindmapDocLoad(ctx, persistence, reRead)
+            })
           }
-          /* A degraded reconcile/adopt (warnings) may have PARTIALLY mutated
-             `fresh` in memory; `changed` is false so nothing was written —
-             serve the last good DISK doc instead of the half-reconciled copy
-             (the next sync retries the refresh). */
-          let doc = fresh
-          if (refresh.warnings.length > 0) {
-            const disk = await readMindmapDocFile(String(fresh.rootSessionId))
-            if (disk !== null && isValidMindmapDoc(disk)) doc = disk
-          }
-          return { doc, warnings: refresh.warnings }
+          return refreshMindmapDocLoad(ctx, persistence, fresh)
         })
         if (loaded !== null) {
           /* Reopening the map is also a drain opportunity: a pending session

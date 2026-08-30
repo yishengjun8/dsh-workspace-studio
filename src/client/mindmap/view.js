@@ -416,7 +416,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     if (rootId === null) return undefined
     const timer = window.setInterval(() => {
       if (savingRef.current) return
-      const root = rootId
+      const root = rootIdRef.current ?? rootId
       /* A local doc write that starts after this sync is issued supersedes its
          response: applying it would momentarily wipe the optimistic card (the
          savingRef guard only covers the in-flight window). Drop any response
@@ -450,7 +450,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         timer = window.setTimeout(run, 250)
         return
       }
-      const root = rootId
+      const root = rootIdRef.current ?? rootId
       const issuedSeq = localWriteSeqRef.current
       const issuedSync = syncSeqRef.current + 1
       syncSeqRef.current = issuedSync
@@ -472,18 +472,25 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
      the layout memo that consumes them (use-before-declaration would throw TDZ). */
   const streamingCards = useMemo(() => {
     if (runningFamilyIds.length === 0) return []
-    const liveById = new Map()
+    /* Identity only (session ids): the layout must NOT depend on the live
+       question text — a question arriving with a sync would otherwise rebuild
+       the whole layout and defeat React.memo on every card. The question is
+       read at render time via streamingQuestionByKey below. */
+    return runningFamilyIds.map((sid) => ({ sessionId: String(sid) }))
+  }, [runningFamilyIds])
+
+  /* Live question text per streaming session, read at render time (not part
+     of the layout memo): only the streaming card re-renders when its question
+     arrives, never the whole canvas. */
+  const streamingQuestionByKey = useMemo(() => {
+    const map = new Map()
     for (const item of live) {
-      if (item !== null && item !== undefined) liveById.set(String(item.sessionId), item)
-    }
-    return runningFamilyIds.map((sid) => {
-      const liveTurn = liveById.get(String(sid))
-      return {
-        sessionId: String(sid),
-        question: liveTurn === undefined ? '' : (typeof liveTurn.question === 'string' ? liveTurn.question : ''),
+      if (item !== null && item !== undefined) {
+        map.set(String(item.sessionId), typeof item.question === 'string' ? item.question : '')
       }
-    })
-  }, [live, runningFamilyIds])
+    }
+    return map
+  }, [live])
 
   const mountBulge = clampMountBulge(settings.mindmapMountBulge)
   /* Configured models for the AI-summary picker (shared hook; the 60 s module
@@ -670,7 +677,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     forkingRef.current = true
     setForkError(null)
     setForking(true)
-    const root = rootId
+    const root = rootIdRef.current ?? rootId
     const currentDoc = doc
     localWriteSeqRef.current += 1
     savingRef.current += 1
@@ -741,7 +748,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     forkingRef.current = true
     setForkError(null)
     setForking(true)
-    const root = rootId
+    const root = rootIdRef.current ?? rootId
     const currentDoc = doc
     localWriteSeqRef.current += 1
     savingRef.current += 1
@@ -868,7 +875,13 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       closeMenu()
     }
     const onKeyDown = event => { if (event.key === 'Escape') closeMenu() }
-    const onScroll = event => { closeMenu() }
+    /* Same inside-menu guard as pointerdown: the root "choose workspace" menu
+       is itself scrollable (max-height + overflow-y), so scrolling its list
+       must not close it. */
+    const onScroll = event => {
+      if (menuRef.current !== null && event.target instanceof Node && menuRef.current.contains(event.target)) return
+      closeMenu()
+    }
     window.addEventListener('pointerdown', onPointerDown)
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('scroll', onScroll, true)
@@ -994,7 +1007,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   }, [archiveBranchBusy])
   const confirmArchiveBranch = useCallback(() => {
     if (forkingRef.current || archiveBranchBusy || archiveBranchTarget === null) return
-    const root = rootId
+    const root = rootIdRef.current ?? rootId
     const base = docRef.current ?? doc
     if (root === null || base === null) return
     /* Recompute the plan from the LATEST doc (docRef), not the render-time
@@ -1110,7 +1123,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     localWriteSeqRef.current += 1
     savingRef.current += 1
     const run = async () => {
-      const root = rootId
+      const root = rootIdRef.current ?? rootId
       const ids = [root]
       for (const s of doc?.sessions ?? []) ids.push(s?.sessionId)
       const unique = [...new Set(ids)].filter(id => id !== undefined && id !== null && id !== '')
@@ -1263,7 +1276,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   }, [regenerateAllBusy])
   const confirmRegenerateAll = useCallback(() => {
     if (regenerateAllBusy || regenerateAllTarget === null) return
-    const root = rootId
+    const root = rootIdRef.current ?? rootId
     if (root === null) return
     setRegenerateAllBusy(true)
     setRegenerateAllError(null)
@@ -1410,7 +1423,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   }, [archiveTarget, closeArchive, closeDelete, deleteTarget, archiveBranchTarget, closeArchiveBranch, regenerateAllTarget, closeRegenerateAll])
   const confirmDelete = useCallback(() => {
     if (forkingRef.current || deleteBusy || deleteTarget === null) return
-    const root = rootId
+    const root = rootIdRef.current ?? rootId
     const base = docRef.current ?? doc
     if (root === null || base === null) return
     /* Recompute the plan from the LATEST doc (docRef), not the render-time
@@ -1715,6 +1728,11 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       isStreaming,
       isSummarizing,
       summary,
+      /* The streaming question is a plain string prop read from the CURRENT
+         live state (the layout node's question is empty by design): memo
+         compares it by value, so a question arriving mid-stream re-renders
+         only this card. */
+      streamingQuestion: isStreaming ? streamingQuestionByKey.get(String(entry.sessionId)) : undefined,
       onMenu: openCardMenu,
     })
   })

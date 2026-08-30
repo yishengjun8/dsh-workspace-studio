@@ -409,17 +409,43 @@ export async function readPreview(workspace, relativePath, config, encodingId = 
  * in the preview; no directory tree is watched.
  * ---------------------------------------------------------------------- */
 
-/** sha256 of the first maxPreviewBytes bytes, matching readPreview's revision
- * basis so "no change" is authoritative; truncated files always report change. */
+/** sha256 of the first maxPreviewBytes bytes PLUS a same-sized tail sample
+ * when the file is larger: a change beyond the preview window (the tail of a
+ * big file) would otherwise never be detected. For files at or under the
+ * window this is exactly the preview prefix, matching readPreview's revision
+ * basis so "no change" is authoritative. */
 async function previewHash(target, maxPreviewBytes) {
   try {
-    const requested = Math.min((await stat(target)).size, maxPreviewBytes)
-    const bytes = await readPrefix(target, requested)
-    return revisionFor(bytes)
+    const size = (await stat(target)).size
+    const headLen = Math.min(size, maxPreviewBytes)
+    const head = await readPrefix(target, headLen)
+    if (size <= maxPreviewBytes) return revisionFor(head)
+    const tailLen = Math.min(maxPreviewBytes, size - maxPreviewBytes)
+    const handle = await openRegularFile(target)
+    let tail
+    try {
+      tail = Buffer.alloc(tailLen)
+      let offset = 0
+      while (offset < tailLen) {
+        const { bytesRead } = await handle.read(tail, offset, tailLen - offset, size - tailLen + offset)
+        if (bytesRead === 0) break
+        offset += bytesRead
+      }
+      tail = tail.subarray(0, offset)
+    } finally {
+      await handle.close()
+    }
+    return revisionFor(Buffer.concat([head, tail]))
   } catch {
     return null
   }
 }
+
+/* The mtime+size fast path is bounded by a TTL: an external tool that
+   rewrites content while preserving mtime/size (rsync -t, touch -r) would
+   otherwise be missed forever. After the TTL the hash runs and the snapshot
+   is refreshed, so a same-size rewrite surfaces within one extra poll. */
+const CHANGE_CHECK_FAST_PATH_TTL_MS = 3000
 
 /** Cheap change check: stat fields first, hash only when they moved. Returns
  * the new snapshot (null when the file is gone). */
@@ -432,10 +458,13 @@ async function fileChangeSnapshot(target, previous, maxPreviewBytes) {
   }
   const sameMtime = previous !== undefined && previous.mtimeMs === current.mtimeMs
     && previous.size === current.size
-  if (sameMtime) return previous
+  if (sameMtime && previous?.checkedAt !== undefined
+    && Date.now() - previous.checkedAt < CHANGE_CHECK_FAST_PATH_TTL_MS) {
+    return previous
+  }
   const hash = await previewHash(target, maxPreviewBytes)
-  if (hash !== null && previous?.hash === hash) return previous
-  return { mtimeMs: current.mtimeMs, size: current.size, hash }
+  if (hash !== null && previous?.hash === hash) return { ...previous, checkedAt: Date.now() }
+  return { mtimeMs: current.mtimeMs, size: current.size, hash, checkedAt: Date.now() }
 }
 
 

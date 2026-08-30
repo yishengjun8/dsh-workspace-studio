@@ -38,11 +38,11 @@ export function SaveConflictDialog({conflict,fontSize,onResolve}) {
   if (total === 0) return null
   const current = Math.min(index, total - 1)
   const region = conflict.conflicts[current]
-  const regionLines = region.start === region.end
+  /* A single-line region (start === end - 1) and a degenerate insertion-only
+     region (start === end) both show one line number. */
+  const regionLines = region.end - region.start <= 1
     ? String(region.start + 1)
-    : region.start === region.end - 1
-      ? String(region.start + 1)
-      : `${region.start + 1}–${region.end}`
+    : `${region.start + 1}–${region.end}`
   const pick = (side) => {
     const next = [...choicesRef.current, side]
     choicesRef.current = next

@@ -131,8 +131,10 @@ export function mindmapLock(rootId, operation) {
 /* Acquire several per-root locks in sorted order, then run `operation` holding
    all. Multi-key writers (a root replacement touches the new root's doc and the
    retired root's alias stub) must use this so the cleaner serializes against
-   them, and so two multi-key writers can never deadlock. */
-function mindmapLocks(rootIds, operation) {
+   them, and so two multi-key writers can never deadlock. Exported for the GET
+   load path: a root replacement detected between the outer probe and the
+   in-lock re-read must re-acquire under BOTH roots before writing. */
+export function mindmapLocks(rootIds, operation) {
   const ordered = [...new Set((Array.isArray(rootIds) ? rootIds : []).map(String))].sort()
   const acquire = (index) => {
     if (index >= ordered.length) return operation()
@@ -1171,18 +1173,23 @@ let mindmapPersistenceListCache = { at: 0, value: null }
    needed when the array identity or length changed — idle family sessions
    skip the full-log walk on every sync. Non-resident logs come back as fresh
    arrays from persistence.inspect and always miss (their content is immutable,
-   so the cost is bounded by the harness's prepared-session cache). */
+   so the cost is bounded by the harness's prepared-session cache). The TTL
+   bounds same-length in-place edits (a rewritten user/message with unchanged
+   length would otherwise be invisible until the events array is replaced). */
+const MINDMAP_PARSE_CACHE_TTL_MS = 30_000
 const mindmapParseCache = new Map()
 function parseMindmapTurnsCached(sessionId, events) {
   if (!Array.isArray(events)) return []
+  const now = Date.now()
   const hit = mindmapParseCache.get(sessionId)
-  if (hit !== undefined && hit.events === events && hit.length === events.length) return hit.parsed
+  if (hit !== undefined && hit.events === events && hit.length === events.length
+    && now - hit.at < MINDMAP_PARSE_CACHE_TTL_MS) return hit.parsed
   const parsed = parseMindmapTurns(events)
   if (mindmapParseCache.size >= 256) {
     const oldest = mindmapParseCache.keys().next().value
     if (oldest !== undefined) mindmapParseCache.delete(oldest)
   }
-  mindmapParseCache.set(sessionId, { events, length: events.length, parsed })
+  mindmapParseCache.set(sessionId, { events, length: events.length, parsed, at: now })
   return parsed
 }
 

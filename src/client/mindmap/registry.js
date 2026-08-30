@@ -175,6 +175,20 @@ export function writeMindmapOrder(map) {
     try { window.localStorage.setItem(MINDMAP_ORDER_STORE_KEY, JSON.stringify(map)) } catch { /* quota / private mode */ }
   })
 }
+/* Re-read INSIDE the lock so a concurrent tab's drag is never clobbered (same
+   pattern as writeMindmapLastSession): the caller's in-memory order may be
+   stale, and a bare writeMindmapOrder(map) would overwrite the other tab's
+   entries. Returns the merged map (undefined when storage is unavailable). */
+export function updateMindmapOrder(groupKey, ids) {
+  return withMindmapStoreLock('dsh-workspace-studio:mindmap-order', () => {
+    try {
+      const map = readMindmapOrder()
+      map[String(groupKey)] = ids
+      window.localStorage.setItem(MINDMAP_ORDER_STORE_KEY, JSON.stringify(map))
+      return map
+    } catch { /* quota / private mode */ }
+  })
+}
 
 /* Per-root last-selected session of a mind map in localStorage (root session id
    → last selected session id, one small string pair per map). Written whenever

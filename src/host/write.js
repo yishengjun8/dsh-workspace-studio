@@ -61,7 +61,6 @@ export async function saveFile(workspace, relativePath, config, queues, req, enc
   if (text === undefined || containsNul(bytes)) {
     throw new HttpError(415, 'invalid-text', '保存内容必须是无二进制数据的有效 UTF-8 文本')
   }
-  const outBytes = encodeText(text, encodingId)
 
   // In-process route: canonical checks run inside the workspace mutation queue
   // so every rename/delete/save observes one serial history.
@@ -95,6 +94,9 @@ export async function saveFile(workspace, relativePath, config, queues, req, enc
       throw new HttpError(415, 'binary-file', '现有文件不是可编辑的 UTF-8 文本')
     }
     if (revisionFor(currentBytes) !== ifMatch) throw new HttpError(409, 'file-conflict', '文件已被修改，请重新加载后再保存')
+    /* Encode AFTER reading the current file so a BOM-less UTF-16 file stays
+       BOM-less on save (encodeText's withBom follows the original). */
+    const outBytes = encodeText(text, encodingId, hasBom(currentBytes, encodingId))
 
     const parent = dirname(candidate)
     const realParent = await realpath(parent)
@@ -143,8 +145,11 @@ export async function saveFile(workspace, relativePath, config, queues, req, enc
     } finally {
       if (tempHandle !== undefined) await tempHandle.close().catch(() => {})
       if (tempCreated) {
+        /* A temp-unlink failure (AV lock, transient permission) must never
+           mask the already-committed save: the rename succeeded, so the
+           response is success; the leftover temp is logged, not thrown. */
         await unlink(temp).catch((error) => {
-          if (error?.code !== 'ENOENT') throw error
+          if (error?.code !== 'ENOENT') console.warn(`[workspace-studio] temp cleanup failed for ${temp}: ${String(error)}`)
         })
       }
     }
@@ -166,6 +171,14 @@ export async function createEntry(workspace, relativePath, config, queues, req) 
     const targetPath = entryPath(relativePath, name)
     const target = resolve(directory, name)
     if (!isInside(root, target)) throw new HttpError(403, 'path-outside-workspace', '拒绝写入工作区之外的路径')
+    /* Re-verify the parent right before the create (same fence saveFile runs
+       before its rename): a parent swapped to an out-of-workspace symlink in
+       the window since the first check would otherwise let mkdir/open land
+       outside the workspace. */
+    const realParent = await realpath(directory)
+    if (!isInside(root, realParent) || await hasSymlinkComponent(root, relativePath)) {
+      throw new HttpError(403, 'symlink-write-denied', '拒绝通过符号链接修改目录')
+    }
     try {
       if (kind === 'directory') {
         await mkdir(target)
@@ -291,11 +304,18 @@ export async function renameEntry(workspace, relativePath, config, queues, req) 
   })
 }
 /** Stable-enough identity: dev/ino on Unix; Windows may report ino=0, where
- * birth time is the best signal without native openat handles. */
+ * birth time is the best signal without native openat handles. The fallback
+ * also requires size + mtimeMs: two DIFFERENT files created in the same
+ * millisecond with the same mode (bulk extraction/copy) would otherwise be
+ * mistaken for one entry, and a case-only rename would silently overwrite the
+ * unrelated target (MoveFileExW replaces existing targets). */
 function sameEntryIdentity(expected, current) {
   if (expected.isDirectory() !== current.isDirectory() || expected.isFile() !== current.isFile()) return false
   if (expected.ino !== 0 || current.ino !== 0) return expected.dev === current.dev && expected.ino === current.ino
-  return expected.birthtimeMs === current.birthtimeMs && expected.mode === current.mode
+  return expected.birthtimeMs === current.birthtimeMs
+    && expected.mode === current.mode
+    && expected.size === current.size
+    && expected.mtimeMs === current.mtimeMs
 }
 function sameEntrySnapshot(expected, current) {
   return sameEntryIdentity(expected, current)

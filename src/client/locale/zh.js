@@ -27,6 +27,8 @@ export const zh = {
   'context.rename.title': '在当前位置重命名此文件或文件夹',
   'context.renameSession': '重命名',
   'context.archiveSession': '归档此会话',
+  'context.archiveAmbiguousConfirm': '存在多个同标题会话，无法确认右键目标。将归档匹配到的会话（id: {id}）及其分支，是否继续？',
+  'context.ambiguousTitle': '存在多个同标题会话，菜单操作将作用于匹配到的会话（id: {id}）',
   'context.copy': '复制',
   'context.copy.title': '复制此文件或文件夹',
   'context.paste': '粘贴',

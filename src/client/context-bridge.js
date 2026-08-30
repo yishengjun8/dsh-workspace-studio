@@ -61,6 +61,12 @@ const pendingEditorContextDisplays = new Map()
 const MAX_PENDING_CONTEXT_DISPLAYS = 256
 let pendingContextDisplayCount = 0
 
+/* Entries carry a unique handle so a failed send can discard EXACTLY its own
+   display: popping the queue tail by text key would remove a DIFFERENT
+   concurrent send's entry when two identical messages (same context + same
+   user text) are in flight and the first one fails. */
+let pendingContextDisplaySeq = 0
+
 function rememberEditorContextDisplay(text, display) {
   /* Bound the GLOBAL entry count, not just the key count: repeated context-only
      sends with the same selection produce the same key, and that key's queue
@@ -75,27 +81,33 @@ function rememberEditorContextDisplay(text, display) {
       pendingEditorContextDisplays.delete(oldest)
     }
   }
+  const handle = { key: text, seq: pendingContextDisplaySeq++ }
+  const entry = { display, handle }
   const queue = pendingEditorContextDisplays.get(text)
-  if (queue === undefined) pendingEditorContextDisplays.set(text, [display])
-  else queue.push(display)
+  if (queue === undefined) pendingEditorContextDisplays.set(text, [entry])
+  else queue.push(entry)
   pendingContextDisplayCount += 1
+  return handle
 }
 
 function consumeEditorContextDisplay(text) {
   const queue = pendingEditorContextDisplays.get(text)
   if (queue === undefined || queue.length === 0) return null
-  const display = queue.shift()
+  const entry = queue.shift()
   pendingContextDisplayCount -= 1
   if (queue.length === 0) pendingEditorContextDisplays.delete(text)
-  return display ?? null
+  return entry?.display ?? null
 }
 
-function discardLastEditorContextDisplay(text) {
-  const queue = pendingEditorContextDisplays.get(text)
+function discardEditorContextDisplay(handle) {
+  if (handle === undefined || handle === null) return
+  const queue = pendingEditorContextDisplays.get(handle.key)
   if (queue === undefined || queue.length === 0) return
-  queue.pop()
+  const index = queue.findIndex(entry => entry.handle.seq === handle.seq)
+  if (index === -1) return
+  queue.splice(index, 1)
   pendingContextDisplayCount -= 1
-  if (queue.length === 0) pendingEditorContextDisplays.delete(text)
+  if (queue.length === 0) pendingEditorContextDisplays.delete(handle.key)
 }
 
 function clearEditorContextDisplays() {
@@ -313,9 +325,12 @@ export function installEditorContextMessageCompactor() {
     observer.disconnect()
     clearEditorContextDisplays()
     for (const [bubble, text] of originals) {
-      if (!bubble.isConnected) continue
+      /* A disconnected bubble (message cleared / session removed) still owns
+         its summary row: remove the row even when the bubble itself is gone,
+         or a ghost "↳ file" line would linger in the chat until refresh. */
       const summary = bubble.previousElementSibling
       if (summary instanceof HTMLElement && summary.hasAttribute(MESSAGE_CONTEXT_SUMMARY_ATTR)) summary.remove()
+      if (!bubble.isConnected) continue
       bubble.classList.remove('dsh-ws-message-context-bubble')
       bubble.removeAttribute('data-dsh-ws-empty-prompt')
       bubble.textContent = text

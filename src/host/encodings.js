@@ -92,8 +92,10 @@ const SINGLE_BYTE_ENCODE_MAPS = (() => {
 })()
 /** Encode text into bytes for `encodingId`. Single-byte encodings replace
  * unmappable chars with '?' (preserving every byte the decoder can produce);
- * UTF-16 encodings add their BOM here. */
-export function encodeText(text, encodingId) {
+ * UTF-16 encodings add their BOM only when `withBom` is true — a BOM-less
+ * UTF-16 file must round-trip without gaining two bytes (saveFile passes the
+ * original file's BOM state). */
+export function encodeText(text, encodingId, withBom = true) {
   if (encodingId === 'utf-8') return Buffer.from(text, 'utf8')
   if (encodingId === 'utf-8-bom') {
     return Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(text, 'utf8')])
@@ -112,8 +114,8 @@ export function encodeText(text, encodingId) {
   }
   const spec = encodingById(encodingId)
   let body = iconv.encode(text, spec.encode)
-  if (encodingId === 'utf-16le') body = Buffer.concat([Buffer.from([0xff, 0xfe]), body])
-  else if (encodingId === 'utf-16be') body = Buffer.concat([Buffer.from([0xfe, 0xff]), body])
+  if (encodingId === 'utf-16le' && withBom) body = Buffer.concat([Buffer.from([0xff, 0xfe]), body])
+  else if (encodingId === 'utf-16be' && withBom) body = Buffer.concat([Buffer.from([0xfe, 0xff]), body])
   return body
 }
 /** The encoding id to save back with, preserving a UTF-8 BOM when present. */

@@ -1,6 +1,21 @@
 import { API_PREFIX, ENCODING_FALLBACK, ENCODING_LABEL_FALLBACK, MINDMAP_MODELS_CACHE_MS } from './constants.js'
 import { localeIsZh, translate } from './locale/index.js'
 
+/* Bounded request timeouts: a hung Host (dead process, stuck LLM call) must
+   not leave the UI in a permanent loading/saving state. Merges the caller's
+   signal with a timeout; falls back to the caller's signal alone when the
+   timeout APIs are unavailable. */
+const REQUEST_TIMEOUT_MS = 30_000
+const MINDMAP_LLM_TIMEOUT_MS = 60_000
+function withTimeout(signal, timeoutMs) {
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+    const timeout = AbortSignal.timeout(timeoutMs)
+    if (signal === undefined || signal === null) return timeout
+    if (typeof AbortSignal.any === 'function') return AbortSignal.any([signal, timeout])
+  }
+  return signal
+}
+
 let encodingCache = ENCODING_FALLBACK
 /* Fetch the server's authoritative encoding list once; keep the fallback if the request fails. */
 export async function fetchEncodings() {
@@ -54,6 +69,9 @@ function apiFailure(failure, fallbackCode, fallbackKey, status) {
   const detail = typeof failure?.detail === 'string' && failure.detail !== '' ? failure.detail : undefined
   const error = new WorkspaceApiError(code, detail === undefined ? message : `${message}: ${detail}`, status)
   if (detail !== undefined) error.detail = detail
+  /* Structured payload (e.g. { currentGeneration } on a draft generation
+     conflict) rides along so callers can recover without parsing prose. */
+  if (failure?.data !== undefined && failure.data !== null) error.data = failure.data
   return error
 }
 export async function requestJson(endpoint, workspaceId, path, signal, encoding) {
@@ -86,6 +104,10 @@ export async function checkFileChange(workspaceId, path, previousSnapshot, signa
       mtimeMs: previousSnapshot.mtimeMs,
       size: previousSnapshot.size,
       hash: previousSnapshot.hash,
+      /* The Host's mtime+size fast path is TTL-bounded (CHANGE_CHECK_FAST_PATH_TTL_MS):
+         carrying the check timestamp lets it force a hash after the TTL so a
+         same-size rewrite with preserved mtime is still detected. */
+      checkedAt: previousSnapshot.checkedAt,
     }))
   } else if (previousSnapshot === null) {
     query.set('prev', JSON.stringify({ gone: true }))
@@ -115,7 +137,7 @@ export async function putFile(workspaceId, path, content, revision, signal, enco
   if (encoding !== undefined && encoding !== null) query.set('encoding', String(encoding))
   const headers = { 'content-type': 'text/plain; charset=utf-8', accept: 'application/json' }
   if (revision !== undefined && revision !== null) headers['if-match'] = String(revision)
-  const response = await fetch(`${API_PREFIX}/file?${query}`, { method: 'PUT', headers, credentials: 'same-origin', body: content, signal })
+  const response = await fetch(`${API_PREFIX}/file?${query}`, { method: 'PUT', headers, credentials: 'same-origin', body: content, signal: withTimeout(signal, REQUEST_TIMEOUT_MS) })
   let payload
   try {
     payload = await response.json()
@@ -135,13 +157,17 @@ export async function putFile(workspaceId, path, content, revision, signal, enco
 // changes (forks, branch removal).
 export async function mindmapRequest(endpoint, options) {
   const { method = 'GET', body, signal } = options ?? {}
+  /* The regenerate/summarize endpoints run a synchronous LLM call on the Host
+     (up to its 25 s internal cap): give them a longer timeout than the plain
+     doc/sync traffic. */
+  const llmEndpoint = endpoint === '/regenerate-summary' || endpoint === '/regenerate-all' || endpoint === '/summarize-session'
   const response = await fetch(`${API_PREFIX}/mindmap-doc${endpoint}`, {
     method,
     headers: body === undefined
       ? { accept: 'application/json' }
       : { accept: 'application/json', 'content-type': 'application/json' },
     credentials: 'same-origin',
-    signal,
+    signal: withTimeout(signal, llmEndpoint ? MINDMAP_LLM_TIMEOUT_MS : REQUEST_TIMEOUT_MS),
     body: body === undefined ? undefined : JSON.stringify(body),
   })
   let payload
@@ -267,7 +293,7 @@ export async function writeDraft(workspaceId, path, payload, signal) {
   const query = new URLSearchParams({ workspaceId: String(workspaceId), path })
   if (payload.owner !== undefined && payload.owner !== null) query.set('owner', String(payload.owner))
   if (payload.generation !== undefined && payload.generation !== null) query.set('generation', String(payload.generation))
-  const response = await fetch(`${API_PREFIX}/draft?${query}`, { method: 'PUT', headers: { accept: 'application/json', 'content-type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ ...payload, path }), signal })
+  const response = await fetch(`${API_PREFIX}/draft?${query}`, { method: 'PUT', headers: { accept: 'application/json', 'content-type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ ...payload, path }), signal: withTimeout(signal, REQUEST_TIMEOUT_MS) })
   let result
   try {
     result = await response.json()
@@ -331,7 +357,7 @@ export async function uploadExternalFile(bytes, name, signal, encoding) {
   return payload
 }
 export async function renderContext(sessionId, context, signal) {
-  const response = await fetch(`${API_PREFIX}/context`, { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ ...context, sessionId: String(sessionId) }), signal })
+  const response = await fetch(`${API_PREFIX}/context`, { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ ...context, sessionId: String(sessionId) }), signal: withTimeout(signal, REQUEST_TIMEOUT_MS) })
   let payload
   try {
     payload = await response.json()
@@ -394,7 +420,7 @@ export const createWorkspaceEntry=(workspaceId,path,kind,name,signal)=>mutateEnt
 export const renameWorkspaceEntry=(workspaceId,path,name,signal)=>mutateEntry('PATCH',workspaceId,path,{name},signal)
 export async function requestFsOperation(workspaceId, payload, signal) {
   const query = new URLSearchParams({ workspaceId: String(workspaceId) })
-  const response = await fetch(`${API_PREFIX}/fs?${query}`, { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(payload), signal })
+  const response = await fetch(`${API_PREFIX}/fs?${query}`, { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(payload), signal: withTimeout(signal, REQUEST_TIMEOUT_MS) })
   let result
   try {
     result = await response.json()

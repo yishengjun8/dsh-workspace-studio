@@ -1,4 +1,4 @@
-import { createElement as h, useRef, useEffect } from 'react'
+import { createElement as h, useRef, useState, useEffect } from 'react'
 import { closeSearchPanel, findNext, findPrevious, gotoLine, highlightSelectionMatches, openSearchPanel, search, selectNextOccurrence, selectSelectionMatches } from '@codemirror/search'
 import { EditorState, Compartment } from '@codemirror/state'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
@@ -31,10 +31,22 @@ export const CM_PHRASES_ZH = Object.freeze({
 })
 
 export function revealPosition(view, reveal) {
-  const lineNumber = Math.min(Math.max(1, reveal.line), view.state.doc.lines)
+  /* NaN/non-numeric line data (corrupt search results, stale caches) must not
+     reach Text.line: Math.min/max propagate NaN and the line() guard treats
+     NaN as in-bounds, so the binary search would land on a wrong line. */
+  const rawLine = Number(reveal?.line)
+  const lineNumber = Number.isFinite(rawLine)
+    ? Math.min(Math.max(1, Math.round(rawLine)), view.state.doc.lines)
+    : 1
   const line = view.state.doc.line(lineNumber)
-  const startColumn = Math.min(Math.max(1, reveal.column ?? 1), line.length + 1)
-  const endColumn = Math.min(Math.max(startColumn, reveal.endColumn ?? startColumn), line.length + 1)
+  const rawColumn = Number(reveal?.column)
+  const startColumn = Number.isFinite(rawColumn)
+    ? Math.min(Math.max(1, Math.round(rawColumn)), line.length + 1)
+    : 1
+  const rawEndColumn = Number(reveal?.endColumn)
+  const endColumn = Number.isFinite(rawEndColumn)
+    ? Math.min(Math.max(startColumn, Math.round(rawEndColumn)), line.length + 1)
+    : startColumn
   const from = line.from + startColumn - 1
   const to = line.from + endColumn - 1
   view.dispatch({ selection: { anchor: from, head: to }, effects: EditorView.scrollIntoView(from, { y: 'center' }) })
@@ -92,9 +104,11 @@ export function foldLevel(view, level) {
 
 export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShortcut, onScroll, reveal, scrollTop, editorRef, highlightPreset, searchPanelContainer, readEpoch, onRevealApplied }) {
   const host = useRef(null)
-  const editableCompartment = useRef(new Compartment())
-  const wrapCompartment = useRef(new Compartment())
-  const phrasesCompartment = useRef(new Compartment())
+  /* Lazy compartments: useRef(new Compartment()) would construct a discarded
+     object on every render (only the first is kept). */
+  const [editableCompartment] = useState(() => new Compartment())
+  const [wrapCompartment] = useState(() => new Compartment())
+  const [phrasesCompartment] = useState(() => new Compartment())
   const localeTick = useLocaleText()
   const contextRef = useRef(onContext)
   const dirtyRef = useRef(onDirty)
@@ -141,10 +155,12 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
              without this map they show English. Keys mirror @codemirror/search's
              phrases; keep the $ placeholders. The compartment follows the
              active locale (English keeps the built-in defaults). */
-          phrasesCompartment.current.of(localeIsZh() ? EditorState.phrases.of(CM_PHRASES_ZH) : []),
+          phrasesCompartment.of(localeIsZh() ? EditorState.phrases.of(CM_PHRASES_ZH) : []),
           syntaxHighlighting(tokenHighlight),
           keymap.of([
-            { key: 'Mod-s', preventDefault: true, run: () => { saveRef.current(); return true } },
+            /* Mod-s is deliberately NOT bound here: the window-level capture
+               handler owns it so saving works from every focus state (same
+               single-path rule as Ctrl+K and the find workflow). */
             indentWithTab, ...closeBracketsKeymap, ...defaultKeymap,
             /* Editor-only search keys stay in the keymap: Escape closes the
                panel; Ctrl+D / Ctrl+Shift+L / Ctrl+Alt+G select occurrences,
@@ -159,14 +175,23 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
             ...historyKeymap, ...foldKeymap,
           ]),
           EditorView.updateListener.of((update) => {
-            if (update.docChanged) dirtyRef.current(update.state.sliceDoc())
-            if (update.docChanged || update.selectionSet) contextRef.current(update.state)
+            if (update.docChanged) {
+              /* One sliceDoc per change, shared by the autosave and the context
+                 publish (a second full copy per keystroke is pure cost on large
+                 files); the docChanged flag lets the context publish rebuild
+                 its CRLF prefix table only when the text actually changed. */
+              const text = update.state.sliceDoc()
+              dirtyRef.current(text)
+              contextRef.current(update.state, true, text)
+            } else if (update.selectionSet) {
+              contextRef.current(update.state, false)
+            }
           }),
-          editableCompartment.current.of([
+          editableCompartment.of([
             EditorView.editable.of(editing),
             EditorState.readOnly.of(!editing),
           ]),
-          wrapCompartment.current.of(wrap ? EditorView.lineWrapping : []),
+          wrapCompartment.of(wrap ? EditorView.lineWrapping : []),
           descriptor.extension,
           separatorExtension,
           EditorView.theme({
@@ -199,6 +224,9 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
     restoreScroll()
     // Second pass after layout: the first assignment can be clamped before the
     // browser sizes the fresh editor content; next frame the real height exists.
+    // Known limitation: rAF is paused while the tab is backgrounded, so a file
+    // opened in a hidden tab restores its scroll on the next visible frame —
+    // acceptable (the value is re-read from the tab on the next open anyway).
     const animation = requestAnimationFrame(restoreScroll)
     contextRef.current(view.state)
     return () => {
@@ -218,7 +246,7 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
 
   useEffect(() => {
     editorRef.current?.dispatch({
-      effects: editableCompartment.current.reconfigure([
+      effects: editableCompartment.reconfigure([
         EditorView.editable.of(editing),
         EditorState.readOnly.of(!editing),
       ]),
@@ -227,13 +255,13 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
 
   useEffect(() => {
     editorRef.current?.dispatch({
-      effects: wrapCompartment.current.reconfigure(wrap ? EditorView.lineWrapping : []),
+      effects: wrapCompartment.reconfigure(wrap ? EditorView.lineWrapping : []),
     })
   }, [wrap])
 
   useEffect(() => {
     editorRef.current?.dispatch({
-      effects: phrasesCompartment.current.reconfigure(localeIsZh() ? EditorState.phrases.of(CM_PHRASES_ZH) : []),
+      effects: phrasesCompartment.reconfigure(localeIsZh() ? EditorState.phrases.of(CM_PHRASES_ZH) : []),
     })
   }, [localeTick])
 
@@ -267,13 +295,24 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
       const target = event.target
       // Outside text fields (chat, rename, search, dialogs) keep their keys; the editor's contenteditable is inside host.
       const insideEditor = host.current !== null && target instanceof Node && host.current.contains(target)
-      if (!insideEditor && target instanceof HTMLElement && (target.isContentEditable || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')) {
+      /* Element (not HTMLElement) so SVG targets are covered too; closest()
+         handles nested inputs inside custom controls. */
+      const inTextField = target instanceof Element
+        && (target.isContentEditable || target.closest('input, textarea, select') !== null)
+      if (!insideEditor && inTextField) {
         cancel()
         return
       }
       const key = String(event.key).toLowerCase()
       const isCtrlK = key === 'k' && (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey
-      if (isCtrlK) {
+      /* The prefix is consumed only while the editor is focused or the focus
+         sits on the explorer's own chrome (tree rows, tabs, panel headers) —
+         the fold workflow's natural focus states. Anywhere else (buttons,
+         body, harness chrome) Ctrl+K passes through to the harness instead of
+         being swallowed by the capture listener. */
+      const foldChrome = target instanceof Element
+        && target.closest('.dsh-ws-tree-row, .dsh-ws-preview-tab, .dsh-ws-panel-header') !== null
+      if (isCtrlK && (insideEditor || foldChrome)) {
         // (Re-)arm the prefix; a repeated Ctrl+K keeps the sequence alive.
         event.preventDefault()
         event.stopPropagation()
@@ -290,7 +329,8 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
          folding. (The pre-arm guard above already cancels on such targets;
          this is the same fence at the completion site so a future reorder of
          the guards cannot swallow a keystroke.) */
-      if (!insideEditor && target instanceof HTMLElement && (target.isContentEditable || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')) {
+      if (!insideEditor && target instanceof Element
+        && (target.isContentEditable || target.closest('input, textarea, select') !== null)) {
         return
       }
       /* Completion keys must carry NO modifiers: within the 1 s arm window a
@@ -331,6 +371,10 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
       // Ctrl+K handler and the explorer clipboard handler): composing
       // keystrokes pass through untouched.
       if (event.isComposing) return
+      /* A modal dialog (new/rename/delete, save-conflict) is open: the search
+         panel would render behind its backdrop (z-index below the dialog) and
+         the keys belong to the dialog — pass through. */
+      if (typeof document !== 'undefined' && document.querySelector('.dsh-ws-dialog-backdrop') !== null) return
       const target = event.target
       // Outside text fields (chat, rename, dialogs) keep their keys; the
       // editor's contenteditable and the search panel input (in the search
@@ -338,7 +382,8 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
       const panelContainer = searchPanelContainer?.current
       const insideEditor = (host.current !== null && target instanceof Node && host.current.contains(target))
         || (panelContainer !== null && target instanceof Node && panelContainer.contains(target))
-      if (!insideEditor && target instanceof HTMLElement && (target.isContentEditable || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')) return
+      if (!insideEditor && target instanceof Element
+        && (target.isContentEditable || target.closest('input, textarea, select') !== null)) return
       const mod = (event.ctrlKey || event.metaKey) && !event.altKey
       const key = String(event.key).toLowerCase()
       const plainF3 = event.key === 'F3' && !event.ctrlKey && !event.metaKey && !event.altKey
@@ -363,6 +408,27 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
         event.preventDefault()
         event.stopPropagation()
       }
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [])
+
+  // Save shortcut (Ctrl/Cmd+S) at the window level (capture phase) so it works
+  // from every focus state — the editor keymap path only fired while the
+  // editor itself was focused, leaving Ctrl+S to the browser's save dialog
+  // whenever the user had moved focus to the chat or a button. The save
+  // callback itself no-ops when the tab is clean or saving.
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.isComposing) return
+      const key = String(event.key).toLowerCase()
+      const isSave = key === 's' && (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey
+      if (!isSave) return
+      const view = editorRef.current
+      if (view === undefined) return
+      event.preventDefault()
+      event.stopPropagation()
+      saveRef.current()
     }
     window.addEventListener('keydown', onKeyDown, true)
     return () => window.removeEventListener('keydown', onKeyDown, true)

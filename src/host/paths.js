@@ -20,6 +20,18 @@ export function normalizeRelativePath(value) {
   if (parts.some(part => part === '' || part === '.' || part === '..')) {
     throw new HttpError(400, 'invalid-path', '文件路径包含无效段')
   }
+  /* Every segment must also satisfy the Windows name rules (trailing dot or
+     space, reserved device names): a MIDDLE segment like `foo.` aliases `foo`
+     on NTFS (silent path alias) and `CON` reads/writes fail with a raw EINVAL
+     that normalizeFailure does not classify. normalizeEntryName only guards
+     the final name, so the same rules apply here per segment. */
+  for (const part of parts) {
+    if (/[. ]$/.test(part)) throw new HttpError(400, 'invalid-path', '路径段不能以点或空格结尾')
+    const base = part.split('.')[0].toUpperCase()
+    if (/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/.test(base)) {
+      throw new HttpError(400, 'invalid-path', '路径段不能使用 Windows 保留名称')
+    }
+  }
   return parts.join('/')
 }
 export function isInside(root, target) {

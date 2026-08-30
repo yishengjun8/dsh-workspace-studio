@@ -28,13 +28,13 @@
 
 - 文件树不再独占一栏，而是融合在**左侧栏**中：侧栏顶部提供「会话列表 / 文件浏览」两个视图按钮，「文件浏览」视图下，会话属于某 Workspace 时自动显示其文件树（会话 `cwd` 与 Workspace 路径一致时同样识别）；目录优先于文件排列，支持逐级展开、折叠与手动刷新。
 - 文件树展开的文件夹按当前会话持久化，刷新后重新展开并加载内容；标签选中时在树中定位并恢复垂直滚动位置。
-- 会话标题右键可重命名当前会话。
+- 会话标题右键可重命名当前会话。存在多个同标题会话时，右键菜单会显示匹配到的会话 id 后缀，归档操作需二次确认（防止归档错误会话及其分支）。
 - 左侧两栏宽度均可拖拽调宽：侧栏边界与预览栏边界各有一条分隔条（左侧两栏合计最多占视口 80%），布局参数以 `localStorage` 全局持久化。
 
 ### 编辑器
 
 - CodeMirror 6 按文件名或后缀显示行号与语法高亮，未知类型按纯文本显示；内置折叠槽与编辑器内搜索（`Ctrl/Cmd+F`、`F3`）。
-- `Ctrl+K+J` 展开所有已折叠区域；`Ctrl+K+1..9` 按层级折叠代码（如 `Ctrl+K+2` 折叠所有第二层级的折叠区域）。
+- `Ctrl+K+J` 展开所有已折叠区域；`Ctrl+K+1..9` 按层级折叠代码（如 `Ctrl+K+2` 折叠所有第二层级的折叠区域）。`Ctrl/Cmd+S` 保存快捷键在任意焦点状态可用（含聊天输入框）。
 - 可编辑文件**打开即进入编辑状态**（无需「编辑」按钮）；面板头提供「取消」「保存」「自动换行」与「从磁盘重新读取」（刷新）。只读文件（外部拖入、超大、截断、混合换行、符号链接或未启用编辑）显示只读原因横幅。
 - 每类文件类型组可在工作区设置页选择编辑器高亮预设（默认、经典、暖色、冷色、单色、XML (VS Code) 等 10+ 款），按类型记忆于 `localStorage`。
 
@@ -164,7 +164,7 @@ Web 进程**（先停止再启动，让插件随 Web 进程重新加载生效）
 
 ### 从 Git 直接安装
 
-不依赖本地副本，直接从插件仓库安装（首次安装会用 tsdown 把 `src/client/index.js` 现场构建成 `lib/client.js`）：
+不依赖本地副本，直接从插件仓库安装（首次安装会用 tsdown 把 `src/client/` 与 `src/host/` 现场构建出 `lib/client.js` 与 `lib/index.js`）：
 
 ```sh
 bash ./install.sh --git          # 默认安装到 web profile
@@ -224,6 +224,7 @@ bash ./uninstall.sh
 ├── cordis.patch.yml                     # 禁用内置根布局并挂载本插件（自引用单包名）
 ├── install.sh / uninstall.sh
 ├── src/client/                           # 浏览器源码（多模块：index.js 入口 + constants/locale/api/stores/…）
+├── src/host/                             # Host 源码（多模块，构建为 lib/index.js）
 ├── lib/index.js                         # Host：有界的 Workspace 读、保存、新建、重命名 API
 ├── lib/invariant.js                     # Host 共用不变量断言
 └── lib/client.js                        # 预构建三栏布局、文件树与编辑器
@@ -231,7 +232,8 @@ bash ./uninstall.sh
 
 CodeMirror 与语言模块已内联到预构建的普通 JavaScript Client bundle；本地 `file:` 安装无需构建，
 从 git 安装时 `prepare` 会用 tsdown 现场重新构建。维护源码时，在仓库根目录执行
-`pnpm install --config.auto-install-peers=false`，再运行 `npm run bundle` 重新生成 `lib/client.js`。
+`pnpm install --config.auto-install-peers=false`，再运行 `npm run bundle` 重新生成
+`lib/client.js` 与 `lib/index.js`。
 
 ## 🔄 兼容性说明
 

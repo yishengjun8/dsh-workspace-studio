@@ -61,12 +61,17 @@ export function useEditorSession({
   const draftTailsRef = useRef(new Map())
   const pendingAutosavesRef = useRef(new Map())
   const conflictDialogRef = useRef(undefined)
-  const publishContextState = useCallback((state) => {
+  /* CRLF prefix-count table, rebuilt only when the doc changed: a per-query
+     scan made every keystroke in a large file O(n) twice (from and to). The
+     table is keyed to the text snapshot it was built from; selection-only
+     publishes reuse it. */
+  const crlfPrefixCacheRef = useRef({ text: null, prefix: null })
+  const publishContextState = useCallback((state, docChanged = true, precomputedText) => {
     if (activeTab === undefined || preview.state !== 'ready') return
     // External files are read-only and not workspace-confined; never leak their synthetic path into the editor context.
     if (activeTab.external) return
     const main = state.selection.main
-    const text = state.sliceDoc()
+    const text = precomputedText !== undefined ? precomputedText : state.sliceDoc()
     const selection = main.empty
       ? undefined
       : (() => {
@@ -77,16 +82,18 @@ export function useEditorSession({
           // validateDirtySelection / verifyCleanSelection): normalize the text
           // and map offsets there. Columns are line-local and unaffected; only
           // absolute offsets shift by one per preceding CRLF.
-          const crlfBefore = (pos) => {
-            let count = 0
+          let crlfPrefix = crlfPrefixCacheRef.current.prefix
+          if (docChanged || crlfPrefixCacheRef.current.text !== text) {
+            crlfPrefix = new Int32Array(text.length + 1)
             /* Count every CRLF pair whose LF lands AT or before pos: a boundary
                exactly on the LF character (raw position = the \n) must still
                shift by this pair, or the normalized offset is off by one. */
-            for (let i = 0; i + 1 <= pos; i += 1) {
-              if (text.charCodeAt(i) === 13 && text.charCodeAt(i + 1) === 10) count += 1
+            for (let i = 0; i < text.length; i += 1) {
+              crlfPrefix[i + 1] = crlfPrefix[i] + (text.charCodeAt(i) === 13 && text.charCodeAt(i + 1) === 10 ? 1 : 0)
             }
-            return count
+            crlfPrefixCacheRef.current = { text, prefix: crlfPrefix }
           }
+          const crlfBefore = (pos) => crlfPrefix[pos]
           const from = main.from - crlfBefore(main.from)
           const to = main.to - crlfBefore(main.to)
           return {
@@ -339,7 +346,10 @@ export function useEditorSession({
     setEditing(Boolean(tab?.editing))
     setDirty(Boolean(tab?.dirty))
     setSaving(Boolean(tab?.saving))
-    setStatus(tab?.status)
+    /* Error statuses are session-transient (same policy as serializePreviewTab):
+       replaying a stale "保存失败" banner when switching back to a tab would
+       mislead the user into thinking the failure just happened again. */
+    setStatus(tab?.status?.error === true ? undefined : tab?.status)
     // Any re-read (auto-sync, manual refresh, encoding re-open, tab switch)
     // marks the path as reloading so the polling tick skips it until the pass
     // settles — a second bump remounts and discards the restored scroll.
@@ -751,14 +761,23 @@ export function useEditorSession({
       if (pending?.generation === generation) pendingAutosavesRef.current.delete(path)
     } catch (error) {
       if (error?.name === 'AbortError' || !mounted.current) return
-      /* A 409 draft-generation-conflict means a tree mutation (rename/move/
-         delete) advanced the owner generation fence and this in-flight PUT was
-         superseded — the tree op already re-queued the draft at the new path,
-         so nothing is lost. Silently drop the pending entry instead of showing
-         a misleading "自动存盘失败" banner. */
+      /* A 409 draft-generation-conflict means the owner generation fence
+         advanced past this write: a tree mutation (rename/move/delete) — which
+         already re-queued the draft at the new path — or a CONCURRENT tab's
+         write. Sync the local counter to the Host's current generation so the
+         next autosave strictly exceeds it and converges instead of pinging
+         forever; the pending entry is dropped (the tree-op path re-queued, and
+         the emergency mirror still holds this text). */
       const pending = pendingAutosavesRef.current.get(path)
       if (pending?.generation === generation) pendingAutosavesRef.current.delete(path)
-      if (error?.status === 409) return
+      if (error?.status === 409) {
+        const current = Number(error?.data?.currentGeneration)
+        if (Number.isSafeInteger(current)) {
+          draftGenerationCounterRef.current = Math.max(draftGenerationCounterRef.current, current)
+          draftGenerationsRef.current.set(path, Math.max(draftGenerationsRef.current.get(path) ?? 0, draftGenerationCounterRef.current))
+        }
+        return
+      }
       const message = error instanceof Error ? error.message : String(error)
       if (activePathRef.current === path) setStatus({ error: true, text: translate('editor.autosaveFailed', { message }) })
     }

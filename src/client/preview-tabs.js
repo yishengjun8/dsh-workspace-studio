@@ -65,8 +65,15 @@ export function prunePreviewSessions(draft) {
   /* A legacy session without `updatedAt` must not be treated as the oldest and
      evicted first: it pre-dates the timestamp field, and its next write stamps
      it. Sort missing timestamps as NEWEST so genuinely-old stamped sessions
-     are pruned first; the legacy entry self-heals on the next remember. */
-  entries.sort((a, b) => (b[1]?.updatedAt ?? Infinity) - (a[1]?.updatedAt ?? Infinity))
+     are pruned first; the legacy entry self-heals on the next remember. A
+     non-numeric timestamp (polluted/legacy data) is coerced via Number() so
+     the subtraction never yields NaN (which would leave the sort order
+     undefined). */
+  const stampOf = entry => {
+    const value = Number(entry?.[1]?.updatedAt)
+    return Number.isFinite(value) ? value : Infinity
+  }
+  entries.sort((a, b) => stampOf(b) - stampOf(a))
   for (const [key] of entries.slice(PREVIEW_SESSION_MAX)) delete draft.previewSessions[key]
 }
 /* Stable partition keeping every pinned tab ahead of all unpinned ones. */

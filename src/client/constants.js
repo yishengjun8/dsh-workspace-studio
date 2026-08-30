@@ -1,4 +1,3 @@
-/* Shared module constants for the workspace-studio client. */
 export const PACKAGE_ID = '@yishengjun8/dsh-workspace-studio'
 export const API_PREFIX = '/workspace-studio/api'
 export const EDITOR_CONTEXT_PROVIDER = 'workspace-editor-context'

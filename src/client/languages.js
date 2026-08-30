@@ -21,7 +21,7 @@ import { powerShell } from '@codemirror/legacy-modes/mode/powershell'
 import { ruby } from '@codemirror/legacy-modes/mode/ruby'
 import { toml } from '@codemirror/legacy-modes/mode/toml'
 import { dockerFile } from '@codemirror/legacy-modes/mode/dockerfile'
-import { clike } from '@codemirror/legacy-modes/mode/clike'
+import { clike, c as clikeC } from '@codemirror/legacy-modes/mode/clike'
 export const tokenHighlight = HighlightStyle.define([
   { tag: tags.comment, color: 'var(--shiki-token-comment)' },
   { tag: [tags.keyword, tags.modifier, tags.operatorKeyword], color: 'var(--shiki-token-keyword)' },
@@ -77,13 +77,28 @@ export const tokenHighlight = HighlightStyle.define([
       imports beyond the synchronously parsed prefix. */
 export const pythonModuleMark = Decoration.mark({ class: 'dsh-ws-token-module' })
 export const pythonImportModules = Prec.highest(ViewPlugin.fromClass(class {
-  constructor(view) { this.tree = syntaxTree(view.state); this.decorations = this.build(view) }
+  constructor(view) { this.tree = syntaxTree(view.state); this.decorations = this.build(view); this.pending = false; this.raf = 0 }
   update(update) {
     const tree = syntaxTree(update.state)
     if (tree !== this.tree) {
       this.tree = tree
-      this.decorations = this.build(update.view)
+      /* Background chunk parsing swaps the tree identity repeatedly while
+         typing/loading a large file; rebuilding the whole decoration set per
+         chunk is O(tree). Coalesce rebuilds to the next frame so a burst of
+         chunk transactions builds once. */
+      if (this.pending) return
+      this.pending = true
+      this.raf = requestAnimationFrame(() => {
+        this.pending = false
+        this.raf = 0
+        if (this.view !== undefined) this.decorations = this.build(this.view)
+      })
     }
+  }
+  destroy() {
+    this.pending = false
+    if (this.raf !== 0) cancelAnimationFrame(this.raf)
+    this.raf = 0
   }
   build(view) {
     const tree = syntaxTree(view.state)
@@ -340,7 +355,10 @@ export const PYTHON_LANGUAGE = language('py', [python(), pythonImportModules])
 export const SQL_LANGUAGE = language('sql', sql())
 export const XML_LANGUAGE = language('xml', xml())
 export const YAML_LANGUAGE = language('yaml', yaml())
-export const C_LANGUAGE = language('c', cpp())
+/* C uses the legacy clike C mode (not the C++ Lezer parser): C++-only
+   constructs (class, templates, namespaces) would otherwise be highlighted
+   with C++ semantics in .c/.h files. */
+export const C_LANGUAGE = language('c', StreamLanguage.define(clikeC))
 export const CPP_LANGUAGE = language('c++', cpp())
 export const JAVA_LANGUAGE = language('java', java())
 export const RUST_LANGUAGE = language('rust', rust())

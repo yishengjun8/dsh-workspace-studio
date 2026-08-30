@@ -85,15 +85,30 @@ export function useSidebarChrome() {
       && a.every((group, index) => group.container === b[index]?.container && group.title === b[index]?.title)
     let current = ensure()
     if (current !== null) setSidebarChrome(current)
+    /* Coalesce mutation bursts (streaming churn mutates the aside constantly)
+       to one ensure() per frame: a full querySelectorAll + possible DOM
+       insertion per mutation is O(nodes) on a large session list. */
+    let scheduled = false
+    let rafId = 0
     const observer = new MutationObserver(() => {
-      const next = ensure()
-      if (next === null) return
-      setSidebarChrome(prev => (prev !== null && prev.top === next.top && prev.files === next.files
-        && prev.fallback === next.fallback && groupsEqual(prev.groups, next.groups) ? prev : next))
+      if (scheduled) return
+      scheduled = true
+      rafId = requestAnimationFrame(() => {
+        scheduled = false
+        rafId = 0
+        const next = ensure()
+        if (next === null) return
+        setSidebarChrome(prev => (prev !== null && prev.top === next.top && prev.files === next.files
+          && prev.fallback === next.fallback && groupsEqual(prev.groups, next.groups) ? prev : next))
+      })
     })
     observer.observe(aside, { childList: true, subtree: true })
     return () => {
       observer.disconnect()
+      if (scheduled) {
+        scheduled = false
+        if (rafId !== 0) cancelAnimationFrame(rafId)
+      }
       setSidebarChrome(null)
       aside.querySelectorAll('.dsh-ws-sidebar-top-actions, .dsh-ws-sidebar-files, .dsh-ws-sidebar-mindmaps').forEach(node => node.remove())
     }

@@ -20,8 +20,13 @@ let emergencyDraftPruneScheduled = false
 /* Circuit breaker for a persistently unavailable IndexedDB (private mode,
    storage disabled): without it every keystroke would re-open the same
    failing database and reject anew (callsites absorb the rejection, so this
-   is noise rather than breakage — but the retries are pure waste). */
+   is noise rather than breakage — but the retries are pure waste). The
+   breaker is TIME-BOUND: a single transient open failure (disk hiccup,
+   browser storage glitch) must not disable the mirror for the whole page
+   lifetime, so after the window a retry is allowed once. */
 let emergencyDraftDbFailed = false
+let emergencyDraftDbFailedAt = 0
+const EMERGENCY_DRAFT_BREAKER_WINDOW_MS = 30_000
 async function pruneEmergencyDrafts() {
   const db = await openEmergencyDraftDb()
   if (db === undefined) return
@@ -58,7 +63,12 @@ async function pruneEmergencyDrafts() {
 }
 function openEmergencyDraftDb() {
   if (typeof indexedDB === 'undefined') return Promise.resolve(undefined)
-  if (emergencyDraftDbFailed) return Promise.resolve(undefined)
+  if (emergencyDraftDbFailed) {
+    /* Time-bounded breaker: allow one retry after the window so a transient
+       failure does not disable the mirror for the whole page lifetime. */
+    if (Date.now() - emergencyDraftDbFailedAt < EMERGENCY_DRAFT_BREAKER_WINDOW_MS) return Promise.resolve(undefined)
+    emergencyDraftDbFailed = false
+  }
   if (emergencyDraftDbPromise !== undefined) return emergencyDraftDbPromise
   emergencyDraftDbPromise = new Promise((resolveDb, reject) => {
     let request
@@ -102,9 +112,11 @@ function openEmergencyDraftDb() {
     }
   }).catch(error => {
     emergencyDraftDbPromise = undefined
-    /* Persistent failure (private mode / disabled storage): trip the breaker
-       so later writes stop re-opening the database on every keystroke. */
+    /* Failure (private mode / disabled storage / transient glitch): trip the
+       time-bounded breaker so later writes stop re-opening the database on
+       every keystroke, but allow a retry after the window. */
     emergencyDraftDbFailed = true
+    emergencyDraftDbFailedAt = Date.now()
     throw error
   })
   return emergencyDraftDbPromise

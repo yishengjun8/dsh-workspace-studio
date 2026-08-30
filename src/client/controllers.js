@@ -231,11 +231,14 @@ export class PromptContextBridge {
       }
       const combined = text === '' ? rendered : `${rendered}\n\n${text}`
       const display = describeEditorContext(context, rendered)
-      rememberEditorContextDisplay(combined, display)
+      /* The handle lets a failed send discard EXACTLY this entry: popping the
+         queue tail by text key would remove a different concurrent send's
+         entry when two identical messages are in flight. */
+      const displayHandle = rememberEditorContextDisplay(combined, display)
       try {
         return await this.originalSendSession.call(this.conversation, session, combined, imageIds, mode)
       } catch (error) {
-        discardLastEditorContextDisplay(combined)
+        discardEditorContextDisplay(displayHandle)
         throw error
       }
     })

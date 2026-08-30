@@ -8,7 +8,7 @@ import { mindmapClip } from './helpers.js'
    whose props actually changed on a doc-triggered re-render. */
 
 export const MindMapCard = memo(function MindMapCard({
-  entry, title, isCurrent, isStreaming, isSummarizing, summary, isAncestor, isHover, isHoverAncestor, hintAction, isEnd, ringPalette, onOpen, onMenu, onHover,
+  entry, title, isCurrent, isStreaming, isSummarizing, summary, streamingQuestion, isAncestor, isHover, isHoverAncestor, hintAction, isEnd, ringPalette, onOpen, onMenu, onHover,
 }) {
   /* Ring cards (the streaming card + its parent, both wearing the flowing
      gradient ring) are the pair's single visual signal: selection/hover
@@ -105,7 +105,7 @@ export const MindMapCard = memo(function MindMapCard({
     entry.empty
       ? h('div', { className: 'dsh-ws-mindmap-pending-title' }, translate('mindmap.pending'))
       : isStreaming
-        ? h('div', { className: 'dsh-ws-mindmap-node-q' }, mindmapClip(entry.question || translate('mindmap.streaming'), MINDMAP_TEXT_MAX))
+        ? h('div', { className: 'dsh-ws-mindmap-node-q' }, mindmapClip(streamingQuestion || entry.question || translate('mindmap.streaming'), MINDMAP_TEXT_MAX))
         : h('div', { className: 'dsh-ws-mindmap-node-q' + (isSummarizing && summary === undefined ? ' dsh-ws-mindmap-node-q-summarizing' : '') },
           /* Three-level card text (A1): summary once ready; a muted
              "generating" placeholder while the background queue owns the turn

@@ -125,6 +125,42 @@ export function applyChangesToSpan(base, start, end, changes) {
   return output
 }
 
+/* Map a base-coordinate span to the corresponding slice of the side array
+   through the side's edit script. Used to verify a conflict region's
+   mine/theirs segments against the REAL side text: the parts skeleton mixes
+   both sides' non-conflicting edits, so rebuilding one side from it fails
+   whenever the other side also edited elsewhere (a false unsound-cluster
+   that degraded mixed merges to a whole-file conflict). */
+export function sideSliceForSpan(base, side, changes, start, end) {
+  const result = []
+  let basePos = 0
+  let sidePos = 0
+  for (const change of changes) {
+    if (change.from >= end) break
+    // Unchanged run base[basePos..change.from): copy the side's corresponding lines.
+    const keepStart = Math.max(basePos, start)
+    const keepEnd = Math.min(change.from, end)
+    if (keepEnd > keepStart) {
+      result.push(...side.slice(sidePos + (keepStart - basePos), sidePos + (keepEnd - basePos)))
+    }
+    // Edited run base[change.from..change.to) -> change.added: copy the overlap.
+    const delStart = Math.max(change.from, start)
+    const delEnd = Math.min(change.to, end)
+    if (delEnd > delStart) {
+      const addedStart = delStart - change.from
+      const addedEnd = Math.min(change.added.length, delEnd - change.from)
+      if (addedEnd > addedStart) result.push(...change.added.slice(addedStart, addedEnd))
+    }
+    basePos = change.to
+    sidePos += change.added.length
+  }
+  if (basePos < end) {
+    const keepStart = Math.max(basePos, start)
+    if (end > keepStart) result.push(...side.slice(sidePos + (keepStart - basePos), sidePos + (end - basePos)))
+  }
+  return result
+}
+
 export function wholeFileConflict(base, mine, theirs, reason) {
   return {
     status: 'conflict',
@@ -243,18 +279,29 @@ export function tryMergeWithScripts(base, mine, theirs, mineChanges, theirsChang
   if (walked.fallback !== undefined) return walked
   const { parts, conflicts } = walked
   if (conflicts.length > 0) {
-    /* The conflict structure is trustworthy only when each side round-trips
-       from it: a non-canonical Myers diff on repeated identical lines can
+    /* The conflict structure is trustworthy only when each conflict region's
+       side segment matches the REAL side text mapped through that side's edit
+       script: a non-canonical Myers diff on repeated identical lines can
        split one replacement into an insertion plus a remote deletion whose
-       coordinates collide, so the structure cannot reconstruct one side. If
-       all-mine or all-theirs fails to round-trip, fall back to the whole-file
-       conflict (exact choice) — a wrong save is worse than a manual one. */
-    try {
-      const allMine = resolveMergeParts(parts, conflicts, conflicts.map(() => 'mine'))
-      const allTheirs = resolveMergeParts(parts, conflicts, conflicts.map(() => 'theirs'))
-      if (allMine !== mineText || allTheirs !== theirsText) return { fallback: 'unsound-cluster' }
-    } catch {
-      return { fallback: 'unsound-cluster' }
+       coordinates collide, so the clustered segment cannot reconstruct one
+       side. Verified per region against the side arrays (NOT the parts
+       skeleton — it mixes both sides' non-conflicting edits, so rebuilding
+       one side from it fails whenever the other side also edited elsewhere,
+       degrading mixed merges to a whole-file conflict). If any region fails,
+       fall back to the whole-file conflict (exact choice) — a wrong save is
+       worse than a manual one. */
+    for (const conflict of conflicts) {
+      /* A degenerate region (start === end) is an insertion-only clash: both
+         sides inserted different text at the same point. There is no base
+         span to map (sideSliceForSpan would return []), and no deletion span
+         means no non-canonical coordinate collision is possible — the
+         structure is exact, skip the check. */
+      if (conflict.start === conflict.end) continue
+      const mineSlice = sideSliceForSpan(base, mine, mineChanges, conflict.start, conflict.end)
+      const theirsSlice = sideSliceForSpan(base, theirs, theirsChanges, conflict.start, conflict.end)
+      if (!linesEqual(mineSlice, conflict.mine) || !linesEqual(theirsSlice, conflict.theirs)) {
+        return { fallback: 'unsound-cluster' }
+      }
     }
     return { status: 'conflict', conflicts, parts }
   }

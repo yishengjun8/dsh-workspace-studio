@@ -178,6 +178,11 @@ export function mindmapDocFingerprint(doc) {
     rootSessionId: String(doc?.rootSessionId ?? ''),
     rootTitle: String(doc?.rootTitle ?? ''),
     workspaceCwd: String(doc?.workspaceCwd ?? ''),
+    /* next participates: a counter-only change from another tab (card deletion
+       recomputes it) must not be swallowed by fingerprint equality. The
+       sessions ARRAY ORDER is preserved by JSON.stringify, so a reorder is
+       already covered. */
+    next: doc?.next ?? '',
     sessions: (doc?.sessions ?? []).map(s => ({
       sessionId: s?.sessionId,
       parentSessionId: s?.parentSessionId ?? '',
@@ -204,6 +209,7 @@ export function mindmapDocFingerprint(doc) {
 export function mindmapDocStructureFingerprint(doc) {
   return JSON.stringify({
     rootSessionId: String(doc?.rootSessionId ?? ''),
+    next: doc?.next ?? '',
     sessions: (doc?.sessions ?? []).map(s => ({
       sessionId: s?.sessionId,
       parentSessionId: s?.parentSessionId ?? '',

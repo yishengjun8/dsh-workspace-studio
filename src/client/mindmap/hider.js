@@ -138,7 +138,11 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
            original text so it can be restored later. */
         const currentNumber = button.textContent.match(/\d+/)
         if (currentNumber !== null && Number(currentNumber[0]) !== remaining) {
-          if (!patchedButtons.has(button)) patchedButtons.set(button, button.textContent)
+          /* The harness may have re-rendered the button since the first patch
+             (session count changed): refresh the stored "original" from the
+             CURRENT text so a later restore writes back the real count, not a
+             stale pre-patch value. */
+          patchedButtons.set(button, button.textContent)
           button.textContent = button.textContent.replace(/\d+/, String(remaining))
         }
       } else {

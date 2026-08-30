@@ -4,7 +4,7 @@ import { CONTEXT_MENU_WIDTH } from '../constants.js'
 import { translate } from '../locale/index.js'
 import { renameMindmapDoc } from '../api.js'
 import { SessionRenameDialog } from '../components/dialogs.js'
-import { mindmapRegistry, readMindmapOrder, useMindmapRegistry, writeMindmapOrder } from './registry.js'
+import { mindmapRegistry, readMindmapOrder, updateMindmapOrder, useMindmapRegistry, writeMindmapOrder } from './registry.js'
 
 export function isMindmapFamilySession(list, id) {
   let cursor = String(id)
@@ -100,7 +100,12 @@ export function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, o
       close()
     }
     const onKeyDown = event => { if (event.key === 'Escape') close() }
-    const onScroll = () => close()
+    /* Same inside-menu guard as pointerdown: a scrollable menu must not close
+       itself while its list is being scrolled. */
+    const onScroll = event => {
+      if (menuRef.current !== null && event.target instanceof Node && menuRef.current.contains(event.target)) return
+      close()
+    }
     window.addEventListener('pointerdown', onPointerDown)
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('scroll', onScroll, true)
@@ -126,11 +131,12 @@ export function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, o
     const to = ids.indexOf(target.id)
     if (to === -1) return
     ids.splice(target.half === 'after' ? to + 1 : to, 0, sourceId)
-    const map = readMindmapOrder()
-    map[groupKey] = ids
-    writeMindmapOrder(map)
-    /* Keep the in-memory copy in step so the next render does not re-read. */
-    setMindmapOrder({ ...map })
+    /* Read-modify-write INSIDE the Web Lock (updateMindmapOrder re-reads under
+       the lock): a concurrent tab's drag must not be clobbered by a stale
+       in-memory order. The merged map keeps the local copy in step. */
+    void updateMindmapOrder(groupKey, ids).then(map => {
+      if (map !== undefined) setMindmapOrder({ ...map })
+    })
   }
   const entryDragOver = (event, sid) => {
     if (dragId === null || dragId === sid) return

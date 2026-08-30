@@ -28,13 +28,13 @@ This bundle replaces the DeepSeek Harness Web root layout with **three panes fro
 
 - The file tree no longer owns a pane: it is fused into the **left sidebar**, whose top row switches between **Sessions / File Explorer** views. In the File Explorer view the Workspace file tree appears automatically when the current Session belongs to a Workspace (also recognized when the Session `cwd` equals its path); directories sort before files, with incremental expansion, collapse, and manual refresh.
 - Expanded folders persist per current session and re-expand after a reload; selecting a tab reveals it in the tree and restores the vertical scroll position.
-- Right-clicking the session title renames the current session.
+- Right-clicking the session title renames the current session. When several sessions share the same title, the context menu shows the matched session id suffix and archiving asks for confirmation (so the wrong session and its branches are never archived).
 - Both left panes are drag-resizable: a splitter on the sidebar boundary and another on the preview boundary (the two left panes together use at most 80% of the viewport); layout parameters persist globally in `localStorage`.
 
 ### Editor
 
 - CodeMirror 6 shows line numbers and syntax highlighting based on filenames or extensions; unknown types use plain text. A fold gutter and in-editor search (`Ctrl/Cmd+F`, `F3`) are built in.
-- `Ctrl+K+J` unfolds every collapsed fold region; `Ctrl+K+1..9` folds code by nesting level (e.g. `Ctrl+K+2` folds every second-level fold region).
+- `Ctrl+K+J` unfolds every collapsed fold region; `Ctrl+K+1..9` folds code by nesting level (e.g. `Ctrl+K+2` folds every second-level fold region). `Ctrl/Cmd+S` saves from any focus state (including the chat input).
 - Editable files **open directly in edit mode** (no **Edit** button); the panel header offers **Cancel**, **Save**, **Word wrap**, and **Reload from disk** (refresh). Read-only files (dropped external files, oversized, truncated, mixed line endings, symlink paths, or editing disabled) show a read-only reason banner.
 - Each file-type group can pick an editor highlight preset (Default, Classic, Warm, Cool, Monochrome, XML (VS Code), and 10+ more) from the Workspace settings page, remembered per type in `localStorage`.
 
@@ -161,7 +161,7 @@ The script first uses `dsh` from PATH; when the current directory belongs to a H
 
 ### Install directly from Git
 
-Install straight from the plugin repository without a local checkout (the first install builds `lib/client.js` from `src/client/index.js` with tsdown at install time):
+Install straight from the plugin repository without a local checkout (the first install builds the client and host artifacts — `lib/client.js` and `lib/index.js` — from `src/client/` and `src/host/` with tsdown at install time):
 
 ```sh
 bash ./install.sh --git          # default target is the web profile
@@ -214,13 +214,14 @@ The plugin row in `cordis.patch.yml` accepts:
 ├── package.json                         # Single-package manifest: bundle patch + client inject + exports
 ├── cordis.patch.yml                     # Disables the built-in root layout and mounts this plugin (self-referencing)
 ├── install.sh / uninstall.sh
-├── src/client/index.js                  # Browser source
+├── src/client/                           # Browser source (multi-module: an index.js entry shell + constants/locale/api/stores/…)
+├── src/host/                             # Host source (multi-module; bundles to lib/index.js)
 ├── lib/index.js                         # Host: bounded Workspace read, save, create, and rename API
 ├── lib/invariant.js                     # Shared Host invariants
 └── lib/client.js                        # Prebuilt three-pane layout, file tree, and editor
 ```
 
-CodeMirror and its language modules are bundled into the prebuilt plain-JavaScript Client artifact; a local `file:` install runs no builds, while a git install rebuilds it with tsdown through the `prepare` script. To maintain the source, run `pnpm install --config.auto-install-peers=false` in the repo root and then `npm run bundle` to regenerate `lib/client.js`.
+CodeMirror and its language modules are bundled into the prebuilt plain-JavaScript Client artifact; a local `file:` install runs no builds, while a git install rebuilds it with tsdown through the `prepare` script. To maintain the source, run `pnpm install --config.auto-install-peers=false` in the repo root and then `npm run bundle` to regenerate `lib/client.js` and `lib/index.js`.
 
 ## 🔄 Compatibility
 

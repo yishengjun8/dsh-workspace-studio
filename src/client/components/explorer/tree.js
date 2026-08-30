@@ -2,9 +2,7 @@ import { createElement as h, Fragment } from 'react'
 import { translate } from '../../locale/index.js'
 import { TreeRenameRow, TreeRow, TreeStatus } from '../menus.js'
 
-/* Recursive file-tree renderer: one row per entry, inline rename row for the
-   entry being renamed, and a status row for loading/error/empty directories.
-   Pure render of the explorer's tree state; all interactions are callbacks. */
+/* Pure render of the explorer's tree state; all interactions are callbacks. */
 export function ExplorerTree({ directories, expanded, entryDialog, entryBusy, entryDraft, entryDialogError, clipboard, selected, onCloseEntryDialog, onConfirmEntryDialog, onDraftEntry, onContextMenu, onDirectory, onFile, onRename }) {
   const renderDirectory = (path, depth) => {
     const dir = directories.get(path)
