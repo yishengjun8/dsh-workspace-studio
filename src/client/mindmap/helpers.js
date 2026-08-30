@@ -69,6 +69,22 @@ export const mindmapHeadKey = (sessionId) => mindmapDocKey(String(sessionId), `h
    the current-card highlight so "当前" can light the "等待新问题" card. */
 export const mindmapEmptyKey = (sessionId) => mindmapDocKey(String(sessionId), `empty:${String(sessionId)}`)
 
+/* The maximal folded run containing the turn at `seq` (walking back and
+   forward while folded), or null when the turn is not folded / missing. Used
+   by the view for the peek cleanup and the run-wide permanent unfold. */
+export function mindmapFoldedRunOf(doc, sessionId, seq) {
+  const session = (doc?.sessions ?? []).find(s => s !== null && s !== undefined && String(s?.sessionId) === String(sessionId))
+  if (session === undefined) return null
+  const turns = session.turns ?? []
+  const idx = turns.findIndex(t => t !== null && t !== undefined && Number(t?.seq) === Number(seq))
+  if (idx === -1 || turns[idx]?.folded !== true) return null
+  let start = idx
+  while (start > 0 && turns[start - 1]?.folded === true) start -= 1
+  let end = idx
+  while (end + 1 < turns.length && turns[end + 1]?.folded === true) end += 1
+  return { firstSeq: Number(turns[start].seq), lastSeq: Number(turns[end].seq), count: end - start + 1 }
+}
+
 /* Plan of a card deletion (right-click → 删除卡片): the card is removed by TRUNCATING its
    session chain (card + every later card cut, session re-created from the previous card via
    a fork at its turn/end, OLD session archived so the chat shows the truncated conversation);
@@ -202,6 +218,7 @@ export function mindmapDocFingerprint(doc) {
         n: turn?.n ?? '',
         user: turn?.user ?? '',
         summary: typeof turn?.summary === 'string' ? turn.summary : '',
+        folded: turn?.folded === true,
       })),
     })),
   })
@@ -227,6 +244,7 @@ export function mindmapDocStructureFingerprint(doc) {
         seq: turn?.seq,
         n: turn?.n ?? '',
         user: turn?.user ?? '',
+        folded: turn?.folded === true,
       })),
     })),
   })
@@ -290,15 +308,17 @@ export const mindmapStreamPalette = (sessionId) => {
    row in DFS order — top-level sessions first, then each session's nested forks on the rows
    right after, indented to the card they hang off. A session with no turns renders one
    placeholder card; an optional `streaming` descriptor ({ sessionId, question }) appends an
-   ephemeral live card to the chain tail (replacing an empty session's placeholder). Returns
-   { nodes, edges, width, height } — nodes carry key/kind/sessionId/turn/empty/streaming/
-   row/depth/x/y/width/height, edges are { from, to, mount?, d } with the SVG path precomputed. */
-export function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_MOUNT_BULGE_DEFAULT_X) {
+   ephemeral live card to the chain tail (replacing an empty session's placeholder). Consecutive
+   folded turns merge into ONE folded card (unless the run is being peeked — `peekedRun`
+   { sessionId, firstSeq } temporarily expands it back into individual cards without touching
+   the folded attribute); children of folded turns re-mount from the folded card. Returns
+   { nodes, edges, width, height, peekBox } — nodes carry key/kind/sessionId/turn/empty/
+   streaming/folded/peeked/row/depth/x/y/width/height, edges are { from, to, mount?, d } with
+   the SVG path precomputed, peekBox is the amber outline of a peeked run (null when none). */
+export function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_MOUNT_BULGE_DEFAULT_X, peekedRun) {
   const nodes = []
   const edges = []
   const sessions = (doc?.sessions ?? []).filter(s => s !== null && s !== undefined)
-  const bySession = new Map()
-  for (const s of sessions) bySession.set(String(s.sessionId), s)
   /* Children of a specific card, keyed `${parentSessionId}\u0000${cardN}`.
      A child whose parentTurn is null (legacy v2 migration / defensive) is
      keyed under the literal `null` so an empty parent session can still reach
@@ -334,17 +354,75 @@ export function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_M
   for (const s of sessions) {
     if (!s.parentSessionId) visit(s)
   }
+  /* Per-session RENDERED chain structure, computed once before the headCol
+     pass: consecutive folded turns collapse into one slot (a folded card)
+     unless the run is being peeked (each turn renders individually); every
+     turn maps to its rendered node key / rendered index so the headCol pass
+     and the mount edges resolve a child's parent card to the node it actually
+     hangs off (a folded run's turns all resolve to the folded card). */
+  const chainMaps = new Map()
+  const peekedNodeKeys = []
+  for (const s of order) {
+    const sid = String(s.sessionId)
+    const turns = s.turns ?? []
+    const slots = []
+    const nodeKeyByN = new Map()
+    const renderedIndexByN = new Map()
+    let i = 0
+    while (i < turns.length) {
+      const turn = turns[i]
+      if (turn !== null && turn !== undefined && turn.folded === true) {
+        /* A maximal run of consecutive folded turns. */
+        let j = i
+        while (j + 1 < turns.length && turns[j + 1]?.folded === true) j += 1
+        const isPeeked = peekedRun !== undefined && peekedRun !== null
+          && String(peekedRun.sessionId) === sid
+          && Number(peekedRun.firstSeq) === Number(turns[i].seq)
+        if (isPeeked) {
+          /* Temporary expand: every turn of the run renders as its own card
+             (peeked flag drives the "已折叠" status row); children re-mount to
+             their ORIGINAL cards (no re-parenting for this run). */
+          for (let k = i; k <= j; k += 1) {
+            const t = turns[k]
+            const key = mindmapDocKey(sid, t.seq)
+            slots.push({ key, turn: t, folded: false, peeked: true, foldCount: 1 })
+            nodeKeyByN.set(Number(t.n), key)
+            renderedIndexByN.set(Number(t.n), slots.length - 1)
+          }
+        } else {
+          /* One folded card standing in for the whole run. */
+          const key = mindmapDocKey(sid, turns[i].seq)
+          slots.push({ key, turn: turns[i], folded: true, peeked: false, foldCount: j - i + 1 })
+          for (let k = i; k <= j; k += 1) {
+            nodeKeyByN.set(Number(turns[k].n), key)
+            renderedIndexByN.set(Number(turns[k].n), slots.length - 1)
+          }
+        }
+        i = j + 1
+      } else if (turn === null || turn === undefined) {
+        i += 1
+      } else {
+        const key = mindmapDocKey(sid, turn.seq)
+        slots.push({ key, turn, folded: false, peeked: false, foldCount: 1 })
+        nodeKeyByN.set(Number(turn.n), key)
+        renderedIndexByN.set(Number(turn.n), slots.length - 1)
+        i += 1
+      }
+    }
+    chainMaps.set(sid, { slots, nodeKeyByN, renderedIndexByN })
+  }
   /* Row + column assignment (row 0 = the virtual root): a nested session's head sits one card
-     column to the right of the card it hangs off. */
+     column to the right of the card it hangs off (resolved through the RENDERED chain, so a
+     child of a folded run's turn hangs off the folded card's column). */
   const entryBySession = new Map()
   let row = 1
   for (const s of order) {
     let headCol = 0
     if (s.parentSessionId) {
       const parentEntry = entryBySession.get(String(s.parentSessionId))
-      const pTurns = bySession.get(String(s.parentSessionId))?.turns ?? []
-      const pIdx = pTurns.findIndex(t => Number(t?.n) === Number(s.parentTurn))
-      headCol = parentEntry !== undefined && pIdx !== -1 ? parentEntry.headCol + pIdx + 2 : 0
+      const parentMaps = chainMaps.get(String(s.parentSessionId))
+      const pIdx = parentMaps?.renderedIndexByN.get(Number(s.parentTurn))
+      headCol = parentEntry !== undefined && pIdx !== undefined ? parentEntry.headCol + pIdx + 2 : 0
     }
     entryBySession.set(String(s.sessionId), { session: s, headCol, row: row++ })
   }
@@ -386,16 +464,22 @@ export function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_M
       edges.push({ from: head.key, to: key })
       prevKey = key
     } else {
-      turns.forEach((turn, index) => {
-        const key = mindmapDocKey(sid, turn.seq)
+      /* Iterate the RENDERED chain (folded runs collapsed into one folded
+         card, peeked runs expanded into individual cards). */
+      const slots = chainMaps.get(sid)?.slots ?? []
+      slots.forEach((slot, index) => {
+        const key = slot.key
         nodes.push({
           kind: 'card',
           key,
           sessionId: sid,
           session: s,
-          turn,
+          turn: slot.turn,
           empty: false,
           streaming: false,
+          folded: slot.folded,
+          foldCount: slot.foldCount,
+          peeked: slot.peeked,
           depth: entry.headCol + 1 + index,
           row: entry.row,
           width: MINDMAP_NODE_W,
@@ -403,6 +487,7 @@ export function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_M
         })
         edges.push({ from: prevKey, to: key })
         prevKey = key
+        if (slot.peeked === true) peekedNodeKeys.push(key)
       })
     }
   }
@@ -414,11 +499,13 @@ export function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_M
   for (const s of order) {
     if (!s.parentSessionId) continue
     const parentEntry = entryBySession.get(String(s.parentSessionId))
-    const parentTurns = bySession.get(String(s.parentSessionId))?.turns ?? []
-    const pIdx = parentTurns.findIndex(t => Number(t?.n) === Number(s.parentTurn))
-    if (parentEntry === undefined || pIdx === -1) continue
+    const parentMaps = chainMaps.get(String(s.parentSessionId))
+    /* The RENDERED parent node: a child of a folded run's turn hangs off the
+       folded card; a child of a peeked run's turn hangs off its own card. */
+    const parentKey = parentMaps?.nodeKeyByN.get(Number(s.parentTurn))
+    if (parentEntry === undefined || parentKey === undefined) continue
     edges.push({
-      from: mindmapDocKey(String(s.parentSessionId), parentTurns[pIdx].seq),
+      from: parentKey,
       to: mindmapHeadKey(String(s.sessionId)),
       mount: true,
     })
@@ -558,7 +645,28 @@ export function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_M
      viewport bottom on first fit / restore view (the top already reserves
      rootY). */
   const height = rootY + MINDMAP_ROOT_H + MINDMAP_ROW_GAP + MINDMAP_NODE_H + lastRow * (MINDMAP_NODE_H + MINDMAP_ROW_GAP)
-  return { nodes, edges, width, height }
+  /* Bounding box of a temporarily-expanded (peeked) run: the amber dashed
+     outline rendered by the view (pointer-events: none, so it never blocks
+     card clicks). */
+  let peekBox = null
+  if (peekedNodeKeys.length > 0) {
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+    for (const key of peekedNodeKeys) {
+      const node = byKey.get(key)
+      if (node === undefined) continue
+      minX = Math.min(minX, node.x)
+      minY = Math.min(minY, node.y)
+      maxX = Math.max(maxX, node.x + node.width)
+      maxY = Math.max(maxY, node.y + node.height)
+    }
+    if (Number.isFinite(minX)) {
+      peekBox = { x: minX - 6, y: minY - 6, w: maxX - minX + 12, h: maxY - minY + 12 }
+    }
+  }
+  return { nodes, edges, width, height, peekBox }
 }
 
 export const mindmapXOf = depth => MINDMAP_DEPTH_GAP + depth * (MINDMAP_NODE_W + MINDMAP_DEPTH_GAP)
@@ -580,6 +688,10 @@ export const mindmapCardClickAction = (node, doc, runningFamilyIds, lastSeqBySes
   if (node === undefined) return undefined
   if (node.kind === 'root') return 'new'
   if (node.kind === 'head') return 'switch'
+  /* A folded card stands in for a whole run of turns: forking at it would be
+     ambiguous (no single anchor turn), so clicking temporarily expands the
+     run instead (peek — the folded attribute is untouched). */
+  if (node.folded === true) return 'peek'
   if (node.streaming === true) return 'switch'
   if (node.empty) return 'switch'
   const owner = node.sessionId

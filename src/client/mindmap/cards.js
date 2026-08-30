@@ -8,7 +8,7 @@ import { mindmapClip } from './helpers.js'
    whose props actually changed on a doc-triggered re-render. */
 
 export const MindMapCard = memo(function MindMapCard({
-  entry, title, isCurrent, isStreaming, isSummarizing, summary, streamingQuestion, isAncestor, isHover, isHoverAncestor, hintAction, isEnd, ringPalette, onOpen, onMenu, onHover,
+  entry, title, isCurrent, isStreaming, isSummarizing, summary, streamingQuestion, isAncestor, isHover, isHoverAncestor, hintAction, isEnd, ringPalette, onOpen, onMenu, onHover, peeked,
 }) {
   /* Ring cards (the streaming card + its parent, both wearing the flowing
      gradient ring) are the pair's single visual signal: selection/hover
@@ -126,10 +126,74 @@ export const MindMapCard = memo(function MindMapCard({
           ? h('div', { className: 'dsh-ws-mindmap-node-status dsh-ws-mindmap-node-summarizing' },
               h('span', { className: 'dsh-ws-mindmap-node-streaming-dot' }),
               h('span', null, translate('mindmap.summary.generating')))
-          : h('div', { className: 'dsh-ws-mindmap-node-status dsh-ws-mindmap-node-done' }, translate('mindmap.done')),
+          /* A peeked card: a folded-marked turn temporarily expanded (click on
+             the folded card) — the folded attribute is untouched, so the status
+             row says 已折叠 instead of 已完成. */
+          : peeked
+            ? h('div', { className: 'dsh-ws-mindmap-node-status dsh-ws-mindmap-node-peeked-status' }, translate('mindmap.fold.status'))
+            : h('div', { className: 'dsh-ws-mindmap-node-status dsh-ws-mindmap-node-done' }, translate('mindmap.done')),
     /* Hover-only hint chip: tells the user what a click will do. pointer-events
        none so it never intercepts hover/click; absolute so it never shifts
        the layout. */
+    isHover && hintAction !== undefined
+      ? h('span', { className: 'dsh-ws-mindmap-node-hint' }, translate(`mindmap.hint.${hintAction}`))
+      : null)
+})
+
+/* A FOLDED card: one compact card standing in for a maximal run of consecutive
+   folded turns. Shows the run's count badge + the first turn's text (or its
+   AI summary); clicking TEMPORARILY expands the run (peek — the folded
+   attribute is untouched); right-click offers the fold checkbox (uncheck =
+   permanently unfold the whole run) and delete (truncate from the run's first
+   card). */
+export const MindMapFoldedCard = memo(function MindMapFoldedCard({
+  entry, title, isCurrent, isAncestor, isHover, isHoverAncestor, hintAction, ringPalette, onOpen, onMenu, onHover, summary,
+}) {
+  const ringed = ringPalette !== undefined
+  const classes = 'dsh-ws-mindmap-node dsh-ws-mindmap-branchcard dsh-ws-mindmap-folded'
+    + (isCurrent && !ringed ? ' dsh-ws-mindmap-node-current' : '')
+    + (ringed ? ' dsh-ws-mindmap-node-ring' : '')
+    + (isAncestor && !ringed ? ' dsh-ws-mindmap-node-ancestor' : '')
+    + (isHoverAncestor && !ringed ? ' dsh-ws-mindmap-node-hover-ancestor' : '')
+    + (isHover && !ringed ? ' dsh-ws-mindmap-node-hover' : '')
+  const count = Number.isSafeInteger(entry.foldCount) && entry.foldCount > 0 ? entry.foldCount : 1
+  const body = summary !== undefined && summary !== ''
+    ? summary
+    : String(entry.turn?.user ?? '')
+  const style = { left: entry.x, top: entry.y, width: entry.width, height: entry.height }
+  if (ringPalette !== undefined) {
+    style['--dsw-ws-mm-c1'] = ringPalette[0]
+    style['--dsw-ws-mm-c2'] = ringPalette[1]
+    style['--dsw-ws-mm-c3'] = ringPalette[2]
+  }
+  return h('div', {
+    className: classes,
+    'data-branch': '',
+    key: entry.key,
+    onClick: () => { onOpen(entry) },
+    onMouseEnter: () => { onHover(entry.key) },
+    onMouseLeave: () => { onHover(undefined) },
+    onContextMenu: (event) => { event.preventDefault(); event.stopPropagation(); onMenu(entry, event.clientX, event.clientY) },
+    onKeyDown: (event) => {
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpen(entry) }
+    },
+    role: 'button',
+    tabIndex: 0,
+    style,
+    title: translate('mindmap.folded', { n: count }),
+  },
+    isCurrent ? h('span', { className: 'dsh-ws-mindmap-node-current-badge' }, translate('mindmap.current')) : null,
+    h('div', { className: 'dsh-ws-mindmap-node-title' },
+      h('span', { className: 'dsh-ws-mindmap-pending-label dsh-ws-mindmap-fold-label' },
+        /* Folded-corner page glyph: the run's "folded" identity. */
+        h('svg', { className: 'dsh-ws-mindmap-pending-icon', fill: 'none', height: '11', stroke: 'currentColor', strokeLinejoin: 'round', strokeWidth: 1.4, viewBox: '0 0 16 16', width: '11' },
+          h('path', { d: 'M4 2.5h6l2.5 2.5V13a.5.5 0 0 1-.5.5H4a.5.5 0 0 1-.5-.5V3a.5.5 0 0 1 .5-.5z' }),
+          h('path', { d: 'M10 2.5V5h2.5' }))),
+      h('span', { className: 'dsh-ws-mindmap-node-title-text' }, title),
+      h('span', { className: 'dsh-ws-mindmap-fold-count' }, `×${count}`)),
+    h('div', { className: 'dsh-ws-mindmap-node-q dsh-ws-mindmap-node-q-folded' },
+      mindmapClip(body || translate('mindmap.emptyRound'), MINDMAP_TEXT_MAX)),
+    h('div', { className: 'dsh-ws-mindmap-node-status dsh-ws-mindmap-node-folded-status' }, translate('mindmap.fold.status')),
     isHover && hintAction !== undefined
       ? h('span', { className: 'dsh-ws-mindmap-node-hint' }, translate(`mindmap.hint.${hintAction}`))
       : null)

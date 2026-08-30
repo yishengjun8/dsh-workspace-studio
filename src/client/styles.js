@@ -448,6 +448,23 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-mindmap-notice{margin-bottom:10px;padding:6px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:12px;line-height:17px}
 .dsh-ws-mindmap-notice-error{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}
 .dsh-ws-mindmap-node[data-branch]{border-style:solid}
+/* Folded card: one compact card standing in for a maximal run of consecutive
+   folded turns — dashed border + muted wash (the branchcard tint is
+   overridden), fold icon + count badge in the title row, first-turn text (or
+   its AI summary) in the body. Placed AFTER the [data-branch] solid rule
+   (equal specificity, later wins) and BEFORE the ancestor/hover rules so the
+   selection / hover traces keep their border-color overrides. */
+.dsh-ws-mindmap-node.dsh-ws-mindmap-folded{border-style:dashed;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 90%,var(--dsw-alias-label-tertiary,var(--dsw-alias-label-secondary)) 10%)}
+.dsh-ws-mindmap-fold-count{flex:none;padding:0 6px;border-radius:999px;background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-primary-inverted);font-size:10px;line-height:15px;font-weight:600}
+.dsh-ws-mindmap-node-q-folded{color:var(--dsw-alias-label-secondary);font-style:italic;font-weight:500}
+.dsh-ws-mindmap-node-folded-status{color:var(--dsw-alias-state-business-primary)}
+/* Peeked card status: a folded-marked turn temporarily expanded (click on the
+   folded card) — the folded attribute is untouched, so the status row says
+   已折叠 in amber (the run's dashed outline is the grouping cue). */
+.dsh-ws-mindmap-node-peeked-status{color:var(--dsw-alias-state-warn-primary)}
+/* Temporary-expand (peek) outline around the run: amber dashed box, never
+   intercepts pointer events. */
+.dsh-ws-mindmap-peek-box{position:absolute;border:1.5px dashed var(--dsw-alias-state-warn-primary);border-radius:12px;background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 4%,transparent);pointer-events:none;box-sizing:border-box}
 /* Selected-card ancestor trace: the current card's chain back to the root —
    edges turn dashed primary-blue, parent nodes get a dashed primary-blue
    border. The compound selector beats the base rules (equal specificity,

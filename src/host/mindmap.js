@@ -408,6 +408,10 @@ function reconcileMindmapTurns(parsed, existing, next) {
         user: p.user === '' ? old.user : p.user,
       }
       if (typeof old.summary === 'string' && old.summary !== '') merged.summary = old.summary
+      /* Carry the persisted folded flag across the rebuild (same rule as `n`
+         and `summary`): the log has no fold state — it is view state owned by
+         the doc, so a sync must never silently unfold a card. */
+      if (old.folded === true) merged.folded = true
       out.push(merged)
     } else {
       out.push({ n: counter, t: p.t, seq: p.seq, user: p.user })

@@ -6,8 +6,8 @@ import { styles } from '../styles.js'
 import { regenerateAllMindmapSummaries, regenerateMindmapSummary, summarizeMindmapSession } from '../api.js'
 import { mindmapOverlayStore, mindmapRegistry, readMindmapLastSession, removeMindmapLastSession, useMindmapOverlay, writeMindmapLastSession } from './registry.js'
 import { useMindmapSummaryModels } from '../components/settings.js'
-import { mindmapCardClickAction, mindmapClip, mindmapDeletePlan, mindmapDocFingerprint, mindmapDocKey, mindmapDocLayout, mindmapDocStructureFingerprint, mindmapEmptyKey, mindmapGradientId, mindmapStreamPalette, normalizeMindmapWorkspacePath, useMindmapSessionView } from './helpers.js'
-import { MindMapCard, MindMapRootNode, MindMapSessionHead } from './cards.js'
+import { mindmapCardClickAction, mindmapClip, mindmapDeletePlan, mindmapDocFingerprint, mindmapDocKey, mindmapDocLayout, mindmapDocStructureFingerprint, mindmapEmptyKey, mindmapFoldedRunOf, mindmapGradientId, mindmapStreamPalette, normalizeMindmapWorkspacePath, useMindmapSessionView } from './helpers.js'
+import { MindMapCard, MindMapFoldedCard, MindMapRootNode, MindMapSessionHead } from './cards.js'
 import { mindmapConvertedSessions } from './hider.js'
 import { MindMapToolbar } from './toolbar.js'
 import { MindMapDialogs } from './dialogs.js'
@@ -157,6 +157,11 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
      ancestor trace — the same highlight as the selected card's chain, rendered
      additively on top of the selection trace. */
   const [hoverKey, setHoverKey] = useState(undefined)
+  /* The folded run currently temporarily expanded (peek): a pure view state —
+     the folded attribute is NOT changed. Clicking a folded card sets it;
+     立刻折叠 clears it; a doc change that dissolves the run clears it too
+     (same stale-cleanup pattern as hoverKey). */
+  const [peekedRun, setPeekedRun] = useState(undefined)
   useEffect(() => {
     mountedRef.current = true
     return () => { mountedRef.current = false }
@@ -193,6 +198,8 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
        key matches no node anyway, but resetting keeps state honest).
        In-family switches skip this branch on purpose. */
     setHoverKey(undefined)
+    /* A temporary expand (peek) belongs to the previous family's runs. */
+    setPeekedRun(undefined)
     /* A manual regeneration belongs to the previous family's cards; the new
        family's in-flight list arrives with the load payload. */
     setManualSummarizing([])
@@ -562,7 +569,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
      doc) so an AI-summary write re-renders only the affected card instead of
      rebuilding every node entry (which would defeat React.memo on the cards). */
   const structureFp = useMemo(() => mindmapDocStructureFingerprint(doc), [doc])
-  const layout = useMemo(() => mindmapDocLayout(doc, streamingCards, mountBulge), [structureFp, streamingCards, mountBulge])
+  const layout = useMemo(() => mindmapDocLayout(doc, streamingCards, mountBulge, peekedRun), [structureFp, streamingCards, mountBulge, peekedRun])
   layoutRef.current = layout
 
   /* Edge path strings plus per-streaming metadata, derived from the layout and
@@ -631,8 +638,22 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     if (runningFamilyIds.includes(current)) return `streaming:${current}`
     const turns = entry.turns ?? []
     const last = turns[turns.length - 1]
-    return last === undefined ? mindmapEmptyKey(current) : mindmapDocKey(current, last.seq)
-  }, [doc, rootId, runningFamilyIds, sessionId])
+    if (last === undefined) return mindmapEmptyKey(current)
+    /* A folded chain tail: the badge lands on the folded card (the run's
+       first card) unless the run is temporarily expanded — then the tail
+       card itself is visible and carries the badge. */
+    if (last.folded === true) {
+      const run = mindmapFoldedRunOf(doc, current, last.seq)
+      const peeked = run !== null && peekedRun !== undefined
+        && String(peekedRun.sessionId) === current
+        && Number(peekedRun.firstSeq) === run.firstSeq
+      if (run !== null && !peeked) {
+        const startTurn = turns.find(t => t !== null && t !== undefined && Number(t?.seq) === run.firstSeq)
+        if (startTurn !== undefined) return mindmapDocKey(current, startTurn.seq)
+      }
+    }
+    return mindmapDocKey(current, last.seq)
+  }, [doc, rootId, runningFamilyIds, sessionId, peekedRun])
 
   /* Ancestor trace of the current card: walk the layout's edges BACKWARD from
      currentKey (`to → from`) to the root (no incoming edge). Yields the parent
@@ -691,6 +712,15 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     }
     if (!found) setHoverKey(undefined)
   }, [hoverKey, layout])
+
+  /* A peeked run can dissolve under a sync (another tab permanently unfolded
+     it, a card was deleted, the run shrank): clear the peek when the run no
+     longer starts at the remembered first seq. */
+  useEffect(() => {
+    if (peekedRun === undefined) return
+    const run = mindmapFoldedRunOf(doc, peekedRun.sessionId, peekedRun.firstSeq)
+    if (run === null || run.firstSeq !== Number(peekedRun.firstSeq)) setPeekedRun(undefined)
+  }, [peekedRun, doc])
 
   /* Open a session inside the map: openSession switches the right-side chat to
      it and moves the "当前" highlight here; the overlay itself stays open. */
@@ -864,6 +894,9 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     if (action === 'new') addRootSessionRef.current()
     else if (action === 'switch') openBranchRef.current(node.sessionId)
     else if (action === 'fork') forkBranchAtRef.current(node.sessionId, node.turn)
+    /* A folded card: temporarily expand its run (peek) — the folded attribute
+       is untouched; 立刻折叠 (or clicking another folded card) folds it back. */
+    else if (action === 'peek') setPeekedRun({ sessionId: String(node.sessionId), firstSeq: Number(node.turn?.seq) })
   }, [])
 
   /* Right-click a node: remember WHICH node so the menu can rename a session
@@ -889,6 +922,10 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       })
       return
     }
+    /* A card is "marked folded" when it IS the folded card (entry.folded) or
+       when it is a folded-marked turn temporarily expanded (peeked — the
+       layout node's turn still carries folded: true from the doc). */
+    const markedFolded = entry.folded === true || entry.turn?.folded === true
     setMenu({
       kind: 'card',
       sessionId: String(entry.sessionId),
@@ -897,6 +934,11 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       turnSeq: entry.empty ? undefined : Number(entry.turn?.seq),
       turnN: entry.empty ? undefined : Number(entry.turn?.n),
       empty: entry.empty === true,
+      folded: markedFolded,
+      /* Only the folded card itself carries the run's count (a peeked card is
+         one turn of the run): the menu uses it to tell "uncheck = unfold the
+         whole run" (folded card) from "uncheck = unfold this card" (peeked). */
+      foldCount: entry.folded === true ? Number(entry.foldCount ?? 1) : undefined,
       x, y,
     })
   }, [])
@@ -1029,6 +1071,111 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       })
       .finally(() => { savingRef.current -= 1; forkingRef.current = false })
   }, [doc, menu, rootId, showNotice, showNoticeError])
+
+  /* Toggle the persisted folded attribute of ONE card (the menu checkbox):
+     checking folds the card (merging with consecutive folded neighbors),
+     unchecking permanently unfolds it (the run splits). A small doc write
+     with the standard guards (same shape as selectWorkspace). */
+  const toggleFold = useCallback((sessionId, seq, folded) => {
+    if (forkingRef.current || forking) return
+    forkingRef.current = true
+    const root = rootIdRef.current ?? rootId
+    const base = docRef.current ?? doc
+    if (root === null || base === null) { forkingRef.current = false; return }
+    localWriteSeqRef.current += 1
+    savingRef.current += 1
+    const next = {
+      ...base,
+      sessions: (base.sessions ?? []).map(s =>
+        String(s?.sessionId) !== String(sessionId)
+          ? s
+          : { ...s, turns: (s?.turns ?? []).map(t =>
+            t !== null && t !== undefined && Number(t?.seq) === Number(seq)
+              ? { ...t, folded: folded === true }
+              : t) }),
+      updatedAt: Date.now(),
+    }
+    setDoc(next)
+    lastFingerprintRef.current = mindmapDocFingerprint(next)
+    Promise.resolve(saveDocRef.current(String(root), next))
+      .then(() => {
+        if (!mountedRef.current) return
+        mindmapRegistry.markDirty()
+        showNotice(translate(folded === true ? 'mindmap.fold.done' : 'mindmap.unfold.done'))
+      })
+      .catch((error) => {
+        if (!mountedRef.current) return
+        setDoc(prev => (prev === next ? base : prev))
+        lastFingerprintRef.current = mindmapDocFingerprint(base)
+        showNoticeError(error instanceof Error ? error.message : String(error))
+      })
+      .finally(() => { savingRef.current -= 1; forkingRef.current = false })
+  }, [doc, forking, rootId, showNotice, showNoticeError])
+
+  /* Permanently unfold a WHOLE folded run (the folded card's checkbox
+     uncheck): clear the folded attribute on every turn of the run. */
+  const unfoldRun = useCallback((sessionId, firstSeq) => {
+    if (forkingRef.current || forking) return
+    forkingRef.current = true
+    const root = rootIdRef.current ?? rootId
+    const base = docRef.current ?? doc
+    if (root === null || base === null) { forkingRef.current = false; return }
+    const run = mindmapFoldedRunOf(base, sessionId, firstSeq)
+    if (run === null) { forkingRef.current = false; return }
+    localWriteSeqRef.current += 1
+    savingRef.current += 1
+    const next = {
+      ...base,
+      sessions: (base.sessions ?? []).map(s => {
+        if (String(s?.sessionId) !== String(sessionId)) return s
+        return { ...s, turns: (s?.turns ?? []).map(t =>
+          t !== null && t !== undefined && t.folded === true
+            && Number(t?.seq) >= run.firstSeq && Number(t?.seq) <= run.lastSeq
+            ? { ...t, folded: false }
+            : t) }
+      }),
+      updatedAt: Date.now(),
+    }
+    setDoc(next)
+    lastFingerprintRef.current = mindmapDocFingerprint(next)
+    Promise.resolve(saveDocRef.current(String(root), next))
+      .then(() => {
+        if (!mountedRef.current) return
+        mindmapRegistry.markDirty()
+        showNotice(translate('mindmap.unfold.done'))
+      })
+      .catch((error) => {
+        if (!mountedRef.current) return
+        setDoc(prev => (prev === next ? base : prev))
+        lastFingerprintRef.current = mindmapDocFingerprint(base)
+        showNoticeError(error instanceof Error ? error.message : String(error))
+      })
+      .finally(() => { savingRef.current -= 1; forkingRef.current = false })
+  }, [doc, forking, rootId, showNotice, showNoticeError])
+
+  /* 立刻折叠: end the temporary expand of the peeked run — pure view state,
+     the folded attribute is untouched (no doc write). */
+  const foldNow = useCallback(() => {
+    setMenu(null)
+    setPeekedRun(undefined)
+  }, [])
+
+  /* The menu checkbox click: unchecking a FOLDED card permanently unfolds the
+     whole run; unchecking a peeked (marked) card unfolds just that card;
+     checking an unmarked card folds it. The menu closes first (same as every
+     other menu item) — the fold/unfold lands immediately on the canvas. */
+  const toggleFoldFromMenu = useCallback(() => {
+    if (menu === null || menu.kind !== 'card' || !Number.isSafeInteger(menu.turnSeq)) return
+    const sessionId = String(menu.sessionId)
+    const turnSeq = Number(menu.turnSeq)
+    const isFoldedCard = menu.folded === true && menu.foldCount !== undefined
+    setMenu(null)
+    if (isFoldedCard) {
+      unfoldRun(sessionId, turnSeq)
+    } else {
+      toggleFold(sessionId, turnSeq, menu.folded !== true)
+    }
+  }, [menu, toggleFold, unfoldRun])
 
   /* Archive ONE session branch (right-click a session head): archive the
      session + its whole subtree and remove it from the doc. Re-anchors when
@@ -1272,7 +1419,11 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       empty: menu.empty === true,
       label: menu.empty
         ? translate('mindmap.pending')
-        : mindmapClip(String(menu.question ?? menu.sessionTitle ?? ''), 20),
+        /* A folded card's delete truncates from the run's first card — the
+           dialog names the whole run so the scope is explicit. */
+        : menu.foldCount !== undefined
+          ? translate('mindmap.folded', { n: menu.foldCount })
+          : mindmapClip(String(menu.question ?? menu.sessionTitle ?? ''), 20),
       /* The current session is warned when it will be archived: a pruned
          subtree session, or the replaced session of a truncation. */
       willArchiveCurrent: plan !== null && plan.lastSession !== true && (
@@ -1867,12 +2018,27 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         isSummarizing: sessionSummarizingSet.has(String(entry.sessionId)),
       })
     }
+    if (entry.folded === true) {
+      /* A folded card: the run's first turn's AI summary (if any) or its
+         question; the count badge comes from the layout node. */
+      return h(MindMapFoldedCard, {
+        ...common,
+        title,
+        summary: entry.turn !== undefined && entry.turn !== null
+          ? summaryByKey.get(mindmapDocKey(String(entry.sessionId), Number(entry.turn.seq)))
+          : undefined,
+        onMenu: openCardMenu,
+      })
+    }
     return h(MindMapCard, {
       ...common,
       title,
       isStreaming,
       isSummarizing,
       summary,
+      /* A peeked card (a folded-marked turn temporarily expanded) shows the
+         "已折叠" status row instead of "已完成". */
+      peeked: entry.peeked === true,
       /* The streaming question is a plain string prop read from the CURRENT
          live state (the layout node's question is empty by design): memo
          compares it by value, so a question arriving mid-stream re-renders
@@ -1899,9 +2065,30 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       menu.kind === 'card' ? h(Fragment, null,
         h('button', { className: 'dsh-ws-context-item', onClick: startRename, role: 'menuitem', title: translate('mindmap.menu.rename'), type: 'button' }, translate('mindmap.menu.rename')),
         /* 重新生成摘要: only meaningful with the AI-summary feature on AND a
-           real turn (empty placeholder cards have no question to summarize). */
-        settings.mindmapSummaryEnabled === true && menu.empty !== true && Number.isSafeInteger(menu.turnSeq)
+           real turn (empty placeholder cards have no question to summarize).
+           A FOLDED card spans a whole run — unfold it first (peeked cards are
+           individual turns and stay eligible). */
+        settings.mindmapSummaryEnabled === true && menu.empty !== true && Number.isSafeInteger(menu.turnSeq) && menu.foldCount === undefined
           ? h('button', { className: 'dsh-ws-context-item', onClick: regenerateSummary, role: 'menuitem', title: translate('mindmap.menu.regenerateSummary'), type: 'button' }, translate('mindmap.menu.regenerateSummary'))
+          : null,
+        h('div', { className: 'dsh-ws-context-separator', role: 'separator' }),
+        /* 折叠 checkbox: check = mark folded (persisted); uncheck = permanent
+           unfold (whole run for a folded card, this card for a peeked one). */
+        menu.empty !== true && Number.isSafeInteger(menu.turnSeq)
+          ? h('button', {
+            className: 'dsh-ws-context-item dsh-ws-context-item-check',
+            onClick: toggleFoldFromMenu,
+            role: 'menuitem',
+            title: translate('mindmap.menu.fold'),
+            type: 'button',
+          },
+            h('span', { className: 'dsh-ws-context-item-check-mark' }, menu.folded === true ? '✓' : null),
+            h('span', { className: 'dsh-ws-context-item-text' }, translate('mindmap.menu.fold')))
+          : null,
+        /* 立刻折叠: only on a marked-folded card that is temporarily expanded
+           (a folded card is already folded — nothing to fold back). */
+        menu.folded === true && menu.foldCount === undefined
+          ? h('button', { className: 'dsh-ws-context-item', onClick: foldNow, role: 'menuitem', title: translate('mindmap.menu.foldNow'), type: 'button' }, translate('mindmap.menu.foldNow'))
           : null,
         h('div', { className: 'dsh-ws-context-separator', role: 'separator' }),
         h('button', { className: 'dsh-ws-context-item dsh-ws-context-item-danger', onClick: startDelete, role: 'menuitem', title: translate('mindmap.menu.deleteCard'), type: 'button' }, translate('mindmap.menu.deleteCard')))
@@ -2010,7 +2197,12 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
                   style: { stroke: `url(#${flow.gradId})` },
                 }))
             })),
-          nodeViews))),
+          nodeViews,
+          /* Amber dashed outline around a temporarily-expanded (peeked) run —
+             pointer-events: none, so it never blocks card clicks. */
+          layout.peekBox !== null && layout.peekBox !== undefined
+            ? h('div', { className: 'dsh-ws-mindmap-peek-box', style: { left: layout.peekBox.x, top: layout.peekBox.y, width: layout.peekBox.w, height: layout.peekBox.h } })
+            : null))),
     menuView,
     h(MindMapDialogs, {
       renameTarget, renameBusy, renameError,
