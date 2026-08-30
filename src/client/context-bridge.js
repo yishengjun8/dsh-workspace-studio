@@ -155,6 +155,8 @@ function parseSelectionContext(text) {
   const header = text.slice(0, headerEnd).replace(/\r$/, '')
   const headerMatch = /^<selection>The user selected the lines (\d+) to (\d+) from (.*):$/.exec(header)
   if (headerMatch === null) return null
+  const startLine = Number(headerMatch[1])
+  const endLine = Number(headerMatch[2])
   // The envelope ALWAYS closes with the trailer line directly before
   // `</selection>`, and the bridge appends the user's own text after a blank
   // line (`rendered + '\n\n' + text`). Anchor on the LAST marker whose tail
@@ -166,15 +168,26 @@ function parseSelectionContext(text) {
   let markerAt = text.lastIndexOf(marker)
   while (markerAt >= 0) {
     const after = text.slice(markerAt + marker.length)
-    if (after === '' || after.startsWith('\n\n') || after.startsWith('\r\n\r\n')) break
+    if (after === '' || after.startsWith('\n\n') || after.startsWith('\r\n\r\n')) {
+      const closeAt = markerAt + marker.length - SELECTION_CLOSE.length
+      const body = text.slice(headerEnd + 1, closeAt)
+      if (body.endsWith(SELECTION_TRAILER) || body.endsWith(`\r${SELECTION_TRAILER}`)) {
+        /* Line-count guard (U2 audit): the envelope body is the selection
+           text plus the trailer line, so it must contain exactly
+           endLine - startLine + 2 lines (the header declares the selection's
+           line span; the trailing newline of a selection ending in \n is
+           already accounted for by split). A marker inside the USER's own
+           text would make the body longer than the header declares — reject
+           that marker and keep searching for the real envelope end. */
+        const bodyLines = body.replace(/\r\n/g, '\n').split('\n').length
+        if (bodyLines === endLine - startLine + 2) break
+      }
+    }
     markerAt = text.lastIndexOf(marker, markerAt - 1)
   }
   if (markerAt < 0) return null
   const closeAt = markerAt + marker.length - SELECTION_CLOSE.length
   const body = text.slice(headerEnd + 1, closeAt)
-  if (!body.endsWith(SELECTION_TRAILER) && !body.endsWith(`\r${SELECTION_TRAILER}`)) return null
-  const startLine = Number(headerMatch[1])
-  const endLine = Number(headerMatch[2])
   const path = headerMatch[3]
   const end = closeAt + SELECTION_CLOSE.length
   return {
@@ -257,11 +270,19 @@ export function installEditorContextMessageCompactor() {
     else bubble.removeAttribute('data-dsh-ws-empty-prompt')
     bubble.textContent = context.visibleText
   }
+  /* Per-container prefix fingerprint: reading textContent of every user
+     message on every mutation batch is O(total text) per batch during
+     streaming. The envelope markers sit at the very start of the text, so
+     cache the leading slice per container and skip the read (and the element
+     scan) while it is unchanged. WeakMap keys let removed containers be
+     collected automatically. */
+  const containerPrefixes = new WeakMap()
+  const ENVELOPE_PREFIX_LEN = Math.max(OPENED_FILE_PREFIX.length, SELECTION_PREFIX.length)
   const compactContainer = (container) => {
-    // Fast path: most containers never carry an envelope; the prefix check
-    // skips the element scan on every mutation batch (streaming chat mutates
-    // character data continuously).
     const text = container.textContent ?? ''
+    const prefix = text.slice(0, ENVELOPE_PREFIX_LEN)
+    if (containerPrefixes.get(container) === prefix) return
+    containerPrefixes.set(container, prefix)
     if (!text.startsWith(OPENED_FILE_PREFIX) && !text.startsWith(SELECTION_PREFIX)) return
     const candidate = findEditorContextCandidate(container)
     const bubble = candidate === null ? null : findEditorContextBubble(candidate)

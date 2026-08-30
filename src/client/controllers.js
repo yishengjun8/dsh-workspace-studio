@@ -1,5 +1,5 @@
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
-import { SEND_SESSION_BRIDGE_MARKER } from './constants.js'
+import { ENSURE_RETRY_MAX, SEND_SESSION_BRIDGE_MARKER } from './constants.js'
 import { translate } from './locale/index.js'
 import { formatBytes } from './format.js'
 import { renderContext } from './api.js'
@@ -109,20 +109,29 @@ export class EditorContextController {
 }
 
 
+/* Pure workspace resolution shared by AppFrame (explorer mount) and
+   workspaceOfSession (editor-context / /init): membership first, then the
+   session cwd path. The two call sites must never disagree — a mismatch
+   would mount the explorer and the editor context on different workspaces
+   (U1 audit: AppFrame's single OR-find picked whichever item came first in
+   the array, while workspaceOfSession strictly preferred membership). */
+export function selectWorkspaceForSession(items, sessionId, cwd) {
+  const byMembership = items.find(item => item.sessionIds.includes(sessionId))
+  if (byMembership !== undefined) return byMembership
+  if (cwd !== undefined) {
+    const byPath = items.find(item => item.path === cwd)
+    if (byPath !== undefined) return byPath
+  }
+  return undefined
+}
+
 /* Resolve the workspace a session belongs to — membership first, then the
    session cwd path — the same selection AppFrame uses for the explorer. */
 export function workspaceOfSession(ctx, id) {
   const row = ctx.sessions.list.getSnapshot().byId[id]
+  if (row === undefined) return undefined
   const items = ctx.get('workspaces')?.list.getSnapshot().items ?? []
-  if (row !== undefined) {
-    const byMembership = items.find(item => item.sessionIds.includes(id))
-    if (byMembership !== undefined) return byMembership
-  }
-  if (row?.cwd !== undefined) {
-    const byPath = items.find(item => item.path === row.cwd)
-    if (byPath !== undefined) return byPath
-  }
-  return undefined
+  return selectWorkspaceForSession(items, id, row.cwd)
 }
 export class PromptContextBridge {
   constructor(ctx, editorContexts) {
@@ -170,7 +179,7 @@ export class PromptContextBridge {
       /* A newer install superseded this one: leave its state (and its own
          cleanup) alone — restoring here would put the WRONG original back. */
       if (this.installToken !== token) return
-      for (const timer of bridge.ensureRetries.values()) clearTimeout(timer)
+      for (const retry of bridge.ensureRetries.values()) clearTimeout(retry.timer)
       bridge.ensureRetries.clear()
       for (const [id, patch] of bridge.inputPatches) bridge.restoreInput(id, patch)
       bridge.inputPatches.clear()
@@ -267,6 +276,15 @@ export class PromptContextBridge {
     for (const [id, patch] of this.inputPatches) {
       if (!list.ids.some(candidate => String(candidate) === id) || !this.directSession(id)) this.restoreInput(id, patch)
     }
+    /* Drop retry timers for sessions that left the list: a vanished session's
+       binding can never become ready, and its timer would otherwise keep
+       re-arming (bounded only by the retry cap in ensure()). */
+    for (const [id, retry] of this.ensureRetries) {
+      if (!list.ids.some(candidate => String(candidate) === id)) {
+        clearTimeout(retry.timer)
+        this.ensureRetries.delete(id)
+      }
+    }
   }
   ensure(id) {
     if (this.inputPatches.has(id)) return
@@ -280,13 +298,22 @@ export class PromptContextBridge {
            (the input dock can render before the subscription callback runs):
            retry briefly instead of silently leaving the input unpatched — an
            early send with an empty draft + active context would otherwise
-           no-op through the original submit. */
-        if (!this.ensureRetries.has(id)) {
-          const timer = setTimeout(() => {
+           no-op through the original submit. Bounded: a session whose binding
+           never becomes ready (or a missing conversation service) must not
+           spin a 50 ms timer forever — give up after ENSURE_RETRY_MAX
+           attempts and drop the entry (a later reconcile() re-arms it if the
+           session is still listed and the seams have appeared). */
+        const retry = this.ensureRetries.get(id)
+        if (retry === undefined) {
+          this.ensureRetries.set(id, { count: 1, timer: setTimeout(() => {
+            const current = this.ensureRetries.get(id)
+            if (current !== undefined) current.count += 1
             this.ensureRetries.delete(id)
             this.ensure(id)
-          }, 50)
-          this.ensureRetries.set(id, timer)
+          }, 50) })
+        } else if (retry.count >= ENSURE_RETRY_MAX) {
+          clearTimeout(retry.timer)
+          this.ensureRetries.delete(id)
         }
         return
       }
@@ -346,6 +373,13 @@ export class PromptContextBridge {
     }
     const patch = this.inputPatches.get(id)
     const message = error instanceof Error ? error.message : String(error)
-    patch?.input.notify('error', message)
+    if (patch === undefined) {
+      /* No input patch to surface the error on (the session's binding never
+         became ready, or the patch was restored): never swallow silently —
+         the console keeps the failure diagnosable. */
+      console.warn(`workspace-studio: editor-context error for session ${id}: ${message}`)
+      return
+    }
+    patch.input.notify('error', message)
   }
 }

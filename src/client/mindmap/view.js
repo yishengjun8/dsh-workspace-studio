@@ -104,6 +104,9 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   const [archiveTarget, setArchiveTarget] = useState(null)
   const [archiveBusy, setArchiveBusy] = useState(false)
   const [archiveError, setArchiveError] = useState(null)
+  /* Type-"yes" gate for archiving the whole map: the confirm button stays
+     disabled until the user manually types "yes" (double insurance). */
+  const [archiveConfirmText, setArchiveConfirmText] = useState('')
   /* Archiving ONE session branch (right-click a session head): archives the
      session + its whole subtree and removes it from the doc. */
   const [archiveBranchTarget, setArchiveBranchTarget] = useState(null)
@@ -1012,6 +1015,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
 
   const startArchiveAll = useCallback(() => {
     setArchiveError(null)
+    setArchiveConfirmText('')
     setArchiveTarget({
       title: doc?.rootTitle
         || (rootId !== null ? (list.titles[rootId] ?? '') : '')
@@ -1022,9 +1026,14 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     if (archiveBusy) return
     setArchiveTarget(null)
     setArchiveError(null)
+    setArchiveConfirmText('')
   }, [archiveBusy])
   const confirmArchive = useCallback(() => {
     if (forkingRef.current || archiveBusy || archiveTarget === null) return
+    /* Double insurance: archiving the whole map requires the user to have
+       manually typed "yes" (trimmed, case-insensitive) into the confirm
+       field — the dialog's confirm button is disabled until then. */
+    if (archiveConfirmText.trim().toLowerCase() !== 'yes') return
     forkingRef.current = true
     setArchiveBusy(true)
     setArchiveError(null)
@@ -1064,7 +1073,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         setArchiveError(error instanceof Error ? error.message : String(error))
       })
       .finally(() => { savingRef.current -= 1; forkingRef.current = false })
-  }, [archiveBusy, archiveTarget, doc, rootId, sessionId, showNotice])
+  }, [archiveBusy, archiveTarget, archiveConfirmText, doc, rootId, sessionId, showNotice])
 
   const startDelete = useCallback(() => {
     if (menu === null || menu.kind !== 'card') return
@@ -1746,7 +1755,9 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       renameTarget, renameBusy, renameError,
       onRenameCancel: closeRename, onRenameConfirm: confirmRename,
       onRenameDraft: value => { setRenameError(null); setRenameTarget(t => t === null ? t : { ...t, title: value }) },
-      archiveTarget, archiveBusy, archiveError, onArchiveCancel: closeArchive, onArchiveConfirm: confirmArchive,
+      archiveTarget, archiveBusy, archiveError, archiveConfirmText,
+      onArchiveCancel: closeArchive, onArchiveConfirm: confirmArchive,
+      onArchiveConfirmDraft: setArchiveConfirmText,
       deleteTarget, deleteBusy, deleteError, onDeleteCancel: closeDelete, onDeleteConfirm: confirmDelete,
       archiveBranchTarget, archiveBranchBusy, archiveBranchError,
       onArchiveBranchCancel: closeArchiveBranch, onArchiveBranchConfirm: confirmArchiveBranch,

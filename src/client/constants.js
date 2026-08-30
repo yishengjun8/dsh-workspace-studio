@@ -3,6 +3,9 @@ export const PACKAGE_ID = '@yishengjun8/dsh-workspace-studio'
 export const API_PREFIX = '/workspace-studio/api'
 export const EDITOR_CONTEXT_PROVIDER = 'workspace-editor-context'
 export const SEND_SESSION_BRIDGE_MARKER = Symbol('workspace-studio.send-session-bridge')
+/* Max 50 ms retries while a session's input binding is not ready (≈1 s total);
+   a session whose binding never becomes ready must not spin a timer forever. */
+export const ENSURE_RETRY_MAX = 20
 export const PREVIEW_SESSION_STORE_KEY = 'dsh.workspace.studio.preview-sessions.v1'
 export const PREVIEW_SESSION_MAX = 25
 export const SIDEBAR_DEFAULT = 280, SIDEBAR_COLLAPSED = 56, SIDEBAR_MIN = 240, SIDEBAR_MAX_RATIO = 0.8, SIDEBAR_MAX_FALLBACK = 420

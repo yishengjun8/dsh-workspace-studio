@@ -322,6 +322,14 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-scope-toggle{display:none}
 .dsh-ws-mindmap-archive-ok:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 72%,#000 28%);color:#fff;box-shadow:inset 0 2px 6px rgba(0,0,0,.22),0 2px 10px color-mix(in srgb,var(--dsw-alias-state-error-primary) 40%,transparent)}
 .dsh-ws-mindmap-archive-ok:active:not(:disabled){filter:brightness(.85);box-shadow:inset 0 3px 8px rgba(0,0,0,.3)}
 .dsh-ws-mindmap-archive-ok:focus-visible{outline:2px solid var(--dsw-alias-state-error-primary);outline-offset:2px}
+/* Type-"yes" confirm gate for archiving the whole map: centered label +
+   centered input + status capsule (red until "yes" matches, then green). */
+.dsh-ws-mindmap-archive-confirm{display:flex;flex-direction:column;gap:6px;padding:0 2px}
+.dsh-ws-mindmap-archive-confirm-label{color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px;text-align:center}
+.dsh-ws-mindmap-archive-confirm-input{height:36px;padding:0 12px;border-radius:8px;font-size:14px;text-align:center}
+.dsh-ws-mindmap-archive-confirm-input[data-matched="true"]{border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary) 60%,transparent)}
+.dsh-ws-mindmap-archive-confirm-hint{align-self:center;display:inline-flex;align-items:center;padding:3px 14px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary) 32%,transparent);border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 8%,transparent);color:var(--dsw-alias-state-error-primary);font-size:11px;line-height:16px;min-height:16px}
+.dsh-ws-mindmap-archive-confirm-hint[data-matched="true"]{border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary) 42%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 10%,transparent);color:var(--dsw-alias-state-success-primary)}
 /* The session-header 导图 toggle button. */
 .dsh-ws-mindmap-header-button{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 9px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:1;cursor:pointer;box-sizing:border-box}
 .dsh-ws-mindmap-header-button:hover{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary)}

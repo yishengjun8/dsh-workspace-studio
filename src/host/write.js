@@ -230,6 +230,23 @@ export async function renameEntry(workspace, relativePath, config, queues, req) 
       }
       throw new HttpError(409, 'entry-exists', '同名文件或文件夹已存在')
     }
+    /* Fast path: the target is verified absent, so a plain rename() is atomic,
+       preserves inode/hardlinks, and — unlike the copy fallback — works for
+       directories containing symlinks. Fall back to copy+delete only when the
+       rename crosses devices (EXDEV); any other failure is a real error. */
+    try {
+      await rename(source, target)
+      return {
+        workspaceId: String(workspace.id),
+        fromPath: relativePath,
+        path: targetPath,
+        name,
+        kind,
+        symlink: false,
+      }
+    } catch (error) {
+      if (error?.code !== 'EXDEV') throw error
+    }
     const copied = await copyTreeExclusive(source, target, sourceStat, false, false)
     if (copied === false) throw new HttpError(409, 'entry-exists', '同名文件或文件夹已存在')
     try {

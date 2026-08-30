@@ -1,17 +1,18 @@
 /** Mind-map confirmation dialogs: rename (shared component), archive branch,
  *  delete card, regenerate-all confirm, and archive whole map. Pure forwarding —
  *  all state and handlers stay in the view. */
-import { Fragment, createElement as h } from 'react'
+import { Fragment, createElement as h, useRef } from 'react'
 import { translate } from '../locale/index.js'
 import { SessionRenameDialog } from '../components/dialogs.js'
 
 export function MindMapDialogs({
   renameTarget, renameBusy, renameError, onRenameCancel, onRenameConfirm, onRenameDraft,
-  archiveTarget, archiveBusy, archiveError, onArchiveCancel, onArchiveConfirm,
+  archiveTarget, archiveBusy, archiveError, archiveConfirmText, onArchiveCancel, onArchiveConfirm, onArchiveConfirmDraft,
   deleteTarget, deleteBusy, deleteError, onDeleteCancel, onDeleteConfirm,
   archiveBranchTarget, archiveBranchBusy, archiveBranchError, onArchiveBranchCancel, onArchiveBranchConfirm,
   regenerateAllTarget, regenerateAllBusy, regenerateAllError, onRegenerateAllCancel, onRegenerateAllConfirm,
 }) {
+  const composingRef = useRef(false)
   const renameView = renameTarget !== null ? h(SessionRenameDialog, {
     busy: renameBusy,
     draft: renameTarget.title,
@@ -21,6 +22,7 @@ export function MindMapDialogs({
     onDraft: onRenameDraft,
     title: translate('mindmap.rename.title'),
   }) : null
+  const archiveMatched = archiveConfirmText.trim().toLowerCase() === 'yes'
   const archiveView = archiveTarget !== null ? h('div', {
     className: 'dsh-ws-dialog-backdrop',
     onMouseDown: event => { if (event.target === event.currentTarget && !archiveBusy) onArchiveCancel() },
@@ -41,10 +43,39 @@ export function MindMapDialogs({
       h('div', { className: 'dsh-ws-dialog-body' },
         h('div', { className: 'dsh-ws-dialog-message' },
           translate('mindmap.archiveAll.message', { name: archiveTarget.title })),
+        /* Type-"yes" gate: the user must manually type "yes" before the
+           confirm button unlocks (double insurance). */
+        h('div', { className: 'dsh-ws-mindmap-archive-confirm' },
+          h('label', { className: 'dsh-ws-mindmap-archive-confirm-label', htmlFor: 'dsh-ws-archive-confirm-input' },
+            translate('mindmap.archiveAll.confirmLabel')),
+          h('input', {
+            'aria-label': translate('mindmap.archiveAll.confirmLabel'),
+            autoFocus: true,
+            className: 'dsh-ws-dialog-input dsh-ws-mindmap-archive-confirm-input',
+            'data-matched': archiveMatched ? 'true' : 'false',
+            disabled: archiveBusy,
+            id: 'dsh-ws-archive-confirm-input',
+            onChange: event => onArchiveConfirmDraft(event.target.value),
+            onCompositionEnd: () => { composingRef.current = false },
+            onCompositionStart: () => { composingRef.current = true },
+            onKeyDown: event => {
+              if (event.key === 'Escape') { event.preventDefault(); if (!archiveBusy) onArchiveCancel() }
+              else if (event.key === 'Enter' && !composingRef.current) {
+                event.preventDefault()
+                if (archiveMatched && !archiveBusy) onArchiveConfirm()
+              }
+            },
+            placeholder: 'yes',
+            spellCheck: false,
+            type: 'text',
+            value: archiveConfirmText,
+          }),
+          h('div', { className: 'dsh-ws-mindmap-archive-confirm-hint', 'data-matched': archiveMatched ? 'true' : 'false' },
+            archiveMatched ? translate('mindmap.archiveAll.confirmMatched') : translate('mindmap.archiveAll.confirmHint'))),
         archiveError !== null ? h('div', { className: 'dsh-ws-dialog-error', role: 'alert' }, archiveError) : null),
       h('div', { className: 'dsh-ws-dialog-footer' },
         h('button', { className: 'dsh-ws-text-button', disabled: archiveBusy, onClick: onArchiveCancel, type: 'button' }, translate('dialog.cancel')),
-        h('button', { className: 'dsh-ws-text-button dsh-ws-mindmap-archive-ok', disabled: archiveBusy, onClick: onArchiveConfirm, type: 'button' }, archiveBusy ? translate('dialog.processing') : translate('mindmap.archive.action')))))
+        h('button', { className: 'dsh-ws-text-button dsh-ws-mindmap-archive-ok', disabled: archiveBusy || !archiveMatched, onClick: onArchiveConfirm, type: 'button' }, archiveBusy ? translate('dialog.processing') : translate('mindmap.archive.action')))))
     : null
   const deleteView = deleteTarget !== null ? h('div', {
     className: 'dsh-ws-dialog-backdrop',

@@ -25,12 +25,22 @@ async function pruneEmergencyDrafts() {
     const request = store.getAll()
     request.onsuccess = () => {
       for (const value of request.result ?? []) {
-        if (value?.state !== 'deleted') continue
-        /* A tombstone with a missing/corrupt updatedAt can never satisfy the
+        /* A record with a missing/corrupt updatedAt can never satisfy the
            retention check (NaN < cutoff is false) and would linger forever:
            treat it as the oldest so it is reclaimed on the first sweep. */
         const updatedAt = Number(value.updatedAt)
-        if (!Number.isFinite(updatedAt) || updatedAt < cutoff) store.delete(value.key)
+        const expired = !Number.isFinite(updatedAt) || updatedAt < cutoff
+        if (value?.state === 'deleted') {
+          if (expired) store.delete(value.key)
+        } else if (expired) {
+          /* Live records are normally never pruned (unsaved work), but a
+             zombie record left by a raced path rewrite (see
+             rewriteEmergencyDraftPath) has no Host counterpart to reconcile
+             against. The Host staging draft stays authoritative, so
+             reclaiming mirror records older than the retention window is
+             safe — a genuinely active draft is re-mirrored on every keystroke. */
+          store.delete(value.key)
+        }
       }
     }
     request.onerror = () => { reject(request.error ?? new Error('IndexedDB draft prune failed')) }
@@ -151,6 +161,7 @@ export async function rewriteEmergencyDraftPath(workspaceId, scopeId, from, to) 
      could otherwise be overwritten by the stale snapshot (or deleted along
      with the old key). IndexedDB serializes transactions on the same store, so
      the whole read-modify-write is atomic against concurrent mirror writes. */
+  const rewrittenOldKeys = []
   await new Promise((resolveRewrite, reject) => {
     const transaction = db.transaction(EMERGENCY_DRAFT_STORE, 'readwrite')
     const store = transaction.objectStore(EMERGENCY_DRAFT_STORE)
@@ -191,6 +202,7 @@ export async function rewriteEmergencyDraftPath(workspaceId, scopeId, from, to) 
       for (const step of finalized) {
         store.delete(step.delete)
         if (step.put !== undefined) store.put(step.put)
+        rewrittenOldKeys.push(step.delete)
       }
     }
     request.onerror = () => { reject(request.error ?? new Error('IndexedDB draft rewrite failed')) }
@@ -198,4 +210,46 @@ export async function rewriteEmergencyDraftPath(workspaceId, scopeId, from, to) 
     transaction.onerror = () => { reject(transaction.error ?? new Error('IndexedDB draft rewrite failed')) }
     transaction.onabort = () => { reject(transaction.error ?? new Error('IndexedDB draft rewrite aborted')) }
   })
+  /* Sweep pass: a mirror write enqueued AFTER the rewrite transaction started
+     (the user typed at the old path while the move was in flight) commits
+     after it and would resurrect the old-key record as a zombie. Migrate any
+     such record to the new path in a second readwrite transaction — the editor
+     has switched to the new path by now, so no further old-path writes are
+     expected. */
+  if (rewrittenOldKeys.length > 0) {
+    await new Promise((resolveSweep, reject) => {
+      const transaction = db.transaction(EMERGENCY_DRAFT_STORE, 'readwrite')
+      const store = transaction.objectStore(EMERGENCY_DRAFT_STORE)
+      const request = store.getAll()
+      request.onsuccess = () => {
+        const all = request.result ?? []
+        const oldKeySet = new Set(rewrittenOldKeys)
+        for (const value of all) {
+          if (value.workspaceId !== String(workspaceId) || value.scopeId !== String(scopeId)) continue
+          if (value.key === undefined || !oldKeySet.has(value.key)) continue
+          const path = rewriteRelativePath(value.path, from, to)
+          if (path === value.path) continue
+          const newKey = emergencyDraftKey(workspaceId, scopeId, path)
+          /* Destination collision: keep the NEWER side, same rule as above. */
+          const existing = all.find(record => record.key === newKey)
+          if (existing !== undefined && existing !== null) {
+            const existingGeneration = Number.isSafeInteger(existing.generation) ? existing.generation : -1
+            const movedGeneration = Number.isSafeInteger(value.generation) ? value.generation : -1
+            const existingAt = Number(existing.updatedAt) || 0
+            const movedAt = Number(value.updatedAt) || 0
+            if (existingGeneration > movedGeneration || (existingGeneration === movedGeneration && existingAt > movedAt)) {
+              store.delete(value.key)
+              continue
+            }
+          }
+          store.delete(value.key)
+          store.put({ ...value, key: newKey, path, updatedAt: Date.now() })
+        }
+      }
+      request.onerror = () => { reject(request.error ?? new Error('IndexedDB draft rewrite sweep failed')) }
+      transaction.oncomplete = () => { resolveSweep() }
+      transaction.onerror = () => { reject(transaction.error ?? new Error('IndexedDB draft rewrite sweep failed')) }
+      transaction.onabort = () => { reject(transaction.error ?? new Error('IndexedDB draft rewrite sweep aborted')) }
+    })
+  }
 }

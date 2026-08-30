@@ -91,6 +91,11 @@ const mindmapSessionSummaryFailedAt = new Map() // key -> last failure timestamp
    so a disable (config null) drops queued jobs immediately and in-flight jobs
    skip their write; queued jobs re-read the LATEST config at run time so a
    model/length change mid-queue is honored. */
+/* Per-ROOT enabled set: the old single global flag made the LAST sync's
+   config govern every doc's queue — one map's disable would silently stop
+   another map's queued jobs. `mindmapSummaryFeatureOn` stays as a cheap
+   "any root enabled" fast path, derived from this set. */
+const mindmapSummaryEnabledRoots = new Set()
 let mindmapSummaryFeatureOn = false
 let mindmapSummaryLastConfig = null
 
@@ -384,22 +389,44 @@ async function mindmapModelOf(ctx, persistence, sessionId) {
    in one click, bypassing the per-sync pacing and the failure cooldown). */
 function mindmapEnqueueSummaries(ctx, persistence, doc, config, limit, force, onlySessionId) {
   if (config === null || config === undefined) {
-    /* Feature turned off: drop queued jobs so disabling stops token spend
-       immediately; an in-flight call finishes but skips its write (the job
-       re-checks the flag). Pending SESSION summaries (总结当前会话 waiting)
-       are dropped too — the drain and the job both re-check the flag, so a
-       disabled feature can never keep calling the LLM or write summaries. */
-    mindmapSummaryFeatureOn = false
-    while (mindmapSummaryQueue.length > 0) {
-      const job = mindmapSummaryQueue.shift()
-      mindmapSummaryInFlight.delete(`${job.sessionId}:${job.seq}`)
-      mindmapSummaryRegenerating.delete(`${job.sessionId}:${job.seq}`)
+    /* Feature turned off for THIS doc: drop its queued jobs so disabling stops
+       token spend immediately; an in-flight call finishes but skips its write
+       (the job re-checks the flag). Pending SESSION summaries (总结当前会话
+       waiting) of this doc are dropped too. Other docs' queues are untouched
+       (per-root enabled set). */
+    const rootId = doc === null || doc === undefined ? undefined : String(doc.rootSessionId)
+    if (rootId !== undefined) mindmapSummaryEnabledRoots.delete(rootId)
+    mindmapSummaryFeatureOn = mindmapSummaryEnabledRoots.size > 0
+    if (rootId === undefined) {
+      /* No doc to scope by (defensive): fall back to clearing everything. */
+      while (mindmapSummaryQueue.length > 0) {
+        const job = mindmapSummaryQueue.shift()
+        mindmapSummaryInFlight.delete(`${job.sessionId}:${job.seq}`)
+        mindmapSummaryRegenerating.delete(`${job.sessionId}:${job.seq}`)
+      }
+      mindmapSessionSummaryPending.clear()
+    } else {
+      const remaining = []
+      for (const job of mindmapSummaryQueue) {
+        if (String(job.rootId) === rootId) {
+          mindmapSummaryInFlight.delete(`${job.sessionId}:${job.seq}`)
+          mindmapSummaryRegenerating.delete(`${job.sessionId}:${job.seq}`)
+        } else {
+          remaining.push(job)
+        }
+      }
+      mindmapSummaryQueue.length = 0
+      mindmapSummaryQueue.push(...remaining)
+      for (const key of [...mindmapSessionSummaryPending.keys()]) {
+        const parts = mindmapSessionSummaryParts(key)
+        if (parts !== undefined && parts.rootId === rootId) mindmapSessionSummaryPending.delete(key)
+      }
     }
-    mindmapSessionSummaryPending.clear()
     return 0
   }
   if (doc === null || doc === undefined) return 0
   mindmapSummaryFeatureOn = true
+  mindmapSummaryEnabledRoots.add(String(doc.rootSessionId))
   mindmapSummaryLastConfig = config
   /* Prune expired cooldown entries so the failure map stays bounded. */
   const now = Date.now()
@@ -463,11 +490,16 @@ function mindmapSummaryPump() {
 }
 
 async function mindmapRunSummaryJob(job) {
-  if (!mindmapSummaryFeatureOn) return
+  /* The job's OWN root must still have the feature on: the global flag only
+     says "some doc is enabled" — another doc's disable must not stop this
+     doc's queued work (and vice versa). */
+  if (!mindmapSummaryFeatureOn || !mindmapSummaryEnabledRoots.has(String(job.rootId))) return
   const key = `${job.sessionId}:${job.seq}`
-  /* Use the LATEST client config (the model/length may have changed while the
-     job sat in the queue); the per-job snapshot is the fallback. */
-  const config = mindmapSummaryLastConfig ?? job.config
+  /* Prefer the config snapshot captured when the job was enqueued: it belongs
+     to the doc that enqueued it, while the global last-config may belong to a
+     DIFFERENT doc's sync (multi-map sessions with different summary settings).
+     The global is only a defensive fallback for jobs without a snapshot. */
+  const config = job.config ?? mindmapSummaryLastConfig
   const model = config.mode === 'session'
     ? await mindmapModelOf(job.ctx, job.persistence, job.sessionId)
     : { provider: config.provider, model: config.model }
@@ -745,10 +777,10 @@ async function mindmapWriteSessionSummary(ctx, persistence, rootId, sessionId, s
    (a new turn may have arrived mid-wait), then generate + persist. */
 async function mindmapRunSessionSummary(ctx, persistence, rootId, sessionId, config) {
   const key = mindmapSessionSummaryKey(rootId, sessionId)
-  /* The user may have turned the AI-summary feature off while this job was
-     pending: never generate or write after a disable (same rule as the card
-     jobs). */
-  if (!mindmapSummaryFeatureOn) {
+  /* The user may have turned the AI-summary feature off for THIS root while
+     this job was pending: never generate or write after a disable (same rule
+     as the card jobs). */
+  if (!mindmapSummaryFeatureOn || !mindmapSummaryEnabledRoots.has(String(rootId))) {
     mindmapSessionSummaryPending.delete(key)
     return
   }
@@ -811,21 +843,21 @@ export function mindmapSessionSummarizingOf(doc) {
    entry — the user can re-click. */
 export function mindmapDrainPendingSessionSummaries(ctx, persistence) {
   if (mindmapSessionSummaryPending.size === 0) return
-  /* Feature off: drop every pending session summary instead of draining them
-     (the jobs re-check the flag too, but clearing here stops the loop). */
-  if (!mindmapSummaryFeatureOn) {
-    mindmapSessionSummaryPending.clear()
-    return
-  }
   for (const [key, config] of [...mindmapSessionSummaryPending]) {
-    if (mindmapSessionSummaryRunning.has(key)) continue
-    const failedAt = mindmapSessionSummaryFailedAt.get(key)
-    if (failedAt !== undefined && failedAt + MINDMAP_SUMMARY_FAIL_COOLDOWN_MS > Date.now()) continue
     const parts = mindmapSessionSummaryParts(key)
     if (parts === undefined) {
       mindmapSessionSummaryPending.delete(key)
       continue
     }
+    /* Feature off for THIS root: drop its pending entry instead of draining
+       it (the jobs re-check the flag too, but clearing here stops the loop). */
+    if (!mindmapSummaryFeatureOn || !mindmapSummaryEnabledRoots.has(parts.rootId)) {
+      mindmapSessionSummaryPending.delete(key)
+      continue
+    }
+    if (mindmapSessionSummaryRunning.has(key)) continue
+    const failedAt = mindmapSessionSummaryFailedAt.get(key)
+    if (failedAt !== undefined && failedAt + MINDMAP_SUMMARY_FAIL_COOLDOWN_MS > Date.now()) continue
     const { rootId, sessionId } = parts
     mindmapSessionSummaryRunning.add(key)
     void (async () => {

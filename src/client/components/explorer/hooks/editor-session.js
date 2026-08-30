@@ -331,10 +331,16 @@ export function useEditorSession({
       // the editing session from disk. A failed read is non-critical: fall
       // back to the source.
       return Promise.all([
-        loadDraft(workspace.workspaceId, activePath, controller.signal, draftScopeId).catch(() => ({ exists: false })),
+        /* A failed draft read must NOT silently degrade to "no draft": the
+           restore below would show a clean tab and a later save could
+           overwrite the hidden unsaved work. Mark the failure so the read
+           pass can surface a warning banner instead. */
+        loadDraft(workspace.workspaceId, activePath, controller.signal, draftScopeId)
+          .catch(() => ({ exists: false, failed: true })),
         readEmergencyDraft(workspace.workspaceId, draftScopeId, activePath).catch(() => undefined),
       ]).then(([hostDraft, emergencyDraft]) => {
         if (!mounted.current || readSeq !== readSeqRef.current || activePathRef.current !== activePath) return
+        const hostReadFailed = hostDraft?.failed === true
         const hostGeneration = Number.isSafeInteger(hostDraft?.generation) ? hostDraft.generation : 0
         const emergencyGeneration = Number.isSafeInteger(emergencyDraft?.generation) ? emergencyDraft.generation : 0
         const draftData = emergencyDraft?.state === 'deleted' && emergencyGeneration >= hostGeneration
@@ -409,6 +415,13 @@ export function useEditorSession({
         const notRestorableStatus = (hasDiskDraft || hasTabDraft) && !editable
           ? { error: true, text: translate('status.draftNotRestorable') }
           : undefined
+        /* A failed Host draft read with no usable emergency mirror must not
+           silently degrade to a clean tab: the disk content is shown (the only
+           available source), but the user is warned that unsaved work may be
+           hidden and a direct save could overwrite it. */
+        const draftReadFailedStatus = hostReadFailed && !hasDiskDraft && !hasTabDraft
+          ? { error: true, text: translate('status.draftReadFailed') }
+          : undefined
         // The source content (as last read) stays separate from the editing
         // baseline: cancel restores the committed snapshot even after a draft
         // restore with a stale base.
@@ -441,6 +454,8 @@ export function useEditorSession({
           setStatus(restoredStatus)
         } else if (hasDiskDraft || hasTabDraft) {
           setStatus(notRestorableStatus)
+        } else if (draftReadFailedStatus !== undefined) {
+          setStatus(draftReadFailedStatus)
         }
         if (cancelRestore) setStatus({ text: translate('editor.cancelRestored') })
         else if (refreshPending) setStatus({ text: translate('editor.refreshed') })
@@ -460,7 +475,7 @@ export function useEditorSession({
           saving: false,
           scrollTop: savedScrollTop,
           size: Number.isFinite(result.size) ? result.size : null,
-          status: cancelRestore ? { text: translate('editor.cancelRestored') } : (refreshPending ? { text: translate('editor.refreshed') } : (canRestore ? restoredStatus : ((hasDiskDraft || hasTabDraft) ? notRestorableStatus : (tab?.status?.error === true ? undefined : tab?.status)))),
+          status: cancelRestore ? { text: translate('editor.cancelRestored') } : (refreshPending ? { text: translate('editor.refreshed') } : (canRestore ? restoredStatus : ((hasDiskDraft || hasTabDraft) ? notRestorableStatus : (draftReadFailedStatus ?? (tab?.status?.error === true ? undefined : tab?.status))))),
           symlink: Boolean(selection.symlink),
         })
         /* For an auto-triggered re-read, the clean active tab's status was
@@ -682,7 +697,14 @@ export function useEditorSession({
         ...snapshot,
         generation,
       }, undefined))
-      if (result?.stale === true || draftGenerationsRef.current.get(path) !== generation) return
+      if (result?.stale === true || draftGenerationsRef.current.get(path) !== generation) {
+        /* A stale write (a tree op advanced the generation fence) must not
+           leave its pending entry behind: flushAutosaves would otherwise
+           re-run the stale check on every unload. */
+        const pending = pendingAutosavesRef.current.get(path)
+        if (pending?.generation === generation) pendingAutosavesRef.current.delete(path)
+        return
+      }
       lastWriteRef.current.set(path, { generation, content: snapshot.draft })
       const pending = pendingAutosavesRef.current.get(path)
       if (pending?.generation === generation) pendingAutosavesRef.current.delete(path)

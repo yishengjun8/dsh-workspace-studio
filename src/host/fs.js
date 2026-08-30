@@ -38,7 +38,14 @@ async function translateToWindowsPath(path) {
  * desktop file manager. */
 async function revealCommandFor(target, directory, platform = process.platform) {
   if (platform === 'win32') {
-    return { file: 'explorer.exe', args: directory ? [target] : [`/select,${target}`] }
+    /* explorer.exe parses `/select,<path>` by splitting on the FIRST comma, so
+       a path containing a comma would be truncated. Fall back to opening the
+       containing folder (no selection) for such paths. */
+    const selectable = !target.includes(',')
+    return {
+      file: 'explorer.exe',
+      args: directory || !selectable ? [directory ? target : dirname(target)] : [`/select,${target}`],
+    }
   }
   if (platform === 'darwin') {
     return { file: 'open', args: ['-R', target] }

@@ -209,7 +209,17 @@ async function writeOwnerGeneration(workspaceId, owner, generation, operation) {
 }
 
 function draftOperationToken(action, value) {
-  const digest = createHash('sha256').update(JSON.stringify(value)).digest('hex')
+  /* Canonicalize with SORTED keys so the token is independent of the payload's
+     key insertion order: a retry that re-serializes the same logical payload
+     with a different key order must produce the SAME token (the idempotency
+     fence compares tokens), or it would be rejected as a foreign operation. */
+  const canonical = (input) => {
+    if (input === null || typeof input !== 'object') return JSON.stringify(input)
+    if (Array.isArray(input)) return `[${input.map(canonical).join(',')}]`
+    const keys = Object.keys(input).sort()
+    return `{${keys.map(key => `${JSON.stringify(key)}:${canonical(input[key])}`).join(',')}}`
+  }
+  const digest = createHash('sha256').update(canonical(value)).digest('hex')
   return `${action}:${digest}`
 }
 

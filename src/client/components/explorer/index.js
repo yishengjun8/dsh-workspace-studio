@@ -293,6 +293,12 @@ export function WorkspaceExplorer({
     })
     try {
       const result = await listDirectory(workspace.workspaceId, path, controller.signal)
+      /* Apply only while this request is still the LATEST for the path (a
+         superseded request can resolve after its abort — the fetch may have
+         already settled) and the explorer is still mounted: a stale response
+         must never overwrite a newer listing, and an unmounted explorer must
+         never setState. */
+      if (!mounted.current || requests.current.get(path) !== controller) return
       setDirectories(cur => {
         const next = new Map(cur)
         next.set(path, { state: 'ready', entries: result.entries })
@@ -300,6 +306,7 @@ export function WorkspaceExplorer({
       })
     } catch (error) {
       if (error?.name !== 'AbortError') {
+        if (!mounted.current || requests.current.get(path) !== controller) return
         setDirectories(cur => {
           const next = new Map(cur)
           next.set(path, {

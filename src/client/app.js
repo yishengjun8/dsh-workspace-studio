@@ -8,7 +8,7 @@ import { clamp, FILE_COLOR_GROUPS, fileColorOf } from './format.js'
 import { previewSnapshotFingerprint, selectStoredPreviewSession } from './preview-tabs.js'
 import { checkFileChange, createWorkspaceEntry, deleteDraft, deleteMindmapDoc, putFile, readDraft, renameWorkspaceEntry, requestDraftTree, requestJson, writeDraft } from './api.js'
 import { createExplorerPaneStore, createExplorerSettingsStore, createLayoutStore, createPreviewSessionStore, LayoutController } from './stores.js'
-import { EditorContextController, PromptContextBridge, workspaceOfSession } from './controllers.js'
+import { EditorContextController, PromptContextBridge, selectWorkspaceForSession, workspaceOfSession } from './controllers.js'
 import { EditorContextPrefix, installEditorContextMessageCompactor } from './context-bridge.js'
 import { ThemePresenter } from './theme.js'
 import { mindmapRegistry, useMindmapOverlay } from './mindmap/registry.js'
@@ -140,8 +140,11 @@ export function AppFrame(props) {
     revealSessionById, revealSessionFromMenu, openMindmapSession,
   } = sessionMenu
 
+  /* Same two-stage resolution as workspaceOfSession (membership first, then
+     cwd): the explorer mount and the editor-context injection must never land
+     on different workspaces for the same session (U1 audit). */
   const workspace = useMemo(() => currentSession !== undefined
-    ? workspaces.find(item => item.sessionIds.includes(currentSession) || item.path === currentCwd)
+    ? selectWorkspaceForSession(workspaces, currentSession, currentCwd)
     : workspaces.find(item => item.workspaceId === recent),
   [currentCwd, currentSession, recent, workspaces])
   const workspaceId = workspace?.workspaceId
@@ -180,7 +183,14 @@ export function AppFrame(props) {
     const fingerprint = previewSnapshotFingerprint(value)
     if (lastPersistedSnapshotRef.current.get(keySet) === fingerprint) return
     lastPersistedSnapshotRef.current.set(keySet, fingerprint)
-    if (lastPersistedSnapshotRef.current.size > 128) lastPersistedSnapshotRef.current.clear()
+    /* LRU-style bound: evict the OLDEST single entry instead of clearing the
+       whole table — a full clear would re-serialize and re-write every key on
+       the next change (a synchronous full-store write burst). Map iteration
+       order is insertion order, so the first key is the oldest write. */
+    if (lastPersistedSnapshotRef.current.size > 128) {
+      const oldest = lastPersistedSnapshotRef.current.keys().next().value
+      if (oldest !== undefined) lastPersistedSnapshotRef.current.delete(oldest)
+    }
     for (const key of keys) props.previewSessionsStore.actions.rememberPreviewSession(key, value)
   }, [currentSession, previewSessionKey, props.previewSessionsStore, workspaceId])
   const last = useRef(currentSession)
