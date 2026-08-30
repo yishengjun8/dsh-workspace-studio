@@ -34,9 +34,12 @@ export function useChatDropMask({ chatSectionRef }) {
          never fire window dragend — gating the decrement on hasDraggedFiles
          here could leave the depth stuck at 1 and the mask up until the next
          drag. Decrement unconditionally (dragenter only ever incremented for
-         file drags, so non-file drags hit the Math.max floor harmlessly);
-         the suppressed flag still stops the mask from flashing. */
-      if (chatDropSuppressed.current) return
+         file drags, so non-file drags hit the Math.max floor harmlessly).
+         Closing the hint mid-drag (suppressed) then leaving the section must
+         not mute every later drag forever: the decrement runs even while
+         suppressed (suppressed drags never incremented, so the depth reaches
+         0 on the first leave and hide() clears the flag) — same self-healing
+         contract as the preview-pane drop handler. */
       depth = Math.max(0, depth - 1)
       if (depth === 0) hide()
     }

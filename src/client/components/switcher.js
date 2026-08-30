@@ -20,7 +20,11 @@ export function SessionSwitcherDropdown({ useSessions, useWorkspaces, sessionId,
     const chat = trigger.closest('.dsh-ws-chat')
     const chatRect = chat?.getBoundingClientRect()
     const width = chatRect !== undefined && chatRect.width > 0
-      ? Math.min(Math.max(360, Math.round(chatRect.width * 0.33)), Math.max(120, chatRect.width - 8))
+      /* The 120px lower bound of the old max() could EXCEED a very narrow
+         column (<128px) and overflow it; the outer Math.min now always keeps
+         the panel inside the column (floor 1px so a degenerate measure never
+         produces a non-positive width). */
+      ? Math.min(Math.max(360, Math.round(chatRect.width * 0.33)), Math.max(1, chatRect.width - 8))
       : Math.max(360, rect.width)
     // Keep the panel inside the conversation column: on mobile the header icons push the
     // trigger right, so the clamp leans the panel left to stay on screen (desktop: no-op).

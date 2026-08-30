@@ -226,7 +226,17 @@ export class PromptContextBridge {
       try {
         rendered = await renderContext(session.sessionId, context, signal)
       } catch (error) {
-        if (error?.name !== 'AbortError') this.notify(sessionId, error)
+        /* A TIMEOUT is a real failure, not a cancellation: surface it in the
+           input dock instead of silently dropping the context send (the
+           AbortError name is shared by both, so distinguish by reason). */
+        const timedOut = error?.name === 'AbortError' && error?.reason?.name === 'TimeoutError'
+        if (timedOut) {
+          const wrapped = new Error(translate('editor.requestTimeout'))
+          wrapped.name = 'ContextTimeout'
+          this.notify(sessionId, wrapped)
+        } else if (error?.name !== 'AbortError') {
+          this.notify(sessionId, error)
+        }
         throw error
       }
       const combined = text === '' ? rendered : `${rendered}\n\n${text}`

@@ -183,7 +183,7 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
         sendJson(req, res, 200, { exists: false })
       } else {
         const live = legacyResponse ? (result.live[0] ?? null) : result.live
-        sendJson(req, res, 200, { exists: true, doc: result.doc, live, summarizing: result.summarizing, sessionSummarizing: result.sessionSummarizing })
+        sendJson(req, res, 200, { exists: true, doc: result.doc, live, warnings: result.warnings, summarizing: result.summarizing, sessionSummarizing: result.sessionSummarizing })
       }
       return
     }
@@ -440,7 +440,7 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
       })
       return
     }
-    sendError(req, res, failure.status, failure.code, failure.message)
+    sendError(req, res, failure.status, failure.code, failure.message, undefined, failure.data)
   }
 }
 /** Register the workspace-confined browser API. */

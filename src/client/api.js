@@ -74,10 +74,26 @@ function apiFailure(failure, fallbackCode, fallbackKey, status) {
   if (failure?.data !== undefined && failure.data !== null) error.data = failure.data
   return error
 }
+/* Build the failure of a NON-2xx response whose body may not be JSON (proxy
+   HTML, empty 5xx, connection error page): the endpoint's fallback code
+   carries the status instead of the generic invalid-response, so callers
+   still get a sane code + message when the server detail is unreadable. */
+async function responseFailure(response, fallbackCode, fallbackKey) {
+  let failure
+  try {
+    failure = await response.json()
+  } catch {
+    failure = undefined
+  }
+  return apiFailure(failure?.error, fallbackCode, fallbackKey, response.status)
+}
 export async function requestJson(endpoint, workspaceId, path, signal, encoding) {
   const query = new URLSearchParams({ workspaceId, path })
   if (encoding !== undefined && encoding !== null) query.set('encoding', String(encoding))
-  const response = await fetch(`${API_PREFIX}/${endpoint}?${query}`, { method: 'GET', headers: { accept: 'application/json' }, credentials: 'same-origin', signal })
+  /* Read requests are timeout-bounded too (a hung Host must not leave the
+     explorer on a permanent loading state). */
+  const response = await fetch(`${API_PREFIX}/${endpoint}?${query}`, { method: 'GET', headers: { accept: 'application/json' }, credentials: 'same-origin', signal: withTimeout(signal, REQUEST_TIMEOUT_MS) })
+  if (!response.ok) throw await responseFailure(response, 'request-failed', 'error.request-failed')
   let payload
   try {
     payload = await response.json()
@@ -85,8 +101,13 @@ export async function requestJson(endpoint, workspaceId, path, signal, encoding)
     if (error?.name === 'AbortError') throw error
     throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, endpoint === 'file' ? 'error.invalid-response.file' : 'error.invalid-response.tree', { status: response.status }), response.status)
   }
-  if (!response.ok) {
-    throw apiFailure(payload?.error, 'request-failed', 'error.request-failed', response.status)
+  /* Minimal shape assertions: a 200 body missing the payload contract is a
+     Host anomaly, not a render-time crash (the tree maps entries directly). */
+  if (endpoint === 'tree' && !Array.isArray(payload?.entries)) {
+    throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.tree', { status: response.status }), response.status)
+  }
+  if (endpoint === 'file' && typeof payload?.content !== 'string') {
+    throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.file', { status: response.status }), response.status)
   }
   return payload
 }
@@ -112,23 +133,21 @@ export async function checkFileChange(workspaceId, path, previousSnapshot, signa
   } else if (previousSnapshot === null) {
     query.set('prev', JSON.stringify({ gone: true }))
   }
-  const response = await fetch(`${API_PREFIX}/file?${query}`, { method: 'GET', headers: { accept: 'application/json' }, credentials: 'same-origin', signal })
-  let payload
-  try {
-    payload = await response.json()
-  } catch (error) {
-    if (error?.name === 'AbortError') throw error
-    throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.file', { status: response.status }), response.status)
-  }
+  const response = await fetch(`${API_PREFIX}/file?${query}`, { method: 'GET', headers: { accept: 'application/json' }, credentials: 'same-origin', signal: withTimeout(signal, REQUEST_TIMEOUT_MS) })
   if (!response.ok) {
     /* NOTE: a MISSING file is NOT an error here — the Host answers 200 with
        { exists: false, snapshot: null } (the { gone: true } baseline above
        covers re-creates). Treating every non-2xx as a real failure (a path
        validation error, server trouble) keeps the poll honest: the caller's
        tick swallows transient failures and keeps polling. */
-    const failure = payload?.error
-    const code = typeof failure?.code === 'string' ? failure.code : 'request-failed'
-    throw new WorkspaceApiError(code, apiErrorMessage(code, typeof failure?.message === 'string' ? failure.message : undefined, 'error.request-failed', { status: response.status }), response.status)
+    throw await responseFailure(response, 'request-failed', 'error.request-failed')
+  }
+  let payload
+  try {
+    payload = await response.json()
+  } catch (error) {
+    if (error?.name === 'AbortError') throw error
+    throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.file', { status: response.status }), response.status)
   }
   return payload
 }
@@ -138,15 +157,13 @@ export async function putFile(workspaceId, path, content, revision, signal, enco
   const headers = { 'content-type': 'text/plain; charset=utf-8', accept: 'application/json' }
   if (revision !== undefined && revision !== null) headers['if-match'] = String(revision)
   const response = await fetch(`${API_PREFIX}/file?${query}`, { method: 'PUT', headers, credentials: 'same-origin', body: content, signal: withTimeout(signal, REQUEST_TIMEOUT_MS) })
+  if (!response.ok) throw await responseFailure(response, 'save-failed', 'error.save-failed')
   let payload
   try {
     payload = await response.json()
   } catch (error) {
     if (error?.name === 'AbortError') throw error
     throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.save', { status: response.status }), response.status)
-  }
-  if (!response.ok) {
-    throw apiFailure(payload?.error, 'save-failed', 'error.save-failed', response.status)
   }
   return payload
 }
@@ -170,15 +187,13 @@ export async function mindmapRequest(endpoint, options) {
     signal: withTimeout(signal, llmEndpoint ? MINDMAP_LLM_TIMEOUT_MS : REQUEST_TIMEOUT_MS),
     body: body === undefined ? undefined : JSON.stringify(body),
   })
+  if (!response.ok) throw await responseFailure(response, 'request-failed', 'error.request-failed')
   let payload
   try {
     payload = await response.json()
   } catch (error) {
     if (error?.name === 'AbortError') throw error
     throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.mindmap', { status: response.status }), response.status)
-  }
-  if (!response.ok) {
-    throw apiFailure(payload?.error, 'request-failed', 'error.request-failed', response.status)
   }
   return payload
 }
@@ -209,12 +224,16 @@ export const syncMindmapDoc = (sessionId, liveSessionIds, signal, summaryConfig)
    rarely changes while the settings panel is open). */
 let mindmapModelsCache = null // { at, payload }
 let mindmapModelsRequest = null // in-flight promise (dedup concurrent opens)
-export const fetchMindmapModels = (signal) => {
+/* The shared request is deliberately NOT bound to any single caller's signal:
+   the first caller's abort would otherwise kill the promise every concurrent
+   opener is waiting on. The small catalog fetch either completes into the
+   cache or fails — callers read the cached result / next request instead. */
+export const fetchMindmapModels = () => {
   if (mindmapModelsCache !== null && mindmapModelsCache.at + MINDMAP_MODELS_CACHE_MS > Date.now()) {
     return Promise.resolve(mindmapModelsCache.payload)
   }
   if (mindmapModelsRequest !== null) return mindmapModelsRequest
-  mindmapModelsRequest = mindmapRequest('/models', { method: 'GET', signal }).then((payload) => {
+  mindmapModelsRequest = mindmapRequest('/models', { method: 'GET' }).then((payload) => {
     /* Stamp the cache when the fetch COMPLETES so a slow request does not
        shorten the 60 s window. */
     mindmapModelsCache = { at: Date.now(), payload }
@@ -276,16 +295,14 @@ export const renameMindmapDoc = (sessionId, title, signal) => mindmapRequest('/r
 export async function readDraft(workspaceId, path, signal, owner) {
   const query = new URLSearchParams({ workspaceId: String(workspaceId), path })
   if (owner !== undefined && owner !== null) query.set('owner', String(owner))
-  const response = await fetch(`${API_PREFIX}/draft?${query}`, { method: 'GET', headers: { accept: 'application/json' }, credentials: 'same-origin', signal })
+  const response = await fetch(`${API_PREFIX}/draft?${query}`, { method: 'GET', headers: { accept: 'application/json' }, credentials: 'same-origin', signal: withTimeout(signal, REQUEST_TIMEOUT_MS) })
+  if (!response.ok) throw await responseFailure(response, 'draft-read-failed', 'error.draft-failed')
   let payload
   try {
     payload = await response.json()
   } catch (error) {
     if (error?.name === 'AbortError') throw error
     throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.draft', { status: response.status }), response.status)
-  }
-  if (!response.ok) {
-    throw apiFailure(payload?.error, 'draft-read-failed', 'error.draft-failed', response.status)
   }
   return payload
 }
@@ -294,15 +311,13 @@ export async function writeDraft(workspaceId, path, payload, signal) {
   if (payload.owner !== undefined && payload.owner !== null) query.set('owner', String(payload.owner))
   if (payload.generation !== undefined && payload.generation !== null) query.set('generation', String(payload.generation))
   const response = await fetch(`${API_PREFIX}/draft?${query}`, { method: 'PUT', headers: { accept: 'application/json', 'content-type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ ...payload, path }), signal: withTimeout(signal, REQUEST_TIMEOUT_MS) })
+  if (!response.ok) throw await responseFailure(response, 'draft-write-failed', 'error.draft-failed')
   let result
   try {
     result = await response.json()
   } catch (error) {
     if (error?.name === 'AbortError') throw error
     throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.draft', { status: response.status }), response.status)
-  }
-  if (!response.ok) {
-    throw apiFailure(result?.error, 'draft-write-failed', 'error.draft-failed', response.status)
   }
   return result
 }
@@ -310,31 +325,27 @@ export async function deleteDraft(workspaceId, path, signal, owner, generation) 
   const query = new URLSearchParams({ workspaceId: String(workspaceId), path })
   if (owner !== undefined && owner !== null) query.set('owner', String(owner))
   if (generation !== undefined && generation !== null) query.set('generation', String(generation))
-  const response = await fetch(`${API_PREFIX}/draft?${query}`, { method: 'DELETE', headers: { accept: 'application/json' }, credentials: 'same-origin', signal })
+  const response = await fetch(`${API_PREFIX}/draft?${query}`, { method: 'DELETE', headers: { accept: 'application/json' }, credentials: 'same-origin', signal: withTimeout(signal, REQUEST_TIMEOUT_MS) })
+  if (!response.ok) throw await responseFailure(response, 'draft-delete-failed', 'error.draft-failed')
   let result
   try {
     result = await response.json()
   } catch (error) {
     if (error?.name === 'AbortError') throw error
     throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.draft', { status: response.status }), response.status)
-  }
-  if (!response.ok) {
-    throw apiFailure(result?.error, 'draft-delete-failed', 'error.draft-failed', response.status)
   }
   return result
 }
 export async function requestDraftTree(workspaceId, payload, signal) {
   const query = new URLSearchParams({ workspaceId: String(workspaceId) })
-  const response = await fetch(`${API_PREFIX}/draft-tree?${query}`, { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(payload), signal })
+  const response = await fetch(`${API_PREFIX}/draft-tree?${query}`, { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(payload), signal: withTimeout(signal, REQUEST_TIMEOUT_MS) })
+  if (!response.ok) throw await responseFailure(response, 'draft-tree-failed', 'error.draft-failed')
   let result
   try {
     result = await response.json()
   } catch (error) {
     if (error?.name === 'AbortError') throw error
     throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.draft', { status: response.status }), response.status)
-  }
-  if (!response.ok) {
-    throw apiFailure(result?.error, 'draft-tree-failed', 'error.draft-failed', response.status)
   }
   return result
 }
@@ -343,7 +354,8 @@ export async function uploadExternalFile(bytes, name, signal, encoding) {
   const query = new URLSearchParams()
   if (typeof name === 'string' && name !== '') query.set('name', name)
   if (encoding !== undefined && encoding !== null) query.set('encoding', String(encoding))
-  const response = await fetch(`${API_PREFIX}/external-file?${query}`, { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/octet-stream' }, credentials: 'same-origin', body: bytes, signal })
+  const response = await fetch(`${API_PREFIX}/external-file?${query}`, { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/octet-stream' }, credentials: 'same-origin', body: bytes, signal: withTimeout(signal, REQUEST_TIMEOUT_MS) })
+  if (!response.ok) throw await responseFailure(response, 'external-file-failed', 'error.external-file-failed')
   let payload
   try {
     payload = await response.json()
@@ -351,13 +363,11 @@ export async function uploadExternalFile(bytes, name, signal, encoding) {
     if (error?.name === 'AbortError') throw error
     throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.external', { status: response.status }), response.status)
   }
-  if (!response.ok) {
-    throw apiFailure(payload?.error, 'external-file-failed', 'error.external-file-failed', response.status)
-  }
   return payload
 }
 export async function renderContext(sessionId, context, signal) {
   const response = await fetch(`${API_PREFIX}/context`, { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ ...context, sessionId: String(sessionId) }), signal: withTimeout(signal, REQUEST_TIMEOUT_MS) })
+  if (!response.ok) throw await responseFailure(response, 'context-failed', 'error.context-failed')
   let payload
   try {
     payload = await response.json()
@@ -365,15 +375,13 @@ export async function renderContext(sessionId, context, signal) {
     if (error?.name === 'AbortError') throw error
     throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.context', { status: response.status }), response.status)
   }
-  if (!response.ok) {
-    throw apiFailure(payload?.error, 'context-failed', 'error.context-failed', response.status)
-  }
   if (typeof payload?.text !== 'string') throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.context-text'), response.status)
   return payload.text
 }
 export async function mutateEntry(method, workspaceId, path, payload, signal) {
   const query = new URLSearchParams({ workspaceId: String(workspaceId), path })
-  const response = await fetch(`${API_PREFIX}/entry?${query}`, { method, headers: { accept: 'application/json', 'content-type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(payload), signal })
+  const response = await fetch(`${API_PREFIX}/entry?${query}`, { method, headers: { accept: 'application/json', 'content-type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(payload), signal: withTimeout(signal, REQUEST_TIMEOUT_MS) })
+  if (!response.ok) throw await responseFailure(response, 'entry-failed', 'error.entry-failed')
   let result
   try {
     result = await response.json()
@@ -381,14 +389,12 @@ export async function mutateEntry(method, workspaceId, path, payload, signal) {
     if (error?.name === 'AbortError') throw error
     throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.entry', { status: response.status }), response.status)
   }
-  if (!response.ok) {
-    throw apiFailure(result?.error, 'entry-failed', 'error.entry-failed', response.status)
-  }
   return result
 }
 export async function requestSearch(workspaceId, query, caseSensitive, nameOnly, signal) {
   const params = new URLSearchParams({ workspaceId: String(workspaceId), q: query, caseSensitive: caseSensitive ? 'true' : 'false', nameOnly: nameOnly ? 'true' : 'false' })
-  const response = await fetch(`${API_PREFIX}/search?${params}`, { method: 'GET', headers: { accept: 'application/json' }, credentials: 'same-origin', signal })
+  const response = await fetch(`${API_PREFIX}/search?${params}`, { method: 'GET', headers: { accept: 'application/json' }, credentials: 'same-origin', signal: withTimeout(signal, REQUEST_TIMEOUT_MS) })
+  if (!response.ok) throw await responseFailure(response, 'search-failed', 'error.search-failed')
   let payload
   try {
     payload = await response.json()
@@ -396,23 +402,18 @@ export async function requestSearch(workspaceId, query, caseSensitive, nameOnly,
     if (error?.name === 'AbortError') throw error
     throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.search', { status: response.status }), response.status)
   }
-  if (!response.ok) {
-    throw apiFailure(payload?.error, 'search-failed', 'error.search-failed', response.status)
-  }
   return payload
 }
 export async function revealInExplorer(workspaceId, path, signal) {
   const query = new URLSearchParams({ workspaceId: String(workspaceId), path })
-  const response = await fetch(`${API_PREFIX}/reveal?${query}`, { method: 'POST', headers: { accept: 'application/json' }, credentials: 'same-origin', signal })
+  const response = await fetch(`${API_PREFIX}/reveal?${query}`, { method: 'POST', headers: { accept: 'application/json' }, credentials: 'same-origin', signal: withTimeout(signal, REQUEST_TIMEOUT_MS) })
+  if (!response.ok) throw await responseFailure(response, 'reveal-failed', 'error.reveal-failed.http')
   let payload
   try {
     payload = await response.json()
   } catch (error) {
     if (error?.name === 'AbortError') throw error
     throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.reveal', { status: response.status }), response.status)
-  }
-  if (!response.ok) {
-    throw apiFailure(payload?.error, 'reveal-failed', 'error.reveal-failed.http', response.status)
   }
   return payload
 }
@@ -421,17 +422,13 @@ export const renameWorkspaceEntry=(workspaceId,path,name,signal)=>mutateEntry('P
 export async function requestFsOperation(workspaceId, payload, signal) {
   const query = new URLSearchParams({ workspaceId: String(workspaceId) })
   const response = await fetch(`${API_PREFIX}/fs?${query}`, { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(payload), signal: withTimeout(signal, REQUEST_TIMEOUT_MS) })
+  if (!response.ok) throw await responseFailure(response, 'fs-failed', 'error.fs-failed')
   let result
   try {
     result = await response.json()
   } catch (error) {
     if (error?.name === 'AbortError') throw error
     throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.fs', { status: response.status }), response.status)
-  }
-  if (!response.ok) {
-    const failure = result?.error
-    const code = typeof failure?.code === 'string' ? failure.code : 'fs-failed'
-    throw new WorkspaceApiError(code, apiErrorMessage(code, typeof failure?.message === 'string' ? failure.message : undefined, 'error.fs-failed', { status: response.status }), response.status)
   }
   return result
 }

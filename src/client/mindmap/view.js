@@ -27,6 +27,12 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   const overlay = useMindmapOverlay()
   const settings = useSyncExternalStore(settingsStore.subscribe, settingsStore.getSnapshot)
   const [phase, setPhase] = useState({ status: 'loading' })
+  /* Manual retry for a failed load: the load effect's deps are sessionId-only,
+     so a phase change alone cannot re-trigger it — an epoch bump forces a
+     re-run (rootId is null while phase is 'error', so the in-family early
+     return stays out of the way). */
+  const [loadEpoch, setLoadEpoch] = useState(0)
+  const retryLoad = useCallback(() => { setLoadEpoch(epoch => epoch + 1) }, [])
   const [doc, setDoc] = useState(null)
   const [rootId, setRootId] = useState(null)
   // Latest root id as a ref: applySync guards against THIS (never the closure
@@ -251,7 +257,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         setPhase({ status: 'error', message: error instanceof Error ? error.message : String(error) })
       })
     return () => { cancelled = true }
-  }, [sessionId])
+  }, [loadEpoch, sessionId])
 
   /* Empty-state refresh: with phase 'empty' neither sync effect can run (rootId
      is null), so poll loadDoc until the first completed turn converts the doc
@@ -958,7 +964,9 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     savingRef.current += 1
     setDoc(next)
     lastFingerprintRef.current = mindmapDocFingerprint(next)
-    Promise.resolve(saveDocRef.current(String(rootId), next))
+    /* The root may have been re-anchored by a sync since this callback was
+       created (same rule as every other doc write in this component). */
+    Promise.resolve(saveDocRef.current(String(rootIdRef.current ?? rootId), next))
       .then(() => {
         if (!mountedRef.current) return
         mindmapRegistry.markDirty()
@@ -1124,13 +1132,17 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     savingRef.current += 1
     const run = async () => {
       const root = rootIdRef.current ?? rootId
+      /* Build the id set from the LATEST doc (docRef), not the render-time
+         closure: a branch folded by a sync while the confirm dialog was open
+         must be archived with the whole map, or it would resurface as an
+         ordinary session right after the doc delete and the hider drops it. */
+      const latestDoc = docRef.current ?? doc
       const ids = [root]
-      for (const s of doc?.sessions ?? []) ids.push(s?.sessionId)
+      for (const s of latestDoc?.sessions ?? []) ids.push(s?.sessionId)
       const unique = [...new Set(ids)].filter(id => id !== undefined && id !== null && id !== '')
-      if (unique.includes(String(sessionId))) openSessionRef.current(root)
-      /* Per-id best effort: one failed archive must not abort the whole map
-         teardown (the doc delete + overlay close below still run; the failed
-         session self-heals via the next sync's archived-set reconcile). */
+      /* Do NOT switch the chat to the root first: the root is archived moments
+         later, which would leave the conversation on a doomed session — the
+         harness settles the current session on its own once the archive lands. */
       for (const id of unique) await archiveSessionRef.current(String(id)).catch(() => {})
       if (root !== null && root !== undefined) {
         await deleteDocRef.current(String(root))
@@ -1166,6 +1178,12 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     const plan = mindmapDeletePlan(doc, String(menu.sessionId), menu.turnSeq, menu.empty === true)
     setMenu(null)
     setDeleteError(null)
+    if (plan === null) {
+      /* The target card is not in the doc anymore (a concurrent sync removed
+         it): say so instead of opening a dialog with nothing to delete. */
+      showNoticeError(translate('mindmap.delete.missing'))
+      return
+    }
     setDeleteTarget({
       sessionId: String(menu.sessionId),
       turnSeq: menu.turnSeq,
@@ -1641,8 +1659,11 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   }, [sessionSummarizing, sessionSummaryBusyId, sessionSummaryWaiting])
 
   if (phase.status === 'error') {
+    /* A transient load failure (Host lock contention, network blip, 500)
+       must not be a dead end: the retry re-runs the same load sequence. */
     return h('div', { className: 'dsh-ws-mindmap dsh-ws-mindmap-status' },
-      h('div', { className: 'dsh-ws-mindmap-error' }, translate('mindmap.error', { message: phase.message ?? '' })))
+      h('div', { className: 'dsh-ws-mindmap-error' }, translate('mindmap.error', { message: phase.message ?? '' })),
+      h('button', { className: 'dsh-ws-text-button dsh-ws-mindmap-retry', onClick: retryLoad, type: 'button' }, translate('mindmap.retry')))
   }
   if (phase.status === 'loading') {
     return h('div', { className: 'dsh-ws-mindmap dsh-ws-mindmap-status' },

@@ -28,7 +28,9 @@ export function normalizeRelativePath(value) {
   for (const part of parts) {
     if (/[. ]$/.test(part)) throw new HttpError(400, 'invalid-path', '路径段不能以点或空格结尾')
     const base = part.split('.')[0].toUpperCase()
-    if (/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/.test(base)) {
+    /* CONIN$/CONOUT$ are also reserved NT namespace names (raw EINVAL on
+       access) even though they do not match the COMMON device-name rule. */
+    if (/^(CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|COM[1-9]|LPT[1-9])$/.test(base)) {
       throw new HttpError(400, 'invalid-path', '路径段不能使用 Windows 保留名称')
     }
   }
@@ -66,13 +68,14 @@ export function normalizeEntryName(value, maxEntryNameBytes) {
     throw new HttpError(400, 'invalid-path', '文件名必须是工作区内的单个名称')
   }
   /* Windows refuses names that end in a dot/space or that match its reserved
-     device names (CON, PRN, AUX, NUL, COM1-9, LPT1-9) even with an extension;
-     reject them up front so a create/rename returns a clean 400 instead of a
-     raw fs error (500) on Windows hosts. Non-Windows hosts keep the same rule
-     for consistency (the names are illegal there too in practice). */
+     device names (CON, PRN, AUX, NUL, CONIN$/CONOUT$, COM1-9, LPT1-9) even
+     with an extension; reject them up front so a create/rename returns a
+     clean 400 instead of a raw fs error (500) on Windows hosts. Non-Windows
+     hosts keep the same rule for consistency (the names are illegal there too
+     in practice). */
   if (/[. ]$/.test(name)) throw new HttpError(400, 'invalid-path', '文件名不能以点或空格结尾')
   const base = name.split('.')[0].toUpperCase()
-  if (/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/.test(base)) {
+  if (/^(CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|COM[1-9]|LPT[1-9])$/.test(base)) {
     throw new HttpError(400, 'invalid-path', '文件名不能使用 Windows 保留名称')
   }
   if (Buffer.byteLength(name, 'utf8') > maxEntryNameBytes) {

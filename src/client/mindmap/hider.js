@@ -152,11 +152,15 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
     }
   }
   /* Time throttle: the observer fires per DOM mutation (streaming churn); one
-     scan per throttle window keeps the hiding fresh without global jank. */
+     scan per throttle window keeps the hiding fresh without global jank. The
+     slot may be re-created by the harness WITHOUT a body-direct childList
+     change (deep subtree replacement, which the body-level guard observer
+     cannot see): re-anchor here, inside the throttled callback, so a stale
+     slot never leaves the hider dead until the next registry change. */
   const schedule = () => {
     if (timer !== 0) return
     const wait = Math.max(0, MINDMAP_HIDER_THROTTLE_MS - (Date.now() - lastRun))
-    timer = window.setTimeout(() => { timer = 0; apply() }, wait)
+    timer = window.setTimeout(() => { timer = 0; ensureObserved(); apply() }, wait)
   }
   /* Observe ONLY the sidebar workspaces slot (the hider only touches rows
      there): chat streaming churn (characterData + childList on the chat

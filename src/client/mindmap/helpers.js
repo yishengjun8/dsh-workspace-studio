@@ -128,6 +128,15 @@ export function mindmapDeletePlan(doc, ownerId, turnSeq, emptyCard) {
           || s?.parentTurn === null || s?.parentTurn === undefined
           || Number(s?.parentTurn) === Number(t.n))) {
         pruneIds.add(String(s.sessionId))
+        /* An EMPTY pruned session has no turns to anchor ITS OWN subtree: seed
+           it with a null-key work item (the same rule the whole-branch seed
+           above uses for the owner) so its null-parentTurn descendants are
+           pruned too. Without this the children would stay in nextSessions
+           while their parent is gone — invisible in the map, hidden from the
+           sidebar, unreachable. */
+        if ((s?.turns ?? []).length === 0) {
+          removed.push({ sessionId: String(s.sessionId), seq: undefined, n: undefined })
+        }
         for (const turn of s?.turns ?? []) pushTurn(s.sessionId, turn)
       }
     }
@@ -545,11 +554,22 @@ export function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_M
   }
   const lastEntry = order.length > 0 ? entryBySession.get(String(order[order.length - 1].sessionId)) : undefined
   const lastRow = lastEntry === undefined ? 1 : lastEntry.row
-  const height = rootY + MINDMAP_ROOT_H + MINDMAP_ROW_GAP + MINDMAP_NODE_H + lastRow * (MINDMAP_NODE_H + MINDMAP_ROW_GAP) - MINDMAP_ROW_GAP
+  /* One trailing row gap so the last card never sits flush against the
+     viewport bottom on first fit / restore view (the top already reserves
+     rootY). */
+  const height = rootY + MINDMAP_ROOT_H + MINDMAP_ROW_GAP + MINDMAP_NODE_H + lastRow * (MINDMAP_NODE_H + MINDMAP_ROW_GAP)
   return { nodes, edges, width, height }
 }
 
 export const mindmapXOf = depth => MINDMAP_DEPTH_GAP + depth * (MINDMAP_NODE_W + MINDMAP_DEPTH_GAP)
+
+/* Normalize a workspace path for IDENTITY comparison: case-fold + strip the
+   trailing slash so `w.path === cwd`-style exact matches cannot miss on
+   Windows drives, trailing separators or mixed \ / (the sidebar grouping and
+   the root-node workspace resolver must agree on the same comparison). */
+export function normalizeMindmapWorkspacePath(path) {
+  return String(path ?? '').replace(/[\\/]+$/, '').toLowerCase()
+}
 
 /* The action a click on a layout node performs — 'new' (new top-level session at the root),
    'fork' (nested branch at this card) or 'switch' (jump the right-side chat to this node's own

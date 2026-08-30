@@ -208,6 +208,11 @@ export function useEditorSession({
     const controller = new AbortController()
     syncControllerRef.current = controller
     let timer = 0
+    /* Per-path in-flight guard: a hung Host (or a slow poll) must not stack an
+       unbounded number of overlapping change checks — each path is polled
+       again only after the previous check settled (the check request itself is
+       also timeout-bounded in api.js). */
+    const inflight = new Set()
     const tick = () => {
       if (controller.signal.aborted || !mounted.current) return
       const open = tabsRef.current.filter(tab => !tab.external && tab.path !== '')
@@ -217,6 +222,8 @@ export function useEditorSession({
         // A previous tick's reload is still in flight: skip so we cannot
         // double-bump reloadToken and remount (wiping the restored scroll).
         if (reloadingPathsRef.current.has(tab.path)) return
+        if (inflight.has(tab.path)) return
+        inflight.add(tab.path)
         const snapshot = watchSnapshotsRef.current.get(tab.path)
         try {
           /* Pass the null sentinel through (not `?? undefined`): a re-created
@@ -254,6 +261,8 @@ export function useEditorSession({
           }
         } catch {
           // Transient network/host error: keep polling on the next tick.
+        } finally {
+          inflight.delete(tab.path)
         }
       }))
     }
@@ -386,7 +395,20 @@ export function useEditorSession({
         const hostReadFailed = hostDraft?.failed === true
         const hostGeneration = Number.isSafeInteger(hostDraft?.generation) ? hostDraft.generation : 0
         const emergencyGeneration = Number.isSafeInteger(emergencyDraft?.generation) ? emergencyDraft.generation : 0
-        const draftData = emergencyDraft?.state === 'deleted' && emergencyGeneration >= hostGeneration
+        const emergencyTombstone = emergencyDraft !== null && emergencyDraft !== undefined
+          && emergencyDraft?.state === 'deleted'
+        /* A mirror TOMBSTONE may suppress the host draft ONLY when the host
+           does not hold a live draft of its own: every real discard writes (or
+           tries to write) the host side FIRST, so a live host draft means the
+           discard never persisted there — trusting an (possibly stale or
+           mirror-only) tombstone over it would hide unsaved work after exactly
+           the kind of transient host write failure the mirror exists to
+           survive. When the host draft is live, the tombstone is ignored and
+           the host draft wins. */
+        const hostDraftLive = hostDraft !== null && hostDraft !== undefined
+          && hostDraft?.exists === true && typeof hostDraft?.draft === 'string'
+          && hostDraft.draft !== hostDraft.baseText
+        const draftData = emergencyTombstone && !hostDraftLive && emergencyGeneration >= hostGeneration
           ? { exists: false }
           : emergencyDraft?.state !== 'deleted' && typeof emergencyDraft?.draft === 'string'
             && emergencyGeneration >= hostGeneration
@@ -527,14 +549,14 @@ export function useEditorSession({
         reloadingPathsRef.current.delete(activePath)
       })
     }, (error) => {
-      // Release the reloading marker on a real (non-abort) failure; an abort
-      // leaves it to the cleanup below, which only clears when the active path
-      // changed — so a same-path reload-token re-run keeps the marker armed
-      // through the new in-flight read (the tick must not double-bump).
-      if (error?.name !== 'AbortError') reloadingPathsRef.current.delete(activePath)
+      // A user cancellation leaves the marker to the cleanup below; a TIMEOUT
+      // (AbortSignal.timeout) is a REAL failure that must release the marker
+      // and surface the error preview.
+      if (error?.name === 'AbortError' && error?.reason?.name !== 'TimeoutError') return
+      reloadingPathsRef.current.delete(activePath)
       // A stale pass (superseded by a same-path re-run) must not surface its
       // failure over the newer read's state.
-      if (error?.name !== 'AbortError' && readSeq === readSeqRef.current && activePathRef.current === activePath) {
+      if (readSeq === readSeqRef.current && activePathRef.current === activePath) {
         const message = error instanceof Error ? error.message : String(error)
         setPreview({ state: 'error', path: activePath, message })
         updateTab(activePath, { saving: false, status: { error: true, text: message } })
@@ -760,7 +782,12 @@ export function useEditorSession({
       const pending = pendingAutosavesRef.current.get(path)
       if (pending?.generation === generation) pendingAutosavesRef.current.delete(path)
     } catch (error) {
-      if (error?.name === 'AbortError' || !mounted.current) return
+      if (!mounted.current) return
+      /* User cancellation is silent; a timeout on the draft write is a real
+         autosave failure and must surface (the next keystroke retries). */
+      if (error?.name === 'AbortError' && error?.reason?.name !== 'TimeoutError') return
+      const pending = pendingAutosavesRef.current.get(path)
+      if (pending?.generation === generation) pendingAutosavesRef.current.delete(path)
       /* A 409 draft-generation-conflict means the owner generation fence
          advanced past this write: a tree mutation (rename/move/delete) — which
          already re-queued the draft at the new path — or a CONCURRENT tab's
@@ -768,8 +795,6 @@ export function useEditorSession({
          next autosave strictly exceeds it and converges instead of pinging
          forever; the pending entry is dropped (the tree-op path re-queued, and
          the emergency mirror still holds this text). */
-      const pending = pendingAutosavesRef.current.get(path)
-      if (pending?.generation === generation) pendingAutosavesRef.current.delete(path)
       if (error?.status === 409) {
         const current = Number(error?.data?.currentGeneration)
         if (Number.isSafeInteger(current)) {
@@ -778,7 +803,8 @@ export function useEditorSession({
         }
         return
       }
-      const message = error instanceof Error ? error.message : String(error)
+      const timedOut = error?.name === 'AbortError' && error?.reason?.name === 'TimeoutError'
+      const message = timedOut ? translate('editor.requestTimeout') : (error instanceof Error ? error.message : String(error))
       if (activePathRef.current === path) setStatus({ error: true, text: translate('editor.autosaveFailed', { message }) })
     }
   }, [enqueueDraftOperation, persistDraftFile, workspace.workspaceId])
@@ -1004,12 +1030,15 @@ export function useEditorSession({
       setConflictDialog(dialog)
       return false
     } catch (error) {
-      if (error?.name === 'AbortError' || !mounted.current) return false
-      // A 409/412 race on the final write means the file changed mid-save: fall
-      // back to the plain-conflict messaging.
+      if (!mounted.current) return false
+      /* A genuine user cancellation is silent; a TIMEOUT (AbortSignal.timeout's
+         TimeoutError reason) is a real failure that must surface — otherwise
+         the tab stays dirty with the "保存中…" banner forever. */
+      if (error?.name === 'AbortError' && error?.reason?.name !== 'TimeoutError') return false
+      const timedOut = error?.name === 'AbortError' && error?.reason?.name === 'TimeoutError'
       const failure = error?.status === 409 || error?.status === 412
         ? translate('editor.saveConflict')
-        : translate('editor.saveFailed', { message: error instanceof Error ? error.message : String(error) })
+        : translate('editor.saveFailed', { message: timedOut ? translate('editor.requestTimeout') : (error instanceof Error ? error.message : String(error)) })
       updateTab(path, { dirty: true, draft: text, draftKnown: true, editing: true, saving: false, status: { error: true, text: failure } })
       if (activePathRef.current === path) setStatus({ error: true, text: failure })
       return false
@@ -1075,7 +1104,10 @@ export function useEditorSession({
       }
       if (!ok && mounted.current && activePathRef.current === path) setStatus({ error: true, text: translate('editor.saveConflict') })
     } catch (error) {
-      if (error?.name === 'AbortError' || !mounted.current) return
+      if (!mounted.current) return
+      /* User cancellation is silent; a TIMEOUT on the final write is a real
+         failure (same rule as save()). */
+      if (error?.name === 'AbortError' && error?.reason?.name !== 'TimeoutError') return
       /* A 409/412 on the final write means the disk moved AGAIN while the
          conflict dialog was open. Re-read and re-merge against the user's
          `mine` so their already-made choices are not thrown away: a clean
@@ -1123,7 +1155,8 @@ export function useEditorSession({
           if (mounted.current && activePathRef.current === path) setStatus({ text: translate('editor.conflictDiskChanged') })
           return
         } catch (readError) {
-          if (readError?.name === 'AbortError' || !mounted.current) return
+          if (!mounted.current) return
+          if (readError?.name === 'AbortError' && readError?.reason?.name !== 'TimeoutError') return
           // Fall through to the generic failure surface below.
         }
       }
@@ -1179,7 +1212,9 @@ export function useEditorSession({
       }
     } catch (error) {
       if (!mounted.current) return
-      const message = error instanceof Error ? error.message : String(error)
+      if (error?.name === 'AbortError' && error?.reason?.name !== 'TimeoutError') return
+      const timedOut = error?.name === 'AbortError' && error?.reason?.name === 'TimeoutError'
+      const message = timedOut ? translate('editor.requestTimeout') : (error instanceof Error ? error.message : String(error))
       const failure = { error: true, text: translate('editor.cancelFailed', { message }) }
       updateTab(path, { dirty: true, draft: discardedText, draftKnown: true, editing: true, saving: false, status: failure })
       if (activePathRef.current === path) {

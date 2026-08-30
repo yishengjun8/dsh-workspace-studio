@@ -5,6 +5,7 @@ import { translate } from '../locale/index.js'
 import { renameMindmapDoc } from '../api.js'
 import { SessionRenameDialog } from '../components/dialogs.js'
 import { mindmapRegistry, readMindmapOrder, updateMindmapOrder, useMindmapRegistry, writeMindmapOrder } from './registry.js'
+import { normalizeMindmapWorkspacePath } from './helpers.js'
 
 export function isMindmapFamilySession(list, id) {
   let cursor = String(id)
@@ -65,7 +66,11 @@ export function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, o
     if (groupTitle === undefined) return true
     const row = byId[String(doc.sessionId)]
     const item = workspaces.find(w => (w.sessionIds ?? []).includes(String(doc.sessionId)))
-      || (row?.cwd !== undefined ? workspaces.find(w => w.path === row.cwd) : undefined)
+      /* Same normalized path comparison as the root-node workspace resolver:
+         an exact `w.path === row.cwd` match would miss on trailing slashes,
+         case differences or mixed separators, dropping the doc into the wrong
+         (ungrouped) bucket. */
+      || (row?.cwd !== undefined ? workspaces.find(w => normalizeMindmapWorkspacePath(w.path) === normalizeMindmapWorkspacePath(row.cwd)) : undefined)
     const docTitle = item?.title
     /* A doc whose workspace resolves to a real Host workspace appears ONLY
        under that workspace's group, matched by its exact title. */

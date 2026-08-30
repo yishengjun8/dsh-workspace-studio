@@ -232,11 +232,19 @@ function findEditorContextBubble(candidate) {
 }
 
 function findEditorContextCandidate(container) {
+  /* FIRST envelope wins (was: last-wins). Compacting the first one rewrites
+     the container's text and schedules the observer again, so the second
+     envelope is found by the next pass — with last-wins, everything before
+     the final envelope stayed unfolded forever (the prefix cache saw an
+     unchanged container start and never re-scanned). */
   let candidate = null
   const elements = [container, ...container.querySelectorAll('div,span,p,pre')]
   for (const element of elements) {
     const text = element.textContent ?? ''
-    if (text.startsWith(OPENED_FILE_PREFIX) || text.startsWith(SELECTION_PREFIX)) candidate = element
+    if (text.startsWith(OPENED_FILE_PREFIX) || text.startsWith(SELECTION_PREFIX)) {
+      candidate = element
+      break
+    }
   }
   return candidate
 }

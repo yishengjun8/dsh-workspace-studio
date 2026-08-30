@@ -305,20 +305,21 @@ export function WorkspaceExplorer({
         return next
       })
     } catch (error) {
-      if (error?.name !== 'AbortError') {
-        if (!mounted.current || requests.current.get(path) !== controller) return
-        setDirectories(cur => {
-          const next = new Map(cur)
-          next.set(path, {
-            state: 'error',
-            entries: [],
-            message: error instanceof Error ? error.message : String(error),
-          })
-          return next
+      /* User cancellation is silent; a TIMEOUT is a real failure and must
+         surface the error row (the request is timeout-bounded in api.js). */
+      if (error?.name === 'AbortError' && error?.reason?.name !== 'TimeoutError') return
+      if (!mounted.current || requests.current.get(path) !== controller) return
+      setDirectories(cur => {
+        const next = new Map(cur)
+        next.set(path, {
+          state: 'error',
+          entries: [],
+          message: error instanceof Error ? error.message : String(error),
         })
-        if (options?.pruneOnMissing && error instanceof WorkspaceApiError && error.code === 'path-not-found') {
-          pruneExpandedPath(path)
-        }
+        return next
+      })
+      if (options?.pruneOnMissing && error instanceof WorkspaceApiError && error.code === 'path-not-found') {
+        pruneExpandedPath(path)
       }
     } finally {
       if (requests.current.get(path) === controller) requests.current.delete(path)

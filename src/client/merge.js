@@ -308,6 +308,15 @@ export function tryMergeWithScripts(base, mine, theirs, mineChanges, theirsChang
   return { status: 'clean', merged: resolveMergeParts(parts, [], []) }
 }
 
+/* MERGE_MAX_LINES counts LINES, but split('\n') yields one extra empty
+   element for a text ending in '\n' — a file of exactly MERGE_MAX_LINES
+   lines would otherwise trip the limit and degrade to the whole-file dialog.
+   Count with the trailing-empty-element tolerance. */
+function lineCountOf(text) {
+  const parts = text.split('\n')
+  return parts.length > 0 && parts[parts.length - 1] === '' ? parts.length - 1 : parts.length
+}
+
 /* Merge both edit scripts by clustering every transitively overlapping
    change — the closure that makes one-large-vs-many-small overlaps terminate.
    Conflicts stay structural (`parts`), so user text can never collide with a
@@ -318,7 +327,7 @@ export function threeWayMerge(baseText, mineText, theirsText) {
   const theirs = theirsText.split('\n')
   // Budget guard first: an oversized file that happens to equal one side must
   // still fall back to the whole-file dialog, not commit unchecked.
-  if (base.length > MERGE_MAX_LINES || mine.length > MERGE_MAX_LINES || theirs.length > MERGE_MAX_LINES) {
+  if (lineCountOf(baseText) > MERGE_MAX_LINES || lineCountOf(mineText) > MERGE_MAX_LINES || lineCountOf(theirsText) > MERGE_MAX_LINES) {
     return wholeFileConflict(base, mine, theirs, 'line-limit')
   }
   if (mineText === theirsText) return { status: 'clean', merged: mineText }

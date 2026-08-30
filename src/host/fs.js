@@ -463,6 +463,13 @@ async function fileChangeSnapshot(target, previous, maxPreviewBytes) {
     return previous
   }
   const hash = await previewHash(target, maxPreviewBytes)
+  /* A baseline WITHOUT a string hash (open of a file larger than the preview
+     window, which carries no revision; or an old client) has nothing to
+     compare: mtime/size stay the only change signal, and a same-mtime/size
+     file is reported unchanged instead of "changed on every poll" (the
+     previous.hash !== snapshot.hash comparison would otherwise fire forever
+     against the sampled hash — the >maxPreviewBytes auto-reload loop). */
+  if (sameMtime && typeof previous?.hash !== 'string') return { ...previous, checkedAt: Date.now() }
   if (hash !== null && previous?.hash === hash) return { ...previous, checkedAt: Date.now() }
   return { mtimeMs: current.mtimeMs, size: current.size, hash, checkedAt: Date.now() }
 }
@@ -474,7 +481,18 @@ async function fileChangeSnapshot(target, previous, maxPreviewBytes) {
 export async function readPreviewHead(workspace, relativePath, maxPreviewBytes, previousSnapshot) {
   if (relativePath === '') throw new HttpError(400, 'not-a-file', '请选择要预览的文件')
   const root = await realpath(workspace.path)
-  const target = await resolveWorkspacePath(root, relativePath)
+  /* The change-check contract (client api.js checkFileChange) expects 200
+     { exists: false } for a deleted/missing file — NOT a 404 — so the poll
+     can keep running and the client can surface the "file removed" state.
+     resolveWorkspacePath throws 404 path-not-found on ENOENT/ENOTDIR; treat
+     exactly that as "gone" here. */
+  let target
+  try {
+    target = await resolveWorkspacePath(root, relativePath)
+  } catch (error) {
+    if (error?.code === 'path-not-found') return null
+    throw error
+  }
   return fileChangeSnapshot(target, previousSnapshot, maxPreviewBytes)
 }
 /** Preview a drag-and-dropped non-workspace file. Browsers never expose a

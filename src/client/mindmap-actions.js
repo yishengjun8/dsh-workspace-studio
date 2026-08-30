@@ -6,7 +6,7 @@
  *  header never collides with the root (a root-replacement fork — card-deletion
  *  truncation of the root session — keeps the plain family title instead, asRoot). */
 import { deleteMindmapDoc, fetchMindmapDoc, renameMindmapDoc, syncMindmapDoc, writeMindmapDoc } from './api.js'
-import { mindmapRootTitleOf } from './mindmap/helpers.js'
+import { mindmapRootTitleOf, normalizeMindmapWorkspacePath } from './mindmap/helpers.js'
 
   /* The mind-map action face shared by the floating overlay (formerly the
      conversation.view inject): document IO, fork, rename and archive. forkAt
@@ -32,13 +32,12 @@ export function buildMindmapActions(ctx) {
         items = []
       }
       if (!Array.isArray(items)) return undefined
-      const normalize = (p) => String(p ?? '').replace(/[\\/]+$/, '').toLowerCase()
-      const target = normalize(cwd)
+      const target = normalizeMindmapWorkspacePath(cwd)
       for (const workspace of items) {
         if (workspace !== null && workspace !== undefined
           && workspace.workspaceId !== undefined
           && workspace.workspaceId !== ''
-          && normalize(workspace.path) === target) return String(workspace.workspaceId)
+          && normalizeMindmapWorkspacePath(workspace.path) === target) return String(workspace.workspaceId)
       }
       return undefined
     }

@@ -171,5 +171,15 @@ export function normalizeFailure(error) {
   if (error?.code === 'EISDIR') return new HttpError(400, 'not-a-file', '所选路径不是普通文件')
   if (error?.code === 'ELOOP') return new HttpError(400, 'invalid-path', '路径包含符号链接循环')
   if (error?.code === 'EROFS') return new HttpError(403, 'path-denied', '文件系统为只读')
+  /* Name/state races and platform edge cases that can slip past the
+     pre-checks (Windows reserved-name EINVAL, over-long names, non-empty
+     directories, a target that appeared mid-operation, locked files) must
+     not surface as 500s. */
+  if (error?.code === 'EINVAL' || error?.code === 'ENAMETOOLONG') {
+    return new HttpError(400, 'invalid-path', '路径无效或名称过长')
+  }
+  if (error?.code === 'EEXIST') return new HttpError(409, 'entry-exists', '同名文件或文件夹已存在')
+  if (error?.code === 'ENOTEMPTY') return new HttpError(409, 'entry-exists', '目录非空，无法完成该操作')
+  if (error?.code === 'EBUSY') return new HttpError(409, 'file-conflict', '文件或目录正被占用，请稍后重试')
   return new HttpError(500, 'workspace-operation-failed', '工作区操作失败')
 }

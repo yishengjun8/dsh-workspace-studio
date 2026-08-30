@@ -114,6 +114,16 @@ export function encodeText(text, encodingId, withBom = true) {
   }
   const spec = encodingById(encodingId)
   let body = iconv.encode(text, spec.encode)
+  /* Round-trip guard for the multi-byte encodings: iconv-lite silently
+     replaces characters the target encoding cannot represent with '?' (its
+     default replacement behavior), which would corrupt the saved file without
+     any error. Refuse the save instead — the round trip back through the
+     SAME decoder must reproduce the exact text. (The single-byte encodings
+     keep their documented '?' policy via SINGLE_BYTE_ENCODE_MAPS, where every
+     byte the decoder can produce is preserved by construction.) */
+  if (iconv.decode(body, spec.encode) !== text) {
+    throw new HttpError(415, 'unencodable-char', '文件包含目标编码无法表示的字符，无法保存')
+  }
   if (encodingId === 'utf-16le' && withBom) body = Buffer.concat([Buffer.from([0xff, 0xfe]), body])
   else if (encodingId === 'utf-16be' && withBom) body = Buffer.concat([Buffer.from([0xfe, 0xff]), body])
   return body

@@ -262,9 +262,18 @@ export async function renameEntry(workspace, relativePath, config, queues, req) 
     }
     /* Fast path: the target is verified absent, so a plain rename() is atomic,
        preserves inode/hardlinks, and — unlike the copy fallback — works for
-       directories containing symlinks. Fall back to copy+delete only when the
-       rename crosses devices (EXDEV); any other failure is a real error. */
+       directories containing symlinks. Re-verify the target RIGHT before the
+       rename (the same final fence saveFile runs before its rename): a file
+       created in the window since the lstat above would otherwise be silently
+       REPLACED by rename on POSIX (data loss) or fail with an unclassified
+       error on Windows. Fall back to copy+delete only when the rename crosses
+       devices (EXDEV); any other failure is a real error. */
     try {
+      const finalCollision = await lstat(target).catch(error => {
+        if (error?.code === 'ENOENT') return undefined
+        throw error
+      })
+      if (finalCollision !== undefined) throw new HttpError(409, 'entry-exists', '同名文件或文件夹已存在')
       await rename(source, target)
       return {
         workspaceId: String(workspace.id),
@@ -321,7 +330,13 @@ function sameEntrySnapshot(expected, current) {
   return sameEntryIdentity(expected, current)
     && expected.size === current.size
     && expected.mtimeMs === current.mtimeMs
-    && expected.ctimeMs === current.ctimeMs
+    /* libuv reports stat.ctime as the CREATION time on Windows (no POSIX
+       change-time semantics), so a ctimeMs comparison there is always true
+       and adds nothing; birthtime is the closest stable identity signal on
+       that platform (sameEntryIdentity's ino=0 fallback already uses it). */
+    && (process.platform === 'win32'
+      ? expected.birthtimeMs === current.birthtimeMs
+      : expected.ctimeMs === current.ctimeMs)
 }
 function assertEntrySnapshot(expected, current) {
   if (!sameEntrySnapshot(expected, current)) {
@@ -430,6 +445,15 @@ async function copyTreeExclusive(
     }
     const targetStat = await lstat(target)
     createdTargets.push({ path: target, stat: targetStat, directory: true })
+    /* Best-effort fence before recursing: an external writer may replace the
+       just-created target directory with a symlink pointing outside the
+       workspace; child copyFile/mkdir would then follow it and land outside.
+       Re-verify the target's identity before the children (cleanup later
+       refuses to remove targets that no longer match its recorded identity). */
+    const preRecurseStat = await lstat(target)
+    if (!sameEntryIdentity(targetStat, preRecurseStat)) {
+      throw new HttpError(409, 'file-conflict', '复制目标在复制期间被替换，已中止')
+    }
     const before = await readdir(source, { withFileTypes: true })
     const fingerprint = directoryFingerprint(before)
     for (const dirent of before) {

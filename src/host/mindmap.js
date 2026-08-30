@@ -69,6 +69,12 @@ const MINDMAP_SUMMARY_CALL_TIMEOUT_MS = 25_000
    the queue, just never in parallel. */
 const MINDMAP_SUMMARY_CONCURRENCY = 1
 const MINDMAP_SUMMARY_ENQUEUE_PER_SYNC = 5
+/* One-time cap for a "summarize this session" request's missing-card
+   backfill: a single long session must not fire hundreds of LLM calls in one
+   go (the comments on summarizeMindmapSession promise pacing). Remaining
+   missing turns are enqueued by the routine per-sync scan (capped) while the
+   session summary stays pending. */
+const MINDMAP_SUMMARY_SESSION_MISSING_CAP = 50
 const MINDMAP_SUMMARY_FAIL_COOLDOWN_MS = 10 * 60 * 1000
 const mindmapSummaryInFlight = new Set() // `${sessionId}:${seq}` — queued or running
 /* Keys whose LLM call the pump has actually STARTED (a subset of inFlight):
@@ -221,6 +227,13 @@ function normalizeMindmapDoc(doc) {
       updatedAt: Number(doc.updatedAt) || 0,
       next,
       sessions,
+      /* Carry the legacy tombstone fields through the v2→v3 conversion: the
+         reconcile/adopt paths still filter by mindmapDeletedKeys(doc) /
+         doc.deletedBranches FOR OLD DOCS until they are rewritten without
+         tombstones. Dropping them here would resurrect the deleted cards and
+         pruned branches of every v2 file the moment it is normalized. */
+      ...(Array.isArray(doc.deleted) ? { deleted: doc.deleted } : {}),
+      ...(Array.isArray(doc.deletedBranches) ? { deletedBranches: doc.deletedBranches } : {}),
     }
     return normalized
   }
@@ -320,7 +333,15 @@ function reconcileMindmapTurns(parsed, existing, next) {
     if (old !== undefined) {
       /* Carry the persisted AI summary across the rebuild (same rule as `n`):
          the log has no summary — it is derived data owned by the doc. */
-      const merged = { n: old.n, t: p.t, seq: p.seq, user: p.user }
+      const merged = {
+        n: old.n,
+        t: p.t,
+        seq: p.seq,
+        /* A compaction that REWROTE or dropped the original user/message event
+           yields an empty parse for an already-recorded turn; keep the
+           recorded text instead of blanking or re-concatenating the card. */
+        user: p.user === '' ? old.user : p.user,
+      }
       if (typeof old.summary === 'string' && old.summary !== '') merged.summary = old.summary
       out.push(merged)
     } else {
@@ -691,11 +712,9 @@ async function mindmapGenerateSummary(ctx, model, question, length) {
 async function mindmapWriteSummary(ctx, persistence, rootId, sessionId, seq, summary) {
   const probe = await readMindmapDocFile(rootId)
   if (probe === null || !isValidMindmapDoc(probe) || mindmapDocIsDead(ctx, probe)) return false
-  return mindmapLock(String(probe.rootSessionId), async () => {
-    const fresh = await readMindmapDocFile(String(probe.rootSessionId))
-    if (fresh === null || !isValidMindmapDoc(fresh) || mindmapDocIsDead(ctx, fresh)) return false
+  const apply = async (doc) => {
     let hit = false
-    for (const session of fresh.sessions ?? []) {
+    for (const session of doc.sessions ?? []) {
       if (session === null || session === undefined || String(session.sessionId) !== String(sessionId)) continue
       for (const turn of session.turns ?? []) {
         if (turn !== null && turn !== undefined && Number(turn.seq) === Number(seq)) {
@@ -707,15 +726,32 @@ async function mindmapWriteSummary(ctx, persistence, rootId, sessionId, seq, sum
       if (hit) break
     }
     if (!hit) return false
-    fresh.updatedAt = Date.now()
+    doc.updatedAt = Date.now()
     try {
-      await writeJsonAtomic(mindmapDocPath(fresh.rootSessionId), fresh)
+      await writeJsonAtomic(mindmapDocPath(doc.rootSessionId), doc)
     } catch (error) {
       ctx.logger.warn(`[workspace-studio] mindmap summary write failed: ${String(error)}`)
       return false
     }
-    mindmapSyncCache.delete(String(fresh.rootSessionId))
+    mindmapSyncCache.delete(String(doc.rootSessionId))
     return true
+  }
+  return mindmapLock(String(probe.rootSessionId), async () => {
+    const fresh = await readMindmapDocFile(String(probe.rootSessionId))
+    if (fresh === null || !isValidMindmapDoc(fresh) || mindmapDocIsDead(ctx, fresh)) return false
+    /* A root replacement between the probe and this lock re-anchors the read
+       to a DIFFERENT root: writing under the OLD root's lock would race the
+       new root's concurrent sync (the two locks do not serialize). Re-acquire
+       under BOTH roots (sorted, deadlock-free) and re-read, exactly like the
+       GET load path. */
+    if (String(fresh.rootSessionId) !== String(probe.rootSessionId)) {
+      return mindmapLocks([String(probe.rootSessionId), String(fresh.rootSessionId)], async () => {
+        const reRead = await readMindmapDocFile(String(probe.rootSessionId))
+        if (reRead === null || !isValidMindmapDoc(reRead) || mindmapDocIsDead(ctx, reRead)) return false
+        return apply(reRead)
+      })
+    }
+    return apply(fresh)
   })
 }
 
@@ -806,21 +842,33 @@ async function mindmapGenerateSessionSummary(ctx, model, summaries, length) {
 async function mindmapWriteSessionSummary(ctx, persistence, rootId, sessionId, summary) {
   const probe = await readMindmapDocFile(rootId)
   if (probe === null || !isValidMindmapDoc(probe) || mindmapDocIsDead(ctx, probe)) return false
-  return mindmapLock(String(probe.rootSessionId), async () => {
-    const fresh = await readMindmapDocFile(String(probe.rootSessionId))
-    if (fresh === null || !isValidMindmapDoc(fresh) || mindmapDocIsDead(ctx, fresh)) return false
-    const session = (fresh.sessions ?? []).find(s => s !== null && s !== undefined && String(s.sessionId) === String(sessionId))
+  const apply = async (doc) => {
+    const session = (doc.sessions ?? []).find(s => s !== null && s !== undefined && String(s.sessionId) === String(sessionId))
     if (session === undefined) return false
     session.summary = String(summary)
-    fresh.updatedAt = Date.now()
+    doc.updatedAt = Date.now()
     try {
-      await writeJsonAtomic(mindmapDocPath(fresh.rootSessionId), fresh)
+      await writeJsonAtomic(mindmapDocPath(doc.rootSessionId), doc)
     } catch (error) {
       ctx.logger.warn(`[workspace-studio] mindmap session summary write failed: ${String(error)}`)
       return false
     }
-    mindmapSyncCache.delete(String(fresh.rootSessionId))
+    mindmapSyncCache.delete(String(doc.rootSessionId))
     return true
+  }
+  return mindmapLock(String(probe.rootSessionId), async () => {
+    const fresh = await readMindmapDocFile(String(probe.rootSessionId))
+    if (fresh === null || !isValidMindmapDoc(fresh) || mindmapDocIsDead(ctx, fresh)) return false
+    /* Same root-replacement re-anchor rule as mindmapWriteSummary: never
+       read-modify-write a NEW root's doc under the OLD root's lock. */
+    if (String(fresh.rootSessionId) !== String(probe.rootSessionId)) {
+      return mindmapLocks([String(probe.rootSessionId), String(fresh.rootSessionId)], async () => {
+        const reRead = await readMindmapDocFile(String(probe.rootSessionId))
+        if (reRead === null || !isValidMindmapDoc(reRead) || mindmapDocIsDead(ctx, reRead)) return false
+        return apply(reRead)
+      })
+    }
+    return apply(fresh)
   })
 }
 
@@ -907,6 +955,10 @@ export function mindmapDrainPendingSessionSummaries(ctx, persistence) {
       continue
     }
     if (mindmapSessionSummaryRunning.has(key)) continue
+    /* One session-level job at a time: parallel jobs would multiply LLM cost
+       and interfere with the single card-summary worker; extra ready entries
+       stay pending and the next drain (each sync) picks them up. */
+    if (mindmapSessionSummaryRunning.size > 0) continue
     const failedAt = mindmapSessionSummaryFailedAt.get(key)
     if (failedAt !== undefined && failedAt + MINDMAP_SUMMARY_FAIL_COOLDOWN_MS > Date.now()) continue
     const { rootId, sessionId } = parts
@@ -957,8 +1009,10 @@ export async function summarizeMindmapSession(ctx, persistence, sessionId, confi
   /* Not ready: generate the missing card summaries first (force 'missing'
      retries previously failed turns), then wait for the drain. Scoped to the
      TARGET session only — a whole-doc scan here would bypass the per-sync
-     pacing and the failure cooldown for every other session's turns. */
-  mindmapEnqueueSummaries(ctx, persistence, doc, config, Number.MAX_SAFE_INTEGER, 'missing', sessionId)
+     pacing and the failure cooldown for every other session's turns. The
+     batch is capped so one long session cannot enqueue its entire history at
+     once; the rest follows via the per-sync scan while pending. */
+  mindmapEnqueueSummaries(ctx, persistence, doc, config, MINDMAP_SUMMARY_SESSION_MISSING_CAP, 'missing', sessionId)
   mindmapSessionSummaryPending.set(mindmapSessionSummaryKey(root, sessionId), config)
   mindmapDrainPendingSessionSummaries(ctx, persistence)
   return { ok: true, status: 'waiting' }
@@ -1699,12 +1753,19 @@ async function adoptMindmapOrphanPass(ctx, persistence, doc) {
    so a fork-of-a-fork converges in a few passes. */
 export async function adoptMindmapOrphans(ctx, persistence, doc) {
   let adopted = false
+  let incomplete = false
   for (let pass = 0; pass < 8; pass += 1) {
     const count = await adoptMindmapOrphanPass(ctx, persistence, doc)
     if (count === 0) break
     adopted = true
+    /* The pass cap ran out with this pass STILL adopting: a deeper orphan
+       chain remains. Report it so the sync cache does NOT record
+       adoptClean:true with the unchanged orphan signal — that combination
+       would skip adoption on every later poll and strand the deep orphan
+       forever. The next sync re-runs the scan. */
+    if (pass === 7) incomplete = true
   }
-  return adopted
+  return { adopted, incomplete }
 }
 
 /* Fault-isolated reconcile + adopt, shared by the GET load path and POST sync:
@@ -1723,6 +1784,7 @@ export async function refreshMindmapDocCore(ctx, persistence, doc, skipAdopt = f
   const warnings = []
   const before = JSON.stringify({ sessions: doc.sessions, next: doc.next, workspaceCwd: doc.workspaceCwd })
   let adopted = false
+  let adoptIncomplete = false
   try {
     await reconcileMindmapDoc(ctx, persistence, doc)
   } catch (error) {
@@ -1731,14 +1793,16 @@ export async function refreshMindmapDocCore(ctx, persistence, doc, skipAdopt = f
   }
   if (!skipAdopt) {
     try {
-      adopted = await adoptMindmapOrphans(ctx, persistence, doc)
+      const adoptResult = await adoptMindmapOrphans(ctx, persistence, doc)
+      adopted = adoptResult.adopted
+      adoptIncomplete = adoptResult.incomplete
     } catch (error) {
       warnings.push(`adopt: ${String(error)}`)
       try { ctx.logger.warn(`[workspace-studio] mindmap adopt failed, keeping recorded sessions: ${String(error)}`) } catch { /* no logger */ }
     }
   }
   const after = JSON.stringify({ sessions: doc.sessions, next: doc.next, workspaceCwd: doc.workspaceCwd })
-  return { adopted, changed: warnings.length === 0 && (adopted || before !== after), warnings }
+  return { adopted, adoptIncomplete, changed: warnings.length === 0 && (adopted || before !== after), warnings }
 }
 
 /* Reconcile the doc against the current full logs, adopt any harness fork
@@ -1758,15 +1822,10 @@ export async function syncMindmapDoc(ctx, persistence, sessionId, liveSessionIds
   const doc = await findMindmapDoc(ctx, persistence, sessionId)
   if (doc === null || !isValidMindmapDoc(doc)) return null
   const root = String(doc.rootSessionId)
-  /* The read-modify-write runs under the per-root lock: a client POST can no
-     longer interleave with the sync's stale write-back, and the doc is re-read
-     INSIDE the lock so a write between the probe and lock acquisition is picked up. */
-  return mindmapLock(root, async () => {
-    /* The probe already resolved the doc (possibly via a branch scan); inside
-       the lock only the ROOT's own file needs re-reading to catch a write that
-       landed between probe and lock — no directory re-scan. */
-    const fresh = await readMindmapDocFile(root)
-    if (fresh === null || mindmapDocIsDead(ctx, fresh) || String(fresh.rootSessionId) !== root) return null
+  /* Body of the read-modify-write, executed under the CURRENT root's lock
+     (re-acquired under both roots when a replacement re-anchors the doc). */
+  const syncBody = async (fresh) => {
+    const docRoot = String(fresh.rootSessionId)
     /* AI summaries are enqueued on BOTH paths: the cached fast path would
        otherwise starve backfill (missing summaries only re-enqueue when the
        signature changes or the 30 s TTL expires). The scan is a cheap read of
@@ -1776,7 +1835,7 @@ export async function syncMindmapDoc(ctx, persistence, sessionId, liveSessionIds
     /* A sync may also make a pending session summary ready (e.g. a card
        summary that landed outside the queue path). */
     mindmapDrainPendingSessionSummaries(ctx, persistence)
-    const cached = mindmapSyncCache.get(root)
+    const cached = mindmapSyncCache.get(docRoot)
     const now = Date.now()
     /* Cheap change check: when the signature is unchanged, serve the cached doc
        without re-parsing logs or scanning the index — the poll is O(1) while
@@ -1789,8 +1848,8 @@ export async function syncMindmapDoc(ctx, persistence, sessionId, liveSessionIds
       && cached.sig === sig && cached.liveKey === liveKey) {
       /* Refresh the LRU order so an actively-polled doc is never the eviction
          victim (Map iteration order is insertion order). */
-      mindmapSyncCache.delete(root)
-      mindmapSyncCache.set(root, cached)
+      mindmapSyncCache.delete(docRoot)
+      mindmapSyncCache.set(docRoot, cached)
       /* Incremental response: the doc is unchanged (signature match), so send
          doc: null instead of the full document — the client keeps its copy and
          only applies live/summarizing. The full doc still arrives on every
@@ -1811,11 +1870,24 @@ export async function syncMindmapDoc(ctx, persistence, sessionId, liveSessionIds
     let syncWriteFailed = false
     if (refresh.changed) {
       fresh.updatedAt = Date.now()
-      try {
-        await writeJsonAtomic(mindmapDocPath(fresh.rootSessionId), fresh)
-      } catch (error) {
-        syncWriteFailed = true
-        ctx.logger.warn(`[workspace-studio] mindmap doc sync write failed: ${String(error)}`)
+      const serialized = new TextEncoder().encode(JSON.stringify(fresh)).byteLength
+      if (serialized > MINDMAP_DOC_MAX_BYTES) {
+        /* Refuse to let the doc grow past the request-side body cap: every
+           later full-doc client write (fork / branch removal) would 413 and
+           lock the map with no shrink path. Keep the disk doc at its last
+           under-limit state, surface a warning (the client console-warns and
+           the response serves the disk doc), and let the user archive/prune
+           instead of silently losing the new turns from the map. The turns
+           stay in the session logs, so a future prune re-folds them. */
+        refresh.warnings.push(`doc-size-limit: serialized ${serialized} bytes exceeds ${MINDMAP_DOC_MAX_BYTES}`)
+        try { ctx.logger.warn(`[workspace-studio] mindmap doc exceeds ${MINDMAP_DOC_MAX_BYTES} bytes; refusing to fold new turns (${serialized})`) } catch { /* no logger */ }
+      } else {
+        try {
+          await writeJsonAtomic(mindmapDocPath(fresh.rootSessionId), fresh)
+        } catch (error) {
+          syncWriteFailed = true
+          ctx.logger.warn(`[workspace-studio] mindmap doc sync write failed: ${String(error)}`)
+        }
       }
     }
     /* A degraded reconcile/adopt (warnings) may have PARTIALLY mutated `fresh`
@@ -1824,7 +1896,7 @@ export async function syncMindmapDoc(ctx, persistence, sessionId, liveSessionIds
        half-reconciled object (the next sync retries the refresh). */
     let responseDoc = fresh
     if (refresh.warnings.length > 0) {
-      const disk = await readMindmapDocFile(root)
+      const disk = await readMindmapDocFile(docRoot)
       if (disk !== null && isValidMindmapDoc(disk)) responseDoc = disk
     }
     /* Collect the in-flight turn of each requested doc-family session. */
@@ -1857,7 +1929,10 @@ export async function syncMindmapDoc(ctx, persistence, sessionId, liveSessionIds
        entry so the next sync re-parses and retries (the GET load path uses
        the same policy). */
     if (refresh.warnings.length === 0 && !syncWriteFailed) {
-      mindmapSyncCache.set(root, { sig: settled.sig, doc: responseDoc, live, liveKey, at: Date.now(), refs: settled.refs, orphanSig, adoptClean: true })
+      /* adoptClean stays false while a deep orphan chain is still being
+         adopted (see adoptMindmapOrphans' incomplete flag): the next sync
+         re-runs the adoption instead of skipping it on the unchanged signal. */
+      mindmapSyncCache.set(docRoot, { sig: settled.sig, doc: responseDoc, live, liveKey, at: Date.now(), refs: settled.refs, orphanSig, adoptClean: refresh.adoptIncomplete !== true })
       /* Bounded LRU: evict the oldest entry when the cap is exceeded (each
          entry can hold up to 2 MiB; the hit path refreshes insertion order). */
       if (mindmapSyncCache.size > MINDMAP_SYNC_CACHE_MAX) {
@@ -1865,9 +1940,33 @@ export async function syncMindmapDoc(ctx, persistence, sessionId, liveSessionIds
         if (oldest !== undefined) mindmapSyncCache.delete(oldest)
       }
     } else if (syncWriteFailed) {
-      mindmapSyncCache.delete(root)
+      mindmapSyncCache.delete(docRoot)
     }
     return { doc: responseDoc, live, warnings: refresh.warnings, summarizing: mindmapSummarizingOf(responseDoc), sessionSummarizing: mindmapSessionSummarizingOf(responseDoc) }
+  }
+  /* The read-modify-write runs under the per-root lock: a client POST can no
+     longer interleave with the sync's stale write-back, and the doc is re-read
+     INSIDE the lock so a write between the probe and lock acquisition is picked up. */
+  return mindmapLock(root, async () => {
+    /* The probe already resolved the doc (possibly via a branch scan); inside
+       the lock only the ROOT's own file needs re-reading to catch a write that
+       landed between probe and lock — no directory re-scan. */
+    const fresh = await readMindmapDocFile(root)
+    if (fresh === null || mindmapDocIsDead(ctx, fresh)) return null
+    /* A root replacement landed between the probe and this lock: the live doc
+       now lives under a different root, and continuing under the OLD root's
+       lock would race the new root's concurrent sync. Re-acquire under BOTH
+       roots (sorted, deadlock-free) and re-read — never answer exists:false
+       for a doc that is alive under its new root (that would close the map
+       window for no reason). */
+    if (String(fresh.rootSessionId) !== root) {
+      return mindmapLocks([root, String(fresh.rootSessionId)], async () => {
+        const reRead = await readMindmapDocFile(root)
+        if (reRead === null || mindmapDocIsDead(ctx, reRead)) return null
+        return syncBody(reRead)
+      })
+    }
+    return syncBody(fresh)
   })
 }
 
@@ -1975,8 +2074,16 @@ export async function writeMindmapDoc(ctx, persistence, sessionId, doc, prevSess
     )
     if (prevSessionId === undefined || prevSessionId === null || String(prevSessionId) === String(sessionId)) {
       const previous = await readMindmapDocFile(String(doc.rootSessionId))
-      if (previous !== null && isValidMindmapDoc(previous)
-        && String(previous.rootSessionId) === String(doc.rootSessionId)) {
+      if (previous !== null && isValidMindmapDoc(previous)) {
+        /* This write's target id has been RETIRED by a root replacement: its
+           path now holds an alias stub that resolves to a DIFFERENT root.
+           Writing the stale full doc onto the stub would resurrect the old
+           root as a second doc file (same sessions on two files, index/sidebar
+           duplicates). Refuse instead of corrupting — the caller reloads from
+           the current root (readMindmapDocFile follows the stub for them). */
+        if (String(previous.rootSessionId) !== String(doc.rootSessionId)) {
+          throw new HttpError(409, 'mindmap-stale-write', '导图根会话已变更，写回已过期，请重新加载导图')
+        }
         const archived = mindmapArchivedSet(ctx)
         const incoming = new Set((doc.sessions ?? [])
           .map(s => (s === null || s === undefined ? undefined : String(s.sessionId)))
@@ -2023,6 +2130,13 @@ export async function renameMindmapDoc(ctx, persistence, sessionId, title) {
   if (doc === null || !isValidMindmapDoc(doc) || mindmapDocIsDead(ctx, doc)) {
     throw new HttpError(404, 'mindmap-not-found', '导图文档不存在')
   }
+  const apply = async (target) => {
+    target.rootTitle = title
+    target.updatedAt = Date.now()
+    await writeJsonAtomic(mindmapDocPath(target.rootSessionId), target)
+    mindmapSyncCache.delete(String(target.rootSessionId))
+    return { exists: true, doc: target }
+  }
   return mindmapLock(String(doc.rootSessionId), async () => {
     /* Re-read inside the lock: the first read only picks the queue key; writing
        the stale probe back would drop a turn a concurrent sync folded. */
@@ -2030,11 +2144,19 @@ export async function renameMindmapDoc(ctx, persistence, sessionId, title) {
     if (fresh === null || !isValidMindmapDoc(fresh) || mindmapDocIsDead(ctx, fresh)) {
       throw new HttpError(404, 'mindmap-not-found', '导图文档不存在')
     }
-    fresh.rootTitle = title
-    fresh.updatedAt = Date.now()
-    await writeJsonAtomic(mindmapDocPath(fresh.rootSessionId), fresh)
-    mindmapSyncCache.delete(String(fresh.rootSessionId))
-    return { exists: true, doc: fresh }
+    /* Same root-replacement re-anchor rule as the summary writers: the lock
+       key is the PROBE's root; a replacement that landed in between means the
+       live doc now lives under a different root. */
+    if (String(fresh.rootSessionId) !== String(doc.rootSessionId)) {
+      return mindmapLocks([String(doc.rootSessionId), String(fresh.rootSessionId)], async () => {
+        const reRead = await readMindmapDocFile(sessionId)
+        if (reRead === null || !isValidMindmapDoc(reRead) || mindmapDocIsDead(ctx, reRead)) {
+          throw new HttpError(404, 'mindmap-not-found', '导图文档不存在')
+        }
+        return apply(reRead)
+      })
+    }
+    return apply(fresh)
   })
 }
 

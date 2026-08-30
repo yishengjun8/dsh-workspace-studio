@@ -1,6 +1,6 @@
 import { createElement as h, Fragment, useRef, useState, useEffect, useLayoutEffect, useMemo, useCallback, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
-import { clampSpinSpeed, CONTEXT_MENU_WIDTH, EDITOR_CONTEXT_PROVIDER, EXPLORER_MAX_RATIO, MINDMAP_END_COLOR_DEFAULT, MINDMAP_HEAD_COLOR_DEFAULT, MINDMAP_SPIN_BASE_DURATION_S, MINDMAP_SPIN_STOP_DURATION_S, MOBILE_HEADER_FALLBACK_H, PACKAGE_ID, PREVIEW_DEFAULT, PREVIEW_MAX, PREVIEW_MIN, ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MAX, ROW_HEIGHT_MIN, SIDEBAR_COLLAPSED, SIDEBAR_MAX_FALLBACK, SIDEBAR_MAX_RATIO, SIDEBAR_MIN, TREE_MAX, TREE_MIN } from './constants.js'
+import { clampSpinSpeed, CONTEXT_MENU_WIDTH, EDITOR_CONTEXT_PROVIDER, EXPLORER_MAX_RATIO, MINDMAP_END_COLOR_DEFAULT, MINDMAP_HEAD_COLOR_DEFAULT, MINDMAP_SPIN_BASE_DURATION_S, MINDMAP_SPIN_STOP_DURATION_S, MOBILE_HEADER_FALLBACK_H, PACKAGE_ID, PREVIEW_DEFAULT, PREVIEW_MAX, PREVIEW_MIN, PREVIEW_SESSION_MAX, ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MAX, ROW_HEIGHT_MIN, SIDEBAR_COLLAPSED, SIDEBAR_MAX_FALLBACK, SIDEBAR_MAX_RATIO, SIDEBAR_MIN, TREE_MAX, TREE_MIN } from './constants.js'
 import { installLocaleService, translate, useLocaleText } from './locale/index.js'
 import { setDrawerOpen, setMobile, useMobile } from './mobile.js'
 import { styles } from './styles.js'
@@ -37,6 +37,21 @@ export function AppFrame(props) {
   const panes = useSyncExternalStore(props.explorerPaneStore.subscribe, props.explorerPaneStore.getSnapshot)
   const mobile = useMobile()
   const overlay = useMindmapOverlay()
+  /* One-time self-heal for legacy over-limit data: prunePreviewSessions only
+     runs inside rememberPreviewSession, so a localStorage snapshot holding
+     more than PREVIEW_SESSION_MAX keys (written before the cap existed) would
+     stay oversized — and keep 3-key whole-value serializations large — until
+     the next real write. Re-stamping every key through the store action
+     converges to the cap in one pass and refreshes updatedAt so genuinely
+     stale sessions prune first. */
+  useLayoutEffect(() => {
+    const entries = previewPanels.previewSessions
+    if (entries === null || entries === undefined || typeof entries !== 'object') return
+    const keys = Object.keys(entries)
+    if (keys.length <= PREVIEW_SESSION_MAX) return
+    for (const key of keys) props.previewSessionsStore.actions.rememberPreviewSession(key, entries[key])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   // Mirror the sidebar width into the persisted pane store: the layout store
   // owns the live value but cannot persist wholesale, so the pane store's
   // small layout value is the durable copy, rehydrated on the next load.
@@ -61,12 +76,16 @@ export function AppFrame(props) {
       sidebarMirrorRef.current = { value: panels.sidebar, max: sidebarMax }
       return
     }
-    // Re-mirror when the VALUE or the CEILING changed: the first mount pass
-    // uses the 420 fallback (viewport not measured yet), which would otherwise
-    // clamp a wider sidebar in the persisted store forever.
-    if (sidebarMirrorRef.current?.value !== panels.sidebar || sidebarMirrorRef.current?.max !== sidebarMax) {
+    // Re-mirror when the VALUE changed (the ceiling only clamps the write);
+    // keep the ref current on a ceiling-only change (viewport resize) WITHOUT
+    // rewriting the persisted store — a whole-store setItem per resize tick
+    // is pure cost when the value did not move.
+    const previousMirror = sidebarMirrorRef.current
+    if (previousMirror?.value !== panels.sidebar) {
       sidebarMirrorRef.current = { value: panels.sidebar, max: sidebarMax }
       props.explorerPaneStore.actions.setSidebar(panels.sidebar, sidebarMax)
+    } else if (previousMirror?.max !== sidebarMax) {
+      sidebarMirrorRef.current = { value: panels.sidebar, max: sidebarMax }
     }
   }, [mobile.on, panels.sidebar, props.explorerPaneStore, sidebarMax])
   // In mobile file-fullscreen the conversation header stays pinned above the

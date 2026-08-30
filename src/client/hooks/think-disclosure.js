@@ -4,7 +4,7 @@
  *  keypress cancels a pending auto-collapse, manually opened rows are never
  *  auto-collapsed). */
 import { useEffect, useRef } from 'react'
-import { AUTO_EXPAND_THINK_DEFAULT, THINK_COLLAPSE_DELAY_DEFAULT_S } from '../constants.js'
+import { AUTO_EXPAND_THINK_DEFAULT, THINK_COLLAPSE_DELAY_DEFAULT_S, THINK_COLLAPSE_DELAY_MAX_S, THINK_COLLAPSE_DELAY_MIN_S } from '../constants.js'
 
 export function useThinkDisclosure({ chatSectionRef, autoExpandThink, thinkCollapseDelay }) {
   /* Roots this behavior has already seen persist across effect re-runs (the
@@ -26,9 +26,22 @@ export function useThinkDisclosure({ chatSectionRef, autoExpandThink, thinkColla
     }
     const section = chatSectionRef.current
     if (section === null) return undefined
-    const collapseDelayMs = Math.round((thinkCollapseDelay ?? THINK_COLLAPSE_DELAY_DEFAULT_S) * 1000)
+    /* Clamp + round to the store's 0.1 s resolution BEFORE converting to ms:
+       a legacy/hand-written out-of-range value (e.g. 50, NaN) must not become
+       a 50 s (or instant NaN) auto-collapse delay. */
+    const rawDelay = Number(thinkCollapseDelay)
+    const delaySeconds = Number.isFinite(rawDelay)
+      ? Math.min(THINK_COLLAPSE_DELAY_MAX_S, Math.max(THINK_COLLAPSE_DELAY_MIN_S, rawDelay))
+      : THINK_COLLAPSE_DELAY_DEFAULT_S
+    const collapseDelayMs = Math.round(Math.round(delaySeconds * 10) / 10 * 1000)
     const autoOpened = thinkAutoOpenedRef.current
     const pendingCollapses = new Map()
+    /* Think roots whose disclosure row had not rendered yet when the root was
+       seen: retried on every later mutation (the row usually lands one frame
+       after the root — the old code claimed a retry but only scanned the added
+       node's DESCENDANTS, and a think root is the row's ANCESTOR, so the retry
+       never fired). */
+    const pendingRoots = new Set()
     const rowOf = root => root.querySelector(':scope [data-disclosure-row]')
     // Flag programmatic row clicks so the interaction listener below does not
     // treat this behavior's own clicks as user interaction.
@@ -41,10 +54,15 @@ export function useThinkDisclosure({ chatSectionRef, autoExpandThink, thinkColla
       if (autoOpened.has(root)) return
       const row = rowOf(root)
       // Track only rows this behavior actually opened. A disclosure that has
-      // not rendered yet must be retried on the next child mutation, while a
-      // row already opened by the user remains user-owned and is never closed
-      // automatically.
-      if (row === null || row.getAttribute('aria-expanded') === 'true') return
+      // not rendered yet is parked in pendingRoots and retried on the next
+      // mutation, while a row already opened by the user remains user-owned
+      // and is never closed automatically.
+      if (row === null) {
+        pendingRoots.add(root)
+        return
+      }
+      pendingRoots.delete(root)
+      if (row.getAttribute('aria-expanded') === 'true') return
       thinkAutoOpenedKnownRef.current.add(root)
       autoOpened.add(root)
       clickRow(row)
@@ -96,8 +114,14 @@ export function useThinkDisclosure({ chatSectionRef, autoExpandThink, thinkColla
           const root = mutation.target
           if (root.nodeType !== 1 || !root.matches?.('[data-variant="think"]')) continue
           const state = root.getAttribute('data-state')
-          if (state === 'running') openRow(root)
-          else if (state === 'ok' && autoOpened.has(root)) scheduleClose(root)
+          if (state === 'running') {
+            /* Re-streaming on the same block (ok → running): cancel any
+               pending auto-collapse left over from the previous run BEFORE
+               re-opening, or the stale timer would collapse the block
+               mid-stream. */
+            cancelPending(root)
+            openRow(root)
+          } else if (state === 'ok' && autoOpened.has(root)) scheduleClose(root)
           continue
         }
         if (mutation.type !== 'childList') continue
@@ -109,6 +133,14 @@ export function useThinkDisclosure({ chatSectionRef, autoExpandThink, thinkColla
             for (const root of node.querySelectorAll?.('[data-variant="think"][data-state="running"]') ?? []) openRow(root)
           }
         }
+      }
+      /* Retry parked roots (row not rendered yet) on every mutation batch. */
+      for (const root of [...pendingRoots]) {
+        if (!root.isConnected) {
+          pendingRoots.delete(root)
+          continue
+        }
+        openRow(root)
       }
     })
     observer.observe(section, { attributes: true, attributeFilter: ['data-state'], childList: true, subtree: true })
