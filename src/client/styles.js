@@ -154,9 +154,13 @@ body > [role="status"]{display:none!important}
    hidden so the switcher trigger — rendered in
    conversation.session.header.actions at order -400 — becomes the visible
    session title; subagent parent breadcrumbs stay (only the self crumb is
-   hidden). The panel is portalled to body with fixed positioning, so the
-   chat column's overflow never clips it. */
+   hidden). When the crumb is the nav's ONLY segment, the whole nav is hidden
+   too: a display:none crumb still occupies its flex slot, so the
+   titleCluster's 10px gap would otherwise leave a phantom gap before the
+   switcher trigger. The panel is portalled to body with fixed positioning,
+   so the chat column's overflow never clips it. */
 [data-slot="conversation.session.header"] > header > div:first-child > div:first-child > nav > span:last-child{display:none}
+[data-slot="conversation.session.header"] > header > div:first-child > div:first-child > nav:has(> span:last-child:only-child){display:none}
 .dsh-ws-session-switcher{display:inline-flex;align-items:center;min-width:0;flex:0 0 auto}
 .dsh-ws-session-switcher-trigger{display:inline-flex;align-items:center;gap:4px;max-width:min(320px,60vw);min-width:0;padding:2px 6px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);font-family:inherit;font-size:14px;font-weight:500;line-height:22px;cursor:pointer;box-sizing:border-box}
 .dsh-ws-session-switcher-trigger:hover{background:var(--dsw-alias-interactive-bg-hover)}

@@ -142,27 +142,35 @@ export function useEditorSession({
     const activeNow = activePathNow === path
     const editableActive = activeNow && preview.state === 'ready' && preview.editable !== false && !preview.readOnlyReason
     if (activeNow && !tab.dirty && !tab.saving) {
-      // Clean active tab: reload from disk in BOTH modes; only the wording
-      // differs (auto: "reloaded" status; watch-only: "disk changed"). Scroll
-      // is preserved — the read path restores the persisted scrollTop.
-      const notice = (settings.autoSyncMode ?? AUTO_SYNC_MODE_AUTO) === AUTO_SYNC_MODE_AUTO
-        ? translate('editor.refreshed')
-        : translate('status.fileChanged')
-      // Mark this path as reloading so the polling tick skips it until the
-      // read settles — a second bump would remount and discard the scroll.
-      reloadingPathsRef.current.add(path)
-      // Flag the read pass to surface the reloaded status (same path as the
-      // manual refresh button), then bump the reload token — but only if no
-      // manual refresh already armed the pass with its own bump.
-      if (refreshPendingRef.current !== path) {
-        refreshPendingRef.current = path
-        setReloadToken(token => token + 1)
+      const auto = (settings.autoSyncMode ?? AUTO_SYNC_MODE_AUTO) === AUTO_SYNC_MODE_AUTO
+      if (auto) {
+        // Clean active tab, AUTO mode: reload from disk right away. Scroll is
+        // preserved — the read path restores the persisted scrollTop.
+        // Mark this path as reloading so the polling tick skips it until the
+        // read settles — a second bump would remount and discard the scroll.
+        reloadingPathsRef.current.add(path)
+        // Flag the read pass to surface the reloaded status (same path as the
+        // manual refresh button), then bump the reload token — but only if no
+        // manual refresh already armed the pass with its own bump.
+        if (refreshPendingRef.current !== path) {
+          refreshPendingRef.current = path
+          setReloadToken(token => token + 1)
+        }
+        updateTab(path, { status: { text: translate('editor.refreshed') } })
+        setStatus({ text: translate('editor.refreshed') })
+      } else {
+        // WATCH-ONLY mode ("仅提示，不自动刷新"): surface the change WITHOUT
+        // reloading — the user decides when to pull the new content (the
+        // preview header refresh button re-reads from disk). Nothing is added
+        // to reloadingPathsRef, so the next tick keeps polling against the
+        // updated baseline without re-reporting.
+        updateTab(path, { status: { text: translate('status.fileChanged') } })
+        setStatus({ text: translate('status.fileChanged') })
       }
-      updateTab(path, { status: { text: notice } })
-      if (activeNow) setStatus({ text: notice })
-    } else if (activeNow) {
-      // Dirty or saving tab: NEVER overwrite the draft; surface the change
-      // and let the user decide (save three-way merges / asks).
+    } else if (activeNow && !tab.saving) {
+      // Dirty (non-saving) tab: NEVER overwrite the draft or the in-flight
+      // save status; surface the change and let the user decide (save
+      // three-way merges / asks, or their own refresh).
       const dirtyNow = editableActive ? tab.dirty : false
       const text = dirtyNow
         ? translate('status.fileChangedDirty')

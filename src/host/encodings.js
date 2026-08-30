@@ -100,12 +100,15 @@ export function encodeText(text, encodingId) {
   }
   const singleByteMap = SINGLE_BYTE_ENCODE_MAPS.get(encodingId)
   if (singleByteMap !== undefined) {
-    const bytes = Buffer.allocUnsafe(text.length)
-    for (let index = 0; index < text.length; index += 1) {
-      const byte = singleByteMap.get(text.codePointAt(index))
-      bytes[index] = byte === undefined ? 0x3f : byte
+    /* Iterate by CODE POINT (for..of), not by UTF-16 code unit: a surrogate
+       pair (e.g. an emoji) is ONE unmappable character and must produce ONE
+       replacement byte — indexing units would emit '??' for it. */
+    const bytes = []
+    for (const char of text) {
+      const byte = singleByteMap.get(char.codePointAt(0))
+      bytes.push(byte === undefined ? 0x3f : byte)
     }
-    return bytes
+    return Buffer.from(bytes)
   }
   const spec = encodingById(encodingId)
   let body = iconv.encode(text, spec.encode)

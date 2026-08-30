@@ -300,21 +300,32 @@ export class PromptContextBridge {
            early send with an empty draft + active context would otherwise
            no-op through the original submit. Bounded: a session whose binding
            never becomes ready (or a missing conversation service) must not
-           spin a 50 ms timer forever — give up after ENSURE_RETRY_MAX
-           attempts and drop the entry (a later reconcile() re-arms it if the
-           session is still listed and the seams have appeared). */
-        const retry = this.ensureRetries.get(id)
-        if (retry === undefined) {
-          this.ensureRetries.set(id, { count: 1, timer: setTimeout(() => {
-            const current = this.ensureRetries.get(id)
-            if (current !== undefined) current.count += 1
-            this.ensureRetries.delete(id)
-            this.ensure(id)
-          }, 50) })
-        } else if (retry.count >= ENSURE_RETRY_MAX) {
-          clearTimeout(retry.timer)
+           spin a 50 ms timer forever. The retry ENTRY persists across timer
+           firings and counts every scheduled attempt; once ENSURE_RETRY_MAX
+           attempts have been scheduled the entry is dropped (a later
+           reconcile() re-arms it if the session is still listed and the seams
+           have appeared). Earlier code deleted the entry inside the timer and
+           re-created it with count 1 on every fire, so the cap never engaged
+           and an unavailable binding retried forever. */
+        const existing = this.ensureRetries.get(id)
+        if (existing !== undefined && existing.count >= ENSURE_RETRY_MAX) {
+          clearTimeout(existing.timer)
           this.ensureRetries.delete(id)
+          return
         }
+        const count = existing === undefined ? 0 : existing.count
+        clearTimeout(existing?.timer)
+        const timer = setTimeout(() => {
+          const current = this.ensureRetries.get(id)
+          if (current === undefined) return
+          /* Advance the attempt counter on the PERSISTED entry (not a
+             deleted-then-recreated one): the cap check in ensure() compares
+             against it, so an unavailable binding stops re-arming after
+             ENSURE_RETRY_MAX attempts instead of forever. */
+          current.count += 1
+          this.ensure(id)
+        }, 50)
+        this.ensureRetries.set(id, { count, timer })
         return
       }
       const input = this.conversation.input.for(binding.ctx)

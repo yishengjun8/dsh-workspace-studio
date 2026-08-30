@@ -347,9 +347,42 @@ async function pruneDraftTombstones(records, owner) {
   }
 }
 
+/* Undo a partial draft tree operation: restore (or remove) every file this
+   call wrote, newest first. Each write entry tracks its target's PRIOR content
+   (null = the path did not exist), so a rollback restores exactly what was
+   there before — a pre-existing tombstone is written back, a freshly written
+   file is unlinked. Best-effort: a failed rollback entry is collected, never
+   silently thrown away by the caller. */
+async function rollbackDraftWrites(writes) {
+  const failures = []
+  for (let index = writes.length - 1; index >= 0; index -= 1) {
+    const { target, prior } = writes[index]
+    try {
+      if (prior === null || prior === undefined) {
+        await unlink(target).catch(error => {
+          if (error?.code !== 'ENOENT') throw error
+        })
+      } else {
+        await writeJsonAtomic(target, prior)
+      }
+    } catch (error) {
+      failures.push(error)
+    }
+  }
+  return failures
+}
+
+function draftTombstone(owner, path, generation) {
+  return { version: 2, owner, path, generation, deleted: true }
+}
+
 /** Move or delete every staged draft below a path, serialized per owner with a
  * generation (tombstones make a late autosave fail even when the path had no
- * draft at the tree op). */
+ * draft at the tree op). Both actions are two-phase: every write target is
+ * created first (move: all destinations, then all source tombstones; delete:
+ * all tombstones), and any mid-flight failure rolls back everything this call
+ * wrote — a partial migration can never leave the user's edits split across
+ * paths or half-tombstoned. */
 export async function draftTreeOperation(workspaceId, payload, config, queues) {
   if (!config.enableEditing) throw new HttpError(403, 'editing-disabled', '当前未启用文件编辑')
   if (!isPlainObject(payload)) throw new HttpError(400, 'invalid-draft', '暂存树请求必须是 JSON 对象')
@@ -378,10 +411,16 @@ export async function draftTreeOperation(workspaceId, payload, config, queues) {
     const records = await listDraftRecords(workspaceId, owner)
     const selected = records.filter(record => record.value.deleted !== true && draftPathMatches(record.value.path, fromPath))
     if (action === 'delete') {
-      for (const record of selected) {
-        await writeJsonAtomic(draftFilePath(workspaceId, record.value.path, owner), {
-          version: 2, owner, path: record.value.path, generation, deleted: true,
-        })
+      const writes = []
+      try {
+        for (const record of selected) {
+          writes.push({ target: draftFilePath(workspaceId, record.value.path, owner), prior: record.value })
+          await writeJsonAtomic(draftFilePath(workspaceId, record.value.path, owner), draftTombstone(owner, record.value.path, generation))
+        }
+      } catch (error) {
+        const failures = await rollbackDraftWrites(writes)
+        if (failures.length > 0) throw new AggregateError([error, ...failures], 'draft tree rollback incomplete')
+        throw error
       }
       await pruneDraftTombstones(records, owner)
       return { workspaceId: String(workspaceId), owner, generation, action, path: fromPath, count: selected.length }
@@ -407,13 +446,38 @@ export async function draftTreeOperation(workspaceId, payload, config, queues) {
       }
       throw new HttpError(409, 'entry-exists', `目标暂存已存在：${destination.path}`)
     }
-    for (const destination of destinations) {
-      if (!destination.complete) await writeJsonAtomic(draftFilePath(workspaceId, destination.path, owner), destination.next)
+    /* Phase 1: write EVERY destination before any source is touched. A failure
+       here rolls the written destinations back (the sources are still live, so
+       nothing is lost). */
+    const destinationWrites = []
+    try {
+      for (const destination of destinations) {
+        if (destination.complete) continue
+        const target = draftFilePath(workspaceId, destination.path, owner)
+        destinationWrites.push({ target, prior: await readJsonFileOrNull(target) })
+        await writeJsonAtomic(target, destination.next)
+      }
+    } catch (error) {
+      const failures = await rollbackDraftWrites(destinationWrites)
+      if (failures.length > 0) throw new AggregateError([error, ...failures], 'draft tree rollback incomplete')
+      throw error
     }
-    for (const record of selected) {
-      await writeJsonAtomic(draftFilePath(workspaceId, record.value.path, owner), {
-        version: 2, owner, path: record.value.path, generation, deleted: true,
-      })
+    /* Phase 2: tombstone every source. A failure here restores the already
+       tombstoned sources AND removes the phase-1 destinations, returning the
+       tree to its pre-operation state. */
+    const sourceWrites = []
+    try {
+      for (const record of selected) {
+        sourceWrites.push({ target: draftFilePath(workspaceId, record.value.path, owner), prior: record.value })
+        await writeJsonAtomic(draftFilePath(workspaceId, record.value.path, owner), draftTombstone(owner, record.value.path, generation))
+      }
+    } catch (error) {
+      const failures = [
+        ...(await rollbackDraftWrites(sourceWrites)),
+        ...(await rollbackDraftWrites(destinationWrites)),
+      ]
+      if (failures.length > 0) throw new AggregateError([error, ...failures], 'draft tree rollback incomplete')
+      throw error
     }
     await pruneDraftTombstones(records, owner)
     return { workspaceId: String(workspaceId), owner, generation, action, fromPath, toPath, count: selected.length }
