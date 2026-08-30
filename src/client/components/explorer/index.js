@@ -107,6 +107,12 @@ export function WorkspaceExplorer({
   // React state or persistence; merged into the snapshot only when serialized.
   const scrollTopRef = useRef(new Map())
   const sessionEstablishedRef = useRef(false)
+  /* Whether a snapshot with REAL content (a non-external tab or a tree
+     expansion) was ever persisted for this mount. External-only tabs must not
+     drive persisted state, but closing the LAST real tab must still persist
+     (clearing the stale snapshot) — so the skip guard below only applies while
+     nothing real was ever persisted. Seeded from the restored snapshot. */
+  const persistedRealContentRef = useRef(initialPreviewSession.tabs.some(tab => !tab.external) || (initialPreviewSession.expanded ?? []).length > 0)
   // Paths confirmed missing in the current workspace while restoring persisted
   // expansion. Later restore passes (notably the late-arriving stored session)
   // skip them until the cleaned snapshot is persisted, so a pruned path cannot
@@ -149,8 +155,14 @@ export function WorkspaceExplorer({
        tree carries no expansion, writing would produce an empty snapshot and
        the store action would DELETE the current-session and workspace anchor
        keys — the workspace key may be the only saved copy of ANOTHER session's
-       tabs. Skip the write; external previews must not drive persisted state. */
-    if (liveTabs.length > 0 && liveTabs.every(tab => tab.external) && !hasTreeExpansion) return
+       tabs. But the skip must NOT apply once real content was ever persisted:
+       closing the last real tab (leaving only external tabs) is a real state
+       change and must write through, or the closed tab would resurrect on
+       refresh. */
+    const hasRealTabs = liveTabs.some(tab => !tab.external)
+    const hasRealContent = hasRealTabs || hasTreeExpansion
+    if (!hasRealContent && !persistedRealContentRef.current) return
+    if (hasRealContent) persistedRealContentRef.current = true
     const meaningful = previewTabsBootstrapped.current || liveTabs.length !== 0 || activePathRef.current !== null || hasTreeExpansion
     // Skip until this session establishes state: a bare empty mount must not
     // clobber another session's workspace-key snapshot. Once established, keep
@@ -193,6 +205,7 @@ export function WorkspaceExplorer({
     publishContextState, save, cancel, discardDraft, resolveConflict,
     clearDraftFile, scheduleAutosave, invalidateDraftPath, nextDraftGeneration,
     forgetPathRefs, rollbackDraftTree, lastWriteRef, draftTailsRef, draftGenerationsRef,
+    watchSnapshotsRef,
     readController: readControllerRef, saveController: saveControllerRef,
     flushAutosavesRef, migratePendingAutosavesRef,
   } = editorSession
@@ -578,6 +591,12 @@ export function WorkspaceExplorer({
     lastWriteRef.current = rewritePathMap(lastWriteRef.current, from, to)
     draftGenerationsRef.current = rewritePathMap(draftGenerationsRef.current, from, to)
     scrollTopRef.current = rewritePathMap(scrollTopRef.current, from, to)
+    /* The change-poll baseline must follow the move too: a stale entry under
+       the OLD path would otherwise linger until unmount, and the new path
+       would start with no baseline (a full re-check on the next tick). The
+       moved file keeps its mtime/size/hash, so the rewritten baseline stays
+       accurate. */
+    watchSnapshotsRef.current = rewritePathMap(watchSnapshotsRef.current, from, to)
   }, [])
   /* Deps note (development-notes §16): this callback intentionally omits
      nextDraftGeneration / rollbackDraftTree / migratePendingAutosavesRef from
@@ -588,7 +607,7 @@ export function WorkspaceExplorer({
      the whole explorer via its key), so the omission is safe; body references
      are lazy and resolve at call time. draftTree (a prop, declared before) IS
      listed. */
-  const submitEntryDialog=useCallback(()=>{if(entryBusy||entryDialog===undefined)return;const trimmed=entryDraft.trim();const message=entryNameError(entryDraft);if(message!==undefined){setEntryError(message);return}const parentPathValue=entryDialog.mode==='create'?entryDialog.parentPath:parentPath(entryDialog.entry.path);const siblings=directories.get(parentPathValue)?.entries??[];if(entryDialog.mode==='create'){if(siblings.some(entry=>entry.name===trimmed)){setEntryError(translate('entry.duplicate'));return}}else if(trimmed===entryDialog.entry.name||siblings.some(entry=>entry.name===trimmed&&entry.path!==entryDialog.entry.path)){setEntryError(trimmed===entryDialog.entry.name?translate('entry.nameUnchanged'):translate('entry.duplicate'));return}const controller=new AbortController();mutationController.current=controller;setEntryBusy(true);setEntryError(undefined);const mutationSeq=mutationSeqRef.current+=1;let draftMoveGeneration;const request=(async()=>{if(entryDialog.mode==='rename'){draftMoveGeneration=nextDraftGeneration('__tree__');await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:draftMoveGeneration,fromPath:entryDialog.entry.path,toPath:entryPath(parentPath(entryDialog.entry.path),trimmed)},controller.signal)}return entryDialog.mode==='create'?createEntry(workspace.workspaceId,entryDialog.parentPath,entryDialog.kind,trimmed,controller.signal):renameEntry(workspace.workspaceId,entryDialog.entry.path,trimmed,controller.signal)})();request.then(result=>{if(!mounted.current||mutationSeq!==mutationSeqRef.current)return;const mode=entryDialog.mode;const sourcePath=mode==='create'?entryDialog.parentPath:entryDialog.entry.path;const nextStatus=mode==='create'?result.kind==='directory'?translate('status.createdFolder'):translate('status.createdFile'):result.kind==='directory'?translate('status.renamedFolder'):translate('status.renamedFile');composingRef.current=false;setEntryBusy(false);setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);setStatus({text:nextStatus});if(mode==='create'){setExpanded(cur=>{const next=new Set(cur);next.add(sourcePath);if(result.kind==='directory')next.add(result.path);return next});if(result.kind==='file'){previewTabsBootstrapped.current = true;setTabs(cur=>cur.some(tab=>tab.path===result.path)?cur:[...cur,{baseText:'',dirty:false,draft:'',editing:false,name:result.name,path:result.path,pinned:false,saving:false,scrollTop:0,size:null,status:undefined,symlink:Boolean(result.symlink),bom:false,lineEnding:'none',revision:null}]);activatePath(result.path)}setSelected(result);void loadDirectory(sourcePath);if(result.kind==='directory')void loadDirectory(result.path)}else{setDirectories(cur=>rewriteDirectoryMap(cur,sourcePath,result.path,result));setExpanded(cur=>rewritePathSet(cur,sourcePath,result.path));setTabs(cur=>rewritePreviewTabs(cur,sourcePath,result.path,result));rewriteRuntimePaths(sourcePath,result.path);migratePendingAutosavesRef.current?.(sourcePath,result.path);void rewriteEmergencyDraftPath(workspace.workspaceId,draftScopeId,sourcePath,result.path).catch(error=>{if(mounted.current)setStatus({error:true,text:translate('editor.autosaveFailed',{message:error instanceof Error?error.message:String(error)})})});{const nextActivePath=activePathRef.current===null?null:rewriteRelativePath(activePathRef.current,sourcePath,result.path);if(nextActivePath!==activePathRef.current)setActivePath(nextActivePath)}setSelected(result);void loadDirectory(parentPath(sourcePath))}}).catch(error=>{if(error?.name==='AbortError'||!mounted.current||mutationSeq!==mutationSeqRef.current){return}if(entryDialog?.mode==='rename'&&draftMoveGeneration!==undefined){void rollbackDraftTree(entryDialog.entry.path,entryPath(parentPath(entryDialog.entry.path),trimmed))}setEntryBusy(false);setEntryError(error instanceof Error?error.message:String(error))}).finally(()=>{if(mutationController.current===controller)mutationController.current=undefined;if(mounted.current)setEntryBusy(false)})},[createEntry,directories,draftScopeId,draftTree,entryBusy,entryDialog,entryDraft,loadDirectory,renameEntry,rewriteRuntimePaths,workspace.workspaceId])
+  const submitEntryDialog=useCallback(()=>{if(entryBusy||entryDialog===undefined)return;/* A concurrent tree mutation (paste/delete/another rename) would bump mutationSeq and drop this op's bookkeeping after the server already succeeded — refuse while one is in flight (same guard as pasteEntry). */if(mutationController.current!==undefined){setEntryError(translate('editor.operationBusy'));return}const trimmed=entryDraft.trim();const message=entryNameError(entryDraft);if(message!==undefined){setEntryError(message);return}const parentPathValue=entryDialog.mode==='create'?entryDialog.parentPath:parentPath(entryDialog.entry.path);const siblings=directories.get(parentPathValue)?.entries??[];if(entryDialog.mode==='create'){if(siblings.some(entry=>entry.name===trimmed)){setEntryError(translate('entry.duplicate'));return}}else if(trimmed===entryDialog.entry.name||siblings.some(entry=>entry.name===trimmed&&entry.path!==entryDialog.entry.path)){setEntryError(trimmed===entryDialog.entry.name?translate('entry.nameUnchanged'):translate('entry.duplicate'));return}const controller=new AbortController();mutationController.current=controller;setEntryBusy(true);setEntryError(undefined);const mutationSeq=mutationSeqRef.current+=1;let draftMoveGeneration;const request=(async()=>{if(entryDialog.mode==='rename'){draftMoveGeneration=nextDraftGeneration('__tree__');await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:draftMoveGeneration,fromPath:entryDialog.entry.path,toPath:entryPath(parentPath(entryDialog.entry.path),trimmed)},controller.signal)}return entryDialog.mode==='create'?createEntry(workspace.workspaceId,entryDialog.parentPath,entryDialog.kind,trimmed,controller.signal):renameEntry(workspace.workspaceId,entryDialog.entry.path,trimmed,controller.signal)})();request.then(result=>{if(!mounted.current||mutationSeq!==mutationSeqRef.current)return;const mode=entryDialog.mode;const sourcePath=mode==='create'?entryDialog.parentPath:entryDialog.entry.path;const nextStatus=mode==='create'?result.kind==='directory'?translate('status.createdFolder'):translate('status.createdFile'):result.kind==='directory'?translate('status.renamedFolder'):translate('status.renamedFile');composingRef.current=false;setEntryBusy(false);setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);setStatus({text:nextStatus});if(mode==='create'){setExpanded(cur=>{const next=new Set(cur);next.add(sourcePath);if(result.kind==='directory')next.add(result.path);return next});if(result.kind==='file'){previewTabsBootstrapped.current = true;setTabs(cur=>cur.some(tab=>tab.path===result.path)?cur:[...cur,{baseText:'',dirty:false,draft:'',editing:false,name:result.name,path:result.path,pinned:false,saving:false,scrollTop:0,size:null,status:undefined,symlink:Boolean(result.symlink),bom:false,lineEnding:'none',revision:null}]);activatePath(result.path)}setSelected(result);void loadDirectory(sourcePath);if(result.kind==='directory')void loadDirectory(result.path)}else{setDirectories(cur=>rewriteDirectoryMap(cur,sourcePath,result.path,result));setExpanded(cur=>rewritePathSet(cur,sourcePath,result.path));setTabs(cur=>rewritePreviewTabs(cur,sourcePath,result.path,result));rewriteRuntimePaths(sourcePath,result.path);migratePendingAutosavesRef.current?.(sourcePath,result.path);void rewriteEmergencyDraftPath(workspace.workspaceId,draftScopeId,sourcePath,result.path).catch(error=>{if(mounted.current)setStatus({error:true,text:translate('editor.autosaveFailed',{message:error instanceof Error?error.message:String(error)})})});{const nextActivePath=activePathRef.current===null?null:rewriteRelativePath(activePathRef.current,sourcePath,result.path);if(nextActivePath!==activePathRef.current)setActivePath(nextActivePath)}setSelected(result);void loadDirectory(parentPath(sourcePath))}}).catch(error=>{if(error?.name==='AbortError'||!mounted.current||mutationSeq!==mutationSeqRef.current){return}if(entryDialog?.mode==='rename'&&draftMoveGeneration!==undefined){void rollbackDraftTree(entryDialog.entry.path,entryPath(parentPath(entryDialog.entry.path),trimmed))}setEntryBusy(false);setEntryError(error instanceof Error?error.message:String(error))}).finally(()=>{if(mutationController.current===controller)mutationController.current=undefined;if(mounted.current)setEntryBusy(false)})},[createEntry,directories,draftScopeId,draftTree,entryBusy,entryDialog,entryDraft,loadDirectory,renameEntry,rewriteRuntimePaths,workspace.workspaceId])
 
   // The unmount cleanup must run exactly once per real unmount. flushAutosaves
   // depends on performAutosave → `preview`, so its identity changes on every
@@ -638,6 +657,14 @@ export function WorkspaceExplorer({
   const closeDeleteDialog=useCallback(()=>{if(deleteBusy)return;setDeleteDialog(undefined)},[deleteBusy])
   const confirmDelete = useCallback(async () => {
     if (deleteBusy || deleteDialog === undefined) return
+    /* A concurrent tree mutation (paste/rename/another delete) would bump
+       mutationSeq and drop this delete's bookkeeping after the server already
+       succeeded — refuse while one is in flight (same guard as pasteEntry). */
+    if (mutationController.current !== undefined) {
+      setDeleteDialog(undefined)
+      setStatus({ error: true, text: translate('editor.operationBusy') })
+      return
+    }
     const entry = deleteDialog
     const prefix = entry.path === '' ? '' : `${entry.path}/`
     const affected = tabsRef.current
@@ -685,7 +712,14 @@ export function WorkspaceExplorer({
         lastWriteRef.current.delete(item.path)
         scheduleAutosave(item.path, fresh?.draft ?? item.draft, true)
       }
-      if (error?.name === 'AbortError') return
+      if (error?.name === 'AbortError') {
+        /* Release the mutation slot even on abort (defensive: the mounted/
+           mutationSeq guard above already returns for the unmount case, but a
+           future reorder must not leave the controller stuck and block every
+           later paste with "operation busy"). */
+        if (mutationController.current === controller) mutationController.current = undefined
+        return
+      }
       setCopyNotice(translate('status.deleteFailed', { message: error instanceof Error ? error.message : String(error) }))
       clearTimeout(copyNoticeTimer.current)
       copyNoticeTimer.current = setTimeout(() => { if (mounted.current) setCopyNotice(undefined) }, 3000)
@@ -884,11 +918,20 @@ export function WorkspaceExplorer({
     if (keep === undefined) return
     const closing = current.filter(tab => tab.path !== keepPath && !tab.pinned)
     if (closing.length === 0) return
-    if (closing.some(tab => tab.dirty || tab.saving)) {
+    /* Same rule as closeTab: a dirty tab is close-guarded only while EDITABLE
+       (a non-editable file with a leftover draft has no save/cancel path, so
+       it closes and drops its staging draft below). */
+    if (closing.some(tab => tab.saving || (tab.dirty && tab.editing !== false))) {
       const nextStatus = { error: true, text: translate('editor.unsavedTabsClose') }
       if (activePathRef.current === keepPath) setStatus(nextStatus)
       else updateTab(keepPath, { status: nextStatus })
       return
+    }
+    for (const tab of closing) {
+      if (tab.dirty && tab.editing === false) {
+        // Discard the orphaned staging draft (same escape as closeTab).
+        void clearDraftFile(tab.path, '', tab.encoding ?? 'utf-8', tab.lineEnding ?? 'none', Boolean(tab.bom), tab.revision ?? null).catch(() => {})
+      }
     }
     setTabs(current.filter(tab => tab.pinned || tab.path === keepPath))
     for (const tab of closing) forgetPathRefs(tab.path)
@@ -896,7 +939,7 @@ export function WorkspaceExplorer({
     const entry = entryFromPreviewTab(keep)
     setSelected(entry)
     revealPath(entry)
-  }, [activatePath, forgetPathRefs, revealPath, updateTab])
+  }, [activatePath, clearDraftFile, forgetPathRefs, revealPath, updateTab])
   const pinTab = useCallback((path) => {
     setTabs(current => {
       const tab = current.find(item => item.path === path)

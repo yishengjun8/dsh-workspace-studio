@@ -7,7 +7,7 @@ import { ENCODINGS } from './encodings.js'
 import { listTree, readExternalPreview, readPreview, readPreviewHead, revealInExplorer, searchWorkspace } from './fs.js'
 import { createEntry, fsOperation, renameEntry, saveFile } from './write.js'
 import { deleteDraftFile, draftTreeOperation, parseDraftGenerationQuery, readDraftFile, saveDraftFile, validateDraftOwner, validateDraftPayload, writeJsonAtomic } from './drafts.js'
-import { buildMindmapDoc, deleteMindmapDoc, findMindmapDocWithAncestors, indexMindmapDocs, listMindmapModels, MINDMAP_DOC_MAX_BYTES, mindmapDocPath, mindmapDrainPendingSessionSummaries, mindmapLock, mindmapSessionSummarizingOf, mindmapSummarizingOf, mindmapSyncCache, parseMindmapSummaryConfig, purgeArchivedMindmapDocs, refreshMindmapDocCore, regenerateAllMindmapSummaries, regenerateMindmapSummary, renameMindmapDoc, summarizeMindmapSession, syncMindmapDoc, validateMindmapSession, writeMindmapDoc } from './mindmap.js'
+import { buildMindmapDoc, deleteMindmapDoc, findMindmapDocWithAncestors, indexMindmapDocs, isValidMindmapDoc, listMindmapModels, MINDMAP_DOC_MAX_BYTES, mindmapDocPath, mindmapDrainPendingSessionSummaries, mindmapLock, mindmapSessionSummarizingOf, mindmapSummarizingOf, mindmapSyncCache, parseMindmapSummaryConfig, purgeArchivedMindmapDocs, readMindmapDocFile, refreshMindmapDocCore, regenerateAllMindmapSummaries, regenerateMindmapSummary, renameMindmapDoc, summarizeMindmapSession, syncMindmapDoc, validateMindmapSession, writeMindmapDoc } from './mindmap.js'
 import { renderPromptContext } from './prompt-context.js'
 import { workspaceFor } from './workspace.js'
 /** Stable Cordis plugin name. */
@@ -254,7 +254,16 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
                up to the TTL (an adopted branch briefly vanishing). */
             mindmapSyncCache.delete(String(fresh.rootSessionId))
           }
-          return { doc: fresh, warnings: refresh.warnings }
+          /* A degraded reconcile/adopt (warnings) may have PARTIALLY mutated
+             `fresh` in memory; `changed` is false so nothing was written —
+             serve the last good DISK doc instead of the half-reconciled copy
+             (the next sync retries the refresh). */
+          let doc = fresh
+          if (refresh.warnings.length > 0) {
+            const disk = await readMindmapDocFile(String(fresh.rootSessionId))
+            if (disk !== null && isValidMindmapDoc(disk)) doc = disk
+          }
+          return { doc, warnings: refresh.warnings }
         })
         if (loaded !== null) {
           /* Reopening the map is also a drain opportunity: a pending session
@@ -371,7 +380,11 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
       const snapshot = await readPreviewHead(workspace, relativePath, config.maxPreviewBytes, previous)
       let changed = false
       if (snapshot !== null && previous !== undefined && previous !== null) {
-        changed = previous?.mtimeMs !== snapshot.mtimeMs
+        /* A { gone: true } baseline means the file was deleted and has now been
+           re-created: report a change so the client reloads instead of keeping
+           the stale content (a plain missing baseline answers changed:false). */
+        changed = previous?.gone === true
+          || previous?.mtimeMs !== snapshot.mtimeMs
           || previous?.size !== snapshot.size
           || previous?.hash !== snapshot.hash
       }

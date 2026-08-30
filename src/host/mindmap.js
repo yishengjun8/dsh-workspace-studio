@@ -128,8 +128,9 @@ export function mindmapDocPath(sessionId) {
 }
 
 /* A doc on disk may be v3 (sessions) or older v2 (trunk + branches),
-   normalized to v3 on read so nothing downstream touches the legacy fields. */
-function isValidMindmapDoc(value) {
+   normalized to v3 on read so nothing downstream touches the legacy fields.
+   Exported for the GET load path's degraded-refresh disk fallback. */
+export function isValidMindmapDoc(value) {
   if (!isPlainObject(value)) return false
   if (value.version === MINDMAP_DOC_VERSION) {
     return typeof value.rootSessionId === 'string'
@@ -377,18 +378,24 @@ async function mindmapModelOf(ctx, persistence, sessionId) {
                   previously failed turns), keep the has-summary check, no
                   regenerating mark
    In-flight keys are always skipped (they finish with the config they started
-   with). */
-function mindmapEnqueueSummaries(ctx, persistence, doc, config, limit, force) {
+   with). `onlySessionId` (optional) restricts the scan to ONE session's turns:
+   the 总结当前会话 prerequisite must never force-enqueue the WHOLE doc's
+   missing summaries (a large map would otherwise fire hundreds of LLM calls
+   in one click, bypassing the per-sync pacing and the failure cooldown). */
+function mindmapEnqueueSummaries(ctx, persistence, doc, config, limit, force, onlySessionId) {
   if (config === null || config === undefined) {
     /* Feature turned off: drop queued jobs so disabling stops token spend
        immediately; an in-flight call finishes but skips its write (the job
-       re-checks the flag). */
+       re-checks the flag). Pending SESSION summaries (总结当前会话 waiting)
+       are dropped too — the drain and the job both re-check the flag, so a
+       disabled feature can never keep calling the LLM or write summaries. */
     mindmapSummaryFeatureOn = false
     while (mindmapSummaryQueue.length > 0) {
       const job = mindmapSummaryQueue.shift()
       mindmapSummaryInFlight.delete(`${job.sessionId}:${job.seq}`)
       mindmapSummaryRegenerating.delete(`${job.sessionId}:${job.seq}`)
     }
+    mindmapSessionSummaryPending.clear()
     return 0
   }
   if (doc === null || doc === undefined) return 0
@@ -403,6 +410,7 @@ function mindmapEnqueueSummaries(ctx, persistence, doc, config, limit, force) {
   for (const session of doc.sessions ?? []) {
     if (enqueued >= limit) break
     if (session === null || session === undefined || typeof session.sessionId !== 'string') continue
+    if (onlySessionId !== undefined && String(session.sessionId) !== String(onlySessionId)) continue
     for (const turn of session.turns ?? []) {
       if (enqueued >= limit) break
       if (turn === null || turn === undefined || !Number.isSafeInteger(turn.seq)) continue
@@ -737,6 +745,13 @@ async function mindmapWriteSessionSummary(ctx, persistence, rootId, sessionId, s
    (a new turn may have arrived mid-wait), then generate + persist. */
 async function mindmapRunSessionSummary(ctx, persistence, rootId, sessionId, config) {
   const key = mindmapSessionSummaryKey(rootId, sessionId)
+  /* The user may have turned the AI-summary feature off while this job was
+     pending: never generate or write after a disable (same rule as the card
+     jobs). */
+  if (!mindmapSummaryFeatureOn) {
+    mindmapSessionSummaryPending.delete(key)
+    return
+  }
   const doc = await readMindmapDocFile(rootId)
   if (doc === null || !isValidMindmapDoc(doc) || mindmapDocIsDead(ctx, doc)) {
     mindmapSessionSummaryPending.delete(key)
@@ -796,6 +811,12 @@ export function mindmapSessionSummarizingOf(doc) {
    entry — the user can re-click. */
 export function mindmapDrainPendingSessionSummaries(ctx, persistence) {
   if (mindmapSessionSummaryPending.size === 0) return
+  /* Feature off: drop every pending session summary instead of draining them
+     (the jobs re-check the flag too, but clearing here stops the loop). */
+  if (!mindmapSummaryFeatureOn) {
+    mindmapSessionSummaryPending.clear()
+    return
+  }
   for (const [key, config] of [...mindmapSessionSummaryPending]) {
     if (mindmapSessionSummaryRunning.has(key)) continue
     const failedAt = mindmapSessionSummaryFailedAt.get(key)
@@ -851,8 +872,10 @@ export async function summarizeMindmapSession(ctx, persistence, sessionId, confi
     return { ok: true, status: 'done', summary }
   }
   /* Not ready: generate the missing card summaries first (force 'missing'
-     retries previously failed turns), then wait for the drain. */
-  mindmapEnqueueSummaries(ctx, persistence, doc, config, Number.MAX_SAFE_INTEGER, 'missing')
+     retries previously failed turns), then wait for the drain. Scoped to the
+     TARGET session only — a whole-doc scan here would bypass the per-sync
+     pacing and the failure cooldown for every other session's turns. */
+  mindmapEnqueueSummaries(ctx, persistence, doc, config, Number.MAX_SAFE_INTEGER, 'missing', sessionId)
   mindmapSessionSummaryPending.set(mindmapSessionSummaryKey(root, sessionId), config)
   mindmapDrainPendingSessionSummaries(ctx, persistence)
   return { ok: true, status: 'waiting' }
@@ -1083,8 +1106,10 @@ export async function buildMindmapDoc(ctx, persistence, sessionId) {
 /* A doc path may hold a full document or an alias stub left by a root
    replacement (card-deletion truncation): { version, aliasTo } pointing at the
    new root's doc file, so a stale open of the archived root resolves to the
-   current doc instead of building a fresh one (which would split the family). */
-async function readMindmapDocFile(sessionId) {
+   current doc instead of building a fresh one (which would split the family).
+   Exported for the GET load path: a degraded reconcile must re-read the disk
+   doc instead of serving the partially-mutated in-memory copy. */
+export async function readMindmapDocFile(sessionId) {
   /* Follow alias stubs through MULTIPLE hops (a second replacement leaves the
      oldest stub pointing at an intermediate root that is now itself a stub),
      cycle-guarded so a corrupt stub loop cannot hang the resolver. */
@@ -1281,8 +1306,10 @@ export async function reconcileMindmapDoc(ctx, persistence, doc) {
      turns into the range of RECORDED turns — that would mint duplicate display
      numbers. The counter always starts after the largest recorded n; the
      client's reuse contract (next = maxN + 1 after a deletion) is exactly this
-     clamp, so healthy docs are untouched. */
-  next = Math.max(next, mindmapNextOf(doc) + 1)
+     clamp, so healthy docs are untouched. mindmapNextOf already returns the
+     next AVAILABLE number (maxN + 1) — adding another +1 here skipped a
+     display number after every first sync / deletion (off-by-one, fixed). */
+  next = Math.max(next, mindmapNextOf(doc))
   /* Backfill the creation workspace (pre-existing/v2 docs lack the field) so
      a root-node-created top-level session lands in the map's workspace. */
   if (typeof doc.workspaceCwd !== 'string' || doc.workspaceCwd === '') {
@@ -1295,14 +1322,48 @@ export async function reconcileMindmapDoc(ctx, persistence, doc) {
      drop them so the map self-heals instead of resurrecting them. The ANCHOR
      is never dropped here: an archived anchor makes the whole doc dead
      (mindmapDocIsDead), swept by the index poll — dropping it first would
-     leave a root-less doc file. */
+     leave a root-less doc file.
+     Children hanging off an archived session must NOT be dropped with it:
+     they are live sessions whose only anchor vanished, and removing them from
+     the doc would leave them hidden from the sidebar (their live ancestry
+     still reaches the family root) yet absent from the map — unreachable.
+     Re-parent each removed session's subtree to the removed session's OWN
+     parent card (the card it hung off), so the children stay visible in the
+     map as branches of the nearest surviving ancestor. A removed top-level
+     session's children become top-level. The re-parenting is processed in
+     BFS order (parents before children), so a grandchild re-anchors to the
+     same surviving card its parent was just re-anchored to. */
   const archived = mindmapArchivedSet(ctx)
-  if (archived.size > 0 && (doc.sessions ?? []).some(s => s !== null && s !== undefined
-    && String(s?.sessionId) !== String(doc.rootSessionId)
-    && archived.has(String(s?.sessionId)))) {
-    doc.sessions = (doc.sessions ?? []).filter(s => s === null || s === undefined
-      || String(s?.sessionId) === String(doc.rootSessionId)
-      || !archived.has(String(s?.sessionId)))
+  if (archived.size > 0) {
+    const sessions = (doc.sessions ?? []).filter(s => s !== null && s !== undefined)
+    const removed = new Set()
+    for (const s of sessions) {
+      if (String(s?.sessionId) !== String(doc.rootSessionId) && archived.has(String(s?.sessionId))) {
+        removed.add(String(s.sessionId))
+      }
+    }
+    if (removed.size > 0) {
+      const queue = [...removed]
+      const seen = new Set(queue)
+      while (queue.length > 0) {
+        const removedId = queue.shift()
+        const removedSession = sessions.find(s => String(s?.sessionId) === removedId)
+        for (const s of sessions) {
+          if (String(s?.parentSessionId) !== removedId) continue
+          s.parentSessionId = removedSession?.parentSessionId === undefined || removedSession?.parentSessionId === null
+            ? null
+            : String(removedSession.parentSessionId)
+          s.parentTurn = removedSession?.parentTurn === undefined || removedSession?.parentTurn === null
+            ? null
+            : Number(removedSession.parentTurn)
+          if (!seen.has(String(s.sessionId))) {
+            seen.add(String(s.sessionId))
+            queue.push(String(s.sessionId))
+          }
+        }
+      }
+      doc.sessions = sessions.filter(s => s === null || s === undefined || !removed.has(String(s?.sessionId)))
+    }
   }
   for (const session of doc.sessions ?? []) {
     if (session === null || session === undefined || typeof session?.sessionId !== 'string') continue
@@ -1399,6 +1460,10 @@ function mindmapBoundaryOwner(doc, parentSessionId, t) {
   return undefined
 }
 
+/* Monotonic suffix for adopted-session ids: `Date.now()` alone is
+   millisecond-precision, and two adoption passes in the same millisecond
+   would mint the same id (a React key collision inside one doc). */
+let mindmapAdoptSeq = 0
 /* One adoption pass: adopt fork children whose IMMEDIATE parent is already
    documented. The harness records the fork cut in the child's seedLength
    (inherited-event count), so the boundary turn (last turn/end below the cut)
@@ -1474,7 +1539,7 @@ async function adoptMindmapOrphanPass(ctx, persistence, doc) {
     const card = chain.find(turn => Number(turn?.t) === Number(boundary.t))
     if (card === undefined) continue
     const session = {
-      id: `s${Date.now()}${adopted}`,
+      id: `s${Date.now()}${mindmapAdoptSeq++}`,
       sessionId: String(sessionId),
       parentSessionId: String(owned.owner),
       parentTurn: Number(card.n),
@@ -1595,12 +1660,21 @@ export async function syncMindmapDoc(ctx, persistence, sessionId, liveSessionIds
         ctx.logger.warn(`[workspace-studio] mindmap doc sync write failed: ${String(error)}`)
       }
     }
+    /* A degraded reconcile/adopt (warnings) may have PARTIALLY mutated `fresh`
+       in memory; `changed` is false so nothing was written, but the response
+       and the cache must still serve the last good DISK doc — never the
+       half-reconciled object (the next sync retries the refresh). */
+    let responseDoc = fresh
+    if (refresh.warnings.length > 0) {
+      const disk = await readMindmapDocFile(root)
+      if (disk !== null && isValidMindmapDoc(disk)) responseDoc = disk
+    }
     /* Collect the in-flight turn of each requested doc-family session. */
     const live = []
     const liveIds = (Array.isArray(liveSessionIds) ? liveSessionIds : []).map(String)
     if (liveIds.length > 0) {
-      const family = new Set([String(fresh.rootSessionId)])
-      for (const s of fresh.sessions ?? []) {
+      const family = new Set([String(responseDoc.rootSessionId)])
+      for (const s of responseDoc.sessions ?? []) {
         if (s !== null && s !== undefined && typeof s?.sessionId === 'string') family.add(String(s.sessionId))
       }
       for (const sid of liveIds) {
@@ -1614,8 +1688,13 @@ export async function syncMindmapDoc(ctx, persistence, sessionId, liveSessionIds
     }
     /* Settle the cached signature against the just-captured refs so the next poll is already a hit. */
     const settled = await mindmapSyncSignature(ctx, persistence, fresh, refs)
-    mindmapSyncCache.set(root, { sig: settled.sig, doc: fresh, live, liveKey, at: Date.now(), refs: settled.refs })
-    return { doc: fresh, live, warnings: refresh.warnings, summarizing: mindmapSummarizingOf(fresh), sessionSummarizing: mindmapSessionSummarizingOf(fresh) }
+    /* Only a CLEAN refresh may seed the cache: a degraded one must not serve
+       the half-reconciled doc (or the disk fallback) as if it were fresh —
+       the next sync re-runs the refresh and converges. */
+    if (refresh.warnings.length === 0) {
+      mindmapSyncCache.set(root, { sig: settled.sig, doc: responseDoc, live, liveKey, at: Date.now(), refs: settled.refs })
+    }
+    return { doc: responseDoc, live, warnings: refresh.warnings, summarizing: mindmapSummarizingOf(responseDoc), sessionSummarizing: mindmapSessionSummarizingOf(responseDoc) }
   })
 }
 
@@ -1647,7 +1726,10 @@ async function mindmapSyncSignature(ctx, persistence, doc, cachedRefs) {
   }
   let liveIds = ''
   try {
-    liveIds = ctx.sessions.list().map(s => s?.id ?? s?.header?.id).filter(Boolean).sort().join(',')
+    /* \u0001 separator (not ','): session ids may legally contain commas, and
+       ["a,b","c"] vs ["a","b,c"] would collide into the same signature string,
+       letting the sync cache miss a new fork orphan for up to a TTL. */
+    liveIds = ctx.sessions.list().map(s => s?.id ?? s?.header?.id).filter(Boolean).sort().join('\u0001')
   } catch {
     /* live list unavailable: no orphan signal from it */
   }
@@ -1709,7 +1791,7 @@ export async function writeMindmapDoc(ctx, persistence, sessionId, doc, prevSess
           keep their own archive-after-write contract, so they skip (b). */
     doc.next = Math.max(
       Number.isSafeInteger(doc.next) && doc.next > 0 ? doc.next : 0,
-      mindmapNextOf(doc) + 1,
+      mindmapNextOf(doc),
     )
     if (prevSessionId === undefined || prevSessionId === null || String(prevSessionId) === String(sessionId)) {
       const previous = await readMindmapDocFile(String(doc.rootSessionId))
@@ -1731,7 +1813,7 @@ export async function writeMindmapDoc(ctx, persistence, sessionId, doc, prevSess
         }
         if (restored.length > 0) {
           doc.sessions = [...(doc.sessions ?? []), ...restored]
-          doc.next = Math.max(doc.next, mindmapNextOf(doc) + 1)
+          doc.next = Math.max(doc.next, mindmapNextOf(doc))
           try {
             ctx.logger.warn(`[workspace-studio] mindmap write restored ${restored.length} live session(s) dropped by a stale doc write: ${restored.map(s => s?.sessionId).join(', ')}`)
           } catch { /* no logger */ }
@@ -1802,14 +1884,30 @@ export async function deleteMindmapDoc(sessionId) {
 /* Index of every doc on disk (sidebar mind-map entries and the branch hider
    consume it). Archived maps are purged inline in the SAME pass — one
    directory listing + one read per file, not two — so an archived-root doc
-   disappears from the index and disk within one poll. */
+   disappears from the index and disk within one poll. Fault-isolated like the
+   GET path: a transient fs error (locked file, AV, permission blip) on ONE
+   file skips that file, and a directory-level failure degrades to an empty
+   index instead of 500ing the 5 s poll (which would take down the sidebar
+   panel and the branch hider until the fs recovers). */
 export async function indexMindmapDocs(ctx) {
-  const names = await mindmapDocFileNames()
+  let names
+  try {
+    names = await mindmapDocFileNames()
+  } catch (error) {
+    try { ctx.logger.warn(`[workspace-studio] mindmap index listing failed: ${String(error)}`) } catch { /* no logger */ }
+    return { docs: [] }
+  }
   const docs = []
   for (const name of names) {
     if (!name.endsWith('.json')) continue
     const path = join(mindmapRoot(), name)
-    const doc = await readJsonFileOrNull(path)
+    let doc
+    try {
+      doc = await readJsonFileOrNull(path)
+    } catch (error) {
+      try { ctx.logger.warn(`[workspace-studio] mindmap index read failed for ${name}: ${String(error)}`) } catch { /* no logger */ }
+      continue
+    }
     if (doc === null) continue
     if (isValidMindmapDoc(doc)) {
       /* An archived map is dead: remove it only after the locked re-read confirms no alias was installed in its place. */

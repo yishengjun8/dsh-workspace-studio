@@ -75,7 +75,10 @@ export async function requestJson(endpoint, workspaceId, path, signal, encoding)
 /* Cheap file-change check for open preview tabs: the Host stats the file and
    compares mtime/size/hash against the previous snapshot (workspace-confined,
    read-only). Returns `changed` plus the new baseline snapshot; null means the
-   file is gone. */
+   file is gone. A null previousSnapshot (the file was deleted and the client
+   holds the `null` sentinel) is sent as an explicit { gone: true } marker so
+   a RE-CREATED file reports `changed` — without it the Host sees no baseline
+   and answers changed:false, and the tab would keep showing stale content. */
 export async function checkFileChange(workspaceId, path, previousSnapshot, signal) {
   const query = new URLSearchParams({ workspaceId: String(workspaceId), path, check: '1' })
   if (previousSnapshot !== undefined && previousSnapshot !== null) {
@@ -84,6 +87,8 @@ export async function checkFileChange(workspaceId, path, previousSnapshot, signa
       size: previousSnapshot.size,
       hash: previousSnapshot.hash,
     }))
+  } else if (previousSnapshot === null) {
+    query.set('prev', JSON.stringify({ gone: true }))
   }
   const response = await fetch(`${API_PREFIX}/file?${query}`, { method: 'GET', headers: { accept: 'application/json' }, credentials: 'same-origin', signal })
   let payload

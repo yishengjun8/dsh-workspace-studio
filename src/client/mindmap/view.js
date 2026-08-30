@@ -14,6 +14,11 @@ import { MindMapDialogs } from './dialogs.js'
 import { useMindmapNotices } from './hooks/notices.js'
 import { useMindmapViewport } from './hooks/viewport.js'
 
+/* Monotonic suffix for client-created session ids: `Date.now()` alone is
+   millisecond-precision, and two forks/creates in the same millisecond would
+   mint the same id (a React key collision inside one doc). */
+let mindmapClientSessionSeq = 0
+
 /* The floating mind map: a persisted turn tree (flat session list, no trunk)
    rendered from the doc, with pan/zoom and per-card forking. Rendered inside
    the left-side overlay window; card clicks switch the right-side chat. */
@@ -619,7 +624,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       .then(async (childId) => {
         /* A nested fork: the new session hangs off the clicked card. */
         const session = {
-          id: `s${Date.now()}`,
+          id: `s${Date.now()}${mindmapClientSessionSeq++}`,
           sessionId: String(childId),
           parentSessionId: String(ownerId),
           forkTurn: Number(turn.t),
@@ -692,7 +697,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     Promise.resolve(createSessionRef.current(recordedCwd, String(root)))
       .then(async (childId) => {
         const session = {
-          id: `s${Date.now()}`,
+          id: `s${Date.now()}${mindmapClientSessionSeq++}`,
           sessionId: String(childId),
           parentSessionId: null,
           parentTurn: null,

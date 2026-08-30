@@ -131,6 +131,11 @@ export function useEditorSession({
   const syncControllerRef = useRef()
   /* Change handler applied when a change is detected for `path`. */
   const applyFileChanged = useCallback((path) => {
+    /* A re-read for this path is already in flight (the tick skips reloading
+       paths, but a check issued BEFORE the read pass started can resolve
+       after it): bumping the reload token again would remount the editor a
+       second time and discard the just-restored scroll. */
+    if (reloadingPathsRef.current.has(path)) return
     const tab = tabsRef.current.find(item => item.path === path)
     if (tab === undefined) return
     const activePathNow = activePathRef.current
@@ -184,7 +189,9 @@ export function useEditorSession({
         if (reloadingPathsRef.current.has(tab.path)) return
         const snapshot = watchSnapshotsRef.current.get(tab.path)
         try {
-          const result = await checkFileChange(String(workspace.workspaceId), tab.path, snapshot ?? undefined, controller.signal)
+          /* Pass the null sentinel through (not `?? undefined`): a re-created
+             file must report changed (see checkFileChange's { gone: true }). */
+          const result = await checkFileChange(String(workspace.workspaceId), tab.path, snapshot, controller.signal)
           if (controller.signal.aborted || result === undefined) return
           /* The tab may have been closed while the check was in flight: do not
              re-seed a baseline for a path that no longer has a tab (a stale
@@ -681,6 +688,14 @@ export function useEditorSession({
       if (pending?.generation === generation) pendingAutosavesRef.current.delete(path)
     } catch (error) {
       if (error?.name === 'AbortError' || !mounted.current) return
+      /* A 409 draft-generation-conflict means a tree mutation (rename/move/
+         delete) advanced the owner generation fence and this in-flight PUT was
+         superseded — the tree op already re-queued the draft at the new path,
+         so nothing is lost. Silently drop the pending entry instead of showing
+         a misleading "自动存盘失败" banner. */
+      const pending = pendingAutosavesRef.current.get(path)
+      if (pending?.generation === generation) pendingAutosavesRef.current.delete(path)
+      if (error?.status === 409) return
       const message = error instanceof Error ? error.message : String(error)
       if (activePathRef.current === path) setStatus({ error: true, text: translate('editor.autosaveFailed', { message }) })
     }
@@ -902,7 +917,7 @@ export function useEditorSession({
       // auto-save races the pending decision. Conflicts stay structural —
       // never literal markers in the content — so the file text cannot collide
       // with an implementation marker.
-      const dialog = { path, mine: text, theirs: diskText, diskRevision, encoding, savedStatusText, conflicts: merged.conflicts, parts: merged.parts }
+      const dialog = { path, mine: text, theirs: diskText, diskRevision, encoding, savedStatusText, savingStatus, conflicts: merged.conflicts, parts: merged.parts }
       conflictDialogRef.current = dialog
       setConflictDialog(dialog)
       return false
@@ -936,11 +951,20 @@ export function useEditorSession({
     if (dialog === undefined) return
     conflictDialogRef.current = undefined
     setConflictDialog(undefined)
-    const { path, diskRevision, encoding, savedStatusText, conflicts, parts } = dialog
+    const { path, diskRevision, encoding, savedStatusText, savingStatus, conflicts, parts } = dialog
     const tab = tabsRef.current.find(item => item.path === path)
     if (tab === undefined) return
     const finish = () => {
-      updateTab(path, { saving: false })
+      /* Clear the tab's "正在保存…" status too: it was written by save() and
+         would otherwise persist (serializePreviewTab keeps informational
+         statuses) and show as a stale banner after a tab switch or refresh.
+         Only clear when it is STILL the saving status — a successful commitTab
+         replaces it with the saved status, which must survive. Read the CURRENT
+         tab (the closure `tab` predates commitTab's updateTab). */
+      const current = tabsRef.current.find(item => item.path === path)
+      const patch = { saving: false }
+      if (savingStatus !== undefined && current !== undefined && current.status === savingStatus) patch.status = undefined
+      updateTab(path, patch)
       if (activePathRef.current === path) setSaving(false)
     }
     if (result === 'cancel') {
@@ -1058,6 +1082,7 @@ export function useEditorSession({
     publishContextState, save, cancel, discardDraft, resolveConflict,
     clearDraftFile, scheduleAutosave, invalidateDraftPath, nextDraftGeneration,
     forgetPathRefs, rollbackDraftTree, lastWriteRef, draftTailsRef, draftGenerationsRef,
+    watchSnapshotsRef,
     readController, saveController, flushAutosavesRef, migratePendingAutosavesRef,
   }
 }

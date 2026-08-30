@@ -12,13 +12,22 @@ export function useSearchState({ workspaceId, settings }) {
   const [searchState, setSearchState] = useState({ state: 'idle' })
   const [searchExpanded, setSearchExpanded] = useState(() => new Set())
   const searchController = useRef()
-    const runSearch=useCallback(async(query)=>{searchController.current?.abort();if(query.trim()===''){setSearchState({state:'idle'});setSearchExpanded(new Set());return}const controller=new AbortController();searchController.current=controller;setSearchState({state:'searching'});try{const result=await requestSearch(workspaceId,query,searchCaseSensitive,searchNameOnly,controller.signal);if(searchController.current===controller){setSearchState({state:'done',result});setSearchExpanded(new Set((settings.expandSearchMatches ?? SEARCH_MATCH_EXPAND_DEFAULT)?result.files.map(file=>file.path):[]))}}catch(error){if(error?.name==='AbortError')return;if(searchController.current===controller)setSearchState({state:'error',message:error instanceof Error?error.message:String(error)})}},[searchCaseSensitive,searchNameOnly,settings.expandSearchMatches,workspaceId])
-  const closeSearch=useCallback(()=>{searchController.current?.abort();searchController.current=undefined;setSearchExpanded(new Set());setSearchOpen(false)},[])
+  /* The last query actually submitted (Enter or the debounce): the debounce
+     timer scheduled by the final keystroke must not fire a SECOND request for
+     the same query right after an Enter-submitted one. */
+  const lastSubmittedQueryRef = useRef('')
+    const runSearch=useCallback(async(query)=>{searchController.current?.abort();if(query.trim()===''){setSearchState({state:'idle'});setSearchExpanded(new Set());return}lastSubmittedQueryRef.current=query;const controller=new AbortController();searchController.current=controller;setSearchState({state:'searching'});try{const result=await requestSearch(workspaceId,query,searchCaseSensitive,searchNameOnly,controller.signal);if(searchController.current===controller){setSearchState({state:'done',result});setSearchExpanded(new Set((settings.expandSearchMatches ?? SEARCH_MATCH_EXPAND_DEFAULT)?result.files.map(file=>file.path):[]))}}catch(error){if(error?.name==='AbortError')return;if(searchController.current===controller)setSearchState({state:'error',message:error instanceof Error?error.message:String(error)})}},[searchCaseSensitive,searchNameOnly,settings.expandSearchMatches,workspaceId])
+  const closeSearch=useCallback(()=>{searchController.current?.abort();searchController.current=undefined;setSearchExpanded(new Set());setSearchOpen(false);setSearchQuery('');setSearchState({state:'idle'})},[])
     const toggleSearchFile=useCallback((path)=>{setSearchExpanded(prev=>{const next=new Set(prev);if(next.has(path))next.delete(path);else next.add(path);return next})},[])
   /* Debounced search while the panel is open. */
   useEffect(() => {
     if (!searchOpen) return undefined
-    const timer = setTimeout(() => { void runSearch(searchQuery) }, 300)
+    const timer = setTimeout(() => {
+      /* Skip a query the user already submitted (Enter fires runSearch
+         immediately; the keystroke's debounce timer would otherwise duplicate
+         the request 300 ms later). */
+      if (lastSubmittedQueryRef.current !== searchQuery) void runSearch(searchQuery)
+    }, 300)
     return () => clearTimeout(timer)
   }, [runSearch, searchOpen, searchQuery])
   useEffect(() => () => {
