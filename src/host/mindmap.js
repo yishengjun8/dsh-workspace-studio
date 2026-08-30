@@ -33,9 +33,15 @@ export const MINDMAP_DOC_MAX_BYTES = 2 * 1024 * 1024
    forces a periodic full sync so in-place log edits it cannot see are never
    missed forever. */
 const MINDMAP_SYNC_CACHE_TTL_MS = 30_000
-/* rootId -> { sig, doc, live, liveKey, at, refs }. Exported: the route
-   dispatcher (index.js) invalidates it on the GET load path, which also
-   writes docs (adoption / folded turns) without touching any log. */
+/* Short-lived cache for persistence.list(): the sync path calls it up to
+   three times per poll (signature probe + settle + adopt index); a 1 s TTL
+   collapses them into one SQLite metadata scan while still catching new
+   fork orphans within a poll or two. */
+const MINDMAP_PERSISTENCE_LIST_CACHE_MS = 1000
+/* rootId -> { sig, doc, live, liveKey, at, refs, orphanSig, adoptClean }.
+   Exported: the route dispatcher (index.js) invalidates it on the GET load
+   path, which also writes docs (adoption / folded turns) without touching
+   any log. */
 export const mindmapSyncCache = new Map()
 
 /* ---- AI card summaries (optional; model chosen in 设置 → 导图浏览设置) ----
@@ -256,27 +262,34 @@ function parseMindmapTurns(events) {
 
 /* The LAST in-flight (unended) turn of a session's full log — the live card
    while the assistant generates; mirrors parseMindmapTurns' filtering.
-   Returns { turn, question } or null when no turn is open. */
+   Returns { turn, question } or null when no turn is open. Scans BACKWARD
+   from the tail: the first turn/end encountered means the last turn closed
+   (no live turn), the first turn/start means that turn is still open (no
+   closer after it) — so an idle log costs O(1) and a streaming log only
+   walks the open turn's own events, not the whole history. */
 function mindmapLiveTurnOf(events) {
   if (!Array.isArray(events)) return null
-  let current = null
-  for (const event of events) {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i]
     if (event === null || event === undefined) continue
-    if (event.type === 'turn/start') {
-      current = { t: Number(event.data?.turn), question: '' }
-    } else if (event.type === 'user/message') {
-      if (current === null || current.t === undefined) continue
-      if (event.surfaceOp !== undefined && event.surfaceOp !== 'append') continue
-      if (event.data?.source?.kind !== 'user') continue
-      const text = mindmapQuestionOf(event.data?.content)
-      if (text !== '') current.question = current.question === '' ? text : `${current.question}\n${text}`
-    } else if (event.type === 'turn/end') {
-      current = null
+    if (event.type === 'turn/end') return null
+    if (event.type !== 'turn/start') continue
+    /* The last turn/start with no closer after it: collect its user messages
+       (the same filtering as parseMindmapTurns). */
+    let question = ''
+    for (let j = i; j < events.length; j += 1) {
+      const e = events[j]
+      if (e === null || e === undefined) continue
+      if (e.type !== 'user/message') continue
+      if (e.surfaceOp !== undefined && e.surfaceOp !== 'append') continue
+      if (e.data?.source?.kind !== 'user') continue
+      const text = mindmapQuestionOf(e.data?.content)
+      if (text !== '') question = question === '' ? text : `${question}\n${text}`
     }
+    const t = Number(event.data?.turn)
+    return Number.isSafeInteger(t) && t > 0 ? { turn: t, question } : null
   }
-  return current !== null && Number.isSafeInteger(current.t) && current.t > 0
-    ? { turn: current.t, question: current.question }
-    : null
+  return null
 }
 
 /* Merge freshly parsed turns into a persisted list: existing turns match by
@@ -1072,7 +1085,7 @@ async function mindmapCwdOf(ctx, persistence, sessionId) {
   if (live?.header?.cwd !== undefined) return String(live.header.cwd)
   if (persistence !== undefined) {
     try {
-      const headers = await persistence.list()
+      const headers = await mindmapPersistenceList(persistence)
       for (const header of headers) {
         if (header === null || header === undefined) continue
         if (String(header.id) === String(sessionId) && header.cwd !== undefined) return String(header.cwd)
@@ -1097,6 +1110,44 @@ async function eventsOf(ctx, persistence, sessionId) {
   } catch {
     return null
   }
+}
+
+/* Cached persistence.list(): the sync path consults the session index up to
+   three times per poll (signature probe + settle + adopt); a 1 s TTL turns
+   those into one SQLite metadata scan. New fork orphans are still caught
+   within a poll or two (the live session-id set in the signature is NOT
+   cached), and every doc write path already invalidates the sync cache. */
+async function mindmapPersistenceList(persistence) {
+  if (persistence === undefined) return []
+  const now = Date.now()
+  if (mindmapPersistenceListCache.value !== null
+    && now - mindmapPersistenceListCache.at < MINDMAP_PERSISTENCE_LIST_CACHE_MS) {
+    return mindmapPersistenceListCache.value
+  }
+  const value = await persistence.list()
+  mindmapPersistenceListCache = { at: Date.now(), value }
+  return value
+}
+let mindmapPersistenceListCache = { at: 0, value: null }
+
+/* Parse cache for reconcile: a resident session's events array is append-only
+   (identity stable, length grows while streaming), so re-parsing is only
+   needed when the array identity or length changed — idle family sessions
+   skip the full-log walk on every sync. Non-resident logs come back as fresh
+   arrays from persistence.inspect and always miss (their content is immutable,
+   so the cost is bounded by the harness's prepared-session cache). */
+const mindmapParseCache = new Map()
+function parseMindmapTurnsCached(sessionId, events) {
+  if (!Array.isArray(events)) return []
+  const hit = mindmapParseCache.get(sessionId)
+  if (hit !== undefined && hit.events === events && hit.length === events.length) return hit.parsed
+  const parsed = parseMindmapTurns(events)
+  if (mindmapParseCache.size >= 256) {
+    const oldest = mindmapParseCache.keys().next().value
+    if (oldest !== undefined) mindmapParseCache.delete(oldest)
+  }
+  mindmapParseCache.set(sessionId, { events, length: events.length, parsed })
+  return parsed
 }
 
 /* Build a fresh v3 doc for a session that has never been converted: the
@@ -1278,7 +1329,7 @@ async function mindmapParentOf(ctx, persistence, sessionId) {
   if (live?.header?.parentSession !== undefined) return String(live.header.parentSession)
   if (persistence !== undefined) {
     try {
-      const headers = await persistence.list()
+      const headers = await mindmapPersistenceList(persistence)
       for (const header of headers) {
         if (header === null || header === undefined) continue
         if (String(header.id) === String(sessionId) && header.parentSession !== undefined) {
@@ -1402,7 +1453,10 @@ export async function reconcileMindmapDoc(ctx, persistence, doc) {
     const events = await eventsOf(ctx, persistence, session.sessionId)
     if (!Array.isArray(events)) continue
     const forkTurn = Number(session.forkTurn)
-    const parsedAll = parseMindmapTurns(events)
+    /* Cached by events identity + length: idle family sessions skip the
+       full-log walk on every sync; only the streaming session (length
+       growing) re-parses. */
+    const parsedAll = parseMindmapTurnsCached(session.sessionId, events)
     const ownParsed = (Number.isSafeInteger(forkTurn) && forkTurn > 0
       ? parsedAll.filter(turn => turn.t > forkTurn)
       : parsedAll)
@@ -1450,7 +1504,7 @@ async function mindmapSessionIndex(ctx, persistence) {
   }
   if (persistence !== undefined) {
     try {
-      const headers = await persistence.list()
+      const headers = await mindmapPersistenceList(persistence)
       for (const header of headers) {
         if (header === null || header === undefined) continue
         merge(header.id, {
@@ -1611,10 +1665,14 @@ export async function adoptMindmapOrphans(ctx, persistence, doc) {
    outlier (a corrupt/half-initialized resident log, a persistence blip, an
    index race) must not take down an open or a periodic poll. Each step
    degrades to the RECORDED doc (turns/sessions already on disk stay intact)
-   and is logged; the next sync retries. Returns { adopted, changed, warnings };
-   `changed` is false on ANY degraded step so a partially-refreshed doc is
-   never persisted over the last good snapshot. */
-export async function refreshMindmapDocCore(ctx, persistence, doc) {
+   and is logged; the next sync retries. `skipAdopt` (sync path only): when
+   the orphan signal (live session-id set + persistence index length +
+   archived set) is unchanged since the last CLEAN refresh, the full adoption
+   scan is skipped — streaming polls re-parse logs but no longer walk the
+   whole session index looking for fork orphans. Returns
+   { adopted, changed, warnings }; `changed` is false on ANY degraded step so
+   a partially-refreshed doc is never persisted over the last good snapshot. */
+export async function refreshMindmapDocCore(ctx, persistence, doc, skipAdopt = false) {
   const warnings = []
   const before = JSON.stringify({ sessions: doc.sessions, next: doc.next, workspaceCwd: doc.workspaceCwd })
   let adopted = false
@@ -1624,11 +1682,13 @@ export async function refreshMindmapDocCore(ctx, persistence, doc) {
     warnings.push(`reconcile: ${String(error)}`)
     try { ctx.logger.warn(`[workspace-studio] mindmap reconcile failed, keeping recorded turns: ${String(error)}`) } catch { /* no logger */ }
   }
-  try {
-    adopted = await adoptMindmapOrphans(ctx, persistence, doc)
-  } catch (error) {
-    warnings.push(`adopt: ${String(error)}`)
-    try { ctx.logger.warn(`[workspace-studio] mindmap adopt failed, keeping recorded sessions: ${String(error)}`) } catch { /* no logger */ }
+  if (!skipAdopt) {
+    try {
+      adopted = await adoptMindmapOrphans(ctx, persistence, doc)
+    } catch (error) {
+      warnings.push(`adopt: ${String(error)}`)
+      try { ctx.logger.warn(`[workspace-studio] mindmap adopt failed, keeping recorded sessions: ${String(error)}`) } catch { /* no logger */ }
+    }
   }
   const after = JSON.stringify({ sessions: doc.sessions, next: doc.next, workspaceCwd: doc.workspaceCwd })
   return { adopted, changed: warnings.length === 0 && (adopted || before !== after), warnings }
@@ -1655,8 +1715,11 @@ export async function syncMindmapDoc(ctx, persistence, sessionId, liveSessionIds
      longer interleave with the sync's stale write-back, and the doc is re-read
      INSIDE the lock so a write between the probe and lock acquisition is picked up. */
   return mindmapLock(root, async () => {
-    const fresh = await findMindmapDoc(ctx, persistence, sessionId)
-    if (fresh === null || !isValidMindmapDoc(fresh) || String(fresh.rootSessionId) !== root) return null
+    /* The probe already resolved the doc (possibly via a branch scan); inside
+       the lock only the ROOT's own file needs re-reading to catch a write that
+       landed between probe and lock — no directory re-scan. */
+    const fresh = await readMindmapDocFile(root)
+    if (fresh === null || mindmapDocIsDead(ctx, fresh) || String(fresh.rootSessionId) !== root) return null
     /* AI summaries are enqueued on BOTH paths: the cached fast path would
        otherwise starve backfill (missing summaries only re-enqueue when the
        signature changes or the 30 s TTL expires). The scan is a cheap read of
@@ -1670,20 +1733,30 @@ export async function syncMindmapDoc(ctx, persistence, sessionId, liveSessionIds
     const now = Date.now()
     /* Cheap change check: when the signature is unchanged, serve the cached doc
        without re-parsing logs or scanning the index — the poll is O(1) while
-       the family is idle. */
-    const { sig, refs } = await mindmapSyncSignature(ctx, persistence, fresh, cached?.refs)
+       the family is idle. The index-derived parts are computed ONCE and reused
+       by the settle below, so a poll never scans the persistence index twice. */
+    const parts = await mindmapSyncSignatureParts(ctx, persistence)
+    const { sig, refs } = mindmapSyncSignatureFromParts(ctx, fresh, cached?.refs, parts)
     const liveKey = mindmapLiveRequestKey(liveSessionIds)
     if (cached !== undefined && cached.at + MINDMAP_SYNC_CACHE_TTL_MS > now
       && cached.sig === sig && cached.liveKey === liveKey) {
-      return { doc: cached.doc, live: Array.isArray(cached.live) ? cached.live : [], warnings: [], summarizing: mindmapSummarizingOf(fresh), sessionSummarizing: mindmapSessionSummarizingOf(fresh) }
+      /* Incremental response: the doc is unchanged (signature match), so send
+         doc: null instead of the full document — the client keeps its copy and
+         only applies live/summarizing. The full doc still arrives on every
+         signature change and at least once per TTL. */
+      return { doc: null, live: Array.isArray(cached.live) ? cached.live : [], warnings: [], summarizing: mindmapSummarizingOf(fresh), sessionSummarizing: mindmapSessionSummarizingOf(fresh) }
     }
     /* Only bump updatedAt / rewrite the file when the doc ACTUALLY changed:
        an unchanged cache-miss sync would otherwise rewrite and refresh
        updatedAt every TTL (30 s), re-sorting the sidebar index each poll. The
        refresh core is fault-isolated and SHARED with the GET load path (a
        reconcile/adopt failure degrades to the recorded doc, is logged, and is
-       retried next poll instead of 500ing the sync). */
-    const refresh = await refreshMindmapDocCore(ctx, persistence, fresh)
+       retried next poll instead of 500ing the sync). Adoption is skipped when
+       the orphan signal is unchanged since the last CLEAN refresh: streaming
+       polls re-parse logs but no longer walk the whole session index. */
+    const orphanSig = `${parts.liveIds}#${parts.persisted}#${parts.archivedRef}`
+    const refresh = await refreshMindmapDocCore(ctx, persistence, fresh,
+      cached !== undefined && cached.adoptClean === true && cached.orphanSig === orphanSig)
     if (refresh.changed) {
       fresh.updatedAt = Date.now()
       try {
@@ -1718,13 +1791,15 @@ export async function syncMindmapDoc(ctx, persistence, sessionId, liveSessionIds
         }
       }
     }
-    /* Settle the cached signature against the just-captured refs so the next poll is already a hit. */
-    const settled = await mindmapSyncSignature(ctx, persistence, fresh, refs)
+    /* Settle the cached signature against the just-captured refs so the next
+       poll is already a hit — reusing the probe's parts, so the settle costs
+       no extra index scan. */
+    const settled = mindmapSyncSignatureFromParts(ctx, fresh, refs, parts)
     /* Only a CLEAN refresh may seed the cache: a degraded one must not serve
        the half-reconciled doc (or the disk fallback) as if it were fresh —
        the next sync re-runs the refresh and converges. */
     if (refresh.warnings.length === 0) {
-      mindmapSyncCache.set(root, { sig: settled.sig, doc: responseDoc, live, liveKey, at: Date.now(), refs: settled.refs })
+      mindmapSyncCache.set(root, { sig: settled.sig, doc: responseDoc, live, liveKey, at: Date.now(), refs: settled.refs, orphanSig, adoptClean: true })
     }
     return { doc: responseDoc, live, warnings: refresh.warnings, summarizing: mindmapSummarizingOf(responseDoc), sessionSummarizing: mindmapSessionSummarizingOf(responseDoc) }
   })
@@ -1738,8 +1813,36 @@ export async function syncMindmapDoc(ctx, persistence, sessionId, liveSessionIds
      only caught by the TTL.
    - New fork orphans: the live session id set and the persistence index length.
    - The archived set reference: archiving a member changes the doc's fate even
-     though no log changed. */
-async function mindmapSyncSignature(ctx, persistence, doc, cachedRefs) {
+     though no log changed.
+   Split into parts (index-derived, I/O) + from-parts (log-derived, memory):
+   the sync path computes the parts ONCE per poll and reuses them for the
+   settle, so the second signature costs no extra index scan. */
+async function mindmapSyncSignatureParts(ctx, persistence) {
+  let liveIds = ''
+  try {
+    /* \u0001 separator (not ','): session ids may legally contain commas, and
+       ["a,b","c"] vs ["a","b,c"] would collide into the same signature string,
+       letting the sync cache miss a new fork orphan for up to a TTL. */
+    liveIds = ctx.sessions.list().map(s => s?.id ?? s?.header?.id).filter(Boolean).sort().join('\u0001')
+  } catch {
+    /* live list unavailable: no orphan signal from it */
+  }
+  let persisted = -1
+  try {
+    if (persistence !== undefined) persisted = (await mindmapPersistenceList(persistence)).length
+  } catch {
+    /* no persistence index: no orphan signal from it */
+  }
+  let archivedRef = ''
+  try {
+    archivedRef = String(ctx.workspaceRegistry?.archivedSessionIds ?? '')
+  } catch {
+    /* no registry: no archived signal */
+  }
+  return { liveIds, persisted, archivedRef }
+}
+
+function mindmapSyncSignatureFromParts(ctx, doc, cachedRefs, parts) {
   const family = [String(doc.rootSessionId)]
   for (const s of doc.sessions ?? []) {
     if (s !== null && s !== undefined && typeof s?.sessionId === 'string') family.push(String(s.sessionId))
@@ -1756,28 +1859,7 @@ async function mindmapSyncSignature(ctx, persistence, doc, cachedRefs) {
       logs.push(`D:${id}`)
     }
   }
-  let liveIds = ''
-  try {
-    /* \u0001 separator (not ','): session ids may legally contain commas, and
-       ["a,b","c"] vs ["a","b,c"] would collide into the same signature string,
-       letting the sync cache miss a new fork orphan for up to a TTL. */
-    liveIds = ctx.sessions.list().map(s => s?.id ?? s?.header?.id).filter(Boolean).sort().join('\u0001')
-  } catch {
-    /* live list unavailable: no orphan signal from it */
-  }
-  let persisted = -1
-  try {
-    if (persistence !== undefined) persisted = (await persistence.list()).length
-  } catch {
-    /* no persistence index: no orphan signal from it */
-  }
-  let archivedRef = ''
-  try {
-    archivedRef = String(ctx.workspaceRegistry?.archivedSessionIds ?? '')
-  } catch {
-    /* no registry: no archived signal */
-  }
-  return { sig: `${logs.join('|')}#${liveIds}#${persisted}#${archivedRef}`, refs }
+  return { sig: `${logs.join('|')}#${parts.liveIds}#${parts.persisted}#${parts.archivedRef}`, refs }
 }
 
 /* After a root replacement (card-deletion truncation), leave an alias stub at

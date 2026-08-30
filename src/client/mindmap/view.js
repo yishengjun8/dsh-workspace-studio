@@ -307,11 +307,16 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       return
     }
     const next = payload?.doc
-    if (next === null || next === undefined) return
-    const fp = mindmapDocFingerprint(next)
-    if (fp !== lastFingerprintRef.current) {
-      lastFingerprintRef.current = fp
-      setDoc(next)
+    /* Incremental sync responses (Host cache hit) carry doc: null — the
+       document is unchanged, so keep the current copy and only apply the
+       live/summarizing payloads below. A full doc still arrives on every
+       signature change and at least once per Host TTL. */
+    if (next !== null && next !== undefined) {
+      const fp = mindmapDocFingerprint(next)
+      if (fp !== lastFingerprintRef.current) {
+        lastFingerprintRef.current = fp
+        setDoc(next)
+      }
     }
     /* The live list is identity-compared so a static set of in-flight
        questions does not re-render the map on every sync. */
@@ -926,9 +931,14 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   const confirmArchiveBranch = useCallback(() => {
     if (forkingRef.current || archiveBranchBusy || archiveBranchTarget === null) return
     const root = rootId
-    const currentDoc = doc
-    if (root === null || currentDoc === null) return
-    const plan = mindmapDeletePlan(currentDoc, archiveBranchTarget.sessionId, undefined, true)
+    const base = docRef.current ?? doc
+    if (root === null || base === null) return
+    /* Recompute the plan from the LATEST doc (docRef), not the render-time
+       closure: a sync that folded new turns while the dialog was open must not
+       be rolled back by a write built from the stale session list (the Host's
+       stale-write guard only protects whole sessions, not per-session turn
+       regressions). */
+    const plan = mindmapDeletePlan(base, archiveBranchTarget.sessionId, undefined, true)
     if (plan === null) {
       setArchiveBranchError(translate('mindmap.delete.missing'))
       return
@@ -942,10 +952,6 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     setArchiveBranchError(null)
     localWriteSeqRef.current += 1
     savingRef.current += 1
-    /* Build from the LATEST doc (docRef) so a sync/regenerate that landed since
-       this callback was created is kept (the plan was computed on the closure
-       doc, which is still the same family — only newer turns/summaries differ). */
-    const base = docRef.current ?? currentDoc
     const next = { ...base, sessions: plan.sessions, next: plan.next, updatedAt: Date.now() }
     /* Re-anchor when the archived session was the anchor (the doc file moves
        via prevSessionId). */
@@ -1333,9 +1339,14 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   const confirmDelete = useCallback(() => {
     if (forkingRef.current || deleteBusy || deleteTarget === null) return
     const root = rootId
-    const currentDoc = doc
-    if (root === null || currentDoc === null) return
-    const plan = mindmapDeletePlan(currentDoc, deleteTarget.sessionId, deleteTarget.turnSeq, deleteTarget.empty)
+    const base = docRef.current ?? doc
+    if (root === null || base === null) return
+    /* Recompute the plan from the LATEST doc (docRef), not the render-time
+       closure: a sync that folded new turns while the dialog was open must not
+       be rolled back by a write built from the stale session list (the Host's
+       stale-write guard only protects whole sessions, not per-session turn
+       regressions). */
+    const plan = mindmapDeletePlan(base, deleteTarget.sessionId, deleteTarget.turnSeq, deleteTarget.empty)
     if (plan === null) { setDeleteError(translate('mindmap.delete.missing')); return }
     if (plan.lastSession === true) { setDeleteError(translate('mindmap.delete.lastSession')); return }
     forkingRef.current = true
@@ -1344,10 +1355,6 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     localWriteSeqRef.current += 1
     savingRef.current += 1
     let forkedChildId = null
-    /* Build from the LATEST doc (docRef) so a sync/regenerate that landed since
-       this callback was created is kept (the plan was computed on the closure
-       doc, which is still the same family — only newer turns/summaries differ). */
-    const base = docRef.current ?? currentDoc
     const next = { ...base }
     /* A truncation of the ANCHOR session makes the fork child the doc's new
        root (and the map file moves to it): it must not get the branch " ›"

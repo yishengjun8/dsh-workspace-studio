@@ -567,32 +567,43 @@ export function mindmapFitView(worldW, worldH, vw, vh) {
    flags and titles, but `useSessions(state => state)` re-renders every card on
    any store churn. The selector returns the SAME projection while those fields
    are unchanged (so idle churn never re-renders), rebuilds when a family field
-   changes or the family grows, and keeps the latest byId so reads stay fresh. */
+   changes or the family grows, and keeps the latest byId so reads stay fresh.
+   The unchanged check compares the family's running bits / titles by VALUE
+   (arrays, no string building) — the selector runs on every store change
+   (streaming churn), so it must stay allocation-free on the hot path. */
 export function useMindmapSessionView(useSessions, familyIdsRef) {
   const cacheRef = useRef(null)
   return useSessions((state) => {
     const byId = state?.byId ?? {}
     const family = familyIdsRef.current
-    const runningKey = family.map(id => (byId[id]?.running === true ? '1' : '0')).join('|')
-    const titlesKey = family.map(id => byId[id]?.displayTitle ?? '').join('\u0001')
-    /* The cache key must also cover FAMILY MEMBERSHIP: a root replacement
-       (root-session truncation) swaps the root id while titles/running bits stay the
-       same, so runningKey+titlesKey alone would serve a stale projection keyed
-       to the archived root (new root's cards empty until the next change). */
     const familyKey = family.join('\u0002')
     const cache = cacheRef.current
-    if (cache !== null && cache.familyKey === familyKey && cache.runningKey === runningKey && cache.titlesKey === titlesKey) {
-      return cache.view
+    if (cache !== null && cache.familyKey === familyKey) {
+      let same = true
+      for (let i = 0; i < family.length; i += 1) {
+        const cur = byId[family[i]]
+        const running = cur !== undefined && cur.running === true
+        const title = cur !== undefined && typeof cur.displayTitle === 'string' ? cur.displayTitle : ''
+        if (running !== cache.running[i] || title !== cache.titles[i]) { same = false; break }
+      }
+      if (same) return cache.view
     }
     /* The view carries ONLY the family-projected running bits and titles — no
        raw byId — so it is a stable object while those fields are unchanged
        (idle store churn never re-renders the map) AND the selector stays pure
        (no mutation of a previously-returned object). */
-    const view = {
-      runningIds: new Set(family.filter(id => byId[id]?.running === true)),
-      titles: Object.fromEntries(family.map(id => [id, byId[id]?.displayTitle ?? ''])),
+    const running = []
+    const titles = []
+    for (const id of family) {
+      const cur = byId[id]
+      running.push(cur !== undefined && cur.running === true)
+      titles.push(cur !== undefined && typeof cur.displayTitle === 'string' ? cur.displayTitle : '')
     }
-    cacheRef.current = { familyKey, runningKey, titlesKey, view }
+    const view = {
+      runningIds: new Set(family.filter((id, index) => running[index])),
+      titles: Object.fromEntries(family.map((id, index) => [id, titles[index]])),
+    }
+    cacheRef.current = { familyKey, running, titles, view }
     return view
   })
 }

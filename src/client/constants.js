@@ -162,8 +162,11 @@ export const MINDMAP_PAN_MARGIN = 48
 /* Max fraction of the map (per axis, at current zoom) draggable out of view: 0.8 → at least 20% stays on screen; applies to grab-pan and wheel-zoom alike. */
 export const MINDMAP_PAN_OUT_MAX = 0.8
 export const MINDMAP_WHEEL_STEP = 0.0016
-/* Mind-map doc-index refresh interval (sidebar panel + branch hider read it); also bumped on every doc mutation. */
-export const MINDMAP_INDEX_REFRESH_MS = 5000
+/* Mind-map doc-index refresh interval (sidebar panel + branch hider read it);
+   also bumped on every doc mutation (markDirty refreshes immediately), so the
+   idle poll only needs to catch external changes — 10 s keeps the constant
+   background disk scan (Host reads every doc file per index) at half rate. */
+export const MINDMAP_INDEX_REFRESH_MS = 10000
 /* Re-sync the doc this often while the map is mounted, so a branch turn that completes in chat folds in live. */
 export const MINDMAP_SYNC_MS = 2500
 /* Min interval between branch-hider scans: it observes every body mutation (streaming included), so throttle to a bounded scan rate. */

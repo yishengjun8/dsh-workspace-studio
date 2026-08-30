@@ -29,6 +29,9 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
   const apply = () => {
     timer = 0
     lastRun = Date.now()
+    /* Re-anchor the observer to the sidebar slot whenever this runs: the slot
+       may have appeared (initial fallback was body) or been re-created. */
+    ensureObserved()
     /* No mind-map docs: skip the session walk (the observer fires on every
        body mutation) but clear any applied hidden class so rows self-heal
        the moment the last doc disappears. */
@@ -145,12 +148,29 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
     const wait = Math.max(0, MINDMAP_HIDER_THROTTLE_MS - (Date.now() - lastRun))
     timer = window.setTimeout(() => { timer = 0; apply() }, wait)
   }
+  /* Observe ONLY the sidebar workspaces slot (the hider only touches rows
+     there): chat streaming churn (characterData + childList on the chat
+     column) no longer schedules scans. The slot may be re-created by the
+     harness, so a body-level childList guard re-anchors the observer when
+     the slot node is replaced (or first appears — until then the observer
+     falls back to body, whose subtree mutations cover the slot's creation). */
+  let observedTarget = null
+  const ensureObserved = () => {
+    const target = document.querySelector('[data-slot="sidebar.workspaces"]') ?? document.body
+    if (observedTarget === target) return
+    observer.disconnect()
+    observedTarget = target
+    observer.observe(target, { childList: true, subtree: true })
+  }
   const observer = new MutationObserver(schedule)
-  observer.observe(document.body, { childList: true, subtree: true, characterData: true })
+  const guardObserver = new MutationObserver(() => { ensureObserved() })
+  guardObserver.observe(document.body, { childList: true })
+  ensureObserved()
   const unsubscribe = mindmapRegistry.subscribe(schedule)
   apply()
   return () => {
     observer.disconnect()
+    guardObserver.disconnect()
     unsubscribe()
     if (timer !== 0) { clearTimeout(timer); timer = 0 }
     /* Restore every touched row so hot reload / uninstall cannot leave the
@@ -172,7 +192,7 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
    mind-map family: a documented root/branch or a fork descendant of one. */
 
 /* Sessions the user has converted to a mind map this app session. The doc
-   index refreshes only every 5 s, so right after a conversion `isMember` is
+   index refreshes only every 10 s, so right after a conversion `isMember` is
    still false: without this set the button would re-offer the convert dialog.
    Entries are pruned when the registry catches up (see MindmapHeaderButton),
    so the set only ever holds in-flight conversions. */
