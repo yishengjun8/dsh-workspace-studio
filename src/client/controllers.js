@@ -1,5 +1,5 @@
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
-import { ENSURE_RETRY_MAX, SEND_SESSION_BRIDGE_MARKER } from './constants.js'
+import { ENSURE_RETRY_MAX, SEND_SESSION_BRIDGE_MARKER, SEND_SESSION_BRIDGE_ORIGINAL } from './constants.js'
 import { translate } from './locale/index.js'
 import { formatBytes } from './format.js'
 import { renderContext } from './api.js'
@@ -183,7 +183,16 @@ export class PromptContextBridge {
        overlapping the previous cleanup must restore THIS install's original
        sendSession, and the older cleanup must not clobber the newer install's
        state (the shared instance fields would otherwise cross-wire them). */
-    const originalSendSession = conversation.sendSession
+    let originalSendSession = conversation.sendSession
+    if (typeof originalSendSession === 'function' && originalSendSession[SEND_SESSION_BRIDGE_MARKER] === true) {
+      /* An overlapping re-install running before the previous install's
+         cleanup captured the OLD wrapper as "original": the new wrapper would
+         call the old one, which calls back into the SAME bridge instance —
+         unbounded recursion on every send. Unwrap to the true original the old
+         wrapper recorded (cleanup-only installs never leave a wrapper behind,
+         so this is a defense for the overlap window, not the normal path). */
+      originalSendSession = originalSendSession[SEND_SESSION_BRIDGE_ORIGINAL] ?? originalSendSession
+    }
     if (typeof originalSendSession !== 'function') {
       throw new Error('workspace-studio requires the Harness 0.1.x conversation.sendSession seam')
     }
@@ -196,6 +205,10 @@ export class PromptContextBridge {
       return bridge.sendSessionWithEditorContext(session, text, imageIds, mode)
     }
     Object.defineProperty(wrappedSendSession, SEND_SESSION_BRIDGE_MARKER, { value: true })
+    /* Record the true original on the wrapper itself: an overlapping
+       re-install before this install's cleanup can then unwrap instead of
+       recursing through the stale wrapper (see the install head). */
+    Object.defineProperty(wrappedSendSession, SEND_SESSION_BRIDGE_ORIGINAL, { value: originalSendSession })
     this.wrappedSendSession = wrappedSendSession
     conversation.sendSession = wrappedSendSession
     const reconcile = () => bridge.reconcile()

@@ -4,27 +4,85 @@ import { mindmapRegistry } from './registry.js'
 
 /* Hides mind-map family sessions (root + every fork descendant) from the
    sidebar list; each mind map is shown by its self-drawn entry instead.
-   Rows are matched by title and rescanned on every DOM mutation / index
-   change. A title hides a row only when every session with that title is
-   hidden (a visible non-mindmap sharing it keeps it visible); archived
-   sessions add no titles and the clearing pass self-heals bad rows. */
+   Rows are matched by title and rescanned on DOM mutations / index changes.
+   A title hides a row only when every session with that title is hidden (a
+   visible non-mindmap sharing it keeps it visible); archived sessions add no
+   titles and the clearing pass self-heals bad rows.
+
+   Scan cost is bounded by three layers (2026 fix):
+   1. Mutation records are FILTERED before a scan is scheduled: only a session
+      row ('[role="treeitem"]') or an overflow button ('button[aria-expanded]')
+      being added / removed / rewritten can change hiding or counts. The
+      mind-map panel's own React renders (its entries are plain buttons — not
+      overflow buttons), seat re-anchors, decorative nodes AND this hider's own
+      count-patch writes (their targets are patchedButtons members) all drop
+      out — the observer no longer turns every container churn into a scan, and
+      our own writes never schedule the next one (de-self-trigger).
+   2. apply() computes a scan RESULT signature (session inputs + row titles /
+      desired & actual hidden classes + current overflow-button texts) and
+      skips every DOM write plus the per-group count pass when it matches the
+      last scan — reorders and identical row rebuilds cost the walk only.
+   3. The body guard re-anchors only when the observed target was actually
+      REPLACED (disconnected): plain body churn (portals, toasts, dialogs)
+      does zero work. */
 
 export function installMindmapBranchHider(getSessionList, getArchivedSessionIds, getWorkspaces) {
   if (typeof document === 'undefined') return () => {}
   let timer = 0
   let lastRun = 0
+  /* Signature of the last applied scan (all driving inputs + the resulting
+     row states + overflow-button texts): an identical scan writes nothing. */
+  let lastSignature = null
   /* Original textContent of every overflow button whose count this hider
      patched, so the number can be restored when the patch no longer applies
      (all docs gone, group fully hidden, or dispose) — the harness re-renders
      the button on session changes, but a static group would keep the patched
-     small number forever. */
+     small number forever. Also marks a button as "patched by us" for the
+     mutation filter below. */
   const patchedButtons = new WeakMap()
   const restoreButtonText = (button) => {
     const original = patchedButtons.get(button)
     if (original !== undefined) {
       button.textContent = original
+      /* Unmark: a later foreign rewrite of the SAME node must rescan again
+         (the marker deletion costs at most one extra no-op scan). */
       patchedButtons.delete(button)
     }
+  }
+  /* Whether a mutation batch can change what this hider renders: a session
+     row or an overflow button added / removed / rewritten — everything else
+     (the mind-map panel's own button/label renders, seat re-anchors,
+     decorative nodes, and this hider's own count patches) cannot alter any
+     hidden class or count. */
+  const mutatesHiderState = (records) => {
+    for (const record of records) {
+      const target = record.target
+      if (target instanceof Element) {
+        if (target.tagName === 'BUTTON') {
+          /* Our own count-patch / restore writes target a button we patched:
+             skip (de-self-trigger). A foreign overflow-button rewrite (text
+             set on the same node) must rescan — its count may be stale again.
+             Plain panel buttons cannot affect hiding or counts either. */
+          if (patchedButtons.has(target)) continue
+          if (target.getAttribute('aria-expanded') !== null) return true
+          continue
+        }
+        /* Any rewrite INSIDE a session row (title span replaced, row rebuilt
+           from within) changes what the row pass reads. */
+        if (target.closest('[role="treeitem"]') !== null) return true
+      }
+      for (const node of record.addedNodes) {
+        if (node.nodeType !== 1 && node.nodeType !== 11) continue
+        if (node.matches?.('[role="treeitem"],button[aria-expanded]') === true
+          || node.querySelector?.('[role="treeitem"],button[aria-expanded]') !== null) return true
+      }
+      for (const node of record.removedNodes) {
+        if (node.nodeType !== 1 && node.nodeType !== 11) continue
+        if (node.matches?.('[role="treeitem"],button[aria-expanded]') === true
+          || node.querySelector?.('[role="treeitem"],button[aria-expanded]') !== null) return true
+      }
+    }
+    return false
   }
   const apply = () => {
     timer = 0
@@ -32,9 +90,9 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
     /* Re-anchor the observer to the sidebar slot whenever this runs: the slot
        may have appeared (initial fallback was body) or been re-created. */
     ensureObserved()
-    /* No mind-map docs: skip the session walk (the observer fires on every
-       body mutation) but clear any applied hidden class so rows self-heal
-       the moment the last doc disappears. */
+    /* No mind-map docs: skip the session walk (the observer may still fire on
+       container/body mutations) but clear any applied hidden class so rows
+       self-heal the moment the last doc disappears. */
     if (mindmapRegistry.getDocs().length === 0) {
       const browser = document.querySelector('[data-slot="sidebar.workspaces"]')
       if (browser !== null) {
@@ -46,21 +104,27 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
           restoreButtonText(button)
         }
       }
+      lastSignature = null
       return
     }
     const list = getSessionList()
     const archived = new Set((getArchivedSessionIds?.() ?? []).map(String))
     const byTitle = new Map()
+    /* All driving inputs folded into the scan signature (see header): the row
+       pass and the per-group count pass only run when one of them changed. */
+    const sessionSig = []
     for (const id of list.ids) {
       const summary = list.byId[id]
       if (summary === undefined) continue
+      const title = typeof summary.displayTitle === 'string' ? summary.displayTitle.trim() : ''
+      const isFamily = isMindmapFamilySession(list, id)
+      sessionSig.push(`${id}\u0001${title}\u0001${summary.blank ? 1 : 0}\u0001${summary.origin ?? ''}\u0001${archived.has(String(id)) ? 1 : 0}\u0001${isFamily ? 1 : 0}\u0001${String(id) === String(list.current) ? 1 : 0}`)
       if (summary.origin === 'subagent' || summary.blank) continue
       if (archived.has(String(id))) continue
-      const title = typeof summary.displayTitle === 'string' ? summary.displayTitle.trim() : ''
       if (title === '') continue
       if (!byTitle.has(title)) byTitle.set(title, { hidden: 0, visible: 0 })
       const entry = byTitle.get(title)
-      if (isMindmapFamilySession(list, id)) entry.hidden += 1
+      if (isFamily) entry.hidden += 1
       else entry.visible += 1
     }
     const hideTitles = new Set()
@@ -69,20 +133,43 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
     }
     const browser = document.querySelector('[data-slot="sidebar.workspaces"]')
     if (browser === null) return
-    for (const row of browser.querySelectorAll('[role="treeitem"]')) {
+    /* Collect the rows ONCE: the per-group count pass reuses this list (via
+       section.contains) instead of re-querying the DOM once per group. */
+    const rows = [...browser.querySelectorAll('[role="treeitem"]')]
+    const rowDecisions = []
+    const rowSig = []
+    for (const row of rows) {
       // Workspace group headers expose aria-expanded — not session rows, so
       // never hidden even when a group title equals a family title.
       if (row.hasAttribute('aria-expanded')) continue
       // Match the title via its title span, not any leaf span: badges / empty
       // spacer spans would be caught by a numeric or empty family title.
       const titleSpan = row.querySelector('span[class*="title"]')
-      const matched = titleSpan !== null && hideTitles.has((titleSpan.textContent ?? '').trim())
-      row.classList.toggle('dsh-ws-mindmap-hidden-row', matched)
+      const title = titleSpan !== null ? (titleSpan.textContent ?? '').trim() : ''
+      const matched = hideTitles.has(title)
+      rowDecisions.push({ row, matched })
+      rowSig.push(`${title}\u0001${matched ? 1 : 0}\u0001${row.classList.contains('dsh-ws-mindmap-hidden-row') ? 1 : 0}`)
+    }
+    /* Current overflow-button texts: a foreign (harness) button rewrite shows
+       up here and forces the count pass even when rows/sessions look unchanged. */
+    const buttonTextSig = [...browser.querySelectorAll('button[aria-expanded]')]
+      .map(button => (button.textContent ?? ''))
+      .join('\u0004')
+    const workspaces = getWorkspaces?.() ?? []
+    const wsSig = workspaces
+      .map(w => `${String(w.title ?? '')}\u0001${(w.sessionIds ?? []).map(String).sort().join('\u0003')}`)
+      .join('\u0002')
+    const signature = `${sessionSig.join('\u0002')}\u0003${wsSig}\u0003${rowSig.join('\u0002')}\u0003${buttonTextSig}`
+    /* Identical inputs → the DOM already reflects the desired state: skip
+       every write (class toggles, count patches) and the per-group pass. */
+    if (signature === lastSignature) return
+    lastSignature = signature
+    for (const decision of rowDecisions) {
+      decision.row.classList.toggle('dsh-ws-mindmap-hidden-row', decision.matched)
     }
     /* The harness sizes the overflow button from group.sessions.length (which
        includes hidden rows) — recompute the visible remainder, patch the count
        or hide the button when nothing is left behind. */
-    const workspaces = getWorkspaces?.() ?? []
     for (const header of browser.querySelectorAll('[role="treeitem"][aria-expanded]')) {
       /* Real-workspace headers sit inside a HoverCard span (ungrouped header
          does not); walk up to the section holding the overflow button. */
@@ -96,11 +183,10 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
       if (button === null) continue
       /* Expanded list shows the collapse label — nothing to fix. */
       if (button.getAttribute('aria-expanded') === 'true') continue
-      /* Session rows are also HoverCard-wrapped (not direct children) —
-         gather all descendant treeitems and drop the header. */
-      const rows = [...section.querySelectorAll('[role="treeitem"]')]
-        .filter(row => !row.hasAttribute('aria-expanded'))
-      const hiddenInRows = rows.filter(row => row.classList.contains('dsh-ws-mindmap-hidden-row')).length
+      /* Session rows are also HoverCard-wrapped (not direct children) — reuse
+         the rows collected once above, dropping the group headers. */
+      const sectionRows = rows.filter(row => !row.hasAttribute('aria-expanded') && section.contains(row))
+      const hiddenInRows = sectionRows.filter(row => row.classList.contains('dsh-ws-mindmap-hidden-row')).length
       /* Match group by header title: real workspace -> its sessionIds; else
          the ungrouped bucket (sessions no workspace has). */
       const titleEl = header.querySelector('span[class*="title"]')
@@ -116,11 +202,12 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
       /* Count the group's sessions the way the harness renders them, minus
          titles this hider hides. Subagent sessions ARE rendered as rows (the
          session list shows them), so they must count here — the old code
-         excluded them from visibleCount while `rows` still contained them,
-         which made `remaining` negative in mixed groups and wrongly hid the
-         overflow button (its hidden mindmap rows became unreachable).
+         excluded them from visibleCount while `sectionRows` still contained
+         them, which made `remaining` negative in mixed groups and wrongly hid
+         the overflow button (its hidden mindmap rows became unreachable).
          Archived sessions and blank non-current sessions are not rendered by
-         the harness, so they stay excluded (rows does not contain them). */
+         the harness, so they stay excluded (sectionRows does not contain
+         them). */
       let visibleCount = 0
       for (const id of ids) {
         const summary = list.byId[id]
@@ -131,7 +218,7 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
         if (title === '' || hideTitles.has(title)) continue
         visibleCount += 1
       }
-      const remaining = visibleCount - (rows.length - hiddenInRows)
+      const remaining = visibleCount - (sectionRows.length - hiddenInRows)
       if (remaining > 0) {
         button.classList.remove('dsh-ws-mindmap-no-overflow')
         /* The button's only number is the count — swap it in place, keeping the
@@ -151,14 +238,18 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
       }
     }
   }
-  /* Time throttle: the observer fires per DOM mutation (streaming churn); one
-     scan per throttle window keeps the hiding fresh without global jank. The
-     slot may be re-created by the harness WITHOUT a body-direct childList
-     change (deep subtree replacement, which the body-level guard observer
-     cannot see): re-anchor here, inside the throttled callback, so a stale
-     slot never leaves the hider dead until the next registry change. */
-  const schedule = () => {
+  /* Time throttle: the observer fires per DOM mutation; one scan per throttle
+     window keeps the hiding fresh without global jank. The slot may be
+     re-created by the harness WITHOUT a body-direct childList change (deep
+     subtree replacement, which the body-level guard observer cannot see):
+     re-anchor here, inside the throttled callback, so a stale slot never
+     leaves the hider dead until the next registry change. */
+  const schedule = (records) => {
     if (timer !== 0) return
+    /* Mutation filter: a scan is only needed when the batch can change hiding
+       state (a session row or an overflow button touched) — see the header
+       comment. Registry pushes (no records) always scan. */
+    if (records !== undefined && records.length > 0 && !mutatesHiderState(records)) return
     const wait = Math.max(0, MINDMAP_HIDER_THROTTLE_MS - (Date.now() - lastRun))
     timer = window.setTimeout(() => { timer = 0; ensureObserved(); apply() }, wait)
   }
@@ -177,7 +268,13 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
     observer.observe(target, { childList: true, subtree: true })
   }
   const observer = new MutationObserver(schedule)
-  const guardObserver = new MutationObserver(() => { ensureObserved() })
+  /* Guard: re-anchor ONLY when the observed target was actually replaced
+     (disconnected) — plain body churn (portals, toasts, dialogs) does zero
+     work. The slot's creation/replacement is itself one of these mutations,
+     so the refresh happens within the same batch. */
+  const guardObserver = new MutationObserver(() => {
+    if (observedTarget === null || !observedTarget.isConnected) ensureObserved()
+  })
   guardObserver.observe(document.body, { childList: true })
   ensureObserved()
   const unsubscribe = mindmapRegistry.subscribe(schedule)
@@ -206,7 +303,7 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
    mind-map family: a documented root/branch or a fork descendant of one. */
 
 /* Sessions the user has converted to a mind map this app session. The doc
-   index refreshes only every 10 s, so right after a conversion `isMember` is
+   index refreshes only every 30 s, so right after a conversion `isMember` is
    still false: without this set the button would re-offer the convert dialog.
    Entries are pruned when the registry catches up (see MindmapHeaderButton),
    so the set only ever holds in-flight conversions. */

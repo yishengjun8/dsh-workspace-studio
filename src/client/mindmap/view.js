@@ -200,6 +200,17 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
        would never match the new map, and the 5-minute timeout would misfire. */
     setSessionSummaryWaiting(null)
     setSessionSummaryBusyId(null)
+    /* Dialogs / context menus belong to the previous family: a root
+       replacement in ANOTHER tab can re-anchor this view's doc while one is
+       open, and a stale 归档整个导图 dialog would then act on the NEW family
+       (confirmArchiveAll re-reads docRef/rootIdRef at confirm time). Close
+       them all on this full-reload branch (in-family switches skip it). */
+    setMenu(null)
+    setRenameTarget(null)
+    setDeleteTarget(null)
+    setArchiveTarget(null)
+    setArchiveBranchTarget(null)
+    setRegenerateAllTarget(null)
     /* Switching to a DIFFERENT family (or a fresh doc): reset the view so the
        new map fits on load instead of inheriting the old transform (fittedRef
        was only ever set, never reset, so switches kept the old pan/zoom). */
@@ -1530,6 +1541,13 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     savingRef.current += 1
     let forkedChildId = null
     const next = { ...base }
+    /* Hoisted to the FUNCTION scope: the .catch below reads these after the
+       .then callback settled. Declaring them inside the .then would throw
+       ReferenceError on every failure path (a sibling .catch cannot see the
+       .then's block scope), silently disabling the write-failure contract —
+       same shape as confirmArchiveBranch's function-level declarations. */
+    let saveRoot = String(root)
+    let prevRoot = undefined
     /* A truncation of the ANCHOR session makes the fork child the doc's new
        root (and the map file moves to it): it must not get the branch " ›"
        suffix (forkAt renames branch children to it), so the child is told it
@@ -1573,8 +1591,6 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
            anchor from sessions[0] (which is only guaranteed to be the root by
            an implicit ordering convention — a future reorder would store the
            doc under the wrong root and orphan the fork child). */
-        let saveRoot = String(root)
-        let prevRoot = undefined
         if (isRootReplacement) {
           saveRoot = forkedChildId
           prevRoot = String(root)

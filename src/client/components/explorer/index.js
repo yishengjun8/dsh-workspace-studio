@@ -459,10 +459,16 @@ export function WorkspaceExplorer({
       setStatus({ text: translate('status.externalOpened', { name: tab.name }) })
       return true
     } catch (error) {
-      if (error?.name === 'AbortError' || !mounted.current) return true
+      /* A request TIMEOUT is a real failure, not a cancellation: surface it
+         through the failure toast instead of counting the upload as success
+         (AbortError's reason distinguishes the 30 s AbortSignal.timeout). */
+      if ((error?.name === 'AbortError' && error?.reason?.name !== 'TimeoutError') || !mounted.current) return true
       // Only normal (text) files preview; a file that is not text (binary,
       // image, empty, oversized) reports the server's message via the toast.
-      return error instanceof Error ? error.message : String(error)
+      const message = error?.name === 'AbortError' && error?.reason?.name === 'TimeoutError'
+        ? translate('editor.requestTimeout')
+        : (error instanceof Error ? error.message : String(error))
+      return message
     }
   }, [activatePath])
   const showPreviewToast = useCallback((text) => {
@@ -744,7 +750,7 @@ export function WorkspaceExplorer({
         lastWriteRef.current.delete(item.path)
         scheduleAutosave(item.path, fresh?.draft ?? item.draft, true)
       }
-      if (error?.name === 'AbortError') {
+      if (error?.name === 'AbortError' && error?.reason?.name !== 'TimeoutError') {
         /* Release the mutation slot even on abort (defensive: the mounted/
            mutationSeq guard above already returns for the unmount case, but a
            future reorder must not leave the controller stuck and block every
@@ -752,7 +758,10 @@ export function WorkspaceExplorer({
         if (mutationController.current === controller) mutationController.current = undefined
         return
       }
-      setCopyNotice(translate('status.deleteFailed', { message: error instanceof Error ? error.message : String(error) }))
+      const deleteMessage = error?.name === 'AbortError' && error?.reason?.name === 'TimeoutError'
+        ? translate('editor.requestTimeout')
+        : (error instanceof Error ? error.message : String(error))
+      setCopyNotice(translate('status.deleteFailed', { message: deleteMessage }))
       clearTimeout(copyNoticeTimer.current)
       copyNoticeTimer.current = setTimeout(() => { if (mounted.current) setCopyNotice(undefined) }, 3000)
       if (mutationController.current === controller) mutationController.current = undefined
@@ -799,8 +808,11 @@ export function WorkspaceExplorer({
         lastWriteRef.current.delete(item.path)
         scheduleAutosave(item.path, fresh?.draft ?? item.draft, true)
       }
-      if (error?.name === 'AbortError') return
-      setCopyNotice(translate('status.deleteFailed', { message: error instanceof Error ? error.message : String(error) }))
+      if (error?.name === 'AbortError' && error?.reason?.name !== 'TimeoutError') return
+      const deleteMessage = error?.name === 'AbortError' && error?.reason?.name === 'TimeoutError'
+        ? translate('editor.requestTimeout')
+        : (error instanceof Error ? error.message : String(error))
+      setCopyNotice(translate('status.deleteFailed', { message: deleteMessage }))
       clearTimeout(copyNoticeTimer.current)
       copyNoticeTimer.current = setTimeout(() => { if (mounted.current) setCopyNotice(undefined) }, 3000)
     }).finally(() => {

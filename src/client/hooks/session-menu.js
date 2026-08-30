@@ -198,8 +198,11 @@ export function useSessionMenu({ props, mountedRef }) {
     revealInExplorer(String(workspace.workspaceId), '', controller.signal).then(() => {
       if (mountedRef.current) showSessionNotice(translate('status.revealed'))
     }).catch(error => {
-      if (!mountedRef.current || error?.name === 'AbortError') return
-      showSessionNotice(translate('status.revealFailed', { message: error instanceof Error ? error.message : String(error) }), true)
+      if (!mountedRef.current || (error?.name === 'AbortError' && error?.reason?.name !== 'TimeoutError')) return
+      const message = error?.name === 'AbortError' && error?.reason?.name === 'TimeoutError'
+        ? translate('editor.requestTimeout')
+        : (error instanceof Error ? error.message : String(error))
+      showSessionNotice(translate('status.revealFailed', { message }), true)
     })
   }, [props.getSessionList, props.getWorkspaceItems, showSessionNotice])
   const revealSessionFromMenu = useCallback(() => {

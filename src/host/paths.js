@@ -68,7 +68,12 @@ export function normalizeEntryName(value, maxEntryNameBytes) {
   if (/[. ]$/.test(value)) throw new HttpError(400, 'invalid-path', '文件名不能以点或空格结尾')
   const name = value.trim()
   if (name === '' || name === '.' || name === '..' || name.includes('/') || name.includes('\\')
-    || /\u0000|[\u0001-\u001f\u007f\u2028\u2029]/u.test(name)) {
+    || /\u0000|[\u0001-\u001f\u007f\u2028\u2029]/u.test(name)
+    /* Same Windows colon rule as normalizeRelativePath: `C:foo` silently
+       resolves to `foo` under path.win32.resolve (the `C:` prefix is dropped)
+       and `a:b` becomes a drive-relative path — without this check a
+       create/rename would land at a DIFFERENT name than the response claims. */
+    || (process.platform === 'win32' && name.includes(':'))) {
     throw new HttpError(400, 'invalid-path', '文件名必须是工作区内的单个名称')
   }
   /* Windows refuses names that end in a dot/space or that match its reserved

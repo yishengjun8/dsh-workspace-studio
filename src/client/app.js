@@ -140,8 +140,8 @@ export function AppFrame(props) {
     }
     return () => { cancelAnimationFrame(rafId); detachObserver?.() }
   }, [currentSession, mobile.files, mobile.on])
-  /* Sidebar mind-map entry icon spin: user speed multiplier (1.5x default times
-     the 0.8 s base = 1.2 s per revolution; larger = faster) becomes the
+  /* Sidebar mind-map entry icon spin: user speed multiplier (1.2x default over
+     the 1.2 s base = 1 s per revolution; larger = faster) becomes the
      animation duration var; speed 0 freezes the spin. */
   const mindmapSpinSpeed = clampSpinSpeed(settings.mindmapSpinSpeed)
   const mindmapSpinDuration = mindmapSpinSpeed > 0

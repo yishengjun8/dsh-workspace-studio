@@ -20,6 +20,10 @@ import { serializeWrite } from './write.js'
 
 export const DRAFT_DIR_NAME = 'dsh-workspace-studio'
 const DRAFT_SUB_DIR = 'drafts'
+/* Live-draft count cap per owner: each file is already bounded by
+   maxEditableBytes, but the COUNT has no other bound — a runaway client could
+   otherwise fill the user's disk with draft files (see saveDraftFile). */
+const DRAFT_FILES_PER_OWNER_MAX = 200
 
 function draftRoot() {
   return join(homedir(), '.dsh-plugin', DRAFT_DIR_NAME, DRAFT_SUB_DIR)
@@ -35,7 +39,12 @@ export function draftWorkspacePart(workspaceId) {
   const value = String(workspaceId)
   // Existing ids are UUIDs; hash unusual ones so a future registry cannot turn
   // the draft root into a path join (`.`/`..` pass the allowlist but escape).
+  // Windows reserved names and trailing dot/space must ALSO hash: `CON` would
+  // make the drafts directory creation fail with EINVAL, and `foo.` aliases
+  // `foo` on NTFS — silently merging two workspaces' draft trees.
   return /^[A-Za-z0-9._-]+$/u.test(value) && value !== '.' && value !== '..'
+    && !/[. ]$/.test(value)
+    && !/^(CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|COM[1-9]|LPT[1-9])$/i.test(value.split('.')[0])
     ? value
     : createHash('sha256').update(value).digest('hex')
 }
@@ -282,6 +291,18 @@ export async function saveDraftFile(workspaceId, payload, config, queues) {
         return { workspaceId: String(workspaceId), path: payload.path, owner, generation, saved: true, idempotent: true }
       }
       throw new HttpError(409, 'draft-generation-conflict', '暂存 generation 已被其他操作占用', { currentGeneration: current })
+    }
+    /* Live-record cap (checked only on GROWTH paths — an overwrite of an
+       existing live draft or a same-generation idempotent replay never scans):
+       a runaway/malicious client must not be able to fill the user's disk with
+       draft files (each file is bounded by maxEditableBytes, the COUNT is the
+       unbounded dimension). */
+    if (existing === null || existing?.deleted === true) {
+      const records = await listDraftRecords(workspaceId, owner)
+      const live = records.filter(record => record.value?.deleted !== true).length
+      if (live >= DRAFT_FILES_PER_OWNER_MAX) {
+        throw new HttpError(413, 'draft-limit', `每个暂存会话的草稿数量不能超过 ${DRAFT_FILES_PER_OWNER_MAX} 个`)
+      }
     }
     if (generation > current) await writeOwnerGeneration(workspaceId, owner, generation, operation)
     await writeJsonAtomic(draftFilePath(workspaceId, payload.path, owner), { version: 2, ...payload })

@@ -228,10 +228,18 @@ async function searchFile(root, relativePath, query, caseSensitive, config) {
  * 1-based line numbers and match columns. */
 export async function searchWorkspace(workspace, query, caseSensitive, nameOnly, config) {
   const root = await realpath(workspace.path)
+  /* The walk must STOP collecting once the result caps are reached: the old
+     implementation collected and sorted EVERY path in the workspace before
+     truncating, so a very large repo (hundreds of thousands of files) could
+     spike host memory and O(n log n) sort. The truncation is approximate —
+     the exact pre-cap subset is walk-order dependent — which is fine: the
+     response already flags `truncated` and the cap exists to bound the scan. */
   const files = []
   const directories = []
   const excluded = new Set(config.searchExcludeDirs.map(name => name.toLowerCase()))
+  let walkTruncated = false
   const walk = async (directory, relativePath) => {
+    if (walkTruncated) return
     let raw
     try {
       raw = await readdir(directory, { withFileTypes: true })
@@ -243,9 +251,17 @@ export async function searchWorkspace(workspace, query, caseSensitive, nameOnly,
       if (dirent.isDirectory()) {
         if (excluded.has(dirent.name.toLowerCase())) continue
         directories.push(entryPath(relativePath, dirent.name))
+        if (nameOnly) {
+          if (files.length + directories.length >= config.maxSearchFiles) { walkTruncated = true; return }
+        } else if (directories.length >= config.maxSearchFiles) {
+          walkTruncated = true
+          return
+        }
         await walk(resolve(directory, dirent.name), entryPath(relativePath, dirent.name))
       } else if (dirent.isFile()) {
         files.push(entryPath(relativePath, dirent.name))
+        if (!nameOnly && files.length >= config.maxSearchFiles) { walkTruncated = true; return }
+        if (nameOnly && files.length + directories.length >= config.maxSearchFiles) { walkTruncated = true; return }
       }
     }
   }
@@ -304,6 +320,10 @@ export async function searchWorkspace(workspace, query, caseSensitive, nameOnly,
      Worker check-then-push is synchronous, so `results` never overshoots
      maxSearchFiles. */
   if (index < total) truncated = true
+  /* The walk itself may have stopped early at the collection cap (see the
+     bounded walk above) — that is a truncation too, even when the workers
+     happened to consume every collected entry. */
+  if (walkTruncated) truncated = true
   results.sort((left, right) => left.path.localeCompare(right.path, 'en', { numeric: true, sensitivity: 'base' }))
   return {
     workspaceId: String(workspace.id),

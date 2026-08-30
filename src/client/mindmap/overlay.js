@@ -132,9 +132,17 @@ export function MindmapOverlayHost({ sessionId, useSessions, actions, chatWidth,
          inline rename input, search popover in the chat column) must not also
          close the map: the target's own handler owns that key, and the target
          lives outside the overlay. Only close when the event target is inside
-         the overlay (or not focusable at all). */
+         the overlay (or not focusable at all). The canvas pan handler
+         preventDefaults every pointerdown, so after a canvas click focus stays
+         on body/documentElement — those un-focusable targets carry no "another
+         surface" signal and must not block Escape (clicking the canvas is the
+         map's most common interaction). */
       const target = event.target
-      if (target instanceof Node && overlayRef.current !== null && !overlayRef.current.contains(target)) return
+      const outsideOverlay = target instanceof Node && overlayRef.current !== null && !overlayRef.current.contains(target)
+      const unfocusableTarget = !(target instanceof Node)
+        || target === (typeof document !== 'undefined' ? document.body : null)
+        || target === (typeof document !== 'undefined' ? document.documentElement : null)
+      if (outsideOverlay && !unfocusableTarget) return
       mindmapOverlayStore.close()
     }
     window.addEventListener('keydown', onKeyDown)

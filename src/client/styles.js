@@ -493,7 +493,7 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
    generation start, no sync wait), spin the left icon to mirror the hidden
    ordinary rows' live generation. */
 @keyframes dsh-ws-mindmap-spin{to{transform:rotate(360deg)}}
-.dsh-ws-sidebar-mindmaps-item[data-running] .dsh-ws-sidebar-mindmaps-icon{animation:dsh-ws-mindmap-spin var(--dsh-ws-mindmap-spin-duration,0.8s) linear infinite;transform-origin:center}
+.dsh-ws-sidebar-mindmaps-item[data-running] .dsh-ws-sidebar-mindmaps-icon{animation:dsh-ws-mindmap-spin var(--dsh-ws-mindmap-spin-duration,1.2s) linear infinite;transform-origin:center}
 @media (prefers-reduced-motion: reduce){.dsh-ws-sidebar-mindmaps-item[data-running] .dsh-ws-sidebar-mindmaps-icon{animation:none}}
 .dsh-ws-sidebar-mindmaps-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dsh-ws-sidebar-mindmaps-count{flex:none;color:var(--dsw-alias-label-secondary);font-size:10px;line-height:14px}

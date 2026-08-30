@@ -8,6 +8,11 @@ const JSON_HEADERS = {
   'cross-origin-resource-policy': 'same-origin',
   'x-content-type-options': 'nosniff',
 }
+/* Body-receive watchdog: a client that sends headers and then stalls (or
+   drips bytes) must not hold the handler and connection open forever — the
+   browser-side request timeout is 30 s, so a slightly longer bound here means
+   a hung client surfaces as an explicit 408 instead of an invisible hang. */
+const BODY_READ_TIMEOUT_MS = 35_000
 export function header(headers, name) {
   const value = headers[name]
   return typeof value === 'string' ? value : undefined
@@ -90,38 +95,45 @@ export function readBody(
     const chunks = []
     let size = 0
     let settled = false
+    /* Slow-loris guard: a client that never finishes the body must not hold
+       the handler forever. The timer is cleared on every settle. */
+    const timer = setTimeout(() => {
+      if (settled) return
+      settled = true
+      reject(new HttpError(408, 'request-timeout', '请求正文接收超时'))
+      req.destroy()
+    }, BODY_READ_TIMEOUT_MS)
+    const settle = (fn, ...args) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      fn(...args)
+    }
     req.on('data', (chunk) => {
       if (settled) return
       size += chunk.byteLength
       if (size > maximum) {
-        settled = true
-        reject(new HttpError(413, tooLargeCode, tooLargeMessage))
+        settle(reject, new HttpError(413, tooLargeCode, tooLargeMessage))
         req.resume()
         return
       }
       chunks.push(chunk)
     })
     req.on('end', () => {
-      if (!settled) resolveBody(Buffer.concat(chunks, size))
+      settle(resolveBody, Buffer.concat(chunks, size))
     })
     req.on('aborted', () => {
-      if (settled) return
-      settled = true
-      reject(new HttpError(400, 'request-aborted', abortedMessage))
+      settle(reject, new HttpError(400, 'request-aborted', abortedMessage))
     })
     req.on('error', (error) => {
-      if (settled) return
-      settled = true
-      reject(error)
+      settle(reject, error)
     })
     /* Some Node versions / connection teardown paths fire only 'close'
        (destroy() mid-body, keep-alive reuse) without 'aborted': without this
        the promise would never settle and the request handler would hang. The
        settled guard makes the normal end-then-close sequence a no-op. */
     req.on('close', () => {
-      if (settled) return
-      settled = true
-      reject(new HttpError(400, 'request-aborted', abortedMessage))
+      settle(reject, new HttpError(400, 'request-aborted', abortedMessage))
     })
   })
 }
@@ -181,5 +193,16 @@ export function normalizeFailure(error) {
   if (error?.code === 'EEXIST') return new HttpError(409, 'entry-exists', '同名文件或文件夹已存在')
   if (error?.code === 'ENOTEMPTY') return new HttpError(409, 'entry-exists', '目录非空，无法完成该操作')
   if (error?.code === 'EBUSY') return new HttpError(409, 'file-conflict', '文件或目录正被占用，请稍后重试')
+  /* Resource exhaustion and POSIX-specific collisions are retryable/user-
+     actionable conditions — surface them as such instead of a black-box 500:
+     disk full (ENOSPC/EDQUOT), open-handle exhaustion (EMFILE/ENFILE), and
+     renaming over a running executable (ETXTBSY). */
+  if (error?.code === 'ENOSPC' || error?.code === 'EDQUOT') {
+    return new HttpError(507, 'disk-full', '磁盘空间不足，无法完成写入')
+  }
+  if (error?.code === 'EMFILE' || error?.code === 'ENFILE') {
+    return new HttpError(503, 'too-many-open-files', '打开的文件过多，请稍后重试')
+  }
+  if (error?.code === 'ETXTBSY') return new HttpError(409, 'file-conflict', '文件正被程序占用，无法覆盖')
   return new HttpError(500, 'workspace-operation-failed', '工作区操作失败')
 }

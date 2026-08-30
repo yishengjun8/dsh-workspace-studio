@@ -421,6 +421,12 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
   useEffect(() => {
     const onKeyDown = (event) => {
       if (event.isComposing) return
+      /* A modal dialog is open (same rule as the find shortcuts): the save
+         belongs to the dialog's context. Acting behind its backdrop would save
+         a file the user cannot see — and in the save-conflict dialog the tab is
+         legitimately `saving`, so the keystroke would be swallowed with no
+         feedback. */
+      if (typeof document !== 'undefined' && document.querySelector('.dsh-ws-dialog-backdrop') !== null) return
       const key = String(event.key).toLowerCase()
       const isSave = key === 's' && (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey
       if (!isSave) return

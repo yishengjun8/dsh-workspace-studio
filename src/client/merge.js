@@ -151,8 +151,15 @@ export function sideSliceForSpan(base, side, changes, start, end) {
       const addedEnd = Math.min(change.added.length, delEnd - change.from)
       if (addedEnd > addedStart) result.push(...change.added.slice(addedStart, addedEnd))
     }
+    /* sidePos tracks the side index of basePos: the kept run [basePos,
+       change.from) advances it too. Skipping it made every later kept segment
+       (mid-region gaps and the trailing run after the last change) slice from
+       a drifted offset, so the round-trip check failed with a false
+       unsound-cluster and degraded the most common overlapping-edit shapes
+       (different end boundaries) to a whole-file conflict. Compute the kept
+       run length BEFORE overwriting basePos. */
+    sidePos += (change.from - basePos) + change.added.length
     basePos = change.to
-    sidePos += change.added.length
   }
   if (basePos < end) {
     const keepStart = Math.max(basePos, start)

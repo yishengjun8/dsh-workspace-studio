@@ -13,11 +13,19 @@ import { encodingLabel } from '../api.js'
    their dialog subtree is visible. */
 export function useDialogFocusTrap(open = true) {
   const dialogRef = useRef(null)
+  /* Pre-dialog focus, captured by the REF CALLBACK: React applies the dialog
+     input's autoFocus during the LAYOUT phase (commitMount), which runs after
+     the commit-phase ref callback but BEFORE this passive effect. Reading
+     document.activeElement in the effect would capture the dialog's OWN input,
+     and the close-time restore would find it unmounted (isConnected false),
+     dropping focus to body for the input-based dialogs. The mutation-phase ref
+     callback still sees the OUTSIDE element. */
+  const previouslyFocusedRef = useRef(null)
   useEffect(() => {
     if (!open) return undefined
     const dialog = dialogRef.current
     if (dialog === null) return undefined
-    const previouslyFocused = document.activeElement
+    const previouslyFocused = previouslyFocusedRef.current ?? document.activeElement
     const onKeyDown = (event) => {
       if (event.key !== 'Tab') return
       const items = Array.from(dialog.querySelectorAll(
@@ -41,7 +49,15 @@ export function useDialogFocusTrap(open = true) {
       if (previouslyFocused instanceof HTMLElement && previouslyFocused.isConnected) previouslyFocused.focus()
     }
   }, [open])
-  return dialogRef
+  const setDialogRef = (node) => {
+    dialogRef.current = node
+    if (node === null) {
+      previouslyFocusedRef.current = null
+    } else if (node.isConnected && previouslyFocusedRef.current === null) {
+      previouslyFocusedRef.current = document.activeElement
+    }
+  }
+  return setDialogRef
 }
 
 /* Window-level Escape for the modals without a text input of their own

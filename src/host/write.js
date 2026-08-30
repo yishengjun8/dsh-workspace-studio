@@ -9,14 +9,38 @@ import { entryPath, hasSymlinkComponent, isInside, normalizeEntryName, normalize
 import { containsNul, decodeUtf8, encodeText, hasBom, revisionFor } from './encodings.js'
 import { header, readBody, readJsonObject } from './http.js'
 import { describeCreatedEntry, openRegularFile, readFileHandleBounded } from './fs.js'
+/* Per-key promise-chain queue primitive shared by workspace mutations, draft
+   writes and mind-map doc operations. A key has at most one PENDING operation
+   at a time; nested re-acquisition of the same key is never needed (the
+   mind-map re-anchor paths release-and-retry instead). */
+const WRITE_QUEUE_STALL_MS = 45_000
+/* When the current tail of a queue key started pending (undefined = idle). */
+const queuePendingSince = new Map()
+
 export async function serializeWrite(queues, key, operation) {
   const previous = queues.get(key) ?? Promise.resolve()
+  /* Stall watchdog: a tail pending past WRITE_QUEUE_STALL_MS means the head
+     operation is hung (network drive, wedged fs, dead lock holder) — fail
+     NEW work fast with an explicit 503 instead of piling up silently behind a
+     queue that will never drain. The stuck operation keeps its slot (nothing
+     else runs under this key, so no ordering/overwrite hazard) and the
+     client's own request timeouts surface it to the user. 45 s > the client's
+     30 s request timeout and > the longest legitimate lock hold (a 25 s
+     synchronous LLM regeneration), so healthy queues never trip it. */
+  const pendingSince = queuePendingSince.get(key)
+  if (pendingSince !== undefined && Date.now() - pendingSince > WRITE_QUEUE_STALL_MS) {
+    throw new HttpError(503, 'write-queue-stalled', '写入队列阻塞，请稍后重试')
+  }
   const current = previous.catch(() => {}).then(operation)
   queues.set(key, current)
+  if (pendingSince === undefined) queuePendingSince.set(key, Date.now())
   try {
     return await current
   } finally {
-    if (queues.get(key) === current) queues.delete(key)
+    if (queues.get(key) === current) {
+      queues.delete(key)
+      queuePendingSince.delete(key)
+    }
   }
 }
 

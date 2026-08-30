@@ -2,6 +2,9 @@ export const PACKAGE_ID = '@yishengjun8/dsh-workspace-studio'
 export const API_PREFIX = '/workspace-studio/api'
 export const EDITOR_CONTEXT_PROVIDER = 'workspace-editor-context'
 export const SEND_SESSION_BRIDGE_MARKER = Symbol('workspace-studio.send-session-bridge')
+/* The true original sendSession recorded on a wrapper, so an overlapping
+   re-install can unwrap a stale wrapper instead of recursing through it. */
+export const SEND_SESSION_BRIDGE_ORIGINAL = Symbol('workspace-studio.send-session-bridge.original')
 /* Max 50 ms retries while a session's input binding is not ready (≈1 s total);
    a session whose binding never becomes ready must not spin a timer forever. */
 export const ENSURE_RETRY_MAX = 20
@@ -37,9 +40,9 @@ export const THINK_COLLAPSE_DELAY_DEFAULT_S = 3
 export const THINK_COLLAPSE_DELAY_MIN_S = 0
 export const THINK_COLLAPSE_DELAY_MAX_S = 10
 export const THINK_COLLAPSE_DELAY_STEP_S = 0.1
-/* Sidebar mind-map icon spin: speed multiplier over the 0.8 s base (default 1.5x = 1.2 s/rev; larger = faster, 0 = no rotation). */
-export const MINDMAP_SPIN_BASE_DURATION_S = 0.8
-export const MINDMAP_SPIN_SPEED_DEFAULT_X = 1.5
+/* Sidebar mind-map icon spin: speed multiplier over the 1.2 s base (default 1.2x = 1 s/rev; larger = faster, 0 = no rotation). */
+export const MINDMAP_SPIN_BASE_DURATION_S = 1.2
+export const MINDMAP_SPIN_SPEED_DEFAULT_X = 1.2
 export const MINDMAP_SPIN_SPEED_MIN_X = 0
 export const MINDMAP_SPIN_SPEED_MAX_X = 3
 /* Speed 0 would divide by zero: freeze the spin with a huge duration instead. */
@@ -173,9 +176,11 @@ export const MINDMAP_PAN_OUT_MAX = 0.8
 export const MINDMAP_WHEEL_STEP = 0.0016
 /* Mind-map doc-index refresh interval (sidebar panel + branch hider read it);
    also bumped on every doc mutation (markDirty refreshes immediately), so the
-   idle poll only needs to catch external changes — 10 s keeps the constant
-   background disk scan (Host reads every doc file per index) at half rate. */
-export const MINDMAP_INDEX_REFRESH_MS = 10000
+   idle poll only needs to catch external changes. 30 s plus the Host's
+   stat-fingerprint index cache (unchanged files are not re-read) keeps the
+   constant background disk scan near-zero; the registry also pauses the timer
+   entirely while no doc exists. */
+export const MINDMAP_INDEX_REFRESH_MS = 30000
 /* Re-sync the doc this often while the map is mounted, so a branch turn that completes in chat folds in live. */
 export const MINDMAP_SYNC_MS = 2500
 /* Min interval between branch-hider scans: it observes every body mutation (streaming included), so throttle to a bounded scan rate. */

@@ -14,6 +14,9 @@ export const mindmapRegistry = {
   _timer: 0,
   _inflight: null,
   _signature: undefined,
+  /* stop() marks the module stopped: an in-flight refresh's finally must not
+     re-arm the background timer after an unload (see stop below). */
+  _stopped: false,
   /* A markDirty/refresh that arrived while a refresh was in flight: the
      in-flight result predates that mutation, so re-run once it settles. */
   _dirtyDuringRefresh: false,
@@ -63,6 +66,12 @@ export const mindmapRegistry = {
       .catch(() => { /* keep the last known index */ })
       .finally(() => {
         this._inflight = null
+        /* A stop() during the flight must stay stopped: re-arming the timer
+           here would leak a 30 s poll (interval + fetch) after unload. */
+        if (this._stopped) return
+        /* Keep the background timer aligned with the index: docs exist → keep
+           polling; empty index → pause (no docs, no work worth doing). */
+        this._syncTimerToDocs()
         /* Re-run when a markDirty/refresh arrived during the in-flight window:
            the just-applied index predates that mutation. */
         if (this._dirtyDuringRefresh) {
@@ -73,12 +82,35 @@ export const mindmapRegistry = {
     this._inflight = pending
     return pending
   },
-  start() {
+  /* Background polling cadence: MINDMAP_INDEX_REFRESH_MS while at least one doc
+     exists. The timer PAUSES while the index is empty — with no docs on disk
+     there is nothing to render and no staleness worth defending against (local
+     mutations refresh immediately via markDirty). Any refresh that finds docs
+     re-arms it, and markDirty / start() after a pause wake it again. Cross-tab
+     caveat: the FIRST doc created in another tab is only noticed here on the
+     next local refresh/action (accepted — the overlay-open load path refreshes
+     the registry and re-arms the poll). */
+  _armTimer() {
     if (this._timer !== 0) return
-    void this.refresh()
     this._timer = window.setInterval(() => { void this.refresh() }, MINDMAP_INDEX_REFRESH_MS)
   },
+  /* Keep the timer aligned with reality after every completed refresh. */
+  _syncTimerToDocs() {
+    if (this._docs.length > 0) this._armTimer()
+    else if (this._timer !== 0) { window.clearInterval(this._timer); this._timer = 0 }
+  },
+  start() {
+    this._stopped = false
+    if (this._timer !== 0) return
+    void this.refresh()
+    this._armTimer()
+  },
   stop() {
+    /* Mark the module stopped BEFORE clearing the timer: an in-flight
+       refresh's finally consults this flag and skips re-arming, so an unload
+       (AppFrame unmount / plugin reload) cannot leave a leaked interval
+       polling /mindmap-doc/index every 30 s. */
+    this._stopped = true
     if (this._timer !== 0) { window.clearInterval(this._timer); this._timer = 0 }
   },
   markDirty() { void this.refresh() },

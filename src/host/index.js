@@ -7,7 +7,7 @@ import { ENCODINGS } from './encodings.js'
 import { listTree, readExternalPreview, readPreview, readPreviewHead, revealInExplorer, searchWorkspace } from './fs.js'
 import { createEntry, fsOperation, renameEntry, saveFile } from './write.js'
 import { deleteDraftFile, draftTreeOperation, parseDraftGenerationQuery, readDraftFile, saveDraftFile, validateDraftOwner, validateDraftPayload, writeJsonAtomic } from './drafts.js'
-import { adoptMindmapOrphans, buildMindmapDoc, deleteMindmapDoc, findMindmapDocWithAncestors, indexMindmapDocs, isValidMindmapDoc, listMindmapModels, MINDMAP_DOC_MAX_BYTES, mindmapDocPath, mindmapDrainPendingSessionSummaries, mindmapLock, mindmapLocks, mindmapSessionSummarizingOf, mindmapSummarizingOf, mindmapSyncCache, parseMindmapSummaryConfig, purgeArchivedMindmapDocs, readMindmapDocFile, refreshMindmapDocCore, regenerateAllMindmapSummaries, regenerateMindmapSummary, renameMindmapDoc, summarizeMindmapSession, syncMindmapDoc, validateMindmapSession, writeMindmapDoc } from './mindmap.js'
+import { adoptMindmapOrphans, buildMindmapDoc, deleteMindmapDoc, findMindmapDocWithAncestors, indexMindmapDocs, isValidMindmapDoc, listMindmapModels, MINDMAP_DOC_MAX_BYTES, mindmapAnchorOf, mindmapDocPath, mindmapDrainPendingSessionSummaries, mindmapLock, mindmapLockedReanchorOp, mindmapSessionSummarizingOf, mindmapSummarizingOf, mindmapSyncCache, parseMindmapSummaryConfig, purgeArchivedMindmapDocs, readMindmapDocFile, refreshMindmapDocCore, regenerateAllMindmapSummaries, regenerateMindmapSummary, renameMindmapDoc, summarizeMindmapSession, syncMindmapDoc, validateMindmapSession, writeMindmapDoc } from './mindmap.js'
 import { renderPromptContext } from './prompt-context.js'
 import { workspaceFor } from './workspace.js'
 /** Stable Cordis plugin name. */
@@ -46,10 +46,21 @@ async function refreshMindmapDocLoad(ctx, persistence, doc) {
   const refresh = await refreshMindmapDocCore(ctx, persistence, doc)
   if (refresh.changed) {
     doc.updatedAt = Date.now()
-    try {
-      await writeJsonAtomic(mindmapDocPath(doc.rootSessionId), doc)
-    } catch (error) {
-      ctx.logger.warn(`[workspace-studio] mindmap doc load write failed: ${String(error)}`)
+    /* Same size guard as the sync path: folding turns during an OPEN must not
+       push the doc past MINDMAP_DOC_MAX_BYTES — beyond it every later full-doc
+       client write (fork / branch removal) would 413 and lock the map with no
+       shrink path. Refuse the write and surface the warning; the turns stay
+       in the logs and are re-folded after a prune. */
+    const serialized = new TextEncoder().encode(JSON.stringify(doc)).byteLength
+    if (serialized > MINDMAP_DOC_MAX_BYTES) {
+      refresh.warnings.push(`doc-size-limit: serialized ${serialized} bytes exceeds ${MINDMAP_DOC_MAX_BYTES}`)
+      try { ctx.logger.warn(`[workspace-studio] mindmap doc exceeds ${MINDMAP_DOC_MAX_BYTES} bytes; refusing to fold new turns on open (${serialized})`) } catch { /* no logger */ }
+    } else {
+      try {
+        await writeJsonAtomic(mindmapDocPath(doc.rootSessionId), doc)
+      } catch (error) {
+        ctx.logger.warn(`[workspace-studio] mindmap doc load write failed: ${String(error)}`)
+      }
     }
     /* This load path WRITES the doc (adoption or folded turn) without
        touching any log — invalidate the sync cache like every other
@@ -266,24 +277,15 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
            read, so a concurrent sync or client write is never clobbered. The
            refresh core is fault-isolated: a reconcile/adopt failure degrades
            to the RECORDED doc (warnings surfaced to the client) instead of a
-           500, and the next sync retries it. */
-        const loaded = await mindmapLock(String(existing.rootSessionId), async () => {
-          const fresh = await findMindmapDocWithAncestors(ctx, persistence, sessionId)
-          if (fresh === null) return null
-          /* A root replacement may have landed between the outer probe and this
-             re-read: the doc now lives under a DIFFERENT root id, and writing
-             it under the old root's lock would race the new root's concurrent
-             sync (the two locks do not serialize). Re-acquire under BOTH roots
-             (sorted, deadlock-free) and re-read before refreshing. */
-          if (String(fresh.rootSessionId) !== String(existing.rootSessionId)) {
-            return mindmapLocks([String(existing.rootSessionId), String(fresh.rootSessionId)], async () => {
-              const reRead = await findMindmapDocWithAncestors(ctx, persistence, sessionId)
-              if (reRead === null) return null
-              return refreshMindmapDocLoad(ctx, persistence, reRead)
-            })
-          }
-          return refreshMindmapDocLoad(ctx, persistence, fresh)
-        })
+           500, and the next sync retries it. A root replacement that lands
+           between the probe and the lock re-anchors the retry to the new root
+           (automatic — see mindmapLockedReanchorOp: each attempt holds exactly
+           ONE lock, so the former nested re-acquisition deadlock is gone). */
+        const loaded = await mindmapLockedReanchorOp(
+          () => findMindmapDocWithAncestors(ctx, persistence, sessionId),
+          () => findMindmapDocWithAncestors(ctx, persistence, sessionId),
+          doc => refreshMindmapDocLoad(ctx, persistence, doc),
+        )
         if (loaded !== null) {
           /* Reopening the map is also a drain opportunity: a pending session
              summary that stalled (e.g. its card jobs finished while the map was
@@ -293,10 +295,13 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
           return
         }
       }
-      /* First access: serialize the conversion under the session's root lock.
-         The second lookup closes the two-first-open race; sync/fork writers
-         use the same key, so this stale build cannot overwrite them. */
-      const firstAccess = await mindmapLock(String(sessionId), async () => {
+      /* First access: serialize the conversion under the ANCHOR root's lock
+         (the root buildMindmapDoc will write, resolved up-front so the lock
+         key and the on-disk root can never disagree). The second lookup closes
+         the two-first-open race; sync/fork writers use the same root key, so
+         this stale build cannot overwrite them. */
+      const anchorId = await mindmapAnchorOf(ctx, persistence, sessionId)
+      const firstAccess = await mindmapLock(String(anchorId), async () => {
         const concurrent = await findMindmapDocWithAncestors(ctx, persistence, sessionId)
         if (concurrent !== null) return { doc: concurrent, created: false }
         const built = await buildMindmapDoc(ctx, persistence, sessionId)

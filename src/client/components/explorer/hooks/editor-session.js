@@ -570,10 +570,13 @@ export function useEditorSession({
       // (AbortSignal.timeout) is a REAL failure that must release the marker
       // and surface the error preview.
       if (error?.name === 'AbortError' && error?.reason?.name !== 'TimeoutError') return
-      reloadingPathsRef.current.delete(activePath)
-      // A stale pass (superseded by a same-path re-run) must not surface its
-      // failure over the newer read's state.
+      // Only the CURRENT pass may release the marker: a superseded pass's late
+      // failure (e.g. a timeout firing after a same-path re-run started) must
+      // not delete the marker the newer pass re-armed — the polling tick would
+      // then double-bump reloadToken and remount, discarding the restored
+      // scroll. A stale pass's state update is already gated below.
       if (readSeq === readSeqRef.current && activePathRef.current === activePath) {
+        reloadingPathsRef.current.delete(activePath)
         const message = error instanceof Error ? error.message : String(error)
         setPreview({ state: 'error', path: activePath, message })
         updateTab(activePath, { saving: false, status: { error: true, text: message } })
@@ -673,6 +676,13 @@ export function useEditorSession({
   const clearDraftFile = useCallback((path, content, encoding, lineEnding, bom, revision) => {
     const generation = invalidateDraftPath(path)
     return enqueueDraftOperation(path, generation, async () => {
+      /* Tombstone the emergency mirror FIRST: a tab switch (re-read) between
+         the Host DELETE and this write would otherwise restore the stale live
+         mirror record (its generation is still >= the Host's) and re-materialize
+         the discarded draft as a saveable edit. The tombstone's generation
+         suppresses the mirror immediately — while the Host DELETE is in flight
+         (fence not yet advanced) AND after it lands. */
+      await deleteEmergencyDraft(workspace.workspaceId, draftScopeId, path, generation).catch(() => {})
       let result
       try {
         result = await removeDraftFile(workspace.workspaceId, path, undefined, draftScopeId, generation)
@@ -692,10 +702,6 @@ export function useEditorSession({
           generation,
         }, undefined)
       }
-      /* Best-effort: the emergency IndexedDB mirror tombstone is bookkeeping
-         (only suppressing a later restore); a mirror failure must never fail
-         the save/cancel flow the host draft DELETE already drove. */
-      await deleteEmergencyDraft(workspace.workspaceId, draftScopeId, path, generation).catch(() => {})
       return result
     })
   }, [draftScopeId, enqueueDraftOperation, invalidateDraftPath, persistDraftFile, removeDraftFile, workspace.workspaceId])
@@ -826,9 +832,9 @@ export function useEditorSession({
     }
   }, [enqueueDraftOperation, persistDraftFile, workspace.workspaceId])
 
-  const scheduleAutosave = useCallback((path, text, force = false) => {
+  const scheduleAutosave = useCallback((path, text, force = false, skipSavingGate = false) => {
     const tab = tabsRef.current.find(item => item.path === path)
-    if (tab === undefined || tab.external || tab.saving || (!force && tab.editing !== true)) return
+    if (tab === undefined || tab.external || (tab.saving && !skipSavingGate) || (!force && tab.editing !== true)) return
     // Drop the pending timer first: an edit reverting to the last-written text
     // must not let an earlier (different-content) timer fire; the dedup return
     // below skips the generation bump, so the stale timer would bypass the
@@ -957,12 +963,14 @@ export function useEditorSession({
     setDraft(liveText)
     setDirty(true)
     /* The save's `saving` flag is still set in tabsRef here (React has not
-       re-rendered the commit): scheduleAutosave's saving gate would skip this
-       keystroke's staging write, leaving the Host draft and IndexedDB mirror
-       one keystroke behind until the next edit. Clear the flag explicitly —
-       the save's own finally() would do it right after anyway. */
+       re-rendered the commit; the ref only syncs in a layout effect AFTER the
+       render): scheduleAutosave's saving gate would skip this keystroke's
+       staging write, leaving the Host draft and IndexedDB mirror one keystroke
+       behind until the next edit — and a refresh in that window silently drops
+       the key. The patch below clears the flag in state; skip the STALE ref's
+       gate explicitly (the save's own finally() would clear it right after). */
     updateTab(path, { draft: liveText, draftKnown: true, dirty: true, saving: false })
-    scheduleAutosave(path, liveText)
+    scheduleAutosave(path, liveText, false, true)
   }, [scheduleAutosave, updateTab])
 
   const save = useCallback(async (encodingOverride) => {
@@ -1036,7 +1044,11 @@ export function useEditorSession({
               setDraft(liveBefore)
               setDirty(true)
               updateTab(path, { draft: liveBefore, draftKnown: true, dirty: true })
-              scheduleAutosave(path, liveBefore)
+              /* The tab's `saving` flag is still true in the ref (the save's
+                 finally clears it in a later task): the save itself has
+                 COMPLETED at this point (commitTab awaited), so skip the stale
+                 gate — the typed-during-merge text must reach the staging file. */
+              scheduleAutosave(path, liveBefore, false, true)
               setStatus({ error: true, text: translate('editor.saveTypedDuringMerge') })
             }
           }
@@ -1240,7 +1252,10 @@ export function useEditorSession({
           setDirty(true)
           setStatus({ text: translate('editor.cancelKeptTyping') })
         }
-        scheduleAutosave(path, liveTextNow)
+        /* The ref's `saving` flag is stale (cleared by the patch in the same
+           task; the ref syncs only after the next commit): skip the gate so
+           the kept keystrokes are staged before any refresh. */
+        scheduleAutosave(path, liveTextNow, false, true)
         return
       }
       lastWriteRef.current.set(path, { generation: draftGenerationsRef.current.get(path) ?? 0, content: diskContent })
