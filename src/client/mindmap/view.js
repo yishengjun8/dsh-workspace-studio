@@ -157,11 +157,13 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
      ancestor trace — the same highlight as the selected card's chain, rendered
      additively on top of the selection trace. */
   const [hoverKey, setHoverKey] = useState(undefined)
-  /* The folded run currently temporarily expanded (peek): a pure view state —
-     the folded attribute is NOT changed. Clicking a folded card sets it;
-     立刻折叠 clears it; a doc change that dissolves the run clears it too
-     (same stale-cleanup pattern as hoverKey). */
-  const [peekedRun, setPeekedRun] = useState(undefined)
+  /* The folded runs currently temporarily expanded (peek): a pure view state —
+     the folded attribute is NOT changed. Clicking a folded card peeks that
+     run; 立刻折叠 folds one back; the blank-area menu folds ALL peeked runs
+     back or peeks every folded run; a doc change that dissolves a run clears
+     it too (same stale-cleanup pattern as hoverKey). Keyed
+     `${sessionId}:${firstSeq}` (same separator as summarizingKeys). */
+  const [peekedRuns, setPeekedRuns] = useState(() => new Set())
   useEffect(() => {
     mountedRef.current = true
     return () => { mountedRef.current = false }
@@ -199,7 +201,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
        In-family switches skip this branch on purpose. */
     setHoverKey(undefined)
     /* A temporary expand (peek) belongs to the previous family's runs. */
-    setPeekedRun(undefined)
+    setPeekedRuns(new Set())
     /* A manual regeneration belongs to the previous family's cards; the new
        family's in-flight list arrives with the load payload. */
     setManualSummarizing([])
@@ -569,7 +571,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
      doc) so an AI-summary write re-renders only the affected card instead of
      rebuilding every node entry (which would defeat React.memo on the cards). */
   const structureFp = useMemo(() => mindmapDocStructureFingerprint(doc), [doc])
-  const layout = useMemo(() => mindmapDocLayout(doc, streamingCards, mountBulge, peekedRun), [structureFp, streamingCards, mountBulge, peekedRun])
+  const layout = useMemo(() => mindmapDocLayout(doc, streamingCards, mountBulge, peekedRuns), [structureFp, streamingCards, mountBulge, peekedRuns])
   layoutRef.current = layout
 
   /* Edge path strings plus per-streaming metadata, derived from the layout and
@@ -644,16 +646,14 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
        card itself is visible and carries the badge. */
     if (last.folded === true) {
       const run = mindmapFoldedRunOf(doc, current, last.seq)
-      const peeked = run !== null && peekedRun !== undefined
-        && String(peekedRun.sessionId) === current
-        && Number(peekedRun.firstSeq) === run.firstSeq
+      const peeked = run !== null && peekedRuns.has(`${current}:${run.firstSeq}`)
       if (run !== null && !peeked) {
         const startTurn = turns.find(t => t !== null && t !== undefined && Number(t?.seq) === run.firstSeq)
         if (startTurn !== undefined) return mindmapDocKey(current, startTurn.seq)
       }
     }
     return mindmapDocKey(current, last.seq)
-  }, [doc, rootId, runningFamilyIds, sessionId, peekedRun])
+  }, [doc, rootId, runningFamilyIds, sessionId, peekedRuns])
 
   /* Ancestor trace of the current card: walk the layout's edges BACKWARD from
      currentKey (`to → from`) to the root (no incoming edge). Yields the parent
@@ -717,10 +717,20 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
      it, a card was deleted, the run shrank): clear the peek when the run no
      longer starts at the remembered first seq. */
   useEffect(() => {
-    if (peekedRun === undefined) return
-    const run = mindmapFoldedRunOf(doc, peekedRun.sessionId, peekedRun.firstSeq)
-    if (run === null || run.firstSeq !== Number(peekedRun.firstSeq)) setPeekedRun(undefined)
-  }, [peekedRun, doc])
+    if (peekedRuns.size === 0) return
+    let next = null
+    for (const key of peekedRuns) {
+      const sep = key.indexOf(':')
+      const sid = key.slice(0, sep)
+      const firstSeq = Number(key.slice(sep + 1))
+      const run = mindmapFoldedRunOf(doc, sid, firstSeq)
+      if (run === null || run.firstSeq !== firstSeq) {
+        if (next === null) next = new Set(peekedRuns)
+        next.delete(key)
+      }
+    }
+    if (next !== null) setPeekedRuns(next)
+  }, [peekedRuns, doc])
 
   /* Open a session inside the map: openSession switches the right-side chat to
      it and moves the "当前" highlight here; the overlay itself stays open. */
@@ -895,8 +905,9 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     else if (action === 'switch') openBranchRef.current(node.sessionId)
     else if (action === 'fork') forkBranchAtRef.current(node.sessionId, node.turn)
     /* A folded card: temporarily expand its run (peek) — the folded attribute
-       is untouched; 立刻折叠 (or clicking another folded card) folds it back. */
-    else if (action === 'peek') setPeekedRun({ sessionId: String(node.sessionId), firstSeq: Number(node.turn?.seq) })
+       is untouched; 立刻折叠 (or clicking another folded card) folds it back.
+       Clicking replaces the peek set with just this run (single-run peek). */
+    else if (action === 'peek') setPeekedRuns(new Set([`${String(node.sessionId)}:${Number(node.turn?.seq)}`]))
   }, [])
 
   /* Right-click a node: remember WHICH node so the menu can rename a session
@@ -941,6 +952,13 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       foldCount: entry.folded === true ? Number(entry.foldCount ?? 1) : undefined,
       x, y,
     })
+  }, [])
+  /* Right-click a BLANK area (viewport/canvas background, edges): open the
+     blank-area menu (create session / fold all / unfold all). Cards stop
+     propagation in their own onContextMenu, so only blank hits reach here. */
+  const openBlankMenu = useCallback((event) => {
+    event.preventDefault()
+    setMenu({ kind: 'blank', x: event.clientX, y: event.clientY })
   }, [])
   const closeMenu = useCallback(() => { setMenu(null) }, [])
   useEffect(() => {
@@ -1153,11 +1171,52 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       .finally(() => { savingRef.current -= 1; forkingRef.current = false })
   }, [doc, forking, rootId, showNotice, showNoticeError])
 
-  /* 立刻折叠: end the temporary expand of the peeked run — pure view state,
-     the folded attribute is untouched (no doc write). */
+  /* 立刻折叠: end the temporary expand of the peeked run under the menu card —
+     pure view state, the folded attribute is untouched (no doc write). */
   const foldNow = useCallback(() => {
+    if (menu === null || menu.kind !== 'card') return
     setMenu(null)
-    setPeekedRun(undefined)
+    const run = mindmapFoldedRunOf(docRef.current, String(menu.sessionId), Number(menu.turnSeq))
+    if (run === null) { setPeekedRuns(new Set()); return }
+    const key = `${String(menu.sessionId)}:${run.firstSeq}`
+    setPeekedRuns(prev => {
+      if (!prev.has(key)) return prev
+      const next = new Set(prev)
+      next.delete(key)
+      return next
+    })
+  }, [menu])
+
+  /* Blank-area menu items — pure VIEW state, the folded markers are never
+     touched (no doc write, no sync): 折叠全部可折叠的卡片 folds back every
+     temporarily-expanded (peeked) run; 展开全部已经折叠的卡片 peeks every
+     folded run. The menu closes first (same as every other menu item). */
+  const foldAllCollapsible = useCallback(() => {
+    setMenu(null)
+    setPeekedRuns(new Set())
+  }, [])
+  const unfoldAllFolded = useCallback(() => {
+    setMenu(null)
+    /* Peek every folded run: collect each run's first turn (a run starts at a
+       folded turn whose predecessor is not folded). */
+    const runs = new Set()
+    for (const s of docRef.current?.sessions ?? []) {
+      if (s === null || s === undefined) continue
+      const turns = s.turns ?? []
+      for (let i = 0; i < turns.length; i += 1) {
+        const t = turns[i]
+        if (t === null || t === undefined || t.folded !== true) continue
+        if (i > 0 && turns[i - 1]?.folded === true) continue
+        runs.add(`${String(s.sessionId)}:${Number(t.seq)}`)
+      }
+    }
+    setPeekedRuns(runs)
+  }, [])
+  /* 创建新对话: the same action as the toolbar button / root node click —
+     create a new top-level empty session and open it. */
+  const createSessionFromBlankMenu = useCallback(() => {
+    setMenu(null)
+    addRootSessionRef.current()
   }, [])
 
   /* The menu checkbox click: unchecking a FOLDED card permanently unfolds the
@@ -1933,6 +1992,19 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     return set
   }, [sessionSummarizing, sessionSummaryBusyId, sessionSummaryWaiting])
 
+  /* Blank-area menu availability (drives the disabled state of the fold-all /
+     unfold-all items): 折叠全部 needs at least one temporarily-expanded
+     (peeked) run to fold back; 展开全部 needs at least one folded run. */
+  const hasCollapsible = peekedRuns.size > 0
+  const hasFolded = useMemo(() => {
+    for (const s of doc?.sessions ?? []) {
+      for (const t of s?.turns ?? []) {
+        if (t !== null && t !== undefined && t.folded === true) return true
+      }
+    }
+    return false
+  }, [doc])
+
   if (phase.status === 'error') {
     /* A transient load failure (Host lock contention, network blip, 500)
        must not be a dead end: the retry re-runs the same load sequence. */
@@ -2104,6 +2176,11 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
             : null,
           h('div', { className: 'dsh-ws-context-separator', role: 'separator' }),
           h('button', { className: 'dsh-ws-context-item dsh-ws-context-item-danger', onClick: startArchiveBranch, role: 'menuitem', title: translate('mindmap.menu.archiveBranch'), type: 'button' }, translate('mindmap.menu.archiveBranch')))
+          : menu.kind === 'blank' ? h(Fragment, null,
+            h('button', { className: 'dsh-ws-context-item', onClick: createSessionFromBlankMenu, role: 'menuitem', title: translate('mindmap.menu.createSession'), type: 'button' }, translate('mindmap.menu.createSession')),
+            h('div', { className: 'dsh-ws-context-separator', role: 'separator' }),
+            h('button', { className: 'dsh-ws-context-item', disabled: !hasCollapsible, onClick: foldAllCollapsible, role: 'menuitem', title: translate('mindmap.menu.foldAll'), type: 'button' }, translate('mindmap.menu.foldAll')),
+            h('button', { className: 'dsh-ws-context-item', disabled: !hasFolded, onClick: unfoldAllFolded, role: 'menuitem', title: translate('mindmap.menu.unfoldAll'), type: 'button' }, translate('mindmap.menu.unfoldAll')))
           : h(Fragment, null,
             h('div', { className: 'dsh-ws-context-label' }, translate('mindmap.workspace.title')),
             (menu.workspaces ?? []).map((w) => {
@@ -2146,7 +2223,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         h('span', { className: 'dsh-ws-mindmap-bar-title' }, rootTitle)),
       noticeView,
       forkError !== null ? h('div', { className: 'dsh-ws-mindmap-fork-error' }, translate('mindmap.forkFailed', { message: forkError })) : null,
-      h('div', { className: 'dsh-ws-mindmap-viewport', 'data-dragging': dragging ? '' : undefined, onContextMenu: (event) => event.preventDefault(), onPointerCancel: endPan, onPointerDown: startPan, onPointerMove: movePan, onPointerUp: endPan, ref: viewportRef },
+      h('div', { className: 'dsh-ws-mindmap-viewport', 'data-dragging': dragging ? '' : undefined, onContextMenu: openBlankMenu, onPointerCancel: endPan, onPointerDown: startPan, onPointerMove: movePan, onPointerUp: endPan, ref: viewportRef },
         h('div', { className: 'dsh-ws-mindmap-canvas', ref: canvasRef, style: { height: layout.height, width: layout.width } },
           h('svg', { className: 'dsh-ws-mindmap-edges', width: layout.width, height: layout.height },
             h('defs', null,
@@ -2198,11 +2275,13 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
                 }))
             })),
           nodeViews,
-          /* Amber dashed outline around a temporarily-expanded (peeked) run —
-             pointer-events: none, so it never blocks card clicks. */
-          layout.peekBox !== null && layout.peekBox !== undefined
-            ? h('div', { className: 'dsh-ws-mindmap-peek-box', style: { left: layout.peekBox.x, top: layout.peekBox.y, width: layout.peekBox.w, height: layout.peekBox.h } })
-            : null))),
+          /* Amber dashed outline per temporarily-expanded (peeked) run —
+             pointer-events: none, so they never block card clicks. */
+          (layout.peekBoxes ?? []).map((box, index) => h('div', {
+            className: 'dsh-ws-mindmap-peek-box',
+            key: index,
+            style: { left: box.x, top: box.y, width: box.w, height: box.h },
+          }))))),
     menuView,
     h(MindMapDialogs, {
       renameTarget, renameBusy, renameError,

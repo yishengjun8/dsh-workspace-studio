@@ -309,13 +309,14 @@ export const mindmapStreamPalette = (sessionId) => {
    right after, indented to the card they hang off. A session with no turns renders one
    placeholder card; an optional `streaming` descriptor ({ sessionId, question }) appends an
    ephemeral live card to the chain tail (replacing an empty session's placeholder). Consecutive
-   folded turns merge into ONE folded card (unless the run is being peeked — `peekedRun`
-   { sessionId, firstSeq } temporarily expands it back into individual cards without touching
-   the folded attribute); children of folded turns re-mount from the folded card. Returns
-   { nodes, edges, width, height, peekBox } — nodes carry key/kind/sessionId/turn/empty/
-   streaming/folded/peeked/row/depth/x/y/width/height, edges are { from, to, mount?, d } with
-   the SVG path precomputed, peekBox is the amber outline of a peeked run (null when none). */
-export function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_MOUNT_BULGE_DEFAULT_X, peekedRun) {
+   folded turns merge into ONE folded card (unless the run is being peeked — `peekedRuns`
+   (a Set of `${sessionId}:${firstSeq}` keys) temporarily expands those runs back into
+   individual cards without touching the folded attribute); children of folded turns re-mount
+   from the folded card. Returns { nodes, edges, width, height, peekBoxes } — nodes carry
+   key/kind/sessionId/turn/empty/streaming/folded/peeked/row/depth/x/y/width/height, edges are
+   { from, to, mount?, d } with the SVG path precomputed, peekBoxes is one amber outline per
+   peeked run (empty array when none). */
+export function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_MOUNT_BULGE_DEFAULT_X, peekedRuns) {
   const nodes = []
   const edges = []
   const sessions = (doc?.sessions ?? []).filter(s => s !== null && s !== undefined)
@@ -361,7 +362,9 @@ export function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_M
      and the mount edges resolve a child's parent card to the node it actually
      hangs off (a folded run's turns all resolve to the folded card). */
   const chainMaps = new Map()
-  const peekedNodeKeys = []
+  /* Per-peeked-run node-key groups: one amber outline box per run (a single
+     union box would span the whole map when several runs are peeked at once). */
+  const peekedRunBoxes = []
   for (const s of order) {
     const sid = String(s.sessionId)
     const turns = s.turns ?? []
@@ -375,16 +378,18 @@ export function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_M
         /* A maximal run of consecutive folded turns. */
         let j = i
         while (j + 1 < turns.length && turns[j + 1]?.folded === true) j += 1
-        const isPeeked = peekedRun !== undefined && peekedRun !== null
-          && String(peekedRun.sessionId) === sid
-          && Number(peekedRun.firstSeq) === Number(turns[i].seq)
+        const isPeeked = peekedRuns !== undefined && peekedRuns !== null
+          && peekedRuns.has(`${sid}:${Number(turns[i].seq)}`)
         if (isPeeked) {
           /* Temporary expand: every turn of the run renders as its own card
              (peeked flag drives the "已折叠" status row); children re-mount to
              their ORIGINAL cards (no re-parenting for this run). */
+          const group = { keys: [] }
+          peekedRunBoxes.push(group)
           for (let k = i; k <= j; k += 1) {
             const t = turns[k]
             const key = mindmapDocKey(sid, t.seq)
+            group.keys.push(key)
             slots.push({ key, turn: t, folded: false, peeked: true, foldCount: 1 })
             nodeKeyByN.set(Number(t.n), key)
             renderedIndexByN.set(Number(t.n), slots.length - 1)
@@ -487,7 +492,6 @@ export function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_M
         })
         edges.push({ from: prevKey, to: key })
         prevKey = key
-        if (slot.peeked === true) peekedNodeKeys.push(key)
       })
     }
   }
@@ -645,16 +649,17 @@ export function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_M
      viewport bottom on first fit / restore view (the top already reserves
      rootY). */
   const height = rootY + MINDMAP_ROOT_H + MINDMAP_ROW_GAP + MINDMAP_NODE_H + lastRow * (MINDMAP_NODE_H + MINDMAP_ROW_GAP)
-  /* Bounding box of a temporarily-expanded (peeked) run: the amber dashed
-     outline rendered by the view (pointer-events: none, so it never blocks
-     card clicks). */
-  let peekBox = null
-  if (peekedNodeKeys.length > 0) {
+  /* Bounding box per temporarily-expanded (peeked) run: the amber dashed
+     outlines rendered by the view (pointer-events: none, so they never block
+     card clicks). One box per run — a single union box would span the whole
+     map when several runs are peeked at once. */
+  const peekBoxes = []
+  for (const group of peekedRunBoxes) {
     let minX = Infinity
     let minY = Infinity
     let maxX = -Infinity
     let maxY = -Infinity
-    for (const key of peekedNodeKeys) {
+    for (const key of group.keys) {
       const node = byKey.get(key)
       if (node === undefined) continue
       minX = Math.min(minX, node.x)
@@ -663,10 +668,10 @@ export function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_M
       maxY = Math.max(maxY, node.y + node.height)
     }
     if (Number.isFinite(minX)) {
-      peekBox = { x: minX - 6, y: minY - 6, w: maxX - minX + 12, h: maxY - minY + 12 }
+      peekBoxes.push({ x: minX - 6, y: minY - 6, w: maxX - minX + 12, h: maxY - minY + 12 })
     }
   }
-  return { nodes, edges, width, height, peekBox }
+  return { nodes, edges, width, height, peekBoxes }
 }
 
 export const mindmapXOf = depth => MINDMAP_DEPTH_GAP + depth * (MINDMAP_NODE_W + MINDMAP_DEPTH_GAP)
