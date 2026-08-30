@@ -66,12 +66,25 @@ export function useEditorSession({
      table is keyed to the text snapshot it was built from; selection-only
      publishes reuse it. */
   const crlfPrefixCacheRef = useRef({ text: null, prefix: null })
+  /* Full-document text is only needed for the CRLF prefix table and the dirty
+     comparison — it is sliced once per DOC identity (CodeMirror documents are
+     immutable, so a selection-only update reuses the cached string instead of
+     re-copying O(n) text on every selection change). */
+  const sliceTextCacheRef = useRef({ doc: null, text: null })
   const publishContextState = useCallback((state, docChanged = true, precomputedText) => {
     if (activeTab === undefined || preview.state !== 'ready') return
     // External files are read-only and not workspace-confined; never leak their synthetic path into the editor context.
     if (activeTab.external) return
     const main = state.selection.main
-    const text = precomputedText !== undefined ? precomputedText : state.sliceDoc()
+    let text = precomputedText
+    if (text === undefined) {
+      const cached = sliceTextCacheRef.current
+      if (cached.doc === state.doc) text = cached.text
+      else {
+        text = state.sliceDoc()
+        sliceTextCacheRef.current = { doc: state.doc, text }
+      }
+    }
     const selection = main.empty
       ? undefined
       : (() => {
@@ -288,8 +301,12 @@ export function useEditorSession({
   useLayoutEffect(() => {
     // A user-requested file refresh (preview header action) is tracked through
     // this flag: consumed at the start of every read pass so a stale flag
-    // never decorates a later ordinary open with the reloaded status.
+    // never decorates a later ordinary open with the reloaded status. A flag
+    // left for ANOTHER path (the user switched files before the read pass) is
+    // cleared here too — otherwise reopening that path later would show a
+    // fake "已从磁盘重新读取" toast without any refresh click.
     const refreshPending = refreshPendingRef.current === activePath
+    if (refreshPendingRef.current !== null && refreshPendingRef.current !== activePath) refreshPendingRef.current = null
     if (refreshPending) refreshPendingRef.current = null
     const cancelRestore = activePath !== null && cancelRestoreRef.current === activePath
     if (cancelRestore) cancelRestoreRef.current = null
@@ -939,7 +956,12 @@ export function useEditorSession({
     if (liveText === committedText) return
     setDraft(liveText)
     setDirty(true)
-    updateTab(path, { draft: liveText, draftKnown: true, dirty: true })
+    /* The save's `saving` flag is still set in tabsRef here (React has not
+       re-rendered the commit): scheduleAutosave's saving gate would skip this
+       keystroke's staging write, leaving the Host draft and IndexedDB mirror
+       one keystroke behind until the next edit. Clear the flag explicitly —
+       the save's own finally() would do it right after anyway. */
+    updateTab(path, { draft: liveText, draftKnown: true, dirty: true, saving: false })
     scheduleAutosave(path, liveText)
   }, [scheduleAutosave, updateTab])
 
@@ -1031,6 +1053,25 @@ export function useEditorSession({
       return false
     } catch (error) {
       if (!mounted.current) return false
+      /* A 409/412 on the write while the DISK content already equals our text
+         is an idempotent false conflict (a third party wrote the same bytes
+         between our read and write): re-read and commit with the fresh
+         revision instead of surfacing a misleading "保存冲突". Any real
+         divergence falls through to the generic failure surface below. */
+      if (error?.status === 409 || error?.status === 412) {
+        try {
+          const disk = await readFile(workspace.workspaceId, path, undefined, sourceEncoding)
+          if (mounted.current && typeof disk?.content === 'string' && disk.content === text) {
+            const freshRevision = typeof disk?.revision === 'string' ? disk.revision : undefined
+            const ok = await commitTab(path, text, freshRevision ?? sourceRevision, encoding, savedStatusText)
+            if (ok) preservePostSaveKeystrokes(path, text)
+            return ok
+          }
+        } catch {
+          /* The re-read itself failed: fall through to the generic failure.
+             (The timeout branch below stays authoritative for hung hosts.) */
+        }
+      }
       /* A genuine user cancellation is silent; a TIMEOUT (AbortSignal.timeout's
          TimeoutError reason) is a real failure that must surface — otherwise
          the tab stays dirty with the "保存中…" banner forever. */

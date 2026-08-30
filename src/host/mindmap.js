@@ -646,6 +646,35 @@ function mindmapSummaryContent(text) {
   return `<content_to_summarize>\n<![CDATA[\n${safe}\n]]>\n</content_to_summarize>`
 }
 
+/* Consume one llm.stream under a hard deadline: the abort signal alone cannot
+   force a provider stream that ignores it to finish, and a stuck for-await
+   would never release the single summary worker slot (concurrency 1) — the
+   entire summary queue would stall until a dsh restart. Racing the
+   consumption against a deadline slightly beyond the abort timer frees the
+   worker even when the stream never settles; the abandoned iteration is
+   garbage once its provider eventually ends. Returns the accumulated text,
+   or null when the stream errored/aborted (or the deadline fired first). */
+async function mindmapConsumeStream(llm, params, timeoutMs) {
+  let output = ''
+  const consume = (async () => {
+    for await (const chunk of llm.stream(params)) {
+      if (chunk === null || chunk === undefined) continue
+      if (chunk.type === 'text-delta' && typeof chunk.text === 'string') output += chunk.text
+      if (chunk.type === 'finish' && (chunk.reason?.kind === 'error' || chunk.reason?.kind === 'aborted')) return null
+    }
+    return output
+  })()
+  let deadlineTimer = 0
+  const deadline = new Promise((resolve) => {
+    deadlineTimer = setTimeout(() => resolve(null), timeoutMs + 10_000)
+  })
+  try {
+    return await Promise.race([consume, deadline])
+  } finally {
+    clearTimeout(deadlineTimer)
+  }
+}
+
 /* One LLM call: build the prompt (length is advisory wording, language follows
    the question), stream text deltas, return the trimmed one-line summary or
    null on ANY failure (the caller applies the cooldown). */
@@ -684,17 +713,17 @@ async function mindmapGenerateSummary(ctx, model, question, length) {
         source: { kind: 'plugin', plugin: 'workspace-studio' },
       },
     ]
-    for await (const chunk of llm.stream({
-      provider: model.provider,
-      model: model.model,
-      messages,
-      maxTokens: Math.min(1024, Math.max(MINDMAP_SUMMARY_MAX_TOKENS, Math.ceil(wanted * 2))),
-      signal: controller.signal,
-    })) {
-      if (chunk === null || chunk === undefined) continue
-      if (chunk.type === 'text-delta' && typeof chunk.text === 'string') output += chunk.text
-      if (chunk.type === 'finish' && (chunk.reason?.kind === 'error' || chunk.reason?.kind === 'aborted')) return null
-    }
+    output = (await mindmapConsumeStream(
+      llm,
+      {
+        provider: model.provider,
+        model: model.model,
+        messages,
+        maxTokens: Math.min(1024, Math.max(MINDMAP_SUMMARY_MAX_TOKENS, Math.ceil(wanted * 2))),
+        signal: controller.signal,
+      },
+      MINDMAP_SUMMARY_CALL_TIMEOUT_MS,
+    )) ?? ''
   } catch {
     return null
   } finally {
@@ -816,17 +845,17 @@ async function mindmapGenerateSessionSummary(ctx, model, summaries, length) {
         source: { kind: 'plugin', plugin: 'workspace-studio' },
       },
     ]
-    for await (const chunk of llm.stream({
-      provider: model.provider,
-      model: model.model,
-      messages,
-      maxTokens: Math.min(1024, Math.max(MINDMAP_SUMMARY_MAX_TOKENS, Math.ceil(wanted * 2))),
-      signal: controller.signal,
-    })) {
-      if (chunk === null || chunk === undefined) continue
-      if (chunk.type === 'text-delta' && typeof chunk.text === 'string') output += chunk.text
-      if (chunk.type === 'finish' && (chunk.reason?.kind === 'error' || chunk.reason?.kind === 'aborted')) return null
-    }
+    output = (await mindmapConsumeStream(
+      llm,
+      {
+        provider: model.provider,
+        model: model.model,
+        messages,
+        maxTokens: Math.min(1024, Math.max(MINDMAP_SUMMARY_MAX_TOKENS, Math.ceil(wanted * 2))),
+        signal: controller.signal,
+      },
+      MINDMAP_SUMMARY_CALL_TIMEOUT_MS,
+    )) ?? ''
   } catch {
     return null
   } finally {
@@ -1058,6 +1087,48 @@ export async function regenerateMindmapSummary(ctx, persistence, sessionId, seq,
    finishes (user decision) — every session with turns joins the pending set
    and the drain waits for readiness. Returns the turn count for the client's
    confirm dialog / notice. */
+/* Body of the regenerate-all mutation: clear every stored session summary,
+   count the doc's turns, then enqueue the card batch and the pending session
+   summaries. Runs under the root lock with a fresh read. */
+async function regenerateAllBody(ctx, persistence, fresh, config) {
+  let count = 0
+  for (const session of fresh.sessions ?? []) {
+    for (const turn of session?.turns ?? []) {
+      if (turn !== null && turn !== undefined && Number.isSafeInteger(turn.seq)) count += 1
+    }
+  }
+  /* Clear every session summary so no stale paragraph survives the batch. */
+  let sessionsChanged = false
+  for (const session of fresh.sessions ?? []) {
+    if (session !== null && session !== undefined && typeof session.summary === 'string' && session.summary !== '') {
+      delete session.summary
+      sessionsChanged = true
+    }
+  }
+  if (sessionsChanged) {
+    fresh.updatedAt = Date.now()
+    try {
+      await writeJsonAtomic(mindmapDocPath(fresh.rootSessionId), fresh)
+    } catch (error) {
+      ctx.logger.warn(`[workspace-studio] mindmap regenerate-all session-summary clear failed: ${String(error)}`)
+    }
+    mindmapSyncCache.delete(String(fresh.rootSessionId))
+  }
+  /* Enqueue inside the lock: the doc read here is the freshest; the queue is
+     in-memory bookkeeping, workers do their own locking when writing. */
+  mindmapEnqueueSummaries(ctx, persistence, fresh, config, Number.MAX_SAFE_INTEGER, 'all')
+  /* Auto-regenerate session summaries after the card batch: every session
+     with turns joins the pending set (the drain waits for readiness). */
+  for (const session of fresh.sessions ?? []) {
+    if (session === null || session === undefined || typeof session.sessionId !== 'string') continue
+    const turns = Array.isArray(session.turns) ? session.turns : []
+    if (turns.some(t => t !== null && t !== undefined && Number.isSafeInteger(t?.seq))) {
+      mindmapSessionSummaryPending.set(mindmapSessionSummaryKey(fresh.rootSessionId, session.sessionId), config)
+    }
+  }
+  return count
+}
+
 export async function regenerateAllMindmapSummaries(ctx, persistence, sessionId, config) {
   const doc = await findMindmapDoc(ctx, persistence, sessionId)
   if (doc === null || !isValidMindmapDoc(doc) || mindmapDocIsDead(ctx, doc)) {
@@ -1070,40 +1141,29 @@ export async function regenerateAllMindmapSummaries(ctx, persistence, sessionId,
     if (fresh === null || !isValidMindmapDoc(fresh) || mindmapDocIsDead(ctx, fresh)) {
       throw new HttpError(404, 'mindmap-not-found', '导图文档不存在')
     }
-    for (const session of fresh.sessions ?? []) {
-      for (const turn of session?.turns ?? []) {
-        if (turn !== null && turn !== undefined && Number.isSafeInteger(turn.seq)) count += 1
-      }
+    /* A root replacement may have landed between the outer probe and this
+       re-read: the doc now lives under a DIFFERENT root id, and clearing +
+       enqueueing under the OLD root's lock would write the new root's file
+       unsynchronized with its concurrent sync (the two locks do not
+       serialize). Re-acquire under BOTH roots (sorted, deadlock-free) and
+       re-read — the same re-anchor as the sync / summary-write / rename
+       paths. */
+    if (String(fresh.rootSessionId) !== String(root)) {
+      return mindmapLocks([String(root), String(fresh.rootSessionId)], async () => {
+        const reRead = await readMindmapDocFile(String(root))
+        if (reRead === null || !isValidMindmapDoc(reRead) || mindmapDocIsDead(ctx, reRead)) {
+          throw new HttpError(404, 'mindmap-not-found', '导图文档不存在')
+        }
+        /* readMindmapDocFile follows alias stubs, so re-reading under the OLD
+           key already resolves the CURRENT doc; assert the anchor again for
+           safety and bail out of the nested lock otherwise. */
+        if (String(reRead.rootSessionId) !== String(fresh.rootSessionId)) {
+          throw new HttpError(404, 'mindmap-not-found', '导图文档不存在')
+        }
+        count = await regenerateAllBody(ctx, persistence, reRead, config)
+      })
     }
-    /* Clear every session summary so no stale paragraph survives the batch. */
-    let sessionsChanged = false
-    for (const session of fresh.sessions ?? []) {
-      if (session !== null && session !== undefined && typeof session.summary === 'string' && session.summary !== '') {
-        delete session.summary
-        sessionsChanged = true
-      }
-    }
-    if (sessionsChanged) {
-      fresh.updatedAt = Date.now()
-      try {
-        await writeJsonAtomic(mindmapDocPath(fresh.rootSessionId), fresh)
-      } catch (error) {
-        ctx.logger.warn(`[workspace-studio] mindmap regenerate-all session-summary clear failed: ${String(error)}`)
-      }
-      mindmapSyncCache.delete(String(fresh.rootSessionId))
-    }
-    /* Enqueue inside the lock: the doc read here is the freshest; the queue is
-       in-memory bookkeeping, workers do their own locking when writing. */
-    mindmapEnqueueSummaries(ctx, persistence, fresh, config, Number.MAX_SAFE_INTEGER, 'all')
-    /* Auto-regenerate session summaries after the card batch: every session
-       with turns joins the pending set (the drain waits for readiness). */
-    for (const session of fresh.sessions ?? []) {
-      if (session === null || session === undefined || typeof session.sessionId !== 'string') continue
-      const turns = Array.isArray(session.turns) ? session.turns : []
-      if (turns.some(t => t !== null && t !== undefined && Number.isSafeInteger(t?.seq))) {
-        mindmapSessionSummaryPending.set(mindmapSessionSummaryKey(fresh.rootSessionId, session.sessionId), config)
-      }
-    }
+    count = await regenerateAllBody(ctx, persistence, fresh, config)
   })
   mindmapDrainPendingSessionSummaries(ctx, persistence)
   return { ok: true, count }
@@ -1256,21 +1316,37 @@ function parseMindmapTurnsCached(sessionId, events) {
    lands in the SAME workspace. */
 export async function buildMindmapDoc(ctx, persistence, sessionId) {
   if (mindmapArchivedSet(ctx).has(String(sessionId))) return null
-  const events = await eventsOf(ctx, persistence, sessionId)
+  /* Ancestor-aware first build: a fork descendant opened BEFORE any
+     documented ancestor must never become a root on its own — opening the
+     ancestor later would find no doc and mint a SECOND root for the same
+     family (two maps, broken fork tree). Anchor the fresh doc at the oldest
+     REACHABLE, UNARCHIVED session up the bloodline; the caller's adopt pass
+     then attaches the requested session (and any chain members) as branches
+     of that anchor. Walking stops at an archived/unknown parent, so a
+     descendant of a dead (archived) ancestor still converts normally. */
+  let anchor = String(sessionId)
+  const seen = new Set([anchor])
+  for (;;) {
+    const parent = await mindmapParentOf(ctx, persistence, anchor)
+    if (parent === undefined || seen.has(parent) || mindmapArchivedSet(ctx).has(parent)) break
+    seen.add(parent)
+    anchor = parent
+  }
+  const events = await eventsOf(ctx, persistence, anchor)
   const turns = parseMindmapTurns(events)
   const sessionTurns = turns.map((turn, index) => ({ ...turn, n: index + 1 }))
-  const anchorCwd = await mindmapCwdOf(ctx, persistence, sessionId)
+  const anchorCwd = await mindmapCwdOf(ctx, persistence, anchor)
   const doc = {
     version: MINDMAP_DOC_VERSION,
-    rootSessionId: String(sessionId),
-    rootTitle: (await mindmapTitleOf(ctx, persistence, sessionId)) ?? '',
+    rootSessionId: anchor,
+    rootTitle: (await mindmapTitleOf(ctx, persistence, anchor)) ?? '',
     workspaceCwd: anchorCwd,
     createdAt: Date.now(),
     updatedAt: Date.now(),
     next: sessionTurns.length + 1,
     sessions: [{
       id: 's0',
-      sessionId: String(sessionId),
+      sessionId: anchor,
       parentSessionId: null,
       parentTurn: null,
       forkTurn: 0,
@@ -2103,6 +2179,40 @@ export async function writeMindmapDoc(ctx, persistence, sessionId, doc, prevSess
           doc.next = Math.max(doc.next, mindmapNextOf(doc))
           try {
             ctx.logger.warn(`[workspace-studio] mindmap write restored ${restored.length} live session(s) dropped by a stale doc write: ${restored.map(s => s?.sessionId).join(', ')}`)
+          } catch { /* no logger */ }
+        }
+        /* AI-turn summaries are generated Host-side ASYNCHRONOUSLY; a client
+           doc write built from a pre-generation snapshot (a fork, a delete,
+           an old tab) must not erase them. Fill every incoming turn that has
+           NO summary from the previous doc's turn of the same (sessionId,
+           seq). Only MISSING summaries are filled — an intentional client-side
+           change is never overwritten. (Root replacement writes skip this
+           guard by definition, matching the session-restore guard above.) */
+        const summaryByKey = new Map()
+        for (const session of previous.sessions ?? []) {
+          if (session === null || session === undefined || typeof session?.sessionId !== 'string') continue
+          for (const turn of session?.turns ?? []) {
+            if (turn === null || turn === undefined || !Number.isSafeInteger(turn.seq)) continue
+            if (typeof turn.summary !== 'string' || turn.summary === '') continue
+            summaryByKey.set(`${String(session.sessionId)}:${Number(turn.seq)}`, turn.summary)
+          }
+        }
+        let summaryFills = 0
+        for (const session of doc.sessions ?? []) {
+          if (session === null || session === undefined || typeof session?.sessionId !== 'string') continue
+          for (const turn of session?.turns ?? []) {
+            if (turn === null || turn === undefined || !Number.isSafeInteger(turn.seq)) continue
+            if (typeof turn.summary === 'string' && turn.summary !== '') continue
+            const existing = summaryByKey.get(`${String(session.sessionId)}:${Number(turn.seq)}`)
+            if (existing !== undefined) {
+              turn.summary = existing
+              summaryFills += 1
+            }
+          }
+        }
+        if (summaryFills > 0) {
+          try {
+            ctx.logger.warn(`[workspace-studio] mindmap write preserved ${summaryFills} AI summary/summaries that a stale doc write would have erased`)
           } catch { /* no logger */ }
         }
       }

@@ -183,7 +183,17 @@ function findMatches(content, query, caseSensitive, cap) {
 }
 
 async function searchFile(root, relativePath, query, caseSensitive, config) {
-  const target = resolve(root, ...relativePath.split('/'))
+  /* Same realpath + isInside fence as every other read path (preview, reveal,
+     context): the walk's lexical resolution can be raced by a directory being
+     swapped for a symlink pointing OUTSIDE the workspace between readdir and
+     open, which would leak outside content into the search response. A
+     missing/broken/escaping path is simply not a match. */
+  let target
+  try {
+    target = await resolveWorkspacePath(root, relativePath)
+  } catch {
+    return null
+  }
   let targetStat
   try {
     targetStat = await stat(target)
@@ -470,7 +480,15 @@ async function fileChangeSnapshot(target, previous, maxPreviewBytes) {
      previous.hash !== snapshot.hash comparison would otherwise fire forever
      against the sampled hash — the >maxPreviewBytes auto-reload loop). */
   if (sameMtime && typeof previous?.hash !== 'string') return { ...previous, checkedAt: Date.now() }
-  if (hash !== null && previous?.hash === hash) return { ...previous, checkedAt: Date.now() }
+  if (hash !== null && previous?.hash === hash) {
+    /* Same CONTENT but new mtime/size (touch -r, rsync -t): carry the CURRENT
+       stat fields in the snapshot so the next poll's mtime+size fast path
+       engages again. Echoing the old mtime would force a full re-hash on
+       every poll forever; the check handler compares hash first when the
+       baseline carries a string hash, so a mere touch still reports
+       unchanged. */
+    return { mtimeMs: current.mtimeMs, size: current.size, hash, checkedAt: Date.now() }
+  }
   return { mtimeMs: current.mtimeMs, size: current.size, hash, checkedAt: Date.now() }
 }
 

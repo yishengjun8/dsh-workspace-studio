@@ -574,6 +574,14 @@ export function WorkspaceExplorer({
       if (!hasDraggedFiles(event)) return
       event.preventDefault()
       event.stopPropagation()
+      /* The mask's × marks THIS drag as suppressed: dropping after dismissing
+         must not upload/open the file either (OS file drags never fire window
+         dragend, so the flag would otherwise survive until the next dragleave/
+         dragend). Swallow the drop like the dragenter/dragover paths do. */
+      if (dropSuppressedRef.current) {
+        resetDrop()
+        return
+      }
       resetDrop()
       void handlePreviewDrop(event)
     }
@@ -1159,7 +1167,7 @@ export function WorkspaceExplorer({
             subtitle: workspace.path,
             title: sessionTitle ?? translate('panel.workspaceFiles'),
           }),
-          h(ExplorerTree, { clipboard, directories, entryBusy, entryDialog, entryDialogError, entryDraft, expanded, onCloseEntryDialog: closeEntryDialog, onConfirmEntryDialog: submitEntryDialog, onContextMenu: openContextMenu, onDirectory: toggleDirectory, onDraftEntry: value => { setEntryDraft(value); setEntryError(undefined) }, onFile: chooseFile, onRename: beginRename, selected }),
+          h(ExplorerTree, { clipboard, directories, entryBusy, entryDialog, entryDialogError, entryDraft, expanded, onCloseEntryDialog: closeEntryDialog, onConfirmEntryDialog: submitEntryDialog, onContextMenu: openContextMenu, onDirectory: toggleDirectory, onDraftEntry: value => { setEntryDraft(value); setEntryError(undefined) }, onFile: chooseFile, onSelect: setSelected, onRename: beginRename, selected }),
           contextMenu ? h(TreeContextMenu, { entry: contextMenu.entry, menuRef, onRename: entry => { setContextMenu(undefined); beginRename(entry) }, onCopyName: copyEntryName, onCopyPath: copyEntryPath, onReveal: openInExplorer, onCopy: entry => copyEntryToClipboard(entry, false), onPaste: pasteEntry, onCut: entry => copyEntryToClipboard(entry, true), onDelete: openDeleteConfirm, pasteDisabled: clipboard === undefined || clipboard.workspaceId !== workspace.workspaceId, pasteTitle: clipboard === undefined ? translate('context.paste.titleEmpty') : clipboard.workspaceId !== workspace.workspaceId ? translate('context.paste.titleForeign') : translate('context.paste.title'), x: contextMenu.x, y: contextMenu.y }) : null,
           titleContextMenu ? h('div', { className: 'dsh-ws-context-menu', ref: titleMenuRef, role: 'menu', style: { left: Math.max(4, Math.min(titleContextMenu.x, window.innerWidth - CONTEXT_MENU_WIDTH - 4)), top: Math.max(4, Math.min(titleContextMenu.y, window.innerHeight - 52)) } }, h('button', { className: 'dsh-ws-context-item', onClick: openSessionRename, role: 'menuitem', title: translate('dialog.renameSession'), type: 'button' }, translate('dialog.renameSession'))) : null,
           copyNotice ? h('div', { className: 'dsh-ws-copy-notice', role: 'status' }, copyNotice) : null,

@@ -20,7 +20,7 @@ let encodingCache = ENCODING_FALLBACK
 /* Fetch the server's authoritative encoding list once; keep the fallback if the request fails. */
 export async function fetchEncodings() {
   try {
-    const response = await fetch(`${API_PREFIX}/encodings`, { method: 'GET', headers: { accept: 'application/json' }, credentials: 'same-origin' })
+    const response = await fetch(`${API_PREFIX}/encodings`, { method: 'GET', headers: { accept: 'application/json' }, credentials: 'same-origin', signal: withTimeout(undefined, REQUEST_TIMEOUT_MS) })
     if (!response.ok) return encodingCache
     const payload = await response.json()
     const list = Array.isArray(payload?.encodings)

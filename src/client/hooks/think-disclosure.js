@@ -134,9 +134,18 @@ export function useThinkDisclosure({ chatSectionRef, autoExpandThink, thinkColla
           }
         }
       }
-      /* Retry parked roots (row not rendered yet) on every mutation batch. */
+      /* Retry parked roots (row not rendered yet) on every mutation batch. A
+         parked root may have FINISHED (data-state 'ok') while its row was
+         still missing: its 'ok' transition already fired without an
+         autoOpened entry, so opening it now would leave it expanded forever
+         (the transition that schedules the auto-collapse is gone). Only
+         still-running roots are opened; finished ones are dropped. */
       for (const root of [...pendingRoots]) {
         if (!root.isConnected) {
+          pendingRoots.delete(root)
+          continue
+        }
+        if (root.getAttribute('data-state') === 'ok') {
           pendingRoots.delete(root)
           continue
         }

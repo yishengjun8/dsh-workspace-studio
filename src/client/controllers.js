@@ -5,6 +5,19 @@ import { formatBytes } from './format.js'
 import { renderContext } from './api.js'
 
 const EMPTY_EDITOR_CONTEXT_VIEW = Object.freeze({ present: false, active: false })
+/* Field-level equality for the projected editor-context view: the projection
+   is rebuilt fresh on every publish, so identity comparison alone cannot gate
+   redundant notifications. */
+function editorContextViewEqual(left, right) {
+  if (left === right) return true
+  if (left?.present !== right?.present || left?.active !== right?.active) return false
+  if (left?.path !== right?.path) return false
+  const ls = left?.selection
+  const rs = right?.selection
+  if (ls === undefined || rs === undefined) return ls === rs
+  return ls.startLine === rs.startLine && ls.startColumn === rs.startColumn
+    && ls.endLine === rs.endLine && ls.endColumn === rs.endColumn
+}
 export class EditorContextController {
   constructor() {
     this.records = new Map()
@@ -48,19 +61,30 @@ export class EditorContextController {
         ...(value.selection === undefined ? {} : { selection: Object.freeze({ ...value.selection }) }),
       }))
     }
-    this.stores.get(sessionId)?.set(this.project(sessionId))
+    this.publish(sessionId)
   }
   toggle(sessionId) {
     if (this.disabledSessions.has(sessionId)) this.disabledSessions.delete(sessionId)
     else this.disabledSessions.add(sessionId)
-    this.stores.get(sessionId)?.set(this.project(sessionId))
+    this.publish(sessionId)
   }
   activate(sessionId) {
     // Restore only this session's own last published context; a foreign
     // session's value must never leak into the session being activated.
     const own = this.latest.get(sessionId)
     if (own !== undefined) this.update(sessionId, own)
-    this.stores.get(sessionId)?.set(this.project(sessionId))
+    this.publish(sessionId)
+  }
+  /* Field-level gating for the snapshot store: a projection equal to the
+     currently published one must not re-notify subscribers (a cursor move
+     within the SAME selection would otherwise re-render EditorContextPrefix
+     on every editor selection change). */
+  publish(sessionId) {
+    const store = this.stores.get(sessionId)
+    if (store === undefined) return
+    const projected = this.project(sessionId)
+    if (editorContextViewEqual(store.getSnapshot(), projected)) return
+    store.set(projected)
   }
   retain(sessionIds) {
     const live = new Set(sessionIds)

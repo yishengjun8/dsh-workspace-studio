@@ -56,7 +56,12 @@ export function useSessionMenu({ props, mountedRef }) {
          archiveSessionFromMenu skips them explicitly, so the lookup must too). */
       const candidates = snapshot.ids.filter(id => {
         const summary = snapshot.byId[id]
-        return summary !== undefined && summary.origin !== 'subagent' && summary.displayTitle === title
+        /* Subagent sessions are excluded: their rows are not the right-click
+           target (the menu's rename/archive actions must never hit a subagent —
+           archiveSessionFromMenu skips them explicitly, so the lookup must too).
+           Blank (never-started) sessions get no menu either: they must never
+           win the duplicate-title match and shadow a real session's row. */
+        return summary !== undefined && summary.origin !== 'subagent' && summary.blank !== true && summary.displayTitle === title
       })
       if (candidates.length === 0) return
       let sessionId = candidates[0]

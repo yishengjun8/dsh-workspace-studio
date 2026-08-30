@@ -62,6 +62,10 @@ export function parentPath(path) {
 }
 export function normalizeEntryName(value, maxEntryNameBytes) {
   if (typeof value !== 'string') throw new HttpError(400, 'invalid-path', '文件名必须是工作区内的单个名称')
+  /* Trailing dot/space must be checked on the RAW value: trim() below would
+     strip a trailing space first and silently turn "a " into "a" instead of
+     refusing it (the documented trailing-space rule). */
+  if (/[. ]$/.test(value)) throw new HttpError(400, 'invalid-path', '文件名不能以点或空格结尾')
   const name = value.trim()
   if (name === '' || name === '.' || name === '..' || name.includes('/') || name.includes('\\')
     || /\u0000|[\u0001-\u001f\u007f\u2028\u2029]/u.test(name)) {
@@ -73,7 +77,6 @@ export function normalizeEntryName(value, maxEntryNameBytes) {
      clean 400 instead of a raw fs error (500) on Windows hosts. Non-Windows
      hosts keep the same rule for consistency (the names are illegal there too
      in practice). */
-  if (/[. ]$/.test(name)) throw new HttpError(400, 'invalid-path', '文件名不能以点或空格结尾')
   const base = name.split('.')[0].toUpperCase()
   if (/^(CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|COM[1-9]|LPT[1-9])$/.test(base)) {
     throw new HttpError(400, 'invalid-path', '文件名不能使用 Windows 保留名称')

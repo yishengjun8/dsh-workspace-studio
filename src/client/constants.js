@@ -83,7 +83,12 @@ export const cssColorToHex = (color) => {
     const doubled = shortHex[1].split('').map(part => `${part}${part}`).join('').toLowerCase()
     return `#${doubled}`
   }
-  if (/^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$/.test(text)) return `#${text.slice(1, 7).toLowerCase()}`
+  if (/^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$/.test(text)) {
+    /* 8-digit #rrggbbaa keeps its alpha channel (the 4-digit shorthand path
+       doubles nibbles to preserve it too); slicing to 6 digits would silently
+       drop the user's picked opacity. */
+    return `#${text.slice(1).toLowerCase()}`
+  }
   const rgb = text.match(/^rgba?\(\s*(-?[0-9.]+%?)(?:\s*,\s*|\s+)(-?[0-9.]+%?)(?:\s*,\s*|\s+)(-?[0-9.]+%?)(?:\s*(?:,|\/)\s*[^)]+)?\s*\)$/i)
   if (rgb === null) return null
   /* Percent components map to 255; negatives clamp to 0 (browsers clamp on parse). */

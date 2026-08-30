@@ -274,6 +274,7 @@ function renderEditorContextSummary(bubble, context) {
       textContent: context.range,
     })]),
   )
+  return row
 }
 
 export function installEditorContextMessageCompactor() {
@@ -283,8 +284,11 @@ export function installEditorContextMessageCompactor() {
     const text = bubble.textContent ?? ''
     const context = parseEditorContextEnvelope(text)
     if (context === null) return
-    originals.set(bubble, text)
-    renderEditorContextSummary(bubble, consumeEditorContextDisplay(text) ?? context)
+    /* Store the summary ROW reference (not just the original text) so a
+       later cleanup can remove the row even after the bubble itself left the
+       document — a disconnected bubble has no previousElementSibling, so the
+       old sibling-walk cleanup was a no-op for exactly the ghost cases. */
+    originals.set(bubble, { text, summary: renderEditorContextSummary(bubble, consumeEditorContextDisplay(text) ?? context) })
     bubble.classList.add('dsh-ws-message-context-bubble')
     if (context.visibleText === '') bubble.setAttribute('data-dsh-ws-empty-prompt', '')
     else bubble.removeAttribute('data-dsh-ws-empty-prompt')
@@ -312,9 +316,15 @@ export function installEditorContextMessageCompactor() {
     for (const container of document.querySelectorAll(MESSAGE_CONTEXT_SELECTOR)) compactContainer(container)
     /* Release bubbles that left the document (message cleared, session
        removed): their DOM refs and full text must not accumulate until the
-       plugin is disposed. */
-    for (const bubble of originals.keys()) {
-      if (!bubble.isConnected) originals.delete(bubble)
+       plugin is disposed. Remove each bubble's summary ROW first — a message
+       teardown may drop the bubble but leave its sibling summary row behind
+       (a ghost "↳ file" line), and a disconnected bubble can no longer be
+       located by sibling walk. */
+    for (const [bubble, original] of originals) {
+      if (!bubble.isConnected) {
+        if (original?.summary instanceof HTMLElement && original.summary.isConnected) original.summary.remove()
+        originals.delete(bubble)
+      }
     }
   }
   let scheduled = false
@@ -332,16 +342,17 @@ export function installEditorContextMessageCompactor() {
   return () => {
     observer.disconnect()
     clearEditorContextDisplays()
-    for (const [bubble, text] of originals) {
+    for (const [bubble, original] of originals) {
       /* A disconnected bubble (message cleared / session removed) still owns
          its summary row: remove the row even when the bubble itself is gone,
-         or a ghost "↳ file" line would linger in the chat until refresh. */
-      const summary = bubble.previousElementSibling
-      if (summary instanceof HTMLElement && summary.hasAttribute(MESSAGE_CONTEXT_SUMMARY_ATTR)) summary.remove()
+         or a ghost "↳ file" line would linger in the chat until refresh. The
+         row reference was captured at compaction time, so this works without
+         any sibling relationship. */
+      if (original?.summary instanceof HTMLElement && original.summary.isConnected) original.summary.remove()
       if (!bubble.isConnected) continue
       bubble.classList.remove('dsh-ws-message-context-bubble')
       bubble.removeAttribute('data-dsh-ws-empty-prompt')
-      bubble.textContent = text
+      bubble.textContent = original?.text ?? ''
     }
     originals.clear()
   }

@@ -77,7 +77,7 @@ export const tokenHighlight = HighlightStyle.define([
       imports beyond the synchronously parsed prefix. */
 export const pythonModuleMark = Decoration.mark({ class: 'dsh-ws-token-module' })
 export const pythonImportModules = Prec.highest(ViewPlugin.fromClass(class {
-  constructor(view) { this.tree = syntaxTree(view.state); this.decorations = this.build(view); this.pending = false; this.raf = 0 }
+  constructor(view) { this.view = view; this.tree = syntaxTree(view.state); this.decorations = this.build(view); this.pending = false; this.raf = 0 }
   update(update) {
     const tree = syntaxTree(update.state)
     if (tree !== this.tree) {

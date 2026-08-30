@@ -3,7 +3,7 @@
  *  all state and handlers stay in the view. */
 import { Fragment, createElement as h, useRef } from 'react'
 import { translate } from '../locale/index.js'
-import { SessionRenameDialog } from '../components/dialogs.js'
+import { SessionRenameDialog, useDialogFocusTrap } from '../components/dialogs.js'
 
 export function MindMapDialogs({
   renameTarget, renameBusy, renameError, onRenameCancel, onRenameConfirm, onRenameDraft,
@@ -13,6 +13,14 @@ export function MindMapDialogs({
   regenerateAllTarget, regenerateAllBusy, regenerateAllError, onRegenerateAllCancel, onRegenerateAllConfirm,
 }) {
   const composingRef = useRef(false)
+  /* This component is always mounted; each dialog subtree mounts
+     conditionally. The shared focus trap takes an `open` flag so a trap is
+     armed (and focus restored on close) only while its dialog is visible —
+     same Tab-ring behavior as the five workspace dialogs. */
+  const archiveRef = useDialogFocusTrap(archiveTarget !== null)
+  const deleteRef = useDialogFocusTrap(deleteTarget !== null)
+  const archiveBranchRef = useDialogFocusTrap(archiveBranchTarget !== null)
+  const regenerateAllRef = useDialogFocusTrap(regenerateAllTarget !== null)
   const renameView = renameTarget !== null ? h(SessionRenameDialog, {
     busy: renameBusy,
     draft: renameTarget.title,
@@ -27,7 +35,7 @@ export function MindMapDialogs({
     className: 'dsh-ws-dialog-backdrop',
     onMouseDown: event => { if (event.target === event.currentTarget && !archiveBusy) onArchiveCancel() },
   },
-    h('div', { 'aria-modal': true, className: 'dsh-ws-dialog dsh-ws-mindmap-archive-dialog', role: 'dialog' },
+    h('div', { 'aria-modal': true, className: 'dsh-ws-dialog dsh-ws-mindmap-archive-dialog', ref: archiveRef, role: 'dialog' },
       /* Red→amber warning band across the very top of the dialog. */
       h('div', { className: 'dsh-ws-mindmap-archive-band' }),
       h('div', { className: 'dsh-ws-dialog-header' },
@@ -81,7 +89,7 @@ export function MindMapDialogs({
     className: 'dsh-ws-dialog-backdrop',
     onMouseDown: event => { if (event.target === event.currentTarget && !deleteBusy) onDeleteCancel() },
   },
-    h('div', { 'aria-modal': true, className: 'dsh-ws-dialog', role: 'dialog' },
+    h('div', { 'aria-modal': true, className: 'dsh-ws-dialog', ref: deleteRef, role: 'dialog' },
       h('div', { className: 'dsh-ws-dialog-header' },
         h('div', { className: 'dsh-ws-dialog-title' }, translate('mindmap.delete.title')),
         h('button', { 'aria-label': translate('dialog.close'), className: 'dsh-ws-icon-button', disabled: deleteBusy, onClick: onDeleteCancel, title: translate('dialog.close'), type: 'button' }, '×')),
@@ -97,7 +105,7 @@ export function MindMapDialogs({
     className: 'dsh-ws-dialog-backdrop',
     onMouseDown: event => { if (event.target === event.currentTarget && !archiveBranchBusy) onArchiveBranchCancel() },
   },
-    h('div', { 'aria-modal': true, className: 'dsh-ws-dialog dsh-ws-mindmap-confirm-dialog', role: 'dialog' },
+    h('div', { 'aria-modal': true, className: 'dsh-ws-dialog dsh-ws-mindmap-confirm-dialog', ref: archiveBranchRef, role: 'dialog' },
       h('div', { className: 'dsh-ws-dialog-header' },
         h('div', { className: 'dsh-ws-dialog-title' }, translate('mindmap.archiveBranch.title')),
         h('button', { 'aria-label': translate('dialog.close'), className: 'dsh-ws-icon-button', disabled: archiveBranchBusy, onClick: onArchiveBranchCancel, title: translate('dialog.close'), type: 'button' }, '×')),
@@ -113,7 +121,7 @@ export function MindMapDialogs({
     className: 'dsh-ws-dialog-backdrop',
     onMouseDown: event => { if (event.target === event.currentTarget && !regenerateAllBusy) onRegenerateAllCancel() },
   },
-    h('div', { 'aria-modal': true, className: 'dsh-ws-dialog dsh-ws-mindmap-confirm-dialog', role: 'dialog' },
+    h('div', { 'aria-modal': true, className: 'dsh-ws-dialog dsh-ws-mindmap-confirm-dialog', ref: regenerateAllRef, role: 'dialog' },
       h('div', { className: 'dsh-ws-dialog-header' },
         h('div', { className: 'dsh-ws-dialog-title' }, translate('mindmap.summary.regenerateAll')),
         h('button', { 'aria-label': translate('dialog.close'), className: 'dsh-ws-icon-button', disabled: regenerateAllBusy, onClick: onRegenerateAllCancel, title: translate('dialog.close'), type: 'button' }, '×')),

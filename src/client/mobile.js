@@ -11,7 +11,19 @@ function mobileState() {
 }
 let mobileSnapshot = typeof document === 'undefined' ? { on: false, drawerOpen: false, files: false } : mobileState()
 const mobileListeners = new Set()
-function notifyMobile() { mobileSnapshot = mobileState(); for (const listener of mobileListeners) listener() }
+/* Stable-snapshot discipline (same rule as the mind-map stores): re-reading
+   the document classes and REPLACING the snapshot on every call would make
+   useSyncExternalStore consumers re-render for no-op setter calls (setMobile
+   toggles a class that is already in the desired state). Publish only when a
+   field actually changed, so the snapshot object keeps its identity between
+   no-op transitions. */
+function notifyMobile() {
+  const next = mobileState()
+  const previous = mobileSnapshot
+  if (next.on === previous.on && next.drawerOpen === previous.drawerOpen && next.files === previous.files) return
+  mobileSnapshot = next
+  for (const listener of [...mobileListeners]) listener()
+}
 const mobileFace = {
   subscribe(callback) { mobileListeners.add(callback); return () => { mobileListeners.delete(callback) } },
   getSnapshot() { return mobileSnapshot },

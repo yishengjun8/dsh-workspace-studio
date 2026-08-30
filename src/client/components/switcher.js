@@ -104,7 +104,10 @@ export function SessionSwitcherDropdown({ useSessions, useWorkspaces, sessionId,
     const ordered = list.ids
       .filter(id => list.byId[id] !== undefined && !isMindmapBranchDescendant(list, id))
       .map(id => ({ summary: list.byId[id], workspaceTitle: workspaceTitleBySession.get(id) }))
-      .sort((a, b) => (b.summary.updatedAt ?? 0) - (a.summary.updatedAt ?? 0))
+      // Legacy persisted summary objects may carry updatedAt as a STRING:
+      // Number() normalization keeps the subtraction a real number sort
+      // (a raw `(b.updatedAt ?? 0) - (a.updatedAt ?? 0)` would yield NaN).
+      .sort((a, b) => Number(b.summary.updatedAt ?? 0) - Number(a.summary.updatedAt ?? 0))
     return ordered
   }, [list, open, workspaces])
   const trigger = h('button', {

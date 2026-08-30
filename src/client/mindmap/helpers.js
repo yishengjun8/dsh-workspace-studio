@@ -639,10 +639,19 @@ export function mindmapFitView(worldW, worldH, vw, vh) {
    (streaming churn), so it must stay allocation-free on the hot path. */
 export function useMindmapSessionView(useSessions, familyIdsRef) {
   const cacheRef = useRef(null)
+  /* Join-string cache keyed by the family ARRAY identity (the caller memoizes
+     the array per doc/rootId change): the selector runs on every store change
+     (streaming churn), and an unconditional `family.join('\u0002')` would
+     allocate a fresh string on every run — the whole point of the value-level
+     unchanged check below is to stay allocation-free on the hot path. */
+  const keyRef = useRef(null) // { family, key }
   return useSessions((state) => {
     const byId = state?.byId ?? {}
     const family = familyIdsRef.current
-    const familyKey = family.join('\u0002')
+    const keyed = keyRef.current
+    const familyKey = keyed !== null && keyed.family === family
+      ? keyed.key
+      : (keyRef.current = { family, key: family.join('\u0002') }).key
     const cache = cacheRef.current
     if (cache !== null && cache.familyKey === familyKey) {
       let same = true

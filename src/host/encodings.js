@@ -86,6 +86,16 @@ const SINGLE_BYTE_ENCODE_MAPS = (() => {
       const decoded = decoder.decode(Uint8Array.of(byte))
       if (decoded.length === 1) map.set(decoded.codePointAt(0), byte)
     }
+    if (id === 'ascii') {
+      /* TextDecoder('ascii') is a WHATWG label alias for windows-1252, so the
+         naive map above covers all 256 bytes and the documented single-byte
+         '?' policy would never fire: an é in the text would be written as the
+         non-ASCII byte 0xE9. Prune every code point whose byte is above 0x7F
+         so "save as ASCII" truly is ASCII (unmappable chars become '?'). */
+      for (const [codepoint, byte] of [...map]) {
+        if (byte > 0x7f) map.delete(codepoint)
+      }
+    }
     maps.set(id, map)
   }
   return maps

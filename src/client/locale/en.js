@@ -475,6 +475,8 @@ export const en = {
   'mindmap.delete.lastSession': 'A mind map must keep at least one session; archive the whole mind map instead.',
   'mindmap.delete.missing': 'The card to delete was not found; the document may have changed, please retry.',
   'mindmap.deleted': 'Card and its derived content deleted.',
+  'mindmap.delete.writeFailed': 'Deletion took effect, but writing the mind-map document failed: {message}. The map was refreshed from the server (the original session is archived).',
+  'mindmap.archive.writeFailed': 'Archive took effect, but writing the mind-map document failed: {message}. The map was refreshed from the server.',
   'mindmap.truncated': 'Session truncated; the original was archived.',
   'mindmap.view.restore': 'Restore view',
   'mindmap.view.restoreTitle': 'Reset the view size and position',

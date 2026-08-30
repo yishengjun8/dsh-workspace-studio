@@ -6,7 +6,7 @@ import { styles } from '../styles.js'
 import { regenerateAllMindmapSummaries, regenerateMindmapSummary, summarizeMindmapSession } from '../api.js'
 import { mindmapOverlayStore, mindmapRegistry, readMindmapLastSession, removeMindmapLastSession, useMindmapOverlay, writeMindmapLastSession } from './registry.js'
 import { useMindmapSummaryModels } from '../components/settings.js'
-import { mindmapCardClickAction, mindmapClip, mindmapDeletePlan, mindmapDocFingerprint, mindmapDocKey, mindmapDocLayout, mindmapDocStructureFingerprint, mindmapEmptyKey, mindmapGradientId, mindmapStreamPalette, useMindmapSessionView } from './helpers.js'
+import { mindmapCardClickAction, mindmapClip, mindmapDeletePlan, mindmapDocFingerprint, mindmapDocKey, mindmapDocLayout, mindmapDocStructureFingerprint, mindmapEmptyKey, mindmapGradientId, mindmapStreamPalette, normalizeMindmapWorkspacePath, useMindmapSessionView } from './helpers.js'
 import { MindMapCard, MindMapRootNode, MindMapSessionHead } from './cards.js'
 import { mindmapConvertedSessions } from './hider.js'
 import { MindMapToolbar } from './toolbar.js'
@@ -18,6 +18,9 @@ import { useMindmapViewport } from './hooks/viewport.js'
    millisecond-precision, and two forks/creates in the same millisecond would
    mint the same id (a React key collision inside one doc). */
 let mindmapClientSessionSeq = 0
+/* Stable empty family for the memo below (a fresh [] per render would defeat
+   the identity-keyed family-string cache in useMindmapSessionView). */
+const EMPTY_FAMILY_IDS = []
 
 /* The floating mind map: a persisted turn tree (flat session list, no trunk)
    rendered from the doc, with pan/zoom and per-card forking. Rendered inside
@@ -45,11 +48,16 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   docRef.current = doc
   /* Doc family ids, kept current BEFORE the narrowed sessions subscription
      below runs: the selector can't close over doc/rootId, and its getSnapshot
-     must see the fresh family during this render. */
-  const familyIdsRef = useRef([])
-  familyIdsRef.current = doc === null || rootId === null
-    ? []
-    : [...new Set([String(rootId), ...(doc.sessions ?? []).map(s => String(s?.sessionId))])]
+     must see the fresh family during this render. The array is MEMOIZED per
+     (doc, rootId) so useMindmapSessionView can key its family-string by array
+     identity — an unconditional rebuild would allocate a new array (and a new
+     join string) on every render. */
+  const familyIds = useMemo(() => doc === null || rootId === null
+    ? EMPTY_FAMILY_IDS
+    : [...new Set([String(rootId), ...(doc.sessions ?? []).map(s => String(s?.sessionId))])],
+  [doc, rootId])
+  const familyIdsRef = useRef(familyIds)
+  familyIdsRef.current = familyIds
   const list = useMindmapSessionView(useSessions, familyIdsRef)
   const loadDocRef = useRef(loadDoc)
   loadDocRef.current = loadDoc
@@ -197,6 +205,14 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
        was only ever set, never reset, so switches kept the old pan/zoom). */
     viewport.resetView()
     const id = String(sessionId)
+    /* Defensive: a transient null/undefined overlay session (hero page,
+       session switch) must never reach loadDoc as the literal 'undefined' —
+       that would run a full GET for a nonexistent session and flash the empty
+       state. Render the empty phase instead. */
+    if (id === '' || id === 'undefined' || id === 'null') {
+      setPhase({ status: 'empty' })
+      return undefined
+    }
     Promise.resolve(loadDocRef.current(id))
       .then((payload) => {
         const loaded = payload?.doc
@@ -927,7 +943,27 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
            fingerprint carries rootTitle either way. */
         if (rootIdRef.current !== null && String(renameTarget.sessionId) === String(rootIdRef.current)
           && typeof renameDocRef.current === 'function') {
-          return Promise.resolve(renameDocRef.current(String(rootIdRef.current), trimmed)).catch((error) => {
+          return Promise.resolve(renameDocRef.current(String(rootIdRef.current), trimmed)).then((result) => {
+            /* Optimistically update the LOCAL doc: a structural write landing
+               before the next sync would otherwise carry the OLD rootTitle and
+               write it back over the Host's freshly renamed one (the local
+               fingerprint would then pin the stale title until the next
+               rename). Prefer the Host's returned doc; fall back to a local
+               patch when the response shape is unexpected. */
+            if (!mountedRef.current) return undefined
+            const current = docRef.current ?? null
+            const updated = result?.doc !== null && result?.doc !== undefined
+              ? result.doc
+              : current !== null && String(current.rootSessionId) === String(rootIdRef.current)
+                ? { ...current, rootTitle: trimmed, updatedAt: Date.now() }
+                : null
+            if (updated !== null) {
+              localWriteSeqRef.current += 1
+              setDoc(updated)
+              lastFingerprintRef.current = mindmapDocFingerprint(updated)
+            }
+            return undefined
+          }).catch((error) => {
             if (mountedRef.current) console.warn('workspace-studio: mindmap rootTitle rename failed:', error)
             return undefined
           })
@@ -1061,9 +1097,18 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
        archive-after-write contract (a failed write must not orphan the map). */
     const isRootReplacement = prevRoot !== undefined
     const archivePruned = () => Promise.all(plan.archiveIds.map(id => archiveSessionRef.current(String(id)).catch(() => {})))
+    /* Archive-first has made a non-root removal IRREVERSIBLE before the
+       write: retry a transient 409 (concurrent root replacement / lock
+       contention) once — it materially narrows the "failed write = branch
+       still removed" window without masking real errors. */
+    const saveWithRetry = () => saveDocRef.current(saveRoot, next, undefined, prevRoot)
+      .catch((error) => {
+        if (error?.status === 409) return saveDocRef.current(saveRoot, next, undefined, prevRoot)
+        throw error
+      })
     const beforeWrite = isRootReplacement ? undefined : archivePruned()
     Promise.resolve(beforeWrite)
-      .then(() => saveDocRef.current(saveRoot, next, undefined, prevRoot))
+      .then(() => saveWithRetry())
       .then((written) => {
         /* Adopt the Host's canonical doc (it may have clamped next or restored
            a session): client memory converges to server truth so a later
@@ -1091,11 +1136,37 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         showNotice(translate('mindmap.branchArchived'))
       })
       .catch((error) => {
-        if (mountedRef.current) {
+        if (!mountedRef.current) return
+        /* Non-root archive-first removals are NOT rollback-able: the branches
+           are already archived server-side, so restoring the in-memory doc is
+           a ghost the next sync overwrites anyway, and the user would see
+           "failed" while the branches actually vanish. Adopt the Host's
+           CURRENT truth (its reconcile prunes the archived sessions) and close
+           the dialog with an honest notice. Root replacements archive AFTER
+           the write, so their rollback stays valid. */
+        if (isRootReplacement) {
           setDoc(prev => (prev === next ? base : prev))
           lastFingerprintRef.current = mindmapDocFingerprint(base)
           setArchiveBranchError(error instanceof Error ? error.message : String(error))
+          return
         }
+        setArchiveBranchTarget(null)
+        const adoptRoot = String(saveRoot)
+        void Promise.resolve(loadDocRef.current(adoptRoot)).then((payload) => {
+          if (!mountedRef.current) return
+          const loaded = payload?.doc
+          if (loaded !== null && loaded !== undefined && (loaded.sessions ?? []).length > 0) {
+            lastFingerprintRef.current = mindmapDocFingerprint(loaded)
+            setDoc(loaded)
+            if (String(loaded.rootSessionId) !== adoptRoot) {
+              setRootId(String(loaded.rootSessionId))
+              rootIdRef.current = String(loaded.rootSessionId)
+            }
+          }
+          showNoticeError(translate('mindmap.archive.writeFailed', { message: error instanceof Error ? error.message : String(error) }))
+        }).catch(() => {
+          if (mountedRef.current) showNoticeError(translate('mindmap.archive.writeFailed', { message: error instanceof Error ? error.message : String(error) }))
+        })
       })
       .finally(() => {
         savingRef.current -= 1
@@ -1532,7 +1603,20 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         if (plan.replaced !== null) archiveIds.push(String(plan.replaced.sessionId))
         const archiveRetired = () => Promise.all(archiveIds.map(id => archiveSessionRef.current(String(id)).catch(() => {})))
         if (prevRoot === undefined) await archiveRetired()
-        const written = await saveDocRef.current(saveRoot, next, undefined, prevRoot)
+        /* Archive-first has made a NON-ROOT removal irreversible before the
+           write: retry a transient 409 (concurrent root replacement / lock
+           contention) once — it materially narrows the "failed write = whole
+           branch gone" window without masking real errors. */
+        let written
+        for (let attempt = 0; ; attempt += 1) {
+          try {
+            written = await saveDocRef.current(saveRoot, next, undefined, prevRoot)
+            break
+          } catch (error) {
+            if (attempt === 0 && error?.status === 409) continue
+            throw error
+          }
+        }
         if (prevRoot !== undefined) await archiveRetired()
         /* Adopt the Host's canonical doc (it may have clamped next or restored
            a session): client memory converges to server truth so a later
@@ -1563,17 +1647,41 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         showNotice(forkedChildId !== null ? translate('mindmap.truncated') : translate('mindmap.deleted'))
       })
       .catch((error) => {
-        /* Roll the in-memory doc back; nothing was archived yet. A fork that
-           already happened but whose doc write failed must not outlive the
-           document: archive the freshly forked (empty) child. The rollback is
-           identity-checked (like forkBranchAt) so a doc advanced by a concurrent
-           sync mid-operation is preserved instead of reverted. */
-        if (mountedRef.current) {
+        if (!mountedRef.current) return
+        /* Non-root removals archive BEFORE the write, so a persistent write
+           failure is NOT rollback-able: faking an in-memory rollback would be
+           overwritten by the next sync (which drops the archived sessions),
+           and archiving the freshly forked child — the ONLY carrier of the
+           preserved turns — would turn "delete one card" into "delete the
+           whole branch". Adopt the Host's CURRENT truth (its reconcile prunes
+           the archived sessions and re-parents their children) and close the
+           dialog with an honest notice; the forked child (if the fork landed)
+           stays as the preserved copy. Root replacements (prevRoot) archive
+           AFTER the write, so their rollback stays valid and the child is
+           simply re-adopted later. */
+        if (prevRoot !== undefined) {
           setDoc(prev => (prev === next ? base : prev))
           lastFingerprintRef.current = mindmapDocFingerprint(base)
           setDeleteError(error instanceof Error ? error.message : String(error))
+          return
         }
-        if (forkedChildId !== null) archiveSessionRef.current(forkedChildId).catch(() => {})
+        setDeleteTarget(null)
+        const adoptRoot = String(saveRoot)
+        void Promise.resolve(loadDocRef.current(adoptRoot)).then((payload) => {
+          if (!mountedRef.current) return
+          const loaded = payload?.doc
+          if (loaded !== null && loaded !== undefined && (loaded.sessions ?? []).length > 0) {
+            lastFingerprintRef.current = mindmapDocFingerprint(loaded)
+            setDoc(loaded)
+            if (String(loaded.rootSessionId) !== adoptRoot) {
+              setRootId(String(loaded.rootSessionId))
+              rootIdRef.current = String(loaded.rootSessionId)
+            }
+          }
+          showNoticeError(translate('mindmap.delete.writeFailed', { message: error instanceof Error ? error.message : String(error) }))
+        }).catch(() => {
+          if (mountedRef.current) showNoticeError(translate('mindmap.delete.writeFailed', { message: error instanceof Error ? error.message : String(error) }))
+        })
       })
       .finally(() => {
         savingRef.current -= 1
@@ -1796,7 +1904,11 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
           : h(Fragment, null,
             h('div', { className: 'dsh-ws-context-label' }, translate('mindmap.workspace.title')),
             (menu.workspaces ?? []).map((w) => {
-              const isCurrent = typeof w?.path === 'string' && w.path !== '' && w.path === menu.current
+              /* Same normalized comparison as selectWorkspace/mindmapWorkspaceIdForCwd:
+                 trailing slashes, Windows case (drive letters) or mixed separators
+                 would otherwise leave the current workspace unchecked. */
+              const isCurrent = typeof w?.path === 'string' && w.path !== '' && menu.current !== ''
+                && normalizeMindmapWorkspacePath(w.path) === normalizeMindmapWorkspacePath(menu.current)
               return h('button', {
                 className: 'dsh-ws-context-item dsh-ws-context-item-check',
                 key: w?.id ?? w?.path ?? 'ws',
@@ -1831,7 +1943,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         h('span', { className: 'dsh-ws-mindmap-bar-title' }, rootTitle)),
       noticeView,
       forkError !== null ? h('div', { className: 'dsh-ws-mindmap-fork-error' }, translate('mindmap.forkFailed', { message: forkError })) : null,
-      h('div', { className: 'dsh-ws-mindmap-viewport', 'data-dragging': dragging ? '' : undefined, onPointerCancel: endPan, onPointerDown: startPan, onPointerMove: movePan, onPointerUp: endPan, ref: viewportRef },
+      h('div', { className: 'dsh-ws-mindmap-viewport', 'data-dragging': dragging ? '' : undefined, onContextMenu: (event) => event.preventDefault(), onPointerCancel: endPan, onPointerDown: startPan, onPointerMove: movePan, onPointerUp: endPan, ref: viewportRef },
         h('div', { className: 'dsh-ws-mindmap-canvas', ref: canvasRef, style: { height: layout.height, width: layout.width } },
           h('svg', { className: 'dsh-ws-mindmap-edges', width: layout.width, height: layout.height },
             h('defs', null,

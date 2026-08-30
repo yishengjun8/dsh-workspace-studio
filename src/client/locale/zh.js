@@ -475,6 +475,8 @@ export const zh = {
   'mindmap.delete.lastSession': '导图至少需要保留一个会话，请改为归档整个导图。',
   'mindmap.delete.missing': '找不到要删除的卡片，文档可能已变化，请重试。',
   'mindmap.deleted': '已删除卡片及其派生内容。',
+  'mindmap.delete.writeFailed': '删除已生效，但导图文档写入失败：{message}。导图已按服务器状态更新（原会话已归档）。',
+  'mindmap.archive.writeFailed': '归档已生效，但导图文档写入失败：{message}。导图已按服务器状态更新。',
   'mindmap.truncated': '已截断会话并归档原会话。',
   'mindmap.view.restore': '还原视图',
   'mindmap.view.restoreTitle': '将视图大小与位置还原',

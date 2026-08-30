@@ -401,11 +401,17 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
       if (snapshot !== null && previous !== undefined && previous !== null) {
         /* A { gone: true } baseline means the file was deleted and has now been
            re-created: report a change so the client reloads instead of keeping
-           the stale content (a plain missing baseline answers changed:false). */
+           the stale content (a plain missing baseline answers changed:false).
+           When the baseline carries a STRING hash, content is the only change
+           signal (fileChangeSnapshot re-stats on hash match, so a touch -r /
+           rsync -t with identical content must NOT reload the tab and must not
+           disable the mtime fast path). A non-string baseline (truncated
+           previews carry no revision) falls back to mtime/size comparison,
+           matching the snapshot the Host stores in that case. */
         changed = previous?.gone === true
-          || previous?.mtimeMs !== snapshot.mtimeMs
-          || previous?.size !== snapshot.size
-          || previous?.hash !== snapshot.hash
+          || (typeof previous?.hash === 'string'
+            ? previous.hash !== snapshot.hash
+            : previous?.mtimeMs !== snapshot.mtimeMs || previous?.size !== snapshot.size)
       }
       sendJson(req, res, 200, {
         workspaceId: String(workspace.id),
