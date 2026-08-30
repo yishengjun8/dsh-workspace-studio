@@ -17,7 +17,10 @@ import { mindmapRegistry } from './registry.js'
       overflow buttons), seat re-anchors, decorative nodes AND this hider's own
       count-patch writes (their targets are patchedButtons members) all drop
       out — the observer no longer turns every container churn into a scan, and
-      our own writes never schedule the next one (de-self-trigger).
+      our own writes never schedule the next one (de-self-trigger). Batches
+      that ADD such nodes (group expand / collapse) skip the throttle and scan
+      synchronously in the observer callback — before paint, so newly rendered
+      family rows never flash; only rewrites of existing rows stay throttled.
    2. apply() computes a scan RESULT signature (session inputs + row titles /
       desired & actual hidden classes + current overflow-button texts) and
       skips every DOM write plus the per-group count pass when it matches the
@@ -238,6 +241,21 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
       }
     }
   }
+  /* Whether a mutation batch ADDS session rows or overflow buttons — the
+     expand/collapse case. These nodes appear only when the user expands a
+     group (rows) or collapses it (overflow button); hiding / count patches
+     must run BEFORE the browser paints them, or the 400 ms throttle leaves
+     family rows visible for a flash. */
+  const addsHiderNodes = (records) => {
+    for (const record of records) {
+      for (const node of record.addedNodes) {
+        if (node.nodeType !== 1 && node.nodeType !== 11) continue
+        if (node.matches?.('[role="treeitem"],button[aria-expanded]') === true
+          || node.querySelector?.('[role="treeitem"],button[aria-expanded]') !== null) return true
+      }
+    }
+    return false
+  }
   /* Time throttle: the observer fires per DOM mutation; one scan per throttle
      window keeps the hiding fresh without global jank. The slot may be
      re-created by the harness WITHOUT a body-direct childList change (deep
@@ -245,6 +263,14 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
      re-anchor here, inside the throttled callback, so a stale slot never
      leaves the hider dead until the next registry change. */
   const schedule = (records) => {
+    if (records !== undefined && records.length > 0 && addsHiderNodes(records)) {
+      /* Expansion/collapse: scan synchronously — the observer callback runs
+         at the microtask checkpoint, before paint, so rows are hidden before
+         the first frame (no flash). A pending throttled scan is superseded. */
+      if (timer !== 0) { clearTimeout(timer); timer = 0 }
+      apply()
+      return
+    }
     if (timer !== 0) return
     /* Mutation filter: a scan is only needed when the batch can change hiding
        state (a session row or an overflow button touched) — see the header
