@@ -347,7 +347,13 @@ export function WorkspaceExplorer({
         next.add(path)
         return next
       })
-      if (path !== entry.path && directories.get(path)?.state !== 'ready') void loadDirectory(path)
+      /* Load every non-ready directory in the chain INCLUDING the entry
+         itself when it is a directory: chooseDirectory (search-result
+         directory click, tree row click) only selects + reveals, so skipping
+         the entry here left it stuck on the loading placeholder forever (its
+         listing never arrived) until the user collapsed and re-expanded it. */
+      const isEntryDirectory = entry.kind === 'directory' && path === entry.path
+      if ((isEntryDirectory || path !== entry.path) && directories.get(path)?.state !== 'ready') void loadDirectory(path)
     }
   }, [directories, loadDirectory])
   useLayoutEffect(() => {
@@ -548,7 +554,12 @@ export function WorkspaceExplorer({
       }
     }
     const onDragLeave = (event) => {
-      if (!hasDraggedFiles(event)) return
+      /* Firefox can clear dataTransfer.types on dragleave, and OS file drags
+         never fire window dragend — gating the decrement on hasDraggedFiles
+         here could leave the depth stuck at 1 and the drop overlay up until
+         the next drag. Decrement unconditionally (dragenter only ever
+         incremented for file drags); the suppressed flag still stops the
+         overlay from flashing. */
       if (dropSuppressedRef.current) return
       depth = Math.max(0, depth - 1)
       if (depth === 0) setDropActive(false)
@@ -786,8 +797,12 @@ export function WorkspaceExplorer({
     const onKeyDown=event=>{
       if(event.isComposing)return
       const key=event.key
-      const withMod=event.ctrlKey||event.metaKey
-      const isFileShortcut=(withMod&&(key==='c'||key==='C'||key==='x'||key==='X'||key==='v'||key==='V'))||key==='Delete'
+      /* Modifier discipline: Ctrl/Cmd+C/X/V copy/cut/paste only when NO
+         other modifier rides along (Ctrl+Shift+C is the browser's "copy as
+         text" and must pass through), and Delete opens the delete confirm
+         only UNMODIFIED (Shift+Delete is the browser's cut-to-clipboard). */
+      const withMod=(event.ctrlKey||event.metaKey)&&!event.shiftKey&&!event.altKey
+      const isFileShortcut=(withMod&&(key==='c'||key==='C'||key==='x'||key==='X'||key==='v'||key==='V'))||(key==='Delete'&&!event.shiftKey&&!event.altKey&&!event.ctrlKey&&!event.metaKey)
       if(!isFileShortcut)return
       const target=event.target
       const element=target instanceof Element?target:target instanceof Node?target.parentElement:null
@@ -981,23 +996,42 @@ export function WorkspaceExplorer({
       return orderPinnedFirst(next)
     })
   }, [draggingPath])
+  /* The tab bar renders pinned-first (orderPinnedFirst invariant), but a drag
+     may point anywhere in that order — a plain splice then re-partition would
+     make the tab "snap back" across the pinned boundary, disagreeing with the
+     drop indicator. Clamp the insertion point to the dragged tab's OWN
+     partition (pinned: anywhere inside the pinned block; unpinned: only at or
+     after the first unpinned slot), so the indicator promise and the final
+     position always match. */
+  const clampDropIndexForTab = useCallback((rawIndex) => {
+    if (draggingPath === null || !Number.isInteger(rawIndex)) return rawIndex
+    const current = tabsRef.current
+    const from = current.findIndex(tab => tab.path === draggingPath)
+    if (from < 0) return rawIndex
+    const draggedPinned = current[from]?.pinned === true
+    let pinnedCount = 0
+    for (const tab of current) {
+      if (tab.path !== draggingPath && tab.pinned) pinnedCount += 1
+    }
+    return draggedPinned ? Math.min(rawIndex, pinnedCount) : Math.max(rawIndex, pinnedCount)
+  }, [draggingPath])
   const updateDropIndex = useCallback((event) => {
     if (draggingPath === null) return
     event.preventDefault()
     event.dataTransfer.dropEffect = 'move'
-    const next = dropIndexFromEvent(event)
+    const next = clampDropIndexForTab(dropIndexFromEvent(event))
     setDropIndex(current => current === next ? current : next)
-  }, [draggingPath])
+  }, [clampDropIndexForTab, draggingPath])
   const handleTabsDragLeave = useCallback((event) => {
     if (event.currentTarget.contains(event.relatedTarget)) return
     setDropIndex(null)
   }, [])
   const handleTabsDrop = useCallback((event) => {
     event.preventDefault()
-    dropTabAt(dropIndexFromEvent(event))
+    dropTabAt(clampDropIndexForTab(dropIndexFromEvent(event)))
     setDraggingPath(null)
     setDropIndex(null)
-  }, [dropTabAt])
+  }, [clampDropIndexForTab, dropTabAt])
   // Markdown files offer a rendered-preview toggle (same extension table as the tree badge and editor highlighting).
   const isMarkdown = preview.state === 'ready' && colorGroupOf({ kind: 'file', name: preview.name }) === 'markdown'
   const body = h(PreviewPane, {
@@ -1069,6 +1103,9 @@ export function WorkspaceExplorer({
                 className: 'dsh-ws-search-input',
                 onChange: e => setSearchQuery(e.target.value),
                 onKeyDown: e => {
+                  /* IME composition must never submit the search (same guard
+                     as every other text input in this plugin). */
+                  if (e.isComposing) return
                   if (e.key === 'Enter') { e.preventDefault(); void runSearch(searchQuery) }
                   else if (e.key === 'Escape') { e.preventDefault(); closeSearch() }
                 },

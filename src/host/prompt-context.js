@@ -1,10 +1,11 @@
 /** Editor prompt-context rendering with clean/dirty selection checks. */
-import { open, realpath, stat } from 'node:fs/promises'
+import { realpath, stat } from 'node:fs/promises'
 import { Buffer } from 'node:buffer'
 import { HttpError, isPlainObject } from './errors.js'
 import { hasSymlinkComponent, isInside, normalizeRelativePath, resolveWorkspacePath } from './paths.js'
 import { containsNul, decodeBytes, decodeUtf8, encodingById, revisionFor } from './encodings.js'
 import { header, readBody } from './http.js'
+import { openRegularFile } from './fs.js'
 import { workspaceFor, workspaceOwnsSession } from './workspace.js'
 function requiredText(value, name, maximum) {
   if (typeof value !== 'string' || value.length === 0 || value.length > maximum
@@ -141,7 +142,9 @@ async function verifyPromptContextFile(workspace, relativePath) {
 }
 
 async function readCleanPromptContext(file, maximum) {
-  const handle = await open(file.target, 'r')
+  /* openRegularFile: O_NONBLOCK + post-open fstat so a FIFO/device swapped
+     in after verifyPromptContextFile's stat can never hang /context. */
+  const handle = await openRegularFile(file.target)
   try {
     const opened = await handle.stat()
     if (!opened.isFile()) throw new HttpError(400, 'not-a-file', '编辑器上下文目标不是普通文件')
@@ -224,11 +227,21 @@ export async function renderPromptContext(ctx, config, req) {
     ? [
         `<opened_file>The user opened the file ${context.path} in the IDE. This may or may not be related to the current task.</opened_file>`,
       ].join('\n')
-    : [
-        `<selection>The user selected the lines ${context.selection.startLine} to ${context.selection.endLine} from ${context.path}:`,
-        context.selection.text,
-        'This may or may not be related to the current task.</selection>',
-      ].join('\n')
+    : (() => {
+        /* CDATA-wrap the selection: the raw text may legally contain
+           `</selection>` (a string literal in the code the user selected),
+           which would terminate the envelope early and let the trailing
+           instruction text be read as content. The standard CDATA escape
+           (`]]>` → `]]]]><![CDATA[>`) keeps the wrapper unbreakable. */
+        const escaped = context.selection.text.replace(/]]>/g, ']]]]><![CDATA[>')
+        return [
+          `<selection>The user selected the lines ${context.selection.startLine} to ${context.selection.endLine} from ${context.path}:`,
+          '<![CDATA[',
+          escaped,
+          ']]>',
+          'This may or may not be related to the current task.</selection>',
+        ].join('\n')
+      })()
   const renderedBytes = Buffer.byteLength(text, 'utf8')
   if (renderedBytes > config.maxPromptContextBytes) {
     throw new HttpError(413, 'context-too-large', `完整编辑器上下文不能超过 ${config.maxPromptContextBytes} 个 UTF-8 字节`)

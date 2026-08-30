@@ -327,6 +327,10 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
     const onKeyDown = (event) => {
       const view = editorRef.current
       if (view === undefined) return
+      // IME composition must never trigger find shortcuts (same guard as the
+      // Ctrl+K handler and the explorer clipboard handler): composing
+      // keystrokes pass through untouched.
+      if (event.isComposing) return
       const target = event.target
       // Outside text fields (chat, rename, dialogs) keep their keys; the
       // editor's contenteditable and the search panel input (in the search
@@ -374,6 +378,14 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
     if (container === null || container === undefined) return undefined
     let detach = undefined
     const enhance = () => {
+      /* The panel can close while a drag is in flight (Escape, blur): the
+         pointer listeners are on window and would otherwise linger until the
+         next drag or the editor unmount. Detach them as soon as the panel
+         leaves the DOM. */
+      if (container.querySelector('.cm-panel.cm-search') === null) {
+        detach?.()
+        return
+      }
       const input = container.querySelector('.cm-panel.cm-search [main-field]')
       if (input === null || input.dataset.dshWelResize === '1') return
       input.dataset.dshWelResize = '1'

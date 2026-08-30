@@ -1,7 +1,6 @@
 import { createElement as h, useRef, useState, useEffect, useMemo, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { translate } from '../locale/index.js'
-import { clamp } from '../format.js'
 import { isMindmapBranchDescendant } from '../mindmap/helpers.js'
 
 export function SessionSwitcherDropdown({ useSessions, useWorkspaces, sessionId, openSession }) {
@@ -93,7 +92,8 @@ export function SessionSwitcherDropdown({ useSessions, useWorkspaces, sessionId,
     if (!open) return []
     const workspaceTitleBySession = new Map()
     for (const item of workspaces) {
-      for (const id of item.sessionIds) {
+      // Malformed workspace items (missing sessionIds) must not throw in the render path.
+      for (const id of Array.isArray(item?.sessionIds) ? item.sessionIds : []) {
         if (!workspaceTitleBySession.has(id)) workspaceTitleBySession.set(id, item.title)
       }
     }

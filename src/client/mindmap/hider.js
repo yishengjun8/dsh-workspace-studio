@@ -113,12 +113,18 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
         const accounted = new Set(workspaces.flatMap(w => (w.sessionIds ?? []).map(String)))
         ids = list.ids.filter(id => !accounted.has(String(id)))
       }
-      /* Count visible rows the harness renders minus titles this hider hides. */
+      /* Count the group's sessions the way the harness renders them, minus
+         titles this hider hides. Subagent sessions ARE rendered as rows (the
+         session list shows them), so they must count here — the old code
+         excluded them from visibleCount while `rows` still contained them,
+         which made `remaining` negative in mixed groups and wrongly hid the
+         overflow button (its hidden mindmap rows became unreachable).
+         Archived sessions and blank non-current sessions are not rendered by
+         the harness, so they stay excluded (rows does not contain them). */
       let visibleCount = 0
       for (const id of ids) {
         const summary = list.byId[id]
         if (summary === undefined) continue
-        if (summary.origin === 'subagent') continue
         if (archived.has(String(id))) continue
         if (summary.blank && String(id) !== String(list.current)) continue
         const title = typeof summary.displayTitle === 'string' ? summary.displayTitle.trim() : ''

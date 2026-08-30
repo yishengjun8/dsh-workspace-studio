@@ -99,7 +99,11 @@ export async function checkFileChange(workspaceId, path, previousSnapshot, signa
     throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.file', { status: response.status }), response.status)
   }
   if (!response.ok) {
-    if (payload?.error?.code === 'path-not-found') return { changed: false, exists: false, snapshot: null }
+    /* NOTE: a MISSING file is NOT an error here — the Host answers 200 with
+       { exists: false, snapshot: null } (the { gone: true } baseline above
+       covers re-creates). Treating every non-2xx as a real failure (a path
+       validation error, server trouble) keeps the poll honest: the caller's
+       tick swallows transient failures and keeps polling. */
     const failure = payload?.error
     const code = typeof failure?.code === 'string' ? failure.code : 'request-failed'
     throw new WorkspaceApiError(code, apiErrorMessage(code, typeof failure?.message === 'string' ? failure.message : undefined, 'error.request-failed', { status: response.status }), response.status)
@@ -178,16 +182,21 @@ export const syncMindmapDoc = (sessionId, liveSessionIds, signal, summaryConfig)
 /* Configured models for the AI-summary picker, cached briefly (the catalog
    rarely changes while the settings panel is open). */
 let mindmapModelsCache = null // { at, payload }
+let mindmapModelsRequest = null // in-flight promise (dedup concurrent opens)
 export const fetchMindmapModels = (signal) => {
   if (mindmapModelsCache !== null && mindmapModelsCache.at + MINDMAP_MODELS_CACHE_MS > Date.now()) {
     return Promise.resolve(mindmapModelsCache.payload)
   }
-  return mindmapRequest('/models', { method: 'GET', signal }).then((payload) => {
+  if (mindmapModelsRequest !== null) return mindmapModelsRequest
+  mindmapModelsRequest = mindmapRequest('/models', { method: 'GET', signal }).then((payload) => {
     /* Stamp the cache when the fetch COMPLETES so a slow request does not
        shorten the 60 s window. */
     mindmapModelsCache = { at: Date.now(), payload }
     return payload
+  }).finally(() => {
+    mindmapModelsRequest = null
   })
+  return mindmapModelsRequest
 }
 /* Right-click → 重新生成摘要: the Host runs the LLM call synchronously and
    persists the new summary into the doc; the client applies it optimistically. */

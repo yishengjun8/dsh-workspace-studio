@@ -16,12 +16,22 @@ export function useSessionMenu({ props, mountedRef }) {
   const [sessionInlineRenameError, setSessionInlineRenameError] = useState()
   const [sessionNotice, setSessionNotice] = useState()
   const sessionNoticeTimerRef = useRef()
+  /* Abort in-flight reveal requests on unmount (and supersede the previous
+     one per call): the fetch would otherwise keep running after the menu
+     owner is gone. */
+  const revealControllerRef = useRef()
   const showSessionNotice = useCallback((text, error = false) => {
     setSessionNotice({ error, text })
     clearTimeout(sessionNoticeTimerRef.current)
     sessionNoticeTimerRef.current = setTimeout(() => {
       if (mountedRef.current) setSessionNotice(undefined)
     }, error ? 3000 : 1600)
+  }, [])
+  useEffect(() => {
+    return () => {
+      clearTimeout(sessionNoticeTimerRef.current)
+      revealControllerRef.current?.abort()
+    }
   }, [])
   // Right-click detection on harness session rows. Session rows are
   // `[role="treeitem"]` without `aria-expanded` (workspace group headers carry
@@ -154,7 +164,8 @@ export function useSessionMenu({ props, mountedRef }) {
       const snapshot = props.getSessionList()
       const row = snapshot.byId[String(sessionId)]
       const items = props.getWorkspaceItems()
-      workspace = (row !== undefined && items.find(item => item.sessionIds.includes(String(sessionId))))
+      // Malformed workspace items (missing sessionIds) must not throw in the render path.
+      workspace = (row !== undefined && items.find(item => Array.isArray(item?.sessionIds) && item.sessionIds.includes(String(sessionId))))
         || (row?.cwd !== undefined && items.find(item => item.path === row.cwd))
     } catch (error) {
       showSessionNotice(translate('status.revealFailed', { message: error instanceof Error ? error.message : String(error) }), true)
@@ -165,6 +176,8 @@ export function useSessionMenu({ props, mountedRef }) {
       return
     }
     const controller = new AbortController()
+    revealControllerRef.current?.abort()
+    revealControllerRef.current = controller
     revealInExplorer(String(workspace.workspaceId), '', controller.signal).then(() => {
       if (mountedRef.current) showSessionNotice(translate('status.revealed'))
     }).catch(error => {

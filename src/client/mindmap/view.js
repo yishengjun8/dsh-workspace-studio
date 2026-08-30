@@ -23,7 +23,7 @@ let mindmapClientSessionSeq = 0
    rendered from the doc, with pan/zoom and per-card forking. Rendered inside
    the left-side overlay window; card clicks switch the right-side chat. */
 
-export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, deleteDoc, forkAt, createSession, listWorkspaces, openSession, renameSession, archiveSession, previewRight, settingsStore }) {
+export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, deleteDoc, forkAt, createSession, listWorkspaces, openSession, renameSession, renameDoc, archiveSession, previewRight, settingsStore }) {
   const overlay = useMindmapOverlay()
   const settings = useSyncExternalStore(settingsStore.subscribe, settingsStore.getSnapshot)
   const [phase, setPhase] = useState({ status: 'loading' })
@@ -72,6 +72,8 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   }, [])
   const renameSessionRef = useRef(renameSession)
   renameSessionRef.current = renameSession
+  const renameDocRef = useRef(renameDoc)
+  renameDocRef.current = renameDoc
   const archiveSessionRef = useRef(archiveSession)
   archiveSessionRef.current = archiveSession
   const menuRef = useRef(null)
@@ -198,6 +200,16 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
              the console — the map itself opens normally. */
           console.warn('[workspace-studio] mindmap load warnings:', payload.warnings)
         }
+        /* Root archived OUTSIDE the map (harness/sidebar): the Host answers
+           { exists: false } and never builds a doc for an archived session —
+           close the floating window immediately instead of flashing the empty
+           state for a full probe interval (the empty-state poll does the same). */
+        if (payload?.exists === false) {
+          mindmapConvertedSessions.delete(id)
+          if (cancelled) return
+          mindmapOverlayStore.close()
+          return
+        }
         if (loaded === null || loaded === undefined || (loaded.sessions ?? []).length === 0) {
           /* A failed/empty conversion must not leave the converted-set entry
              behind (the button would never re-offer the dialog). Delete even
@@ -312,6 +324,17 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
        live/summarizing payloads below. A full doc still arrives on every
        signature change and at least once per Host TTL. */
     if (next !== null && next !== undefined) {
+      const nextRoot = String(next.rootSessionId ?? '')
+      if (nextRoot !== '' && nextRoot !== String(rootIdRef.current)) {
+        /* The doc's anchor changed (another tab deleted the root card → root
+           replacement R1→R2 served through the alias stub). Re-anchor THIS
+           page: fork/delete/archives build their writes with the root id and
+           the Host validates doc.rootSessionId === sessionId — a stale R1
+           would 400 every subsequent write. The doc itself is applied below
+           (the fingerprint includes rootSessionId, so it cannot be skipped). */
+        rootIdRef.current = nextRoot
+        setRootId(nextRoot)
+      }
       const fp = mindmapDocFingerprint(next)
       if (fp !== lastFingerprintRef.current) {
         lastFingerprintRef.current = fp
@@ -414,11 +437,19 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   /* Sync shortly after the doc-family running state changes: a run start brings
      in-flight questions back quickly; a run end folds the just-completed turn
      (the map may show a different session than the one that ran). Debounced
-     against streaming updates. */
+     against streaming updates. When a local doc write (fork/delete/archive) is
+     in flight the sync is DEFERRED and retried, never dropped: a run ending at
+     that exact moment would otherwise wait up to a full periodic interval
+     (2.5 s) before its completed turn folds into the doc. */
   useEffect(() => {
     if (rootId === null) return undefined
-    const timer = window.setTimeout(() => {
-      if (!mountedRef.current || savingRef.current) return
+    let timer = 0
+    const run = () => {
+      if (!mountedRef.current) return
+      if (savingRef.current) {
+        timer = window.setTimeout(run, 250)
+        return
+      }
       const root = rootId
       const issuedSeq = localWriteSeqRef.current
       const issuedSync = syncSeqRef.current + 1
@@ -429,7 +460,8 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
           applySync(payload, root)
         })
         .catch(() => { /* transient */ })
-    }, 600)
+    }
+    timer = window.setTimeout(run, 600)
     return () => { clearTimeout(timer) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runningFamilyIds, rootId])
@@ -606,6 +638,20 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     return { ancestorSet, activeEdgeKeys }
   }, [hoverKey, layout])
 
+  /* A hovered card can be removed by a sync (a turn folds, a card is deleted
+     in another tab): its DOM node is replaced without a mouseleave, so the key
+     would linger and light up a FUTURE same-key card (seq reuse after a
+     deletion) while no pointer is on it. Clear it whenever the layout no
+     longer contains the hovered node. */
+  useEffect(() => {
+    if (hoverKey === undefined) return
+    let found = false
+    for (const node of layout.nodes) {
+      if (node.key === hoverKey) { found = true; break }
+    }
+    if (!found) setHoverKey(undefined)
+  }, [hoverKey, layout])
+
   /* Open a session inside the map: openSession switches the right-side chat to
      it and moves the "当前" highlight here; the overlay itself stays open. */
   const openBranch = useCallback((id) => {
@@ -774,7 +820,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
        hover hint uses (mindmapCardClickAction), so the hint can never drift.
        'new' creates a top-level session at the root; 'switch' opens the node's
        own session; 'fork' branches a new session at this card's turn. */
-    const action = mindmapCardClickAction(node, docRef.current, runningFamilyIdsRef.current)
+    const action = mindmapCardClickAction(node, docRef.current, runningFamilyIdsRef.current, lastTurnSeqBySessionRef.current)
     if (action === 'new') addRootSessionRef.current()
     else if (action === 'switch') openBranchRef.current(node.sessionId)
     else if (action === 'fork') forkBranchAtRef.current(node.sessionId, node.turn)
@@ -851,6 +897,24 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     setRenameBusy(true)
     setRenameError(null)
     Promise.resolve(renameSessionRef.current(renameTarget.sessionId, trimmed))
+      .then(() => {
+        /* Renaming the ROOT session should also update the map's OWN title
+           (doc.rootTitle): the map header and the sidebar entry display
+           rootTitle, which is independent of the session title — without this
+           the user's rename of the root head appears to do nothing. The
+           targeted /rename endpoint avoids the GET-then-POST round trip (the
+           sidebar panel uses the same one). Best-effort: a doc-title failure
+           after a successful session rename only warns — the next sync's
+           fingerprint carries rootTitle either way. */
+        if (rootIdRef.current !== null && String(renameTarget.sessionId) === String(rootIdRef.current)
+          && typeof renameDocRef.current === 'function') {
+          return Promise.resolve(renameDocRef.current(String(rootIdRef.current), trimmed)).catch((error) => {
+            if (mountedRef.current) console.warn('workspace-studio: mindmap rootTitle rename failed:', error)
+            return undefined
+          })
+        }
+        return undefined
+      })
       .then(() => {
         if (!mountedRef.current) return
         setRenameBusy(false)
@@ -1233,7 +1297,15 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
           const count = Number.isSafeInteger(payload.count) ? payload.count : regenerateAllTarget.count
           showNotice(translate('mindmap.summary.regenerateAll.started', { n: count }))
         } else {
-          showNoticeError(translate('mindmap.summary.regenerateAll.failed', { message: payload?.code ?? '' }))
+          /* Defensive: the Host's regenerate-all normally throws (HTTP error)
+             instead of answering ok:false, but never show an empty message
+             when a code is absent. */
+          const code = payload?.code === 'no-model'
+            ? 'mindmap.summary.fail.noModel'
+            : payload?.code === 'turn-gone'
+              ? 'mindmap.summary.fail.turnGone'
+              : 'mindmap.summary.fail.generationFailed'
+          showNoticeError(translate('mindmap.summary.regenerateAll.failed', { message: translate(code) }))
         }
       })
       .catch((error) => {
@@ -1289,9 +1361,9 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
           const key = payload?.code === 'no-model'
             ? 'mindmap.summary.fail.noModel'
             : payload?.code === 'session-gone'
-              ? 'mindmap.summary.fail.turnGone'
+              ? 'mindmap.sessionSummary.fail.sessionGone'
               : 'mindmap.summary.fail.generationFailed'
-          showNoticeError(translate('mindmap.summary.regenerateFailed', { message: translate(key) }))
+          showNoticeError(translate('mindmap.sessionSummary.failed', { message: translate(key) }))
         }
       })
       .catch((error) => {
@@ -1515,6 +1587,21 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     return map
   }, [doc])
 
+  /* sessionId → last turn seq, precomputed so mindmapCardClickAction (called
+     per card on every render) is O(1) instead of scanning all sessions. The
+     openCard callback reads it through a ref (it is stable, empty deps). */
+  const lastTurnSeqBySession = useMemo(() => {
+    const map = new Map()
+    for (const s of doc?.sessions ?? []) {
+      if (s === null || s === undefined || typeof s.sessionId !== 'string') continue
+      const turns = s.turns ?? []
+      map.set(String(s.sessionId), turns.length > 0 ? turns[turns.length - 1]?.seq : undefined)
+    }
+    return map
+  }, [doc])
+  const lastTurnSeqBySessionRef = useRef(lastTurnSeqBySession)
+  lastTurnSeqBySessionRef.current = lastTurnSeqBySession
+
   /* Session-level AI summaries keyed by session id, read from the CURRENT doc
      (same staleness argument as summaryByKey: the layout's session objects are
      structure-memoized). Drives the head card's summary area + tooltip. */
@@ -1593,7 +1680,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
        and drives BOTH the hover hint ('fork' → 点击分支 / 'switch' → 点击跳转)
        and the capsule (fork glyph "分支" vs. end chip "末端"), so the hint and
        chip can never drift apart. */
-    const clickAction = mindmapCardClickAction(entry, doc, runningFamilyIds)
+    const clickAction = mindmapCardClickAction(entry, doc, runningFamilyIds, lastTurnSeqBySession)
     const common = {
       key: entry.key,
       entry,

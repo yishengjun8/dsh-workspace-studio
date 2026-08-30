@@ -32,15 +32,27 @@ export function ExplorerSettingsSection({ settingsStore }) {
   const summaryModelsAvailable = summaryModels !== null && summaryModels?.available === true
     && Array.isArray(summaryModels?.models) && summaryModels.models.length > 0
   const summaryModelList = summaryModelsAvailable ? summaryModels.models : []
-  const mindmapSummaryLengthValue = clamp(
-    Number(settings.mindmapSummaryLength) || MINDMAP_SUMMARY_DEFAULT_LENGTH,
+  /* Render-side normalization for the summary-length sliders: the store
+     clamps on write, but a legacy/out-of-range persisted value (e.g. 47)
+     would otherwise show off-grid while the slider thumb sits between
+     ticks — snap to the configured step (4) exactly like the store action. */
+  const stepAligned = (value, min, max, step) => {
+    const number = Number(value)
+    if (!Number.isFinite(number)) return min
+    const bounded = Math.min(max, Math.max(min, number))
+    return min + Math.round((bounded - min) / step) * step
+  }
+  const mindmapSummaryLengthValue = stepAligned(
+    settings.mindmapSummaryLength ?? MINDMAP_SUMMARY_DEFAULT_LENGTH,
     MINDMAP_SUMMARY_MIN_LENGTH,
     MINDMAP_SUMMARY_MAX_LENGTH,
+    MINDMAP_SUMMARY_LENGTH_STEP,
   )
-  const mindmapSummarySessionLengthValue = clamp(
-    Number(settings.mindmapSummarySessionLength) || MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH,
+  const mindmapSummarySessionLengthValue = stepAligned(
+    settings.mindmapSummarySessionLength ?? MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH,
     MINDMAP_SUMMARY_SESSION_MIN_LENGTH,
     MINDMAP_SUMMARY_SESSION_MAX_LENGTH,
+    MINDMAP_SUMMARY_SESSION_LENGTH_STEP,
   )
   /* Render-side normalization of the think-collapse delay: the store clamps on
      write, but a legacy/out-of-range persisted value would otherwise show

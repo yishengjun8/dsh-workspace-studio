@@ -3,6 +3,7 @@ import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
 import { release as osRelease } from 'node:os'
 import { dirname, resolve } from 'node:path'
+import { constants as fsConstants } from 'node:fs'
 import { open, readdir, realpath, stat } from 'node:fs/promises'
 import { Buffer } from 'node:buffer'
 import { HttpError } from './errors.js'
@@ -305,9 +306,34 @@ export async function searchWorkspace(workspace, query, caseSensitive, nameOnly,
     truncated,
   }
 }
+/* Open a REGULAR file for reading without ever blocking on a special file:
+   the stat-then-open window can be raced by replacing the path with a FIFO
+   or device node, and a plain blocking open() on a writer-less FIFO hangs
+   forever — hanging readPreview, the change poll, /context and saveFile
+   (saveFile holds the whole workspace write queue while hung). O_NONBLOCK
+   makes the open return immediately for a FIFO, and the post-open stat
+   rejects anything that is not a plain file. O_NONBLOCK is ignored by libuv
+   on Windows (no FIFOs there) and harmless. */
+export async function openRegularFile(target) {
+  /* O_NONBLOCK is undefined on Windows (no FIFOs there) — fall back to 0 so
+     the flag expression stays an explicit read-only open everywhere. */
+  const flags = fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0)
+  const handle = await open(target, flags)
+  try {
+    const opened = await handle.stat()
+    if (!opened.isFile()) {
+      throw new HttpError(400, 'not-a-file', '所选路径不是普通文件')
+    }
+    return handle
+  } catch (error) {
+    await handle.close().catch(() => {})
+    throw error
+  }
+}
+
 async function readPrefix(target, length) {
   const buffer = Buffer.alloc(length)
-  const handle = await open(target, 'r')
+  const handle = await openRegularFile(target)
   let offset = 0
   try {
     while (offset < length) {

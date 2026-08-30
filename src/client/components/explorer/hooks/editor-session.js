@@ -2,7 +2,7 @@
  * conflict resolution, external-change polling and editor-context publishing.
  * Extracted verbatim from WorkspaceExplorer; behavior is unchanged. */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { AUTO_SYNC_CHECK_MS, AUTO_SYNC_MODE_AUTO, AUTOSAVE_DELAY_MS, WATCH_FILES_DEFAULT } from '../../../constants.js'
+import { AUTO_RELOAD_COOLDOWN_MS, AUTO_SYNC_CHECK_MS, AUTO_SYNC_MODE_AUTO, AUTOSAVE_DELAY_MS, WATCH_FILES_DEFAULT } from '../../../constants.js'
 import { translate } from '../../../locale/index.js'
 import { readOnlyReason } from '../../../format.js'
 import { encodingLabel } from '../../../api.js'
@@ -46,6 +46,9 @@ export function useEditorSession({
   /* Preview auto-sync state: per-path change snapshots (mtime/size/hash);
      only non-external tabs are tracked, all cleaned on unmount. */
   const watchSnapshotsRef = useRef(new Map())
+  /* Per-path reload cooldown (until timestamp) for AUTO mode: suppresses the
+     remount storm for continuously-written files (see applyFileChanged). */
+  const autoReloadCooldownRef = useRef(new Map())
   /* Draft mutations serialize per path with a monotonic generation: the tail
      lets an already-arrived stale PUT finish before a newer PUT/DELETE
      (AbortController cannot retract a request the Host has started). The Host
@@ -144,10 +147,22 @@ export function useEditorSession({
     if (activeNow && !tab.dirty && !tab.saving) {
       const auto = (settings.autoSyncMode ?? AUTO_SYNC_MODE_AUTO) === AUTO_SYNC_MODE_AUTO
       if (auto) {
+        /* Backpressure for continuously-written files: after one reload,
+           further changes to the same path inside AUTO_RELOAD_COOLDOWN_MS
+           only surface a status — a second reload would remount the editor
+           and wipe its undo history, and a busy build/log file would do that
+           every tick forever. */
+        const cooldownUntil = autoReloadCooldownRef.current.get(path)
+        if (cooldownUntil !== undefined && cooldownUntil > Date.now()) {
+          updateTab(path, { status: { text: translate('status.fileChanged') } })
+          setStatus({ text: translate('status.fileChanged') })
+          return
+        }
         // Clean active tab, AUTO mode: reload from disk right away. Scroll is
         // preserved — the read path restores the persisted scrollTop.
         // Mark this path as reloading so the polling tick skips it until the
         // read settles — a second bump would remount and discard the scroll.
+        autoReloadCooldownRef.current.set(path, Date.now() + AUTO_RELOAD_COOLDOWN_MS)
         reloadingPathsRef.current.add(path)
         // Flag the read pass to surface the reloaded status (same path as the
         // manual refresh button), then bump the reload token — but only if no
@@ -206,7 +221,16 @@ export function useEditorSession({
              entry would make the next open of that path report a spurious
              change until the read pass re-seeds it). */
           if (!tabsRef.current.some(item => item.path === tab.path)) return
+          /* A save (commitTab) or a read pass may have refreshed this path's
+             baseline while the check was in flight: only write the result back
+             when the baseline is STILL the snapshot this check was issued
+             against (reference equality). Overwriting a fresh post-save
+             baseline with the stale pre-save snapshot would make the next tick
+             report our own save as an external change — remounting the editor
+             and wiping the undo history (or a false "file changed" banner in
+             watch-only mode). */
           const nextSnapshot = result.snapshot ?? null
+          if (watchSnapshotsRef.current.get(tab.path) !== snapshot) return
           if (nextSnapshot !== null) {
             watchSnapshotsRef.current.set(tab.path, nextSnapshot)
             if (result.changed === true) applyFileChanged(tab.path)
@@ -240,6 +264,7 @@ export function useEditorSession({
     return () => {
       syncControllerRef.current?.abort()
       watchSnapshotsRef.current.clear()
+      autoReloadCooldownRef.current.clear()
       reloadingPathsRef.current.clear()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -640,12 +665,13 @@ export function useEditorSession({
       /* The PUT just rewrote the file on disk: refresh the change-poll
          baseline so the next tick does not report our own save as an
          external modification (which would remount the editor and wipe
-         the undo history). The PUT response carries no stat, so mtimeMs
-         is unknown (0 forces the hash comparison) — the hash IS the
-         just-written content, so a clean save reads back as unchanged
-         while a real external edit still trips the poll. */
+         the undo history). The PUT now carries the written file's real
+         mtime (Host side), so the baseline keeps the sameMtime fast path
+         working; the hash is the just-written content, so a clean save
+         reads back as unchanged while a real external edit still trips
+         the poll. */
       watchSnapshotsRef.current.set(path, {
-        mtimeMs: 0,
+        mtimeMs: Number(result.mtimeMs) || 0,
         size: Number.isFinite(result.size) ? result.size : 0,
         hash: typeof result.revision === 'string' ? result.revision : null,
       })
@@ -653,13 +679,20 @@ export function useEditorSession({
       const savedBom = Boolean(result.bom)
       const size = Number.isFinite(result.size) ? result.size : new TextEncoder().encode(content).byteLength
       const savedStatus = { text: statusText ?? translate('editor.saved') }
+      let draftCleanupFailed = false
       try {
         await clearDraftFile(path, content, savedEncoding, tab.lineEnding ?? 'none', savedBom, result.revision ?? revision)
       } catch (error) {
-        // Best-effort: the source write already succeeded, so a failed draft
-        // cleanup must not fail the save. A stale draft is reconciled by the
-        // restore path (draft===disk is clean) or the next auto-save; the
-        // emergency mirror already holds the newest content for the unload case.
+        /* Best-effort: the source write already succeeded, so a failed draft
+           cleanup must not fail the save. A stale draft is reconciled by the
+           restore path (draft===disk is clean) or the next auto-save; the
+           emergency mirror already holds the newest content for the unload
+           case. When BOTH the DELETE and the clean-DRAFT fallback fail, the
+           OLD draft survives on the Host and a merge/conflict save (whose
+           draft differs from the written content) would come back as a dirty
+           tab after refresh — surface that honestly instead of pretending
+           the cleanup succeeded. */
+        draftCleanupFailed = true
         console.warn('workspace-studio: draft cleanup after save failed:', error)
       }
       if (!mounted.current) return false
@@ -677,7 +710,7 @@ export function useEditorSession({
         revision: result.revision ?? revision,
         saving: false,
         size,
-        status: savedStatus,
+        status: draftCleanupFailed ? { error: true, text: translate('editor.saveDraftCleanupFailed') } : savedStatus,
         externalConflict: false,
       })
       if (activePathRef.current === path) {
@@ -689,7 +722,7 @@ export function useEditorSession({
         setPreview(current => current.state === 'ready' && current.path === path
           ? { ...current, content, encoding: savedEncoding, bom: savedBom, revision: result.revision ?? current.revision, size }
           : current)
-        setStatus(savedStatus)
+        setStatus(draftCleanupFailed ? { error: true, text: translate('editor.saveDraftCleanupFailed') } : savedStatus)
       }
       return true
     } finally {
@@ -947,7 +980,7 @@ export function useEditorSession({
       // auto-save races the pending decision. Conflicts stay structural —
       // never literal markers in the content — so the file text cannot collide
       // with an implementation marker.
-      const dialog = { path, mine: text, theirs: diskText, diskRevision, encoding, savedStatusText, savingStatus, conflicts: merged.conflicts, parts: merged.parts }
+      const dialog = { path, mine: text, theirs: diskText, base: baseAtSave, diskRevision, encoding, savedStatusText, savingStatus, conflicts: merged.conflicts, parts: merged.parts }
       conflictDialogRef.current = dialog
       setConflictDialog(dialog)
       return false
@@ -981,7 +1014,7 @@ export function useEditorSession({
     if (dialog === undefined) return
     conflictDialogRef.current = undefined
     setConflictDialog(undefined)
-    const { path, diskRevision, encoding, savedStatusText, savingStatus, conflicts, parts } = dialog
+    const { path, base, mine, diskRevision, encoding, savedStatusText, savingStatus, conflicts, parts } = dialog
     const tab = tabsRef.current.find(item => item.path === path)
     if (tab === undefined) return
     const finish = () => {
@@ -1012,6 +1045,7 @@ export function useEditorSession({
       finish()
       return
     }
+    let keepBusy = false
     try {
       const ok = await commitTab(path, resolved, diskRevision ?? tab.revision, encoding, savedStatusText)
       if (ok && activePathRef.current === path) {
@@ -1023,12 +1057,65 @@ export function useEditorSession({
       if (!ok && mounted.current && activePathRef.current === path) setStatus({ error: true, text: translate('editor.saveConflict') })
     } catch (error) {
       if (error?.name === 'AbortError' || !mounted.current) return
+      /* A 409/412 on the final write means the disk moved AGAIN while the
+         conflict dialog was open. Re-read and re-merge against the user's
+         `mine` so their already-made choices are not thrown away: a clean
+         re-merge commits directly, a new conflict reopens the dialog with the
+         updated disk side (the tab stays busy until that dialog resolves). */
+      if (error?.status === 409 || error?.status === 412) {
+        try {
+          const disk = await readFile(workspace.workspaceId, path, undefined, encoding)
+          if (!mounted.current) return
+          if (typeof disk?.content !== 'string') throw new Error('invalid read response')
+          const newDiskText = disk.content
+          const newDiskRevision = typeof disk?.revision === 'string' ? disk.revision : undefined
+          if (newDiskRevision !== undefined) {
+            watchSnapshotsRef.current.set(path, {
+              mtimeMs: Number(disk.mtimeMs) || 0,
+              size: Number(disk.size) || 0,
+              hash: newDiskRevision,
+            })
+          }
+          const attemptWrite = async (textToWrite, targetRevision) => {
+            const written = await commitTab(path, textToWrite, targetRevision, encoding, savedStatusText)
+            if (written && activePathRef.current === path) {
+              const view = editorRef.current
+              if (view !== undefined) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: textToWrite } })
+            } else if (!written && mounted.current && activePathRef.current === path) {
+              setStatus({ error: true, text: translate('editor.saveConflict') })
+            }
+          }
+          if (newDiskText === resolved) {
+            // The disk converged to the resolved content: idempotent commit.
+            await attemptWrite(resolved, newDiskRevision ?? diskRevision)
+            return
+          }
+          const remerged = threeWayMerge(base, mine, newDiskText)
+          if (remerged.status === 'clean') {
+            await attemptWrite(remerged.merged, newDiskRevision ?? diskRevision)
+            return
+          }
+          /* Updated conflict: reopen with the new disk side; the user re-picks
+             (the conflict regions changed, so the old choices no longer map). */
+          const nextDialog = { path, mine, theirs: newDiskText, base, diskRevision: newDiskRevision, encoding, savedStatusText, savingStatus, conflicts: remerged.conflicts, parts: remerged.parts }
+          conflictDialogRef.current = nextDialog
+          setConflictDialog(nextDialog)
+          keepBusy = true
+          if (mounted.current && activePathRef.current === path) setStatus({ text: translate('editor.conflictDiskChanged') })
+          return
+        } catch (readError) {
+          if (readError?.name === 'AbortError' || !mounted.current) return
+          // Fall through to the generic failure surface below.
+        }
+      }
       const message = error instanceof Error ? error.message : String(error)
       setStatus({ error: true, text: translate('editor.saveFailed', { message }) })
     } finally {
-      finish()
+      /* A re-opened dialog keeps the tab busy (its own finish() releases it);
+         every other path releases saving here. */
+      if (!keepBusy) finish()
     }
-  }, [activePathRef, commitTab, updateTab])
+  }, [activePathRef, commitTab, readFile, updateTab, workspace.workspaceId])
 
   const cancel = useCallback(async () => {
     if (preview.state !== 'ready' || saving || activeTab === undefined || !dirty) return
@@ -1047,6 +1134,22 @@ export function useEditorSession({
     try {
       await clearDraftFile(path, diskContent, encoding, lineEnding, bom, revision)
       if (!mounted.current) return
+      /* Keystrokes can land between capturing discardedText and the editor
+         actually freezing (the same window the save path guards with
+         preservePostSaveKeystrokes): if the live doc diverged, keep the NEW
+         text as an unsaved edit instead of silently dropping it — the draft
+         was just cleared, so re-stage it before marking anything clean. */
+      const liveTextNow = editorRef.current?.state.sliceDoc()
+      if (liveTextNow !== undefined && liveTextNow !== discardedText) {
+        updateTab(path, { dirty: true, draft: liveTextNow, draftKnown: true, editing: true, saving: false, status: { text: translate('editor.cancelKeptTyping') } })
+        if (activePathRef.current === path) {
+          setDraft(liveTextNow)
+          setDirty(true)
+          setStatus({ text: translate('editor.cancelKeptTyping') })
+        }
+        scheduleAutosave(path, liveTextNow)
+        return
+      }
       lastWriteRef.current.set(path, { generation: draftGenerationsRef.current.get(path) ?? 0, content: diskContent })
       updateTab(path, { dirty: false, draft: '', draftKnown: false, editing: true, saving: false, status: { text: translate('editor.cancelRestored') } })
       if (activePathRef.current === path) {
@@ -1068,7 +1171,7 @@ export function useEditorSession({
     } finally {
       if (mounted.current && activePathRef.current === path) setSaving(false)
     }
-  }, [activeTab, clearDraftFile, dirty, draft, preview, saving, updateTab])
+  }, [activeTab, clearDraftFile, dirty, draft, preview, scheduleAutosave, saving, updateTab])
   /* A non-editable file (read-only, oversized, editing disabled) with a
      leftover draft has no save/cancel path (both gated on editability), so the
      tab would be stuck dirty with no way to close, save, or refresh. This is

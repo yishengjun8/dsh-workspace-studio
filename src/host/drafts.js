@@ -2,7 +2,7 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, open, readFile, readdir, rename, stat, unlink } from 'node:fs/promises'
 import { Buffer } from 'node:buffer'
 import { HttpError, isPlainObject } from './errors.js'
 import { normalizeRelativePath } from './paths.js'
@@ -190,10 +190,19 @@ function draftQueueKey(workspaceId, owner) {
 export async function writeJsonAtomic(target, value) {
   await mkdir(dirname(target), { recursive: true })
   const temp = join(dirname(target), `.${randomBytes(16).toString('hex')}.tmp`)
+  let handle
   try {
-    await writeFile(temp, `${JSON.stringify(value)}\n`, 'utf8')
+    handle = await open(temp, 'w')
+    await handle.writeFile(`${JSON.stringify(value)}\n`, 'utf8')
+    /* fsync before the rename: an OS crash between rename and the next write
+       must not leave a zero-length / truncated target (the source save path
+       already syncs; the draft/generation/mindmap writers should too). */
+    await handle.sync()
+    await handle.close()
+    handle = undefined
     await rename(temp, target)
   } catch (error) {
+    if (handle !== undefined) await handle.close().catch(() => {})
     await unlink(temp).catch(() => {})
     throw error
   }

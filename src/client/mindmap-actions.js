@@ -5,7 +5,7 @@
  *  boundary; the child is renamed to the family-root title plus " ›" so its
  *  header never collides with the root (a root-replacement fork — card-deletion
  *  truncation of the root session — keeps the plain family title instead, asRoot). */
-import { deleteMindmapDoc, fetchMindmapDoc, syncMindmapDoc, writeMindmapDoc } from './api.js'
+import { deleteMindmapDoc, fetchMindmapDoc, renameMindmapDoc, syncMindmapDoc, writeMindmapDoc } from './api.js'
 import { mindmapRootTitleOf } from './mindmap/helpers.js'
 
   /* The mind-map action face shared by the floating overlay (formerly the
@@ -93,6 +93,10 @@ export function buildMindmapActions(ctx) {
       const result = await session.rename(title)
       if (!result.ok) throw new Error(result.error.message)
     },
+    /* Rename only the map's OWN title (doc.rootTitle), independent of the root
+       session's title (the sidebar panel and the in-map root-head rename both
+       use this so the map title stays in sync with what the user sees). */
+    renameDoc: (id, title, signal) => renameMindmapDoc(String(id), title, signal),
     saveDoc: (id, doc, signal, prevSessionId) => writeMindmapDoc(String(id), doc, signal, prevSessionId),
     syncDoc: (id, liveSessionIds, signal, summaryConfig) => syncMindmapDoc(String(id), liveSessionIds, signal, summaryConfig),
     }

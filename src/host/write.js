@@ -1,14 +1,14 @@
 /** Workspace write side: save/create/rename/copy/move/delete, serialized. */
 import { randomBytes } from 'node:crypto'
 import { constants as fsConstants } from 'node:fs'
-import { chmod, copyFile, lstat, mkdir, open, readdir, realpath, rename, rm, rmdir, unlink, utimes } from 'node:fs/promises'
+import { chmod, copyFile, lstat, mkdir, open, readdir, realpath, rename, rm, rmdir, stat, unlink, utimes } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { Buffer } from 'node:buffer'
 import { HttpError } from './errors.js'
 import { entryPath, hasSymlinkComponent, isInside, normalizeEntryName, normalizeRelativePath, parentPath, resolveWorkspacePath } from './paths.js'
 import { containsNul, decodeUtf8, encodeText, hasBom, revisionFor } from './encodings.js'
 import { header, readBody, readJsonObject } from './http.js'
-import { describeCreatedEntry, readFileHandleBounded } from './fs.js'
+import { describeCreatedEntry, openRegularFile, readFileHandleBounded } from './fs.js'
 export async function serializeWrite(queues, key, operation) {
   const previous = queues.get(key) ?? Promise.resolve()
   const current = previous.catch(() => {}).then(operation)
@@ -78,7 +78,9 @@ export async function saveFile(workspace, relativePath, config, queues, req, enc
     if (targetStat.isSymbolicLink()) throw new HttpError(403, 'symlink-write-denied', '拒绝通过符号链接写入文件')
     if (!targetStat.isFile()) throw new HttpError(400, 'not-a-file', '只能保存已存在的普通文件')
     if (targetStat.size > config.maxEditableBytes) throw new HttpError(413, 'file-too-large', '现有文件超过可编辑大小限制')
-    const current = await open(candidate, 'r')
+    /* openRegularFile: O_NONBLOCK + post-open fstat so a FIFO/device swapped
+       in after the lstat above can never hang the workspace write queue. */
+    const current = await openRegularFile(candidate)
     let currentBytes
     try {
       currentBytes = await readFileHandleBounded(current, config.maxEditableBytes)
@@ -102,6 +104,7 @@ export async function saveFile(workspace, relativePath, config, queues, req, enc
     const temp = resolve(parent, `.${randomBytes(16).toString('hex')}.dsh-write.tmp`)
     let tempHandle
     let tempCreated = false
+    let savedMtimeMs
     try {
       tempHandle = await open(temp, 'wx', targetStat.mode & 0o777)
       tempCreated = true
@@ -111,7 +114,7 @@ export async function saveFile(workspace, relativePath, config, queues, req, enc
       await tempHandle.close()
       tempHandle = undefined
       if (await hasSymlinkComponent(root, relativePath)) throw new HttpError(403, 'symlink-write-denied', '拒绝通过符号链接写入文件')
-      const latest = await open(candidate, 'r')
+      const latest = await openRegularFile(candidate)
       let latestBytes
       try {
         latestBytes = await readFileHandleBounded(latest, config.maxEditableBytes)
@@ -128,6 +131,15 @@ export async function saveFile(workspace, relativePath, config, queues, req, enc
         throw new HttpError(403, 'symlink-write-denied', '拒绝通过符号链接写入文件')
       }
       await rename(temp, candidate)
+      /* The PUT response carries the written file's stat so the client's
+         change-poll baseline can use the REAL mtime: a fabricated 0 baseline
+         defeats the Host's sameMtime fast path and forces a full hash on
+         every 2 s tick until the next re-read. */
+      try {
+        savedMtimeMs = (await stat(candidate)).mtimeMs
+      } catch {
+        savedMtimeMs = undefined
+      }
     } finally {
       if (tempHandle !== undefined) await tempHandle.close().catch(() => {})
       if (tempCreated) {
@@ -136,7 +148,7 @@ export async function saveFile(workspace, relativePath, config, queues, req, enc
         })
       }
     }
-    return { workspaceId: String(workspace.id), path: relativePath, revision: revisionFor(outBytes), size: outBytes.byteLength, encoding: encodingId, bom: hasBom(outBytes, encodingId) }
+    return { workspaceId: String(workspace.id), path: relativePath, revision: revisionFor(outBytes), size: outBytes.byteLength, encoding: encodingId, bom: hasBom(outBytes, encodingId), ...(savedMtimeMs === undefined ? {} : { mtimeMs: savedMtimeMs }) }
   })
 }
 export async function createEntry(workspace, relativePath, config, queues, req) {
@@ -215,7 +227,12 @@ export async function renameEntry(workspace, relativePath, config, queues, req) 
             await rename(source, temp)
             await rename(temp, target)
           } catch (renameError) {
-            await rename(temp, source).catch(() => {})
+            /* Best-effort restore of the temp name; a failure here leaves the
+               entry under a `.dsh-case.tmp` name — log it instead of burying
+               the evidence. */
+            await rename(temp, source).catch((rollbackError) => {
+              console.warn(`[workspace-studio] case-rename rollback failed for ${source}: ${String(rollbackError)}`)
+            })
             throw renameError
           }
         }

@@ -7,7 +7,7 @@ import { ENCODINGS } from './encodings.js'
 import { listTree, readExternalPreview, readPreview, readPreviewHead, revealInExplorer, searchWorkspace } from './fs.js'
 import { createEntry, fsOperation, renameEntry, saveFile } from './write.js'
 import { deleteDraftFile, draftTreeOperation, parseDraftGenerationQuery, readDraftFile, saveDraftFile, validateDraftOwner, validateDraftPayload, writeJsonAtomic } from './drafts.js'
-import { buildMindmapDoc, deleteMindmapDoc, findMindmapDocWithAncestors, indexMindmapDocs, isValidMindmapDoc, listMindmapModels, MINDMAP_DOC_MAX_BYTES, mindmapDocPath, mindmapDrainPendingSessionSummaries, mindmapLock, mindmapSessionSummarizingOf, mindmapSummarizingOf, mindmapSyncCache, parseMindmapSummaryConfig, purgeArchivedMindmapDocs, readMindmapDocFile, refreshMindmapDocCore, regenerateAllMindmapSummaries, regenerateMindmapSummary, renameMindmapDoc, summarizeMindmapSession, syncMindmapDoc, validateMindmapSession, writeMindmapDoc } from './mindmap.js'
+import { adoptMindmapOrphans, buildMindmapDoc, deleteMindmapDoc, findMindmapDocWithAncestors, indexMindmapDocs, isValidMindmapDoc, listMindmapModels, MINDMAP_DOC_MAX_BYTES, mindmapDocPath, mindmapDrainPendingSessionSummaries, mindmapLock, mindmapSessionSummarizingOf, mindmapSummarizingOf, mindmapSyncCache, parseMindmapSummaryConfig, purgeArchivedMindmapDocs, readMindmapDocFile, refreshMindmapDocCore, regenerateAllMindmapSummaries, regenerateMindmapSummary, renameMindmapDoc, summarizeMindmapSession, syncMindmapDoc, validateMindmapSession, writeMindmapDoc } from './mindmap.js'
 import { renderPromptContext } from './prompt-context.js'
 import { workspaceFor } from './workspace.js'
 /** Stable Cordis plugin name. */

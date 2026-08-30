@@ -30,7 +30,12 @@ export function useChatDropMask({ chatSectionRef }) {
       setChatDropActive(true)
     }
     const onDragLeave = (event) => {
-      if (!hasDraggedFiles(event)) return
+      /* Firefox can clear dataTransfer.types on dragleave, and OS file drags
+         never fire window dragend — gating the decrement on hasDraggedFiles
+         here could leave the depth stuck at 1 and the mask up until the next
+         drag. Decrement unconditionally (dragenter only ever incremented for
+         file drags, so non-file drags hit the Math.max floor harmlessly);
+         the suppressed flag still stops the mask from flashing. */
       if (chatDropSuppressed.current) return
       depth = Math.max(0, depth - 1)
       if (depth === 0) hide()

@@ -25,6 +25,19 @@ export function setMobile(on) {
   }
   notifyMobile()
 }
-export function setDrawerOpen(open) { document.documentElement.classList.toggle(MOBILE_DRAWER_CLASS, open); notifyMobile() }
-export function setMobileFiles(open) { document.documentElement.classList.toggle(MOBILE_FILES_CLASS, open); notifyMobile() }
+/* Sub-state setters are no-ops while mobile mode is OFF: toggling the drawer
+   or the file-fullscreen class without the mobile gate would leave a stray
+   gate class on <html> that later CSS never clears (the theoretical path — the
+   buttons are mobile-only today, but the setters must not corrupt the document
+   state if a future caller reaches them in desktop mode). */
+export function setDrawerOpen(open) {
+  if (!document.documentElement.classList.contains(MOBILE_CLASS)) return
+  document.documentElement.classList.toggle(MOBILE_DRAWER_CLASS, open)
+  notifyMobile()
+}
+export function setMobileFiles(open) {
+  if (!document.documentElement.classList.contains(MOBILE_CLASS)) return
+  document.documentElement.classList.toggle(MOBILE_FILES_CLASS, open)
+  notifyMobile()
+}
 export function useMobile() { return useSyncExternalStore(mobileFace.subscribe, mobileFace.getSnapshot) }

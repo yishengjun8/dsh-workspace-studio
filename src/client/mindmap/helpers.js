@@ -165,11 +165,32 @@ export function mindmapDeletePlan(doc, ownerId, turnSeq, emptyCard) {
    that changed nothing. rootTitle is included so a sidebar rename reaches an open
    map on the next sync (a seq-only one skipped it); the turn summaries AND the
    session summaries are included so a background AI summary (or a manual
-   regeneration / 总结当前会话) renders without waiting for a structural change. */
+   regeneration / 总结当前会话) renders without waiting for a structural change.
+   rootSessionId + workspaceCwd are included too: a root replacement (another
+   tab truncating the anchor card) or a workspace-selection change must NOT be
+   swallowed by fingerprint equality — applySync uses this to re-anchor. */
 export function mindmapDocFingerprint(doc) {
-  const sessions = (doc?.sessions ?? []).map(s =>
-    `${String(s?.sessionId)}:${String(s?.parentSessionId ?? '')}:${String(s?.parentTurn ?? '')}:${typeof s?.summary === 'string' ? s.summary : ''}:${(s?.turns ?? []).map(turn => `${turn?.seq}:${turn?.n ?? ''}:${String(turn?.user ?? '')}:${typeof turn?.summary === 'string' ? turn.summary : ''}`).join(',')}`).join(';')
-  return `${String(doc?.rootTitle ?? '')}|${sessions}`
+  /* JSON-encoded end to end: separator-joined raw strings could COLLIDE for
+     different docs (a user question or AI summary containing a ':'/','/';'
+     aligns with a boundary and two distinct docs hash equal — silently
+     skipping setDoc). JSON.stringify is injective for this fixed key shape. */
+  return JSON.stringify({
+    rootSessionId: String(doc?.rootSessionId ?? ''),
+    rootTitle: String(doc?.rootTitle ?? ''),
+    workspaceCwd: String(doc?.workspaceCwd ?? ''),
+    sessions: (doc?.sessions ?? []).map(s => ({
+      sessionId: s?.sessionId,
+      parentSessionId: s?.parentSessionId ?? '',
+      parentTurn: s?.parentTurn ?? '',
+      summary: typeof s?.summary === 'string' ? s.summary : '',
+      turns: (s?.turns ?? []).map(turn => ({
+        seq: turn?.seq,
+        n: turn?.n ?? '',
+        user: turn?.user ?? '',
+        summary: typeof turn?.summary === 'string' ? turn.summary : '',
+      })),
+    })),
+  })
 }
 
 /* Structure-ONLY fingerprint for the layout memo: everything mindmapDocLayout
@@ -178,11 +199,22 @@ export function mindmapDocFingerprint(doc) {
    (and every node entry it produces) stays referentially stable across summary
    changes, so React.memo on the cards keeps working. The question text IS
    included (the cards render it), so an in-place edit of a turn's user text
-   (same seq/n) still rebuilds the card. */
+   (same seq/n) still rebuilds the card. JSON-encoded for the same
+   collision-free reasons as mindmapDocFingerprint. */
 export function mindmapDocStructureFingerprint(doc) {
-  const sessions = (doc?.sessions ?? []).map(s =>
-    `${String(s?.sessionId)}:${String(s?.parentSessionId ?? '')}:${String(s?.parentTurn ?? '')}:${(s?.turns ?? []).map(turn => `${turn?.seq}:${turn?.n ?? ''}:${String(turn?.user ?? '')}`).join(',')}`).join(';')
-  return `${String(doc?.rootSessionId ?? '')}|${sessions}`
+  return JSON.stringify({
+    rootSessionId: String(doc?.rootSessionId ?? ''),
+    sessions: (doc?.sessions ?? []).map(s => ({
+      sessionId: s?.sessionId,
+      parentSessionId: s?.parentSessionId ?? '',
+      parentTurn: s?.parentTurn ?? '',
+      turns: (s?.turns ?? []).map(turn => ({
+        seq: turn?.seq,
+        n: turn?.n ?? '',
+        user: turn?.user ?? '',
+      })),
+    })),
+  })
 }
 
 /* Deterministic per-session palette for a streaming card + parent pair (the gradient ring and
@@ -518,16 +550,24 @@ export const mindmapXOf = depth => MINDMAP_DEPTH_GAP + depth * (MINDMAP_NODE_W +
    session). Exact mirror of the openCard decision tree, shared by hover hint and click handler
    so the hint can never drift from the real behavior. A generating session's last completed
    card is semantically a middle card (its real tail is the streaming card), hence it forks. */
-export const mindmapCardClickAction = (node, doc, runningFamilyIds) => {
+export const mindmapCardClickAction = (node, doc, runningFamilyIds, lastSeqBySession) => {
   if (node === undefined) return undefined
   if (node.kind === 'root') return 'new'
   if (node.kind === 'head') return 'switch'
   if (node.streaming === true) return 'switch'
   if (node.empty) return 'switch'
   const owner = node.sessionId
-  const chain = (doc?.sessions ?? []).find(s => String(s?.sessionId) === String(owner))?.turns ?? []
-  const last = chain[chain.length - 1]
-  if (last !== undefined && last.seq === node.turn?.seq) {
+  /* Callers may pass a precomputed sessionId → last-turn-seq map (the render
+     path builds one per doc): without it the per-card find() below makes the
+     whole canvas O(cards × sessions) on every render. */
+  let lastSeq
+  if (lastSeqBySession !== undefined && lastSeqBySession !== null) {
+    lastSeq = lastSeqBySession.get(String(owner))
+  } else {
+    const chain = (doc?.sessions ?? []).find(s => String(s?.sessionId) === String(owner))?.turns ?? []
+    lastSeq = chain.length > 0 ? chain[chain.length - 1]?.seq : undefined
+  }
+  if (lastSeq !== undefined && lastSeq === node.turn?.seq) {
     return runningFamilyIds.includes(String(owner)) ? 'fork' : 'switch'
   }
   return 'fork'

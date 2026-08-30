@@ -37,7 +37,10 @@ export const MINDMAP_ICON = h('g', { fill: 'none', stroke: 'currentColor', strok
 export const MINDMAP_ORDER_ALL_KEY = '__all__'
 export function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, openSession, revealSession }) {
   useMindmapRegistry()
-  const list = useSessions(state => state)
+  /* Narrow selector: only byId is consumed here, so session-list churn for
+     UNRELATED sessions (streaming updates elsewhere) must not re-render the
+     panel on every tick. */
+  const byId = useSessions(state => state.byId)
   const workspaces = useWorkspaces(state => state.items)
   const mountedRef = useRef(true)
   useEffect(() => {
@@ -52,11 +55,15 @@ export function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, o
   const [renameTarget, setRenameTarget] = useState(null)
   const [renameBusy, setRenameBusy] = useState(false)
   const [renameError, setRenameError] = useState(null)
+  /* The persisted per-group order only changes through THIS component's drag
+     handler, so read it once per mount (a state seed) instead of parsing
+     localStorage on every render. */
+  const [mindmapOrder, setMindmapOrder] = useState(() => readMindmapOrder())
   const docs = mindmapRegistry.getDocs()
   const entries = docs.filter((doc) => {
-    if (list.byId[String(doc.sessionId)] === undefined) return false
+    if (byId[String(doc.sessionId)] === undefined) return false
     if (groupTitle === undefined) return true
-    const row = list.byId[String(doc.sessionId)]
+    const row = byId[String(doc.sessionId)]
     const item = workspaces.find(w => (w.sessionIds ?? []).includes(String(doc.sessionId)))
       || (row?.cwd !== undefined ? workspaces.find(w => w.path === row.cwd) : undefined)
     const docTitle = item?.title
@@ -71,7 +78,7 @@ export function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, o
   })
   const groupKey = groupTitle === undefined ? MINDMAP_ORDER_ALL_KEY : groupTitle
   /* Apply the persisted per-group order; unknown docs keep registry order. */
-  const storedOrder = readMindmapOrder()[groupKey] ?? []
+  const storedOrder = mindmapOrder[groupKey] ?? []
   const orderIndex = new Map(storedOrder.map((id, index) => [String(id), index]))
   const ordered = [...entries].sort((a, b) => {
     const ia = orderIndex.get(String(a.sessionId))
@@ -122,6 +129,8 @@ export function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, o
     const map = readMindmapOrder()
     map[groupKey] = ids
     writeMindmapOrder(map)
+    /* Keep the in-memory copy in step so the next render does not re-read. */
+    setMindmapOrder({ ...map })
   }
   const entryDragOver = (event, sid) => {
     if (dragId === null || dragId === sid) return
@@ -152,7 +161,7 @@ export function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, o
     /* Renaming edits the MIND MAP's own title (doc.rootTitle), independent of
        the root session's title. */
     const doc = docs.find(d => String(d.sessionId) === String(sid))
-    const row = list.byId[sid]
+    const row = byId[sid]
     setContextMenu(null)
     setRenameError(null)
     setRenameTarget({ sessionId: sid, title: doc?.rootTitle ?? row?.displayTitle ?? '' })
@@ -224,7 +233,7 @@ export function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, o
         onDrop: (event) => { event.preventDefault(); commitDrop() },
       },
         ordered.map(doc => {
-          const row = list.byId[String(doc.sessionId)]
+          const row = byId[String(doc.sessionId)]
           /* The entry shows the mind map's OWN title (doc.rootTitle), not the
              root session's — the two are independent after a rename. */
           const label = doc.rootTitle ?? row?.displayTitle ?? ''
@@ -233,7 +242,7 @@ export function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, o
           /* Any family member streaming (summary.running flips at generation
              start) spins the entry's icon — the signal the hidden rows would
              have shown. */
-          const running = [sid, ...(doc.branchSessionIds ?? [])].some(id => list.byId[id]?.running === true)
+          const running = [sid, ...(doc.branchSessionIds ?? [])].some(id => byId[id]?.running === true)
           return h('button', {
             className: 'dsh-ws-sidebar-mindmaps-item',
             'data-dragging': dragId === sid ? '' : undefined,

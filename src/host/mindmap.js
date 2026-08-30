@@ -33,6 +33,11 @@ export const MINDMAP_DOC_MAX_BYTES = 2 * 1024 * 1024
    forces a periodic full sync so in-place log edits it cannot see are never
    missed forever. */
 const MINDMAP_SYNC_CACHE_TTL_MS = 30_000
+/* Upper bound on distinct cached docs: every entry can hold up to 2 MiB of
+   turns, and archives/unlinks only remove the entries they touch. A long-
+   running host with many (still open) maps would otherwise grow the cache
+   without bound; the LRU eviction below keeps it bounded. */
+const MINDMAP_SYNC_CACHE_MAX = 64
 /* Short-lived cache for persistence.list(): the sync path calls it up to
    three times per poll (signature probe + settle + adopt index); a 1 s TTL
    collapses them into one SQLite metadata scan while still catching new
@@ -66,6 +71,12 @@ const MINDMAP_SUMMARY_CONCURRENCY = 1
 const MINDMAP_SUMMARY_ENQUEUE_PER_SYNC = 5
 const MINDMAP_SUMMARY_FAIL_COOLDOWN_MS = 10 * 60 * 1000
 const mindmapSummaryInFlight = new Set() // `${sessionId}:${seq}` — queued or running
+/* Keys whose LLM call the pump has actually STARTED (a subset of inFlight):
+   a force='all' replacement for a running turn must wait for the original to
+   finish, and inFlight alone cannot distinguish queued from running (enqueue
+   marks a key in flight the moment it is queued). Concurrency is 1, so this
+   set holds at most one key. */
+const mindmapSummaryRunning = new Set()
 const mindmapSummaryFailedAt = new Map() // key -> last failure timestamp (cooldown)
 const mindmapSummaryQueue = [] // jobs waiting for a worker
 let mindmapSummaryWorkers = 0
@@ -456,7 +467,17 @@ function mindmapEnqueueSummaries(ctx, persistence, doc, config, limit, force, on
       if (turn === null || turn === undefined || !Number.isSafeInteger(turn.seq)) continue
       if (force !== 'all' && typeof turn.summary === 'string' && turn.summary !== '') continue
       const key = `${session.sessionId}:${turn.seq}`
-      if (mindmapSummaryInFlight.has(key)) continue
+      if (mindmapSummaryInFlight.has(key)) {
+        /* A turn whose previous job is still running cannot be re-enqueued
+           with a changed config — EXCEPT for force='all' (the toolbar
+           "regenerate all summaries" action): it must also cover an
+           in-flight turn generated under an OLD config. Queue a replacement
+           that the pump only starts AFTER the in-flight job (it skips keys
+           that are running), so the newer config's write lands last. Skip
+           when a queued replacement already exists (double-press). */
+        if (force !== 'all') continue
+        if (mindmapSummaryQueue.some(job => String(job.sessionId) === String(session.sessionId) && Number(job.seq) === Number(turn.seq))) continue
+      }
       const failedAt = mindmapSummaryFailedAt.get(key)
       if (force !== 'all' && force !== 'missing' && failedAt !== undefined && failedAt + MINDMAP_SUMMARY_FAIL_COOLDOWN_MS > now) continue
       mindmapSummaryInFlight.add(key)
@@ -469,6 +490,7 @@ function mindmapEnqueueSummaries(ctx, persistence, doc, config, limit, force, on
         seq: turn.seq,
         question: String(turn.user ?? ''),
         config,
+        forceAll: force === 'all',
       })
       enqueued += 1
     }
@@ -478,11 +500,23 @@ function mindmapEnqueueSummaries(ctx, persistence, doc, config, limit, force, on
 }
 
 /* Worker pump: at most MINDMAP_SUMMARY_CONCURRENCY in-flight calls; a finished
-   job always pumps again so the queue drains without a timer. */
+   job always pumps again so the queue drains without a timer. A queued job
+   whose key is RUNNING (a force='all' replacement for a live turn) waits: the
+   replacement must run after the original so its write lands last. */
 function mindmapSummaryPump() {
   while (mindmapSummaryWorkers < MINDMAP_SUMMARY_CONCURRENCY && mindmapSummaryQueue.length > 0) {
-    const job = mindmapSummaryQueue.shift()
+    const jobIndex = mindmapSummaryQueue.findIndex(candidate => !mindmapSummaryRunning.has(`${candidate.sessionId}:${candidate.seq}`))
+    if (jobIndex === -1) return
+    const job = mindmapSummaryQueue[jobIndex]
+    mindmapSummaryQueue.splice(jobIndex, 1)
     mindmapSummaryWorkers += 1
+    const jobKey = `${job.sessionId}:${job.seq}`
+    /* The enqueue already added the key to inFlight; mark it RUNNING here and
+       re-assert the regenerating flag for a force='all' replacement — the
+       original's finally cleared both, and a replacement must keep the
+       "generating summary" status visible until ITS summary lands. */
+    mindmapSummaryRunning.add(jobKey)
+    if (job.forceAll === true) mindmapSummaryRegenerating.add(jobKey)
     void (async () => {
       try {
         await mindmapRunSummaryJob(job)
@@ -491,8 +525,9 @@ function mindmapSummaryPump() {
         try { job.ctx.logger.warn(`[workspace-studio] mindmap summary job failed: ${String(error)}`) } catch { /* no logger */ }
       } finally {
         mindmapSummaryWorkers -= 1
-        mindmapSummaryInFlight.delete(`${job.sessionId}:${job.seq}`)
-        mindmapSummaryRegenerating.delete(`${job.sessionId}:${job.seq}`)
+        mindmapSummaryRunning.delete(jobKey)
+        mindmapSummaryInFlight.delete(jobKey)
+        mindmapSummaryRegenerating.delete(jobKey)
         mindmapSummaryPump()
         /* A finished card job may have made a pending session summary ready
            (its last missing/regenerating turn just landed). */
@@ -525,10 +560,11 @@ async function mindmapRunSummaryJob(job) {
     mindmapSummaryFailedAt.set(key, Date.now())
     return
   }
-  /* The user may have turned the feature off while the call was in flight:
-     the summary is generated but not persisted (no hidden writes after a
-     disable). */
-  if (!mindmapSummaryFeatureOn) return
+  /* The user may have turned the feature off (for THIS doc) while the call
+     was in flight: the summary is generated but not persisted (no hidden
+     writes after a disable). The global flag alone is not enough — another
+     doc may still have the feature on, so the per-root set decides. */
+  if (!mindmapSummaryFeatureOn || !mindmapSummaryEnabledRoots.has(String(job.rootId))) return
   const written = await mindmapWriteSummary(job.ctx, job.persistence, job.rootId, job.sessionId, job.seq, summary)
   if (written) mindmapSummaryFailedAt.delete(key)
 }
@@ -1394,8 +1430,12 @@ export async function reconcileMindmapDoc(ctx, persistence, doc) {
      display number after every first sync / deletion (off-by-one, fixed). */
   next = Math.max(next, mindmapNextOf(doc))
   /* Backfill the creation workspace (pre-existing/v2 docs lack the field) so
-     a root-node-created top-level session lands in the map's workspace. */
-  if (typeof doc.workspaceCwd !== 'string' || doc.workspaceCwd === '') {
+     a root-node-created top-level session lands in the map's workspace. An
+     EXPLICIT '' (the root-node menu's "ungrouped" choice) is a real selection
+     and must survive: the old `=== ''` check silently undid it on every sync
+     (the client never saw the re-backfilled value either, since its
+     fingerprint lacked the field). */
+  if (typeof doc.workspaceCwd !== 'string') {
     const cwd = await mindmapCwdOf(ctx, persistence, doc.rootSessionId)
     if (cwd !== undefined) doc.workspaceCwd = cwd
   }
@@ -1740,6 +1780,10 @@ export async function syncMindmapDoc(ctx, persistence, sessionId, liveSessionIds
     const liveKey = mindmapLiveRequestKey(liveSessionIds)
     if (cached !== undefined && cached.at + MINDMAP_SYNC_CACHE_TTL_MS > now
       && cached.sig === sig && cached.liveKey === liveKey) {
+      /* Refresh the LRU order so an actively-polled doc is never the eviction
+         victim (Map iteration order is insertion order). */
+      mindmapSyncCache.delete(root)
+      mindmapSyncCache.set(root, cached)
       /* Incremental response: the doc is unchanged (signature match), so send
          doc: null instead of the full document — the client keeps its copy and
          only applies live/summarizing. The full doc still arrives on every
@@ -1757,11 +1801,13 @@ export async function syncMindmapDoc(ctx, persistence, sessionId, liveSessionIds
     const orphanSig = `${parts.liveIds}#${parts.persisted}#${parts.archivedRef}`
     const refresh = await refreshMindmapDocCore(ctx, persistence, fresh,
       cached !== undefined && cached.adoptClean === true && cached.orphanSig === orphanSig)
+    let syncWriteFailed = false
     if (refresh.changed) {
       fresh.updatedAt = Date.now()
       try {
         await writeJsonAtomic(mindmapDocPath(fresh.rootSessionId), fresh)
       } catch (error) {
+        syncWriteFailed = true
         ctx.logger.warn(`[workspace-studio] mindmap doc sync write failed: ${String(error)}`)
       }
     }
@@ -1797,9 +1843,22 @@ export async function syncMindmapDoc(ctx, persistence, sessionId, liveSessionIds
     const settled = mindmapSyncSignatureFromParts(ctx, fresh, refs, parts)
     /* Only a CLEAN refresh may seed the cache: a degraded one must not serve
        the half-reconciled doc (or the disk fallback) as if it were fresh —
-       the next sync re-runs the refresh and converges. */
-    if (refresh.warnings.length === 0) {
+       the next sync re-runs the refresh and converges. A FAILED write must
+       not seed the in-memory doc either: the cache would serve turns that
+       never reached the disk (lost on host restart), and — worse — a later
+       identical-signature hit would never RETRY the write. Drop the stale
+       entry so the next sync re-parses and retries (the GET load path uses
+       the same policy). */
+    if (refresh.warnings.length === 0 && !syncWriteFailed) {
       mindmapSyncCache.set(root, { sig: settled.sig, doc: responseDoc, live, liveKey, at: Date.now(), refs: settled.refs, orphanSig, adoptClean: true })
+      /* Bounded LRU: evict the oldest entry when the cap is exceeded (each
+         entry can hold up to 2 MiB; the hit path refreshes insertion order). */
+      if (mindmapSyncCache.size > MINDMAP_SYNC_CACHE_MAX) {
+        const oldest = mindmapSyncCache.keys().next().value
+        if (oldest !== undefined) mindmapSyncCache.delete(oldest)
+      }
+    } else if (syncWriteFailed) {
+      mindmapSyncCache.delete(root)
     }
     return { doc: responseDoc, live, warnings: refresh.warnings, summarizing: mindmapSummarizingOf(responseDoc), sessionSummarizing: mindmapSessionSummarizingOf(responseDoc) }
   })

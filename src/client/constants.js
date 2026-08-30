@@ -23,6 +23,11 @@ export const PREVIEW_RIGHT_DEFAULT = false
 /* Watch opened files for external changes and auto-sync the clean preview (user-tunable); polls this cadence when the host watch is unavailable. */
 export const WATCH_FILES_DEFAULT = true
 export const AUTO_SYNC_CHECK_MS = 2000
+/* Backpressure for AUTO-mode reloads: after reloading a file, further
+   external changes to the SAME path within this window only surface a status
+   (no remount), so a continuously-written file (logs, build output) cannot
+   remount the editor — and wipe its undo history — every single tick. */
+export const AUTO_RELOAD_COOLDOWN_MS = 4000
 /* "Auto" = a clean tab reloads on change; "watch-only" = only shows a "file changed" status and waits for the user's refresh. */
 export const AUTO_SYNC_MODE_AUTO = 'auto'
 export const AUTO_SYNC_MODE_WATCH_ONLY = 'watch-only'

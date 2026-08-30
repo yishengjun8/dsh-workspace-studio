@@ -156,5 +156,11 @@ export function normalizeFailure(error) {
   if (error instanceof HttpError) return error
   if (error?.code === 'EACCES' || error?.code === 'EPERM') return new HttpError(403, 'path-denied', '没有权限访问该路径')
   if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return new HttpError(404, 'path-not-found', '文件或目录不存在')
+  /* Plain-file expectations meeting a directory, a symlink loop, or a
+     read-only filesystem are NOT server faults: classify them instead of
+     surfacing a black-box 500. */
+  if (error?.code === 'EISDIR') return new HttpError(400, 'not-a-file', '所选路径不是普通文件')
+  if (error?.code === 'ELOOP') return new HttpError(400, 'invalid-path', '路径包含符号链接循环')
+  if (error?.code === 'EROFS') return new HttpError(403, 'path-denied', '文件系统为只读')
   return new HttpError(500, 'workspace-operation-failed', '工作区操作失败')
 }

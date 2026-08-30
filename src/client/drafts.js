@@ -12,9 +12,16 @@ function emergencyDraftKey(workspaceId, scopeId, path) {
 }
 /* Tombstones (state: 'deleted') only suppress restoring a discarded draft and
    are reclaimed after a retention window so the mirror cannot grow without
-   bound; live records are unsaved work and never pruned. */
+   bound. Live records hold unsaved work but the Host staging draft stays
+   authoritative, so even live records older than the window are reclaimed —
+   a genuinely active draft is re-mirrored on every keystroke. */
 const EMERGENCY_DRAFT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 let emergencyDraftPruneScheduled = false
+/* Circuit breaker for a persistently unavailable IndexedDB (private mode,
+   storage disabled): without it every keystroke would re-open the same
+   failing database and reject anew (callsites absorb the rejection, so this
+   is noise rather than breakage — but the retries are pure waste). */
+let emergencyDraftDbFailed = false
 async function pruneEmergencyDrafts() {
   const db = await openEmergencyDraftDb()
   if (db === undefined) return
@@ -51,6 +58,7 @@ async function pruneEmergencyDrafts() {
 }
 function openEmergencyDraftDb() {
   if (typeof indexedDB === 'undefined') return Promise.resolve(undefined)
+  if (emergencyDraftDbFailed) return Promise.resolve(undefined)
   if (emergencyDraftDbPromise !== undefined) return emergencyDraftDbPromise
   emergencyDraftDbPromise = new Promise((resolveDb, reject) => {
     let request
@@ -94,6 +102,9 @@ function openEmergencyDraftDb() {
     }
   }).catch(error => {
     emergencyDraftDbPromise = undefined
+    /* Persistent failure (private mode / disabled storage): trip the breaker
+       so later writes stop re-opening the database on every keystroke. */
+    emergencyDraftDbFailed = true
     throw error
   })
   return emergencyDraftDbPromise

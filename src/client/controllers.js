@@ -116,7 +116,10 @@ export class EditorContextController {
    (U1 audit: AppFrame's single OR-find picked whichever item came first in
    the array, while workspaceOfSession strictly preferred membership). */
 export function selectWorkspaceForSession(items, sessionId, cwd) {
-  const byMembership = items.find(item => item.sessionIds.includes(sessionId))
+  /* A malformed workspace item (missing sessionIds) must degrade like every
+     other bad input here — this runs in AppFrame's render path, where a
+     TypeError would blank the whole GUI (same guard as selectStoredPreviewSession). */
+  const byMembership = items.find(item => Array.isArray(item?.sessionIds) && item.sessionIds.includes(sessionId))
   if (byMembership !== undefined) return byMembership
   if (cwd !== undefined) {
     const byPath = items.find(item => item.path === cwd)
@@ -242,14 +245,14 @@ export class PromptContextBridge {
      surface in the popupSelect shell (its error strip keeps it open). */
   async runInitCommand(id) {
     if (this.conversation === undefined || this.originalSendSession === undefined) {
-      throw new Error(translate('init.error.send-failed', { message: 'conversation seam unavailable' }))
+      throw new Error(translate('init.error.send-failed', { message: translate('init.error.seams-unavailable') }))
     }
     const workspace = workspaceOfSession(this.ctx, id)
     if (workspace === undefined) throw new Error(translate('init.error.no-workspace'))
     const binding = this.ctx.sessions.binding(id)
     const session = binding?.session
     if (session === undefined) {
-      throw new Error(translate('init.error.send-failed', { message: 'session unavailable' }))
+      throw new Error(translate('init.error.send-failed', { message: translate('init.error.session-unavailable') }))
     }
     const text = translate('init.prompt', { root: workspace.path })
     return this.originalSendSession.call(this.conversation, session, text, [], 'queue')
@@ -391,6 +394,13 @@ export class PromptContextBridge {
       console.warn(`workspace-studio: editor-context error for session ${id}: ${message}`)
       return
     }
-    patch.input.notify('error', message)
+    try {
+      patch.input.notify('error', message)
+    } catch (notifyError) {
+      /* The input dock may be mid-teardown (plugin reload, session switch): a
+         notify throw must not replace the original error or escape the caller's
+         catch as an unhandled rejection — degrade to a console record. */
+      console.warn(`workspace-studio: input notify failed for session ${id}: ${String(notifyError)}`)
+    }
   }
 }

@@ -33,7 +33,7 @@ export const mindmapRegistry = {
        5 s poll. updatedAt is included so a doc that gained a turn re-sorts to
        the top of its sidebar group. */
     const signature = docs
-      .map(doc => `${String(doc.sessionId)}\u0001${String(doc.rootTitle ?? '')}\u0001${(doc.branchSessionIds ?? []).map(String).sort().join(',')}\u0001${Number(doc.updatedAt) || 0}`)
+      .map(doc => `${String(doc.sessionId)}\u0001${String(doc.rootTitle ?? '')}\u0001${(doc.branchSessionIds ?? []).map(String).sort().join('\u0003')}\u0001${Number(doc.updatedAt) || 0}`)
       .sort()
       .join('\u0002')
     if (signature === this._signature) return
