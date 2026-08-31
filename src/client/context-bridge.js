@@ -239,7 +239,43 @@ function findEditorContextBubble(candidate) {
        just the header paragraph), so a split envelope never folds. */
     if (current.parentElement?.parentElement?.hasAttribute('data-pending-steering')) return current
   }
-  return candidate instanceof HTMLElement ? candidate : null
+  /* The harness reshaped user rows (ui-chat, 2026-08): data-time-hover-root
+     became data-actions-reveal, so the attribute walk above falls through and
+     returns the candidate — which is then the ROW CONTAINER itself
+     ([data-chat-flow-kind="user"|"steering"] flowItem or
+     [data-pending-steering] userRow), NOT the bubble. Rewriting the container
+     would wipe the whole message row instead of folding the envelope inside
+     the bubble. Descend the container instead: the bubble is the unique
+     direct-div chain whose textContent starts with the envelope
+     (flowItem > userRow > userStack > bubble, or
+     [data-pending-steering] > userStack > bubble); the bubble's own children
+     are inline runs (projectUserText spans), so the descent stops there. Only
+     descend from a matched row container, and cap the depth so a deeper DOM
+     reshape fails safe (stops at the last prefix-matching div). */
+  if (!(candidate instanceof HTMLElement)
+    || (!candidate.hasAttribute('data-chat-flow-kind') && !candidate.hasAttribute('data-pending-steering'))) {
+    return candidate instanceof HTMLElement ? candidate : null
+  }
+  const containerText = candidate.textContent ?? ''
+  if (!containerText.startsWith(OPENED_FILE_PREFIX) && !containerText.startsWith(SELECTION_PREFIX)) {
+    return candidate
+  }
+  let current = candidate
+  for (let depth = 0; depth < 8; depth += 1) {
+    let next = null
+    for (const child of current.children) {
+      if (child instanceof HTMLElement && child.tagName === 'DIV') {
+        const text = child.textContent ?? ''
+        if (text.startsWith(OPENED_FILE_PREFIX) || text.startsWith(SELECTION_PREFIX)) {
+          next = child
+          break
+        }
+      }
+    }
+    if (next === null) return current
+    current = next
+  }
+  return current
 }
 
 function findEditorContextCandidate(container) {
