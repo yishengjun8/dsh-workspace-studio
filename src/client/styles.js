@@ -254,8 +254,12 @@ html.dsh-ws-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal=
 .dsh-ws-session-rename-error{position:fixed;z-index:45;max-width:280px;padding:2px 6px;border:1px solid var(--dsw-alias-border-l2);border-radius:4px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-state-error-primary);font-size:11px;line-height:16px;box-shadow:var(--dsw-shadow-elevated,0 4px 12px rgba(0,0,0,.18))}
 .dsh-ws-copy-notice[data-error]{color:var(--dsw-alias-state-error-primary)}
 /* Plugin-self-update group state text (settings → 插件更新): tinted by the
-   outcome so a restart notice or a failed check cannot be scrolled past. */
-.dsh-ws-update-state{flex:1;min-width:0;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:20px;text-align:right;overflow-wrap:anywhere}
+   outcome so a restart notice or a failed check cannot be scrolled past.
+   The row wraps (flex-wrap) and the state uses flex-basis auto so a long
+   notice drops to its own full-width line instead of being squeezed into a
+   one-character-per-line column when the settings panel is narrow. */
+.dsh-ws-settings-row:has(.dsh-ws-update-state){flex-wrap:wrap}
+.dsh-ws-update-state{flex:1 1 auto;min-width:0;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:20px;text-align:left;overflow-wrap:anywhere}
 .dsh-ws-update-state[data-ok]{color:var(--dsw-alias-state-success-primary)}
 .dsh-ws-update-state[data-error]{color:var(--dsw-alias-state-error-primary)}
 .dsh-ws-update-state[data-new]{color:var(--dsw-alias-state-business-primary)}
