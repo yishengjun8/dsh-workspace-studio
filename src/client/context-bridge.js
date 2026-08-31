@@ -67,7 +67,7 @@ let pendingContextDisplayCount = 0
    user text) are in flight and the first one fails. */
 let pendingContextDisplaySeq = 0
 
-function rememberEditorContextDisplay(text, display) {
+export function rememberEditorContextDisplay(text, display) {
   /* Bound the GLOBAL entry count, not just the key count: repeated context-only
      sends with the same selection produce the same key, and that key's queue
      would otherwise grow without limit when consumption fails (session switch,
@@ -110,7 +110,7 @@ function discardEditorContextDisplay(handle) {
   if (queue.length === 0) pendingEditorContextDisplays.delete(handle.key)
 }
 
-function clearEditorContextDisplays() {
+export function clearEditorContextDisplays() {
   pendingEditorContextDisplays.clear()
   pendingContextDisplayCount = 0
 }
@@ -135,7 +135,7 @@ function displaySelectionRange(selection) {
   return `L${selection.startLine}:C${selection.startColumn}-L${selection.endLine}:C${selection.endColumn}`
 }
 
-function describeEditorContext(context, raw) {
+export function describeEditorContext(context, raw) {
   const fileName = displayFileName(context.path)
   if (context.selection === undefined) {
     return { path: context.path, fileName, range: null, title: context.path, raw }
@@ -188,10 +188,21 @@ function parseSelectionContext(text) {
            text plus the trailer line, so it must contain exactly
            endLine - startLine + 2 lines (the header declares the selection's
            line span; the trailing newline of a selection ending in \n is
-           already accounted for by split). A marker inside the USER's own
-           text would make the body longer than the header declares — reject
-           that marker and keep searching for the real envelope end. */
-        const bodyLines = body.replace(/\r\n/g, '\n').split('\n').length
+           already accounted for by split). The Host CDATA-wraps the selection
+           (`<![CDATA[` open line and `]]>` close line, each on its own line)
+           so a literal `</selection>` in the selected code cannot terminate
+           the envelope early — strip those two framing lines before counting
+           (the escaped text can never contain a bare `]]>` line, so the
+           second-to-last-line check is unambiguous). A marker inside the
+           USER's own text would make the body longer than the header
+           declares — reject that marker and keep searching for the real
+           envelope end. */
+        const bodyLinesRaw = body.replace(/\r\n/g, '\n').split('\n')
+        let bodyLines = bodyLinesRaw.length
+        if (bodyLinesRaw.length >= 3 && bodyLinesRaw[0] === '<![CDATA['
+          && bodyLinesRaw[bodyLinesRaw.length - 2] === ']]>') {
+          bodyLines -= 2
+        }
         if (bodyLines === endLine - startLine + 2) break
       }
     }

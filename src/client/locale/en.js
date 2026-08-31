@@ -125,6 +125,7 @@ export const en = {
   'mdPreview.edit.title': 'Back to Markdown source editing',
   'editor.refreshBlocked': 'There are unsaved changes; save or cancel them before reloading.',
   'editor.refreshed': 'Reloaded from disk.',
+  'editor.readFailedDraftPreserved': '{message}. Your unsaved draft is preserved in the staging area and will be restored if the file becomes readable again.',
   'editor.searchResize': 'Drag to resize the search box width',
   'editor.saved': 'Saved.',
   'editor.savingWith': 'Saving ({encoding})…',

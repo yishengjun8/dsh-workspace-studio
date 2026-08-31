@@ -303,6 +303,11 @@ function validEntryPath(path) {
   if (path.startsWith('/') || path.includes('\\')) return false
   const parts = path.split('/')
   if (parts.some(part => part === '' || part === '.' || part === '..')) return false
+  /* Windows strips trailing dots/spaces from path components when resolving
+     (NTFS aliasing): a segment like `.. ` resolves as `..` and `a.` as `a`,
+     so a crafted archive could write outside destDir. Reject trailing
+     dot/space segments on every platform (same rule as normalizeRelativePath). */
+  if (parts.some(part => /[. ]$/.test(part))) return false
   return true
 }
 

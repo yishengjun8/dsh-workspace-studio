@@ -125,6 +125,7 @@ export const zh = {
   'mdPreview.edit.title': '返回 Markdown 源码编辑',
   'editor.refreshBlocked': '存在未保存的更改，请先保存或取消后再刷新。',
   'editor.refreshed': '已从磁盘重新读取。',
+  'editor.readFailedDraftPreserved': '{message}。未保存的草稿已保留在暂存盘，文件恢复后可重新打开找回。',
   'editor.searchResize': '拖拽调整搜索框宽度',
   'editor.saved': '保存成功。',
   'editor.savingWith': '正在保存（{encoding}）…',

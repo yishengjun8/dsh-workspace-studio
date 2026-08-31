@@ -11,13 +11,6 @@ import { entryFromPreviewTab } from '../../../preview-tabs.js'
 import { rewriteRelativePath } from '../../../paths.js'
 import { deleteEmergencyDraft, readEmergencyDraft, writeEmergencyDraft } from '../../../drafts.js'
 
-/* CRLF prefix-table size cap: the table costs 4 bytes per character and is
-   rebuilt on every doc change, so a very large file would allocate tens of
-   MB per keystroke. Above the cap, publishContextState falls back to a
-   direct scan of [0, pos) — the same O(pos) the table build cost, without
-   the allocation. */
-const CRLF_TABLE_MAX_CHARS = 512 * 1024
-
 export function useEditorSession({
   workspace, draftScopeId, activePath, activeTab, tabsRef, activePathRef, updateTab, setTabs,
   setSelected, publishEditorContext, loadDraft, readFile, saveFile, persistDraftFile,
@@ -68,15 +61,10 @@ export function useEditorSession({
   const draftTailsRef = useRef(new Map())
   const pendingAutosavesRef = useRef(new Map())
   const conflictDialogRef = useRef(undefined)
-  /* CRLF prefix-count table, rebuilt only when the doc changed: a per-query
-     scan made every keystroke in a large file O(n) twice (from and to). The
-     table is keyed to the text snapshot it was built from; selection-only
-     publishes reuse it. */
-  const crlfPrefixCacheRef = useRef({ text: null, prefix: null })
-  /* Full-document text is only needed for the CRLF prefix table and the dirty
-     comparison — it is sliced once per DOC identity (CodeMirror documents are
-     immutable, so a selection-only update reuses the cached string instead of
-     re-copying O(n) text on every selection change). */
+  /* Full-document text is only needed for the dirty comparison — it is sliced
+     once per DOC identity (CodeMirror documents are immutable, so a
+     selection-only update reuses the cached string instead of re-copying O(n)
+     text on every selection change). */
   const sliceTextCacheRef = useRef({ doc: null, text: null })
   const publishContextState = useCallback((state, docChanged = true, precomputedText) => {
     if (activeTab === undefined || preview.state !== 'ready') return
@@ -97,46 +85,29 @@ export function useEditorSession({
       : (() => {
           const start = state.doc.lineAt(main.from)
           const end = state.doc.lineAt(main.to)
-          // The editor doc keeps raw line endings (CRLF on Windows), but the
-          // server verifies selections in LF-normalized space (lib/index.js
-          // validateDirtySelection / verifyCleanSelection): normalize the text
-          // and map offsets there. Columns are line-local and unaffected; only
-          // absolute offsets shift by one per preceding CRLF.
-          let crlfPrefix = crlfPrefixCacheRef.current.prefix
-          if (docChanged || crlfPrefixCacheRef.current.text !== text) {
-            if (text.length <= CRLF_TABLE_MAX_CHARS) {
-              crlfPrefix = new Int32Array(text.length + 1)
-              /* Count every CRLF pair whose LF lands AT or before pos: a boundary
-                 exactly on the LF character (raw position = the \n) must still
-                 shift by this pair, or the normalized offset is off by one. */
-              for (let i = 0; i < text.length; i += 1) {
-                crlfPrefix[i + 1] = crlfPrefix[i] + (text.charCodeAt(i) === 13 && text.charCodeAt(i + 1) === 10 ? 1 : 0)
-              }
-            } else {
-              /* Oversized file: no table (see CRLF_TABLE_MAX_CHARS) — the
-                 crlfBefore fallback scans [0, pos) directly. */
-              crlfPrefix = null
-            }
-            crlfPrefixCacheRef.current = { text, prefix: crlfPrefix }
-          }
-          const crlfBefore = (pos) => {
-            if (crlfPrefix !== null) return crlfPrefix[pos]
-            let count = 0
-            for (let i = 0; i < pos; i += 1) {
-              if (text.charCodeAt(i) === 13 && text.charCodeAt(i + 1) === 10) count += 1
-            }
-            return count
-          }
-          const from = main.from - crlfBefore(main.from)
-          const to = main.to - crlfBefore(main.to)
+          /* CodeMirror internal positions count each line break as ONE unit
+             and keep breaks out of line content — its lineSeparator facet
+             declares '\r\n' as the break for CRLF files, so a CRLF pair is a
+             single two-char unit inside the doc, not '\r' content + '\n'
+             break. sliceDoc() EXPANDS breaks back out ('\r\n' → 2 chars), and
+             LF-normalizing the slice deletes exactly the '\r' of each break:
+             normalized text length === main.to - main.from, and the internal
+             coordinates ARE the LF-normalized coordinates the server verifies
+             against (lib/index.js validateDirtySelection / verifyCleanSelection).
+             An earlier offset table that subtracted one per preceding CRLF
+             pair (built on the wrong assumption that the doc keeps raw '\r'
+             in line content) shifted every cross-line selection off by one
+             break and made the Host reject it with the
+             "选区偏移与选中文本长度不一致" 409. */
+          const text = state.sliceDoc(main.from, main.to).replace(/\r\n/g, '\n').replace(/\r/g, '\n')
           return {
-            from,
-            to,
+            from: main.from,
+            to: main.to,
             startLine: start.number,
             startColumn: main.from - start.from + 1,
             endLine: end.number,
             endColumn: main.to - end.from + 1,
-            text: state.sliceDoc(main.from, main.to).replace(/\r\n/g, '\n').replace(/\r/g, '\n'),
+            text,
           }
         })()
     // Dirty = "differs from the committed snapshot". The source file is never
@@ -599,7 +570,22 @@ export function useEditorSession({
         reloadingPathsRef.current.delete(activePath)
         const message = error instanceof Error ? error.message : String(error)
         setPreview({ state: 'error', path: activePath, message })
-        updateTab(activePath, { saving: false, status: { error: true, text: message } })
+        /* A DIRTY tab whose file read fails (deleted/moved/corrupt) would
+           otherwise deadlock: save/cancel are gated on preview.state==='ready',
+           closeTab refuses dirty tabs, and discardDraft refuses non-ready
+           previews — no UI path out. Mark the tab clean WITHOUT touching the
+           staging draft (closeTab only clears it for non-editable dirty tabs,
+           so the unsaved work survives in the staging area + emergency mirror
+           and is restored if the file becomes readable again). */
+        if (tab?.dirty === true) {
+          const notice = translate('editor.readFailedDraftPreserved', { message })
+          updateTab(activePath, { saving: false, dirty: false, draft: '', draftKnown: false, status: { error: true, text: notice } })
+          setDirty(false)
+          setDraft('')
+          setStatus({ error: true, text: notice })
+        } else {
+          updateTab(activePath, { saving: false, status: { error: true, text: message } })
+        }
       }
     })
     return () => {
