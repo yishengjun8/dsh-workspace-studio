@@ -212,12 +212,14 @@ export function useSessionMenu({ props, mountedRef }) {
     setSessionInlineRename(undefined)
     revealSessionById(menu.sessionId)
   }, [revealSessionById, sessionContextMenu])
-  // Sidebar mind-map entries: open the root session (its conversation shows
-  // on the right) and open the floating mind-map overlay for its document.
+  // Sidebar mind-map entries: open the floating overlay for the document. The
+  // chat switch is left to the map view, which lands on the map's
+  // last-selected session (root as fallback) only AFTER the doc loads and
+  // validates it — pre-switching the chat to the root here caused a visible
+  // root → remembered double hop on every open.
   const openMindmapSession = useCallback((id) => {
-    props.openSession(String(id))
     mindmapOverlayStore.open(String(id))
-  }, [props.openSession])
+  }, [])
   return {
     sessionContextMenu, sessionMenuRef, sessionInlineRename, sessionInlineRenameBusy,
     sessionInlineRenameError, sessionNotice, beginSessionInlineRename,

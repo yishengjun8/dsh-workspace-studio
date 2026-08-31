@@ -9,6 +9,7 @@ import { createEntry, fsOperation, renameEntry, saveFile } from './write.js'
 import { deleteDraftFile, draftTreeOperation, parseDraftGenerationQuery, readDraftFile, saveDraftFile, validateDraftOwner, validateDraftPayload, writeJsonAtomic } from './drafts.js'
 import { adoptMindmapOrphans, buildMindmapDoc, deleteMindmapDoc, findMindmapDocWithAncestors, indexMindmapDocs, isValidMindmapDoc, listMindmapModels, MINDMAP_DOC_MAX_BYTES, mindmapAnchorOf, mindmapDocPath, mindmapDrainPendingSessionSummaries, mindmapLock, mindmapLockedReanchorOp, mindmapSessionSummarizingOf, mindmapSummarizingOf, mindmapSyncCache, parseMindmapSummaryConfig, purgeArchivedMindmapDocs, readMindmapDocFile, refreshMindmapDocCore, regenerateAllMindmapSummaries, regenerateMindmapSummary, renameMindmapDoc, summarizeMindmapSession, syncMindmapDoc, validateMindmapSession, writeMindmapDoc } from './mindmap.js'
 import { renderPromptContext } from './prompt-context.js'
+import { checkForUpdate, downloadUpdate } from './update.js'
 import { workspaceFor } from './workspace.js'
 /** Stable Cordis plugin name. */
 export const name = 'workspace-studio'
@@ -35,6 +36,8 @@ export const Config = z.object({
   maxMatchesPerFile: z.natural().min(1).max(10_000).default(100),
   searchConcurrency: z.natural().min(1).max(64).default(16),
   maxSearchQueryLength: z.natural().min(1).max(4096).default(1024),
+  // Self-update gate: when false the update endpoints refuse and the settings UI hides the group.
+  enableUpdateCheck: z.boolean().default(true),
 })
 
 const API_PREFIX = '/workspace-studio/api'
@@ -105,6 +108,8 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
     const mindmapDocRegenerateEndpoint = url.pathname === `${API_PREFIX}/mindmap-doc/regenerate-summary`
     const mindmapDocRegenerateAllEndpoint = url.pathname === `${API_PREFIX}/mindmap-doc/regenerate-all`
     const mindmapDocSummarizeSessionEndpoint = url.pathname === `${API_PREFIX}/mindmap-doc/summarize-session`
+    const updateCheckEndpoint = url.pathname === `${API_PREFIX}/update/check`
+    const updateDownloadEndpoint = url.pathname === `${API_PREFIX}/update/download`
     const allowed = contextEndpoint
       ? 'POST'
       : encodingsEndpoint
@@ -139,16 +144,20 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
                                       ? 'POST'
                                       : mindmapDocSummarizeSessionEndpoint
                                         ? 'POST'
-                                        : mindmapDocEndpoint
-                                          ? 'GET, HEAD, POST, DELETE'
-                                          : draftEndpoint
-                                            ? 'GET, HEAD, PUT, DELETE'
-                                            : undefined
+                                        : updateCheckEndpoint
+                                          ? 'GET, HEAD'
+                                          : updateDownloadEndpoint
+                                            ? 'POST'
+                                            : mindmapDocEndpoint
+                                              ? 'GET, HEAD, POST, DELETE'
+                                              : draftEndpoint
+                                                ? 'GET, HEAD, PUT, DELETE'
+                                                : undefined
     if (allowed !== undefined && !allowed.split(', ').includes(req.method ?? '')) {
       sendError(req, res, 405, 'method-not-allowed', `该接口只允许 ${allowed} 请求`, { allow: allowed })
       return
     }
-    if (!contextEndpoint && !encodingsEndpoint && !entryEndpoint && !externalFileEndpoint && !fileEndpoint && !fsEndpoint && !treeEndpoint && !searchEndpoint && !revealEndpoint && !draftEndpoint && !draftTreeEndpoint && !mindmapDocEndpoint && !mindmapDocIndexEndpoint && !mindmapDocSyncEndpoint && !mindmapDocRenameEndpoint && !mindmapDocModelsEndpoint && !mindmapDocRegenerateEndpoint && !mindmapDocRegenerateAllEndpoint && !mindmapDocSummarizeSessionEndpoint) {
+    if (!contextEndpoint && !encodingsEndpoint && !entryEndpoint && !externalFileEndpoint && !fileEndpoint && !fsEndpoint && !treeEndpoint && !searchEndpoint && !revealEndpoint && !draftEndpoint && !draftTreeEndpoint && !mindmapDocEndpoint && !mindmapDocIndexEndpoint && !mindmapDocSyncEndpoint && !mindmapDocRenameEndpoint && !mindmapDocModelsEndpoint && !mindmapDocRegenerateEndpoint && !mindmapDocRegenerateAllEndpoint && !mindmapDocSummarizeSessionEndpoint && !updateCheckEndpoint && !updateDownloadEndpoint) {
       sendError(req, res, 404, 'endpoint-not-found', '接口不存在')
       return
     }
@@ -172,16 +181,10 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
     }
     if (mindmapDocSyncEndpoint) {
       const payload = await readJsonObject(req, config, MINDMAP_DOC_MAX_BYTES)
-      /* Prefer the plural selector, keeping the singular field for rolling
-         upgrades (legacy callers get one live object, new callers an array). */
-      const pluralQuery = url.searchParams.get('liveSessionIds')
-      const legacyQuery = url.searchParams.get('liveSessionId')
-      const pluralRaw = pluralQuery ?? payload?.liveSessionIds
-      const legacyRaw = legacyQuery ?? payload?.liveSessionId
-      const hasPlural = pluralQuery !== null || pluralRaw !== undefined && pluralRaw !== null
-      const legacyResponse = !hasPlural && (legacyQuery !== null || legacyRaw !== undefined && legacyRaw !== null)
+      /* The live-session selector is the plural `liveSessionIds` (query param
+         or body field); the response's `live` is always an array. */
+      const liveRaw = url.searchParams.get('liveSessionIds') ?? payload?.liveSessionIds
       let liveSessionIds
-      const liveRaw = hasPlural ? pluralRaw : legacyRaw
       if (Array.isArray(liveRaw)) {
         liveSessionIds = liveRaw.map(v => validateMindmapSession(v))
       } else if (typeof liveRaw === 'string' && liveRaw !== '') {
@@ -193,8 +196,7 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
       if (result === null) {
         sendJson(req, res, 200, { exists: false })
       } else {
-        const live = legacyResponse ? (result.live[0] ?? null) : result.live
-        sendJson(req, res, 200, { exists: true, doc: result.doc, live, warnings: result.warnings, summarizing: result.summarizing, sessionSummarizing: result.sessionSummarizing })
+        sendJson(req, res, 200, { exists: true, doc: result.doc, live: result.live, warnings: result.warnings, summarizing: result.summarizing, sessionSummarizing: result.sessionSummarizing })
       }
       return
     }
@@ -236,6 +238,29 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
         throw new HttpError(400, 'invalid-title', '导图标题无效')
       }
       sendJson(req, res, 200, await renameMindmapDoc(ctx, persistence, sessionId, rawTitle.trim()))
+      return
+    }
+    /* Plugin self-update (设置 → 工作区设置 → 插件更新): check compares the
+       installed version against the GitHub main branch; download pins the
+       codeload tarball to the checked commit and swaps the installed package
+       dir atomically. Plugin-global, so both are handled before the
+       workspaceId requirement. */
+    if (updateCheckEndpoint) {
+      /* HEAD must not run the check: it would download the main-branch
+         tarball for a request whose body the client never reads. Answer the
+         gate only (sendJson omits the body for HEAD). */
+      if (req.method === 'HEAD') {
+        sendJson(req, res, 200, { enabled: config.enableUpdateCheck !== false })
+        return
+      }
+      /* force=1 from the explicit 检查更新/重试 buttons: bypass the check
+         cache TTL and re-download the main-branch tarball. */
+      sendJson(req, res, 200, await checkForUpdate(ctx, config, url.searchParams.get('force') === '1'))
+      return
+    }
+    if (updateDownloadEndpoint) {
+      const payload = await readJsonObject(req, config)
+      sendJson(req, res, 200, await downloadUpdate(ctx, config, payload))
       return
     }
     if (mindmapDocEndpoint) {

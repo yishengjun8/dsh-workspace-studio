@@ -104,6 +104,7 @@
 ### 外观与设置
 
 - 使用 Harness 主题语义变量，支持亮色、暗色与系统主题。
+- 设置页**顶部**提供**插件更新**组：从 GitHub（yishengjun8/dsh-workspace-studio）的 main 分支检查新版本，一键下载并替换插件的安装文件，完成后提示**重启 dsh 并刷新页面**生效（本地 `file:` 开发安装只替换 profile 副本，本地仓库不受影响）。
 - 工作区设置页按组提供：**会话浏览设置**（侧栏导图条目流式输出时旋转图标的速度，倍速 0–3×，越大越快，默认 1.2×）、**导图浏览设置**（悬浮高亮与选中高亮颜色、会话头卡片与末端卡片提示色、导图挂载连线弯曲幅度，0–6× 默认 5×，0 为直线）、**文件浏览设置**（文件树行高、搜索结果显示方式、文件图标徽标配色）、**内容浏览设置**（每类文件高亮预设、冲突弹窗对比字号、文件浏览页面显示在对话左侧或右侧（默认左侧）、监听文件更改并自动同步（默认开启，可改为仅提示不自动刷新））、**对话页面设置**（Think 条自动展开与延迟）。
 - 侧边栏底部提供「手机模式」开关：开启后整栏布局切换为居中的手机竖屏列，侧栏变为由左上角鲸鱼开合的悬浮抽屉（会话列表与文件树仍在其中）；会话头部鲸鱼右侧出现「文件内容浏览」按钮，点击后文件浏览铺满手机列、会话头部保持可操作。手机模式为瞬态状态，刷新后回到桌面布局。
 
@@ -117,7 +118,7 @@
 
 一个包内封装三个端面：
 
-- **Host 端**（`lib/index.js`）注册 `/workspace-studio/api`：按 Workspace ID 列目录、读取有上限的 UTF-8 文件，按 membership 或规范化 cwd 授权当前 Session；显式启用编辑时，通过修订版本校验、单段名称校验和原子替换保存已有普通文件、新建文件与文件夹、重命名已有条目，拒绝过期修订版本而不是静默覆盖。另提供 `/mindmap-doc`（读 / 写 / 删）与 `/mindmap-doc/sync`、`/mindmap-doc/index`、`/mindmap-doc/rename` 接口：按会话持久化导图文档，反向解析完整事件日志折叠所有会话的轮次，重命名只更新导图标题而不整份往返。
+- **Host 端**（`lib/index.js`）注册 `/workspace-studio/api`：按 Workspace ID 列目录、读取有上限的 UTF-8 文件，按 membership 或规范化 cwd 授权当前 Session；显式启用编辑时，通过修订版本校验、单段名称校验和原子替换保存已有普通文件、新建文件与文件夹、重命名已有条目，拒绝过期修订版本而不是静默覆盖。另提供 `/mindmap-doc`（读 / 写 / 删）与 `/mindmap-doc/sync`、`/mindmap-doc/index`、`/mindmap-doc/rename` 接口：按会话持久化导图文档，反向解析完整事件日志折叠所有会话的轮次，重命名只更新导图标题而不整份往返。再有 `/update/check`（比较已安装版本与 GitHub main 分支版本）与 `/update/download`（校验并原子替换自身安装目录），供设置页「插件更新」组使用；替换后需重启 dsh 生效。
 - **Browser 端**（`lib/client.js`）提供兼容的 `ctx.layout` 服务，占用根 Slot，继续声明 `sidebar`、`conversation`、`details` 与 `shell.overlay`，并加入文件树、CodeMirror 6 浏览器/编辑器、编辑器上下文行、工作区设置页、`/init` 命令与会话分支导图悬浮窗。
 - **共享不变量**（`lib/invariant.js`）为每次 Host 请求提供路径包含与写入资格校验。
 
@@ -203,6 +204,7 @@ bash ./uninstall.sh
 | `maxEntryNameBytes` | `255` | 新建/重命名条目名称最大 UTF-8 字节（1–1024）。 |
 | `maxMutationBodyBytes` | `4096` | create/rename 请求最大 JSON 字节（128–65536）。 |
 | `maxPreviewBytes` | `1048576` | 单文件读取并返回的最大字节（1024–10485760）。 |
+| `enableUpdateCheck` | `true` | 是否启用「插件更新」的检查与下载（设为 `false` 时设置页隐藏该组，更新接口直接拒绝）。 |
 
 > 💡 改配置直接编辑 bundle 的 `cordis.patch.yml`；为避免 pnpm 复用已安装的本地 `file:` 副本，先运行 `uninstall.sh`，再运行 `install.sh`，最后重启 Web 进程。
 
@@ -213,6 +215,8 @@ bash ./uninstall.sh
 **写入保护**：写入接口仅在 `enableEditing` 开启时接受 `PUT`，正文必须是有上限的 UTF-8 文本，且必须携带读取时的 `If-Match` 修订版本，版本不一致返回冲突而不覆盖；写入目标必须是已存在且不经过任何符号链接的普通文件。create/rename 沿用相同的路径包含校验，要求单段名称、拒绝已存在目标，并拒绝 Windows 保留设备名（`CON`/`PRN`/`AUX`/`NUL`/`COM1-9`/`LPT1-9`）与以点或空格结尾的名称。Host 通过同目录临时文件、文件同步与原子重命名提交，并尽量保留原权限模式。
 
 **上下文安全**：编辑器上下文只接受拥有当前 Session 的 Workspace 内相对路径（拥有关系来自 membership projection 或会话规范化 cwd）；仅路径上下文不携带文件字节。Host 拒绝符号链接，按磁盘修订校验 clean 选区，`maxPreviewBytes` 截断预览时以浏览器提交文本为权威，并把渲染文本拼接在直接提示前，因此普通 Session 日志记录实际模型可见上下文；对话页把它折叠成气泡上方显示文件名与行列范围的一行摘要，历史只渲染已记录的用户消息，不重新读取当前编辑器或磁盘。
+
+**自更新保护**：`/update/check` 与 `/update/download` 仅向受信任来源开放（与其余接口相同的 Host / Origin / Fetch-Metadata 门禁）；检查下载 main 分支源码包并缓存，安装的正是检查阶段缓存的那份（再次校验包名、版本与 `lib/`、`cordis.patch.yml` 等关键文件后提交），经同目录暂存、备份与原子改名完成，失败自动回滚；替换的是插件自身的安装目录（本地 `file:` 安装只影响 profile 副本）。检查与安装全程只走 `codeload.github.com`——`github.com` / `api.github.com` / `raw.githubusercontent.com` 常被 hosts 级 GitHub 加速代理指向本地并签发自签证书，Node 的 CA 库会拒绝，而 codeload 不受影响。更新只在用户在设置页明确点击后触发，不自动检查、不自动重启。
 
 > ⚠️ 这些限制只约束资源管理器自己的文件接口与 Composer 上下文，不改变 agent 的权限策略、沙箱或工具能力；接口为受信任本地 UI 操作提供应用级路径包含校验，不替代 Harness 的内核级沙箱。
 

@@ -68,7 +68,7 @@ export function prunePreviewSessions(draft) {
      are pruned first; the legacy entry self-heals on the next remember. A
      non-numeric timestamp (polluted/legacy data) is coerced via Number() so
      the subtraction never yields NaN (which would leave the sort order
-     undefined). */
+     undefined and could evict a fresh session's snapshot). */
   const stampOf = entry => {
     const value = Number(entry?.[1]?.updatedAt)
     return Number.isFinite(value) ? value : Infinity

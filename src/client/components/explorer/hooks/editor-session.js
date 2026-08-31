@@ -11,6 +11,13 @@ import { entryFromPreviewTab } from '../../../preview-tabs.js'
 import { rewriteRelativePath } from '../../../paths.js'
 import { deleteEmergencyDraft, readEmergencyDraft, writeEmergencyDraft } from '../../../drafts.js'
 
+/* CRLF prefix-table size cap: the table costs 4 bytes per character and is
+   rebuilt on every doc change, so a very large file would allocate tens of
+   MB per keystroke. Above the cap, publishContextState falls back to a
+   direct scan of [0, pos) — the same O(pos) the table build cost, without
+   the allocation. */
+const CRLF_TABLE_MAX_CHARS = 512 * 1024
+
 export function useEditorSession({
   workspace, draftScopeId, activePath, activeTab, tabsRef, activePathRef, updateTab, setTabs,
   setSelected, publishEditorContext, loadDraft, readFile, saveFile, persistDraftFile,
@@ -97,16 +104,29 @@ export function useEditorSession({
           // absolute offsets shift by one per preceding CRLF.
           let crlfPrefix = crlfPrefixCacheRef.current.prefix
           if (docChanged || crlfPrefixCacheRef.current.text !== text) {
-            crlfPrefix = new Int32Array(text.length + 1)
-            /* Count every CRLF pair whose LF lands AT or before pos: a boundary
-               exactly on the LF character (raw position = the \n) must still
-               shift by this pair, or the normalized offset is off by one. */
-            for (let i = 0; i < text.length; i += 1) {
-              crlfPrefix[i + 1] = crlfPrefix[i] + (text.charCodeAt(i) === 13 && text.charCodeAt(i + 1) === 10 ? 1 : 0)
+            if (text.length <= CRLF_TABLE_MAX_CHARS) {
+              crlfPrefix = new Int32Array(text.length + 1)
+              /* Count every CRLF pair whose LF lands AT or before pos: a boundary
+                 exactly on the LF character (raw position = the \n) must still
+                 shift by this pair, or the normalized offset is off by one. */
+              for (let i = 0; i < text.length; i += 1) {
+                crlfPrefix[i + 1] = crlfPrefix[i] + (text.charCodeAt(i) === 13 && text.charCodeAt(i + 1) === 10 ? 1 : 0)
+              }
+            } else {
+              /* Oversized file: no table (see CRLF_TABLE_MAX_CHARS) — the
+                 crlfBefore fallback scans [0, pos) directly. */
+              crlfPrefix = null
             }
             crlfPrefixCacheRef.current = { text, prefix: crlfPrefix }
           }
-          const crlfBefore = (pos) => crlfPrefix[pos]
+          const crlfBefore = (pos) => {
+            if (crlfPrefix !== null) return crlfPrefix[pos]
+            let count = 0
+            for (let i = 0; i < pos; i += 1) {
+              if (text.charCodeAt(i) === 13 && text.charCodeAt(i + 1) === 10) count += 1
+            }
+            return count
+          }
           const from = main.from - crlfBefore(main.from)
           const to = main.to - crlfBefore(main.to)
           return {
@@ -635,26 +655,23 @@ export function useEditorSession({
     }
   }, [draftScopeId, draftTree, nextDraftGeneration, workspace.workspaceId])
 
-  /* Drop the per-path runtime bookkeeping when a tab closes, so reopening the
-     path starts clean: no stale scroll position resurrected, no stale last-write
-     dedup skipping the first auto-save of a repeat edit, no orphan draft
-     generation. The tab is guaranteed clean here (dirty/saving tabs cannot be
-     closed), so nothing unsaved is dropped. */
+  /* Drop the per-path runtime bookkeeping when a tab closes: no stale
+     last-write dedup skipping the first auto-save of a repeat edit, no orphan
+     draft generation. The tab is guaranteed clean here (dirty/saving tabs
+     cannot be closed), so nothing unsaved is dropped. The live scroll ref is
+     deliberately KEPT (see below) so a same-session reopen restores the real
+     scroll position. */
   const forgetPathRefs = useCallback((path) => {
     clearAutosaveTimer(path)
     lastWriteRef.current.delete(path)
-    /* Merge the LIVE scroll position into the tab before dropping the ref: the
-       ref only ever holds the last scroll-event value, and the in-memory tab
-       keeps the mount-time value — without this, closing and reopening the tab
-       in the same session would restore the stale mount-time scroll (while a
-       page refresh, which serializes the live value, restores the real one). */
-    const liveScroll = scrollTopRef.current.get(path)
-    if (liveScroll !== undefined) {
-      setTabs(current => current.map(tab => tab.path === path && Number.isFinite(liveScroll)
-        ? { ...tab, scrollTop: liveScroll }
-        : tab))
-    }
-    scrollTopRef.current.delete(path)
+    /* KEEP the scrollTopRef entry: the read path restores
+       `scrollTopRef.get(path) ?? tab?.scrollTop ?? 0`, so a same-session
+       reopen after close picks up the LIVE scroll from the ref. (The old code
+       tried to merge the live value into the tab here, but closeTab's setTabs
+       had already removed the tab — React batches the two updates, so the
+       merge was a no-op — and then deleted the ref, so a reopen fell back to
+       the stale mount-time scroll.) One number per closed path is a
+       negligible cost. */
     watchSnapshotsRef.current.delete(path)
     reloadingPathsRef.current.delete(path)
     /* Keep the per-path generation entry alive while a draft op is queued:

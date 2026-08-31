@@ -22,7 +22,7 @@ let mindmapClientSessionSeq = 0
    the identity-keyed family-string cache in useMindmapSessionView). */
 const EMPTY_FAMILY_IDS = []
 
-/* The floating mind map: a persisted turn tree (flat session list, no trunk)
+/* The floating mind map: a persisted turn tree (flat session list)
    rendered from the doc, with pan/zoom and per-card forking. Rendered inside
    the left-side overlay window; card clicks switch the right-side chat. */
 
@@ -80,9 +80,33 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
      calls setSession). Recording the landing session here keeps the last
      clicked card remembered per root (rootIdRef read at call time so a family
      switch writes under the CURRENT root). */
+  /* Synchronous mirror of the last-selected session: writeMindmapLastSession
+     persists through Web Locks (async), so a same-tick restoreLastSession
+     could read the PREVIOUS selection from localStorage and bounce the chat
+     back to the old branch. The ref is the same-tick source of truth;
+     localStorage remains the cross-reload source. Reset on a family switch
+     (the full-reload branch of the load effect). */
+  const lastSelectedRef = useRef(null)
   const switchToSession = useCallback((id) => {
-    openSessionRef.current(String(id))
-    if (rootIdRef.current !== null) writeMindmapLastSession(String(rootIdRef.current), String(id))
+    const target = String(id)
+    lastSelectedRef.current = target
+    openSessionRef.current(target)
+    if (rootIdRef.current !== null) writeMindmapLastSession(String(rootIdRef.current), target)
+  }, [])
+  /* Land the chat + highlight on the target session in ONE switch: the
+     remembered session when it still exists in the loaded doc, the root
+     otherwise. Called only after a load/open where the doc is authoritative —
+     the sidebar entry no longer pre-switches the chat to the root (see
+     openMindmapSession), so this single call replaces the old root →
+     remembered double hop. */
+  const restoreLastSession = useCallback((loadedDoc, loadedRoot) => {
+    const remembered = lastSelectedRef.current ?? readMindmapLastSession(String(loadedRoot))
+    const target = remembered !== null
+      && (loadedDoc?.sessions ?? []).some(s => String(s?.sessionId) === remembered)
+      ? remembered
+      : String(loadedRoot)
+    lastSelectedRef.current = target
+    openSessionRef.current(target)
   }, [])
   const renameSessionRef = useRef(renameSession)
   renameSessionRef.current = renameSession
@@ -188,6 +212,14 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     if (rootId !== null && (String(sessionId) === String(rootId)
       || (doc?.sessions ?? []).some(s => String(s?.sessionId) === String(sessionId)))) {
       setForkError(null)
+      /* Re-opening THIS map while the overlay was already showing it (a
+         sidebar entry click after card clicks moved the highlight away) sets
+         the overlay sessionId back to the root: restore the map's
+         last-selected session here too, so the chat and highlight do not
+         strand on the first branch. In-family card clicks never hit this —
+         they funnel through switchToSession, which has already written the
+         new selection as the remembered session (a no-op restore). */
+      if (String(sessionId) === String(rootId)) restoreLastSession(doc, String(rootId))
       return undefined
     }
     let cancelled = false
@@ -196,6 +228,10 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     setLive([])
     setPhase({ status: 'loading' })
     setForkError(null)
+    /* A different family loads: the same-tick selection mirror belongs to the
+       previous family — restoreLastSession must fall back to localStorage
+       (keyed by the NEW root) instead of reusing the old family's selection. */
+    lastSelectedRef.current = null
     /* A different family loads: drop any hover from the previous map (a stale
        key matches no node anyway, but resetting keeps state honest).
        In-family switches skip this branch on purpose. */
@@ -270,20 +306,15 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         setPhase({ status: 'ready' })
         mindmapRegistry.markDirty()
         if (payload.created === true) showNotice(translate('mindmap.created'))
-        /* Restore the last selected session of this map family: opening at the
-           ROOT defaults to the first branch; when a remembered session still
-           exists in this doc, open it so the "当前" highlight AND the right-side
-           chat return to the last clicked card. An open from a branch header
-           button (id already inside the family) skips this — the user's
-           explicit choice wins. */
+        /* Restore the last selected session of this map family: the chat lands
+           ONCE on the remembered session when it still exists in this doc
+           (root fallback otherwise, keeping the "open on the first branch"
+           default). The sidebar entry no longer pre-switches the chat to the
+           root, so this single switch replaces the old double hop. An open
+           from a branch header button (id already inside the family) skips
+           this — the user's explicit choice wins. */
         const loadedRoot = String(loaded.rootSessionId)
-        if (id === loadedRoot) {
-          const remembered = readMindmapLastSession(loadedRoot)
-          if (remembered !== null && remembered !== loadedRoot
-            && (loaded.sessions ?? []).some(s => String(s?.sessionId) === remembered)) {
-            openSessionRef.current(remembered)
-          }
-        }
+        if (id === loadedRoot) restoreLastSession(loaded, loadedRoot)
       })
       .catch((error) => {
         /* Same rule as the empty path: a failed conversion must not leave the
@@ -329,13 +360,21 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
             setPhase({ status: 'ready' })
             mindmapRegistry.markDirty()
             if (payload.created === true) showNotice(translate('mindmap.created'))
+            /* Same single-switch rule as the load path: once the probe's
+               conversion makes the doc authoritative, land the chat on the
+               remembered session (root fallback) — without this, opening an
+               EMPTY map from the sidebar never switches the chat (the old
+               openMindmapSession pre-switch covered it). */
+            if (String(sessionId) === String(loaded.rootSessionId)) {
+              restoreLastSession(loaded, String(loaded.rootSessionId))
+            }
           }
         })
         .catch(() => { /* transient: keep polling */ })
     }
     const timer = window.setInterval(probe, MINDMAP_SYNC_MS)
     return () => { cancelled = true; window.clearInterval(timer) }
-  }, [phase.status, sessionId, showNotice])
+  }, [phase.status, restoreLastSession, sessionId, showNotice])
 
   /* Apply one sync payload: fold the refreshed doc (only when the structure
      changed) and keep the live-turn info for the streaming card (identity-
@@ -385,17 +424,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     }
     /* The live list is identity-compared so a static set of in-flight
        questions does not re-render the map on every sync. */
-    const liveNext = Array.isArray(payload?.live)
-      ? payload.live
-      : payload?.live !== null && payload?.live !== undefined && typeof payload.live === 'object'
-        ? [{
-            // Older Hosts return one object and may omit its session id; the
-            // first currently-running family id is the compatible fallback.
-            sessionId: String(payload.live.sessionId ?? runningFamilyIdsRef.current[0] ?? ''),
-            turn: payload.live.turn,
-            question: payload.live.question,
-          }]
-        : []
+    const liveNext = Array.isArray(payload?.live) ? payload.live : []
     setLive(prev => {
       if (prev.length !== liveNext.length) return liveNext
       for (let i = 0; i < liveNext.length; i += 1) {
@@ -1369,8 +1398,15 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         }
         setArchiveBranchTarget(null)
         const adoptRoot = String(saveRoot)
+        /* Family-generation guard: the reload is async and the overlay stays
+           mounted across family switches (mountedRef is always true while the
+           overlay is open), so a stale reload could overwrite the NEW family's
+           view and pollute rootIdRef — stranding the periodic sync on the old
+           family. Apply the loaded doc only when the family is unchanged. */
+        const reloadFamily = String(rootIdRef.current ?? rootId)
         void Promise.resolve(loadDocRef.current(adoptRoot)).then((payload) => {
           if (!mountedRef.current) return
+          if (String(rootIdRef.current ?? '') !== reloadFamily) return
           const loaded = payload?.doc
           if (loaded !== null && loaded !== undefined && (loaded.sessions ?? []).length > 0) {
             lastFingerprintRef.current = mindmapDocFingerprint(loaded)
@@ -1783,10 +1819,10 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
           next.sessions = next.sessions.map(s =>
             String(s?.parentSessionId) === replacedId ? { ...s, parentSessionId: forkedChildId } : s)
           if (isRootReplacement) next.rootSessionId = forkedChildId
-          /* No tombstones: the truncated session's log just lacks the removed
-             turns and the old session (plus every pruned subtree session) is
-             archived, so nothing records which turns were cut. A failed archive
-             may legitimately resurrect the old session or leak a pruned session
+          /* Nothing records which turns were cut: the truncated session's log
+             just lacks the removed turns and the old session (plus every
+             pruned subtree session) is archived. A failed archive may
+             legitimately resurrect the old session or leak a pruned session
              into the sidebar (ACCEPTED — see docs/mindmap-notes.md). */
         } else {
           /* Whole-session removal: prune the session entry; the session (and
@@ -1893,8 +1929,15 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         }
         setDeleteTarget(null)
         const adoptRoot = String(saveRoot)
+        /* Family-generation guard: the reload is async and the overlay stays
+           mounted across family switches (mountedRef is always true while the
+           overlay is open), so a stale reload could overwrite the NEW family's
+           view and pollute rootIdRef — stranding the periodic sync on the old
+           family. Apply the loaded doc only when the family is unchanged. */
+        const reloadFamily = String(rootIdRef.current ?? rootId)
         void Promise.resolve(loadDocRef.current(adoptRoot)).then((payload) => {
           if (!mountedRef.current) return
+          if (String(rootIdRef.current ?? '') !== reloadFamily) return
           const loaded = payload?.doc
           if (loaded !== null && loaded !== undefined && (loaded.sessions ?? []).length > 0) {
             lastFingerprintRef.current = mindmapDocFingerprint(loaded)

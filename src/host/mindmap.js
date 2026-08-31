@@ -11,14 +11,13 @@ import { DRAFT_DIR_NAME, draftWorkspacePart, readJsonFileOrNull, writeJsonAtomic
  * (the first session converted; the rendered root node is a VIRTUAL node, not
  * a session), stored under ~/.dsh-plugin/dsh-workspace-studio/mindmap/ as the
  * single source of truth for the 导图 view. The map is a flat list of
- * SESSIONS (no trunk concept) — each a horizontal chain of question cards —
- * hanging either directly off the virtual root node (parentSessionId null, a
- * top-level session) or off a specific card of another session (a nested
- * fork, parentSessionId + parentTurn). Each turn carries a doc-wide display
- * number `n`, the session's own turn number `t`, and the turn/end `seq` (the
- * fork boundary). The Host re-parses each session's full log on sync so new
- * turns fold in regardless of the client's conversation window. v2 docs
- * (trunk + branches) are normalized to v3 on read.
+ * SESSIONS — each a horizontal chain of question cards — hanging either
+ * directly off the virtual root node (parentSessionId null, a top-level
+ * session) or off a specific card of another session (a nested fork,
+ * parentSessionId + parentTurn). Each turn carries a doc-wide display number
+ * `n`, the session's own turn number `t`, and the turn/end `seq` (the fork
+ * boundary). The Host re-parses each session's full log on sync so new turns
+ * fold in regardless of the client's conversation window.
  */
 
 const MINDMAP_SUB_DIR = 'mindmap'
@@ -222,87 +221,13 @@ export function mindmapDocPath(sessionId) {
   return join(mindmapRoot(), `${draftWorkspacePart(sessionId)}.json`)
 }
 
-/* A doc on disk may be v3 (sessions) or older v2 (trunk + branches),
-   normalized to v3 on read so nothing downstream touches the legacy fields.
+/* A doc on disk is a v3 document: { version: 3, rootSessionId, sessions }.
    Exported for the GET load path's degraded-refresh disk fallback. */
 export function isValidMindmapDoc(value) {
-  if (!isPlainObject(value)) return false
-  if (value.version === MINDMAP_DOC_VERSION) {
-    return typeof value.rootSessionId === 'string'
-      && Array.isArray(value.sessions)
-  }
-  if (value.version === 2) {
-    return typeof value.rootSessionId === 'string'
-      && Array.isArray(value.trunk)
-      && Array.isArray(value.branches)
-  }
-  return false
-}
-
-/* Normalize a persisted doc to v3 in place: v2 maps the trunk (the old root
-   session's turns) onto the first top-level session and each branch onto a
-   session off its recorded parent card; `id` stays for client key compat. */
-function normalizeMindmapDoc(doc) {
-  if (doc.version === MINDMAP_DOC_VERSION) return doc
-  if (doc.version === 2) {
-    const maxN = Math.max(
-      ...(doc.trunk ?? []).map(t => (Number.isSafeInteger(t?.n) ? Number(t.n) : 0)),
-      ...(doc.branches ?? []).flatMap(b => (b?.turns ?? []).map(t => (Number.isSafeInteger(t?.n) ? Number(t.n) : 0))),
-    )
-    /* v2's `next` may be "next available" (maxN+1) or "max used" depending on
-       the writer; the v3 contract is "next available", so take the max of the
-       recorded value and maxN+1 — never add another +1 on top (that skipped a
-       display number after every v2→v3 conversion). */
-    const next = Math.max(
-      Number.isSafeInteger(doc.next) && doc.next > 0 ? doc.next : 0,
-      maxN + 1,
-    )
-    const sessions = []
-    const trunk = (doc.trunk ?? []).filter(t => t !== null && t !== undefined)
-    /* The anchor session is always present (a v2 doc always has a root), even with an empty trunk. */
-    sessions.push({
-      id: `s0`,
-      sessionId: String(doc.rootSessionId),
-      parentSessionId: null,
-      parentTurn: null,
-      forkTurn: 0,
-      forkSeq: null,
-      turns: trunk.map(turn => ({ n: turn.n, t: turn.t, seq: turn.seq, user: turn.user })),
-    })
-    for (let i = 0; i < (doc.branches ?? []).length; i += 1) {
-      const b = (doc.branches ?? [])[i]
-      if (b === null || b === undefined || typeof b.sessionId !== 'string') continue
-      sessions.push({
-        id: `s${i + 1}`,
-        sessionId: String(b.sessionId),
-        parentSessionId: b.parentSessionId === undefined || b.parentSessionId === null
-          ? String(doc.rootSessionId)
-          : String(b.parentSessionId),
-        parentTurn: Number.isSafeInteger(b.parentTurn) ? Number(b.parentTurn) : null,
-        forkTurn: Number.isSafeInteger(b.forkTurn) ? Number(b.forkTurn) : 0,
-        forkSeq: Number.isSafeInteger(b.forkSeq) ? Number(b.forkSeq) : null,
-        turns: (b.turns ?? []).map(turn => ({ n: turn.n, t: turn.t, seq: turn.seq, user: turn.user })),
-      })
-    }
-    const normalized = {
-      version: MINDMAP_DOC_VERSION,
-      rootSessionId: String(doc.rootSessionId),
-      rootTitle: typeof doc.rootTitle === 'string' ? doc.rootTitle : '',
-      createdAt: Number(doc.createdAt) || 0,
-      updatedAt: Number(doc.updatedAt) || 0,
-      next,
-      sessions,
-      /* Carry the legacy tombstone fields through the v2→v3 conversion: the
-         reconcile/adopt paths still filter by mindmapDeletedKeys(doc) /
-         doc.deletedBranches FOR OLD DOCS until they are rewritten without
-         tombstones. Dropping them here would resurrect the deleted cards and
-         pruned branches of every v2 file the moment it is normalized. */
-      ...(Array.isArray(doc.deleted) ? { deleted: doc.deleted } : {}),
-      ...(Array.isArray(doc.deletedBranches) ? { deletedBranches: doc.deletedBranches } : {}),
-    }
-    return normalized
-  }
-  return doc
+  return isPlainObject(value)
+    && value.version === MINDMAP_DOC_VERSION
+    && typeof value.rootSessionId === 'string'
+    && Array.isArray(value.sessions)
 }
 
 /* Every text block of a content list (reasoning skipped) joined with line
@@ -604,9 +529,12 @@ function mindmapSummaryPump() {
     mindmapSummaryWorkers += 1
     const jobKey = `${job.sessionId}:${job.seq}`
     /* The enqueue already added the key to inFlight; mark it RUNNING here and
-       re-assert the regenerating flag for a force='all' replacement — the
-       original's finally cleared both, and a replacement must keep the
-       "generating summary" status visible until ITS summary lands. */
+       re-assert the inFlight + regenerating flags for a force='all'
+       replacement — the original's finally cleared all three, and a
+       replacement must keep the "generating summary" status visible until ITS
+       summary lands (without the inFlight re-add, mindmapSummarizingOf stops
+       reporting the turn while the replacement runs). */
+    mindmapSummaryInFlight.add(jobKey)
     mindmapSummaryRunning.add(jobKey)
     if (job.forceAll === true) mindmapSummaryRegenerating.add(jobKey)
     void (async () => {
@@ -1470,7 +1398,7 @@ export async function readMindmapDocFile(sessionId) {
       }
     }
     if (value === null) return null
-    if (isValidMindmapDoc(value)) return normalizeMindmapDoc(value)
+    if (isValidMindmapDoc(value)) return value
     if (isPlainObject(value) && typeof value.aliasTo === 'string' && value.aliasTo !== cursor) {
       cursor = value.aliasTo
       continue
@@ -1629,25 +1557,6 @@ export async function findMindmapDocWithAncestors(ctx, persistence, sessionId) {
   return null
 }
 
-/* Key of a turn's tombstone (deleted card): owner session + turn/end seq,
-   which is stable per log and survives fork copies so the tombstone stays
-   matchable. */
-function mindmapTurnKey(sessionId, seq) {
-  return `${String(sessionId)}:${String(seq)}`
-}
-
-/* The doc's tombstone key set (field `deleted`, written by the client's card deletion). */
-function mindmapDeletedKeys(doc) {
-  const keys = new Set()
-  for (const entry of doc?.deleted ?? []) {
-    if (entry === null || entry === undefined) continue
-    if (typeof entry.sessionId === 'string' && Number.isSafeInteger(entry.seq)) {
-      keys.add(mindmapTurnKey(entry.sessionId, entry.seq))
-    }
-  }
-  return keys
-}
-
 /* Reconcile a doc against the CURRENT full logs: re-parse each session's log
    into its own turns (after its fork boundary), keeping display numbers stable;
    unavailable logs keep their recorded turns. Mutates the doc (doc.next). */
@@ -1661,18 +1570,16 @@ export async function reconcileMindmapDoc(ctx, persistence, doc) {
      next AVAILABLE number (maxN + 1) — adding another +1 here skipped a
      display number after every first sync / deletion (off-by-one, fixed). */
   next = Math.max(next, mindmapNextOf(doc))
-  /* Backfill the creation workspace (pre-existing/v2 docs lack the field) so
-     a root-node-created top-level session lands in the map's workspace. An
-     EXPLICIT '' (the root-node menu's "ungrouped" choice) is a real selection
-     and must survive: the old `=== ''` check silently undid it on every sync
-     (the client never saw the re-backfilled value either, since its
-     fingerprint lacked the field). */
+  /* Backfill the creation workspace (docs written before the field existed
+     lack it) so a root-node-created top-level session lands in the map's
+     workspace. An EXPLICIT '' (the root-node menu's "ungrouped" choice) is a
+     real selection and must survive: the old `=== ''` check silently undid it
+     on every sync (the client never saw the re-backfilled value either, since
+     its fingerprint lacked the field). */
   if (typeof doc.workspaceCwd !== 'string') {
     const cwd = await mindmapCwdOf(ctx, persistence, doc.rootSessionId)
     if (cwd !== undefined) doc.workspaceCwd = cwd
   }
-  /* Tombstoned turns (deleted cards) never resurface, however logs shift (re-parse, fork, or adoption). */
-  const deleted = mindmapDeletedKeys(doc)
   /* Sessions archived by ANY path (toolbar, sidebar, harness archive) are dead:
      drop them so the map self-heals instead of resurrecting them. The ANCHOR
      is never dropped here: an archived anchor makes the whole doc dead
@@ -1705,12 +1612,18 @@ export async function reconcileMindmapDoc(ctx, persistence, doc) {
         const removedSession = sessions.find(s => String(s?.sessionId) === removedId)
         for (const s of sessions) {
           if (String(s?.parentSessionId) !== removedId) continue
-          s.parentSessionId = removedSession?.parentSessionId === undefined || removedSession?.parentSessionId === null
-            ? null
-            : String(removedSession.parentSessionId)
-          s.parentTurn = removedSession?.parentTurn === undefined || removedSession?.parentTurn === null
-            ? null
-            : Number(removedSession.parentTurn)
+          /* Re-anchor the child to the removed session's OWN parent card —
+             but only when that card is known. A null/undefined parentTurn
+             has no card to hang off, and the client contract is parentTurn
+             null ONLY for top-level sessions (parentSessionId null):
+             producing a parentSessionId-set + parentTurn-null child would
+             make it invisible in the map layout and unprunable on deletion,
+             so such children become top-level instead. */
+          const removedParentTurn = removedSession?.parentTurn
+          const reanchorable = removedSession?.parentSessionId !== undefined && removedSession?.parentSessionId !== null
+            && removedParentTurn !== undefined && removedParentTurn !== null
+          s.parentSessionId = reanchorable ? String(removedSession.parentSessionId) : null
+          s.parentTurn = reanchorable ? Number(removedParentTurn) : null
           if (!seen.has(String(s.sessionId))) {
             seen.add(String(s.sessionId))
             queue.push(String(s.sessionId))
@@ -1732,7 +1645,6 @@ export async function reconcileMindmapDoc(ctx, persistence, doc) {
     const ownParsed = (Number.isSafeInteger(forkTurn) && forkTurn > 0
       ? parsedAll.filter(turn => turn.t > forkTurn)
       : parsedAll)
-      .filter(turn => !deleted.has(mindmapTurnKey(String(session.sessionId), turn?.seq)))
     const result = reconcileMindmapTurns(ownParsed, session.turns, next)
     session.turns = result.turns
     next = result.next
@@ -1835,13 +1747,6 @@ async function adoptMindmapOrphanPass(ctx, persistence, doc) {
       known.add(String(session.sessionId))
     }
   }
-  const deleted = mindmapDeletedKeys(doc)
-  /* Session-level tombstones: empty sessions pruned by a card deletion have no
-     turn tombstones, so their ids are listed here and never adopted back. */
-  const prunedSessions = new Set()
-  for (const id of doc?.deletedBranches ?? []) {
-    if (typeof id === 'string' && id !== '') prunedSessions.add(id)
-  }
   const index = await mindmapSessionIndex(ctx, persistence)
   let archived = new Set()
   try {
@@ -1852,7 +1757,7 @@ async function adoptMindmapOrphanPass(ctx, persistence, doc) {
   let adopted = 0
   for (const [sessionId, info] of index) {
     if (known.has(sessionId) || info.subagent) continue
-    if (archived.has(sessionId) || prunedSessions.has(sessionId)) continue
+    if (archived.has(sessionId)) continue
     const parent = info.parent
     if (parent === undefined || !known.has(String(parent))) continue
     const events = await eventsOf(ctx, persistence, sessionId)
@@ -1888,10 +1793,6 @@ async function adoptMindmapOrphanPass(ctx, persistence, doc) {
     if (boundary === undefined) continue
     const owned = mindmapBoundaryOwner(doc, String(parent), Number(boundary.t))
     if (owned === undefined) continue
-    /* An orphan forked AT a deleted card is not adopted: the card no longer
-       exists, so adoption would re-attach the child at a wrong (earlier)
-       boundary card; its turns are tombstoned, so it stays dormant. */
-    if (deleted.has(mindmapTurnKey(String(owned.owner), Number(boundary.seq)))) continue
     const chain = (doc.sessions ?? []).find(s => String(s?.sessionId) === String(owned.owner))?.turns ?? null
     if (chain === null) continue
     const card = chain.find(turn => Number(turn?.t) === Number(boundary.t))
@@ -1908,7 +1809,6 @@ async function adoptMindmapOrphanPass(ctx, persistence, doc) {
     /* Fold the child's own turns (after its fork boundary) with fresh display
        numbers, like forkBranchAt would. */
     const ownParsed = parsed.filter(turn => Number(turn.t) > session.forkTurn)
-      .filter(turn => !deleted.has(mindmapTurnKey(String(sessionId), Number(turn.seq))))
     const result = reconcileMindmapTurns(ownParsed, [], doc.next)
     session.turns = result.turns
     doc.next = result.next
@@ -2098,10 +1998,13 @@ export async function syncMindmapDoc(ctx, persistence, sessionId, liveSessionIds
     if (refresh.warnings.length === 0 && !syncWriteFailed) {
       /* adoptClean stays false while a deep orphan chain is still being
          adopted (see adoptMindmapOrphans' incomplete flag): the next sync
-         re-runs the adoption instead of skipping it on the unchanged signal. */
-      mindmapSyncCache.set(docRoot, { sig: settled.sig, doc: responseDoc, live, liveKey, at: Date.now(), refs: settled.refs, orphanSig, adoptClean: refresh.adoptIncomplete !== true })
-      /* Bounded LRU: evict the oldest entry when the cap is exceeded (each
-         entry can hold up to 2 MiB; the hit path refreshes insertion order). */
+         re-runs the adoption instead of skipping it on the unchanged signal.
+         The entry deliberately does NOT carry the doc: the hit path answers
+         doc:null (the client keeps its own copy), so storing up to 2 MiB per
+         entry would be pure dead memory (64 entries → up to 128 MiB). */
+      mindmapSyncCache.set(docRoot, { sig: settled.sig, live, liveKey, at: Date.now(), refs: settled.refs, orphanSig, adoptClean: refresh.adoptIncomplete !== true })
+      /* Bounded LRU: evict the oldest entry when the cap is exceeded (the hit
+         path refreshes insertion order). */
       if (mindmapSyncCache.size > MINDMAP_SYNC_CACHE_MAX) {
         const oldest = mindmapSyncCache.keys().next().value
         if (oldest !== undefined) mindmapSyncCache.delete(oldest)
@@ -2218,11 +2121,11 @@ export async function writeMindmapDoc(ctx, persistence, sessionId, doc, prevSess
           floor, so healthy writes are untouched; a regressed counter would
           make later folded turns collide with recorded numbers.
        b) A NON-replacement write must not silently drop a session the
-          previous doc recorded, unless that session is already archived or
-          listed in doc.deletedBranches (legacy tombstone): a stale client doc
-          would otherwise erase live branches with no archive behind it. Root
-          replacements (prevSessionId) retire the old root by definition and
-          keep their own archive-after-write contract, so they skip (b). */
+          previous doc recorded, unless that session is already archived: a
+          stale client doc would otherwise erase live branches with no archive
+          behind it. Root replacements (prevSessionId) retire the old root by
+          definition and keep their own archive-after-write contract, so they
+          skip (b). */
     doc.next = Math.max(
       Number.isSafeInteger(doc.next) && doc.next > 0 ? doc.next : 0,
       mindmapNextOf(doc),
@@ -2243,14 +2146,11 @@ export async function writeMindmapDoc(ctx, persistence, sessionId, doc, prevSess
         const incoming = new Set((doc.sessions ?? [])
           .map(s => (s === null || s === undefined ? undefined : String(s.sessionId)))
           .filter(id => id !== undefined && id !== ''))
-        const pruned = new Set((Array.isArray(doc.deletedBranches) ? doc.deletedBranches : [])
-          .filter(id => typeof id === 'string' && id !== '')
-          .map(String))
         const restored = []
         for (const session of previous.sessions ?? []) {
           if (session === null || session === undefined || typeof session?.sessionId !== 'string') continue
           const id = String(session.sessionId)
-          if (incoming.has(id) || pruned.has(id) || archived.has(id)) continue
+          if (incoming.has(id) || archived.has(id)) continue
           restored.push(session)
         }
         if (restored.length > 0) {
@@ -2423,9 +2323,15 @@ export async function indexMindmapDocs(ctx) {
       && cached.ino === fingerprint.ino && cached.size === fingerprint.size
       && cached.mtimeMs === fingerprint.mtimeMs && cached.ctimeMs === fingerprint.ctimeMs) {
       doc = cached.doc
-      /* Refresh LRU order so an actively-polled doc is never the eviction victim. */
+      /* Refresh LRU order so an actively-polled doc is never the eviction
+         victim — but NOT the TTL: refreshing `at` here would defeat the TTL
+         fallback. The fingerprint is the primary invalidation, but on
+         Windows ino is often 0 and ctime is the creation time, so a
+         same-ms same-size rewrite (writeJsonAtomic's temp+rename) can keep
+         the fingerprint identical — the TTL is the only thing that forces a
+         re-read, and a hit-refresh would serve that stale parse forever. */
       mindmapIndexCache.delete(path)
-      mindmapIndexCache.set(path, { ...cached, at: Date.now() })
+      mindmapIndexCache.set(path, cached)
     } else {
       try {
         doc = await readJsonFileOrNull(path)

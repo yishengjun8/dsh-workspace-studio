@@ -1,9 +1,9 @@
-import { createElement as h, Fragment, useState, useEffect, useSyncExternalStore } from 'react'
+import { createElement as h, Fragment, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { AUTO_EXPAND_THINK_DEFAULT, AUTO_SYNC_MODE_AUTO, AUTO_SYNC_MODE_WATCH_ONLY, clampMountBulge, clampSpinSpeed, CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MAX, CONFLICT_FONT_SIZE_MIN, MINDMAP_END_COLOR_DEFAULT, MINDMAP_HEAD_COLOR_DEFAULT, MINDMAP_HOVER_COLOR_FALLBACK, MINDMAP_HOVER_THEME_VAR, MINDMAP_MOUNT_BULGE_DEFAULT_X, MINDMAP_MOUNT_BULGE_MAX_X, MINDMAP_MOUNT_BULGE_MIN_X, MINDMAP_SELECTED_COLOR_FALLBACK, MINDMAP_SELECTED_THEME_VAR, MINDMAP_SPIN_SPEED_DEFAULT_X, MINDMAP_SPIN_SPEED_MAX_X, MINDMAP_SPIN_SPEED_MIN_X, MINDMAP_SUMMARY_DEFAULT_LENGTH, MINDMAP_SUMMARY_LENGTH_STEP, MINDMAP_SUMMARY_MAX_LENGTH, MINDMAP_SUMMARY_MIN_LENGTH, MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH, MINDMAP_SUMMARY_SESSION_LENGTH_STEP, MINDMAP_SUMMARY_SESSION_MAX_LENGTH, MINDMAP_SUMMARY_SESSION_MIN_LENGTH, mindmapEffectiveColor, PREVIEW_RIGHT_DEFAULT, ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MAX, ROW_HEIGHT_MIN, SEARCH_MATCH_EXPAND_DEFAULT, THINK_COLLAPSE_DELAY_DEFAULT_S, THINK_COLLAPSE_DELAY_MAX_S, THINK_COLLAPSE_DELAY_MIN_S, THINK_COLLAPSE_DELAY_STEP_S, WATCH_FILES_DEFAULT } from '../constants.js'
 import { translate } from '../locale/index.js'
 import { clamp, FILE_COLOR_GROUPS, fileColorGroupLabel, fileColorOf, HIGHLIGHT_PRESETS, highlightPresetLabel, highlightPresetOf } from '../format.js'
-import { fetchMindmapModels } from '../api.js'
+import { checkUpdate, downloadUpdate, fetchMindmapModels } from '../api.js'
 import { PanelHeader } from './menus.js'
 
 export function EmptyWorkspaceExplorer({ treePortalTarget, sessionTitle }) {
@@ -25,6 +25,110 @@ export function useMindmapSummaryModels() {
     return () => { cancelled = true }
   }, [])
   return summaryModels
+}
+/* Plugin self-update group — the FIRST group of the workspace settings
+   section. Checking is an EXPLICIT user action (the README contract: no
+   automatic checks — an auto-check on every settings open would re-download
+   the main-branch tarball whenever the Host's check cache is cold); the
+   version signal is the main-branch package.json (the repo publishes no
+   tags/releases). Walks the check → download → install → restart state
+   machine. The "restart dsh" outcome is a PERSISTENT inline notice (not a
+   transient toast) so it cannot be missed; a `file` install additionally
+   notes that only the profile copy was replaced. Returns null when the
+   feature is disabled by host config. */
+function UpdateSettingsGroup() {
+  const [state, setState] = useState({ phase: 'idle' })
+  const mountedRef = useRef(false)
+  const setPhase = useCallback((phase, extra) => {
+    if (mountedRef.current) setState({ phase, ...(extra ?? {}) })
+  }, [])
+  const runCheck = useCallback(async (force) => {
+    setPhase('checking')
+    try {
+      const payload = await checkUpdate(undefined, force === true)
+      if (payload.enabled === false) {
+        setPhase('disabled')
+        return
+      }
+      if (payload.restartPending === true) {
+        setPhase('done', { latest: payload.latest, pending: true })
+        return
+      }
+      if (payload.updateAvailable === true) {
+        setPhase('available', {
+          current: payload.current,
+          latest: payload.latest,
+          installMode: payload.installMode,
+        })
+        return
+      }
+      setPhase('up-to-date', { current: payload.current })
+    } catch (error) {
+      /* A TIMEOUT is a real failure, not a cancellation (the AbortError name
+         is shared by both — distinguish by reason, the same rule as the
+         save/search paths): silently returning here would leave the phase
+         stuck on 'checking' with no retry button. No user signal is passed
+         to checkUpdate, so a plain AbortError without a TimeoutError reason
+         can only be an environment quirk — surface it too rather than hang. */
+      if (error?.name === 'AbortError' && error?.reason?.name !== 'TimeoutError') return
+      setPhase('error', { message: error instanceof Error ? error.message : String(error) })
+    }
+  }, [setPhase])
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
+  const runDownload = useCallback(async () => {
+    if (state.phase !== 'available') return
+    setPhase('downloading')
+    try {
+      await downloadUpdate(state.latest)
+      setPhase('done', { latest: state.latest, installMode: state.installMode, pending: false })
+    } catch (error) {
+      /* Same timeout rule as runCheck: a timed-out download must land on the
+         error state (with its retry button), not hang on 'downloading'. */
+      if (error?.name === 'AbortError' && error?.reason?.name !== 'TimeoutError') return
+      setPhase('error', { message: error instanceof Error ? error.message : String(error) })
+    }
+  }, [setPhase, state.installMode, state.latest, state.phase])
+  if (state.phase === 'disabled') return null
+  const statusArea = () => {
+    switch (state.phase) {
+      case 'idle':
+        return h('button', { className: 'dsh-ws-text-button', onClick: () => void runCheck(false), type: 'button' }, translate('settings.update.check'))
+      case 'checking':
+        return h('span', { className: 'dsh-ws-settings-value' }, translate('settings.update.checking'))
+      case 'up-to-date':
+        return h(Fragment, null,
+          h('span', { className: 'dsh-ws-update-state', 'data-ok': true }, translate('settings.update.upToDate', { current: state.current })),
+          h('button', { className: 'dsh-ws-text-button', onClick: () => void runCheck(true), type: 'button' }, translate('settings.update.recheck')))
+      case 'available':
+        return h(Fragment, null,
+          h('span', { className: 'dsh-ws-update-state', 'data-new': true }, translate('settings.update.available', { latest: state.latest, current: state.current })),
+          h('button', { className: 'dsh-ws-text-button', onClick: () => void runDownload(), type: 'button' }, translate('settings.update.download')))
+      case 'downloading':
+        return h('span', { className: 'dsh-ws-settings-value' }, translate('settings.update.downloading'))
+      case 'done':
+        return h(Fragment, null,
+          h('span', { className: 'dsh-ws-update-state', 'data-ok': true }, translate(state.pending === true ? 'settings.update.done.pending' : 'settings.update.done', { latest: state.latest })),
+          state.installMode === 'file' ? h('div', { className: 'dsh-ws-settings-hint' }, translate('settings.update.fileInstallNote')) : null)
+      case 'error':
+        return h(Fragment, null,
+          h('span', { className: 'dsh-ws-update-state', 'data-error': true }, state.message),
+          h('button', { className: 'dsh-ws-text-button', onClick: () => void runCheck(true), type: 'button' }, translate('settings.update.retry')))
+      default:
+        return null
+    }
+  }
+  return h(Fragment, null,
+    h('div', { className: 'dsh-ws-settings-group' },
+      h('div', { className: 'dsh-ws-settings-group-title' }, translate('settings.group.update')),
+      h('div', { className: 'dsh-ws-settings-row' },
+        h('span', { className: 'dsh-ws-settings-label' }, translate('settings.update.check')),
+        statusArea()),
+      h('div', { className: 'dsh-ws-settings-hint' }, translate('settings.update.hint'))),
+    h('div', { className: 'dsh-ws-explorer-divider' }),
+  )
 }
 export function ExplorerSettingsSection({ settingsStore }) {
   const settings = useSyncExternalStore(settingsStore.subscribe, settingsStore.getSnapshot)
@@ -89,6 +193,7 @@ export function ExplorerSettingsSection({ settingsStore }) {
   const customizedCount = Object.keys(settings.fileColors ?? {}).length
   const customizedPresetCount = Object.keys(settings.highlightPresets ?? {}).length
   return h('div', { className: 'dsh-ws-explorer-settings' },
+    h(UpdateSettingsGroup, null),
     h('div', { className: 'dsh-ws-settings-group' },
       h('div', { className: 'dsh-ws-settings-group-title' }, translate('settings.group.session')),
       h('div', { className: 'dsh-ws-settings-row' },

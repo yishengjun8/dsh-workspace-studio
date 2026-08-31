@@ -115,12 +115,16 @@ export const mindmapRegistry = {
   },
   markDirty() { void this.refresh() },
 }
+/* Module-level bound subscribes: useSyncExternalStore compares the subscribe
+   function by identity, so an inline arrow would unsubscribe + resubscribe on
+   every render (perf noise). The arrow wrapper is still required — a naked
+   method reference would drop `this` off the call (React invokes the function
+   bare, reading `undefined._listeners` and crashing the slot on mount). */
+const subscribeRegistry = listener => mindmapRegistry.subscribe(listener)
+const subscribeOverlay = listener => mindmapOverlayStore.subscribe(listener)
 export function useMindmapRegistry() {
-  /* Arrow-wrapped so React's bare invocation cannot drop `this` off the
-     method references (a naked reference would read `undefined._listeners`
-     and crash the root slot on mount). */
   useSyncExternalStore(
-    listener => mindmapRegistry.subscribe(listener),
+    subscribeRegistry,
     () => mindmapRegistry.getVersion(),
   )
   return mindmapRegistry
@@ -169,9 +173,8 @@ export const mindmapOverlayStore = {
   },
 }
 export function useMindmapOverlay() {
-  /* Arrow-wrapped, same `this` trap as useMindmapRegistry above. */
   useSyncExternalStore(
-    listener => mindmapOverlayStore.subscribe(listener),
+    subscribeOverlay,
     () => mindmapOverlayStore.getSnapshot(),
   )
   return mindmapOverlayStore.getSnapshot()

@@ -1,4 +1,4 @@
-import { API_PREFIX, ENCODING_FALLBACK, ENCODING_LABEL_FALLBACK, MINDMAP_MODELS_CACHE_MS } from './constants.js'
+import { API_PREFIX, ENCODING_FALLBACK, ENCODING_LABEL_FALLBACK, MINDMAP_MODELS_CACHE_MS, UPDATE_CHECK_TIMEOUT_MS, UPDATE_DOWNLOAD_TIMEOUT_MS } from './constants.js'
 import { localeIsZh, translate } from './locale/index.js'
 
 /* Bounded request timeouts: a hung Host (dead process, stuck LLM call) must
@@ -208,7 +208,7 @@ export const writeMindmapDoc = (sessionId, doc, signal, prevSessionId) => mindma
 export const syncMindmapDoc = (sessionId, liveSessionIds, signal, summaryConfig) => {
   const ids = Array.isArray(liveSessionIds) ? liveSessionIds.map(String) : []
   const body = ids.length > 0
-    ? { sessionId: String(sessionId), liveSessionIds: ids, liveSessionId: ids[0] }
+    ? { sessionId: String(sessionId), liveSessionIds: ids }
     : { sessionId: String(sessionId) }
   /* AI-summary config ({ mode:'session' } or { provider, model } + advisory
      length); absent = feature off. The Host only enqueues generation as a
@@ -419,6 +419,43 @@ export async function revealInExplorer(workspaceId, path, signal) {
 }
 export const createWorkspaceEntry=(workspaceId,path,kind,name,signal)=>mutateEntry('POST',workspaceId,path,{kind,name},signal)
 export const renameWorkspaceEntry=(workspaceId,path,name,signal)=>mutateEntry('PATCH',workspaceId,path,{name},signal)
+/* Plugin self-update (设置 → 工作区设置 → 插件更新): the Host compares the
+   installed version against the GitHub main branch (codeload tarball, cached
+   briefly) and, on download, swaps its own install directory — the running
+   code stays the OLD copy until dsh is restarted (the check reports
+   restartPending for the UI notice). force=1 bypasses the Host's check cache
+   (the explicit 检查更新/重试 buttons). */
+export async function checkUpdate(signal, force) {
+  const query = force === true ? '?force=1' : ''
+  const response = await fetch(`${API_PREFIX}/update/check${query}`, { method: 'GET', headers: { accept: 'application/json' }, credentials: 'same-origin', signal: withTimeout(signal, UPDATE_CHECK_TIMEOUT_MS) })
+  if (!response.ok) throw await responseFailure(response, 'update-failed', 'error.update-failed')
+  let payload
+  try {
+    payload = await response.json()
+  } catch (error) {
+    if (error?.name === 'AbortError') throw error
+    throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.update', { status: response.status }), response.status)
+  }
+  if (typeof payload?.enabled !== 'boolean') {
+    throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.update', { status: response.status }), response.status)
+  }
+  return payload
+}
+export async function downloadUpdate(version, signal) {
+  const response = await fetch(`${API_PREFIX}/update/download`, { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ version }), signal: withTimeout(signal, UPDATE_DOWNLOAD_TIMEOUT_MS) })
+  /* The download/install failure fallback is its own key: the generic
+     'error.update-failed' copy says "Failed to CHECK for updates", which
+     would mislead on a failed download. */
+  if (!response.ok) throw await responseFailure(response, 'update-download-failed', 'error.update-download-failed')
+  let payload
+  try {
+    payload = await response.json()
+  } catch (error) {
+    if (error?.name === 'AbortError') throw error
+    throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.update', { status: response.status }), response.status)
+  }
+  return payload
+}
 export async function requestFsOperation(workspaceId, payload, signal) {
   const query = new URLSearchParams({ workspaceId: String(workspaceId) })
   const response = await fetch(`${API_PREFIX}/fs?${query}`, { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(payload), signal: withTimeout(signal, REQUEST_TIMEOUT_MS) })

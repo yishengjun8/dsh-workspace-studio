@@ -91,8 +91,9 @@ export function mindmapFoldedRunOf(doc, sessionId, seq) {
    every session hanging off a removed card is archived too. An empty placeholder card — or a
    session's FIRST card — removes the whole session instead. Removing the LAST remaining
    session is blocked (the map must keep at least one; the root node is virtual). The doc
-   records NO tombstones: a removed turn only resurfaces through a failed archive of its old
-   session (ACCEPTED — pure fork + archive + replace; see docs/mindmap-notes.md). Returns null
+   records nothing about removed turns: a removed turn only resurfaces through a failed
+   archive of its old session (ACCEPTED — pure fork + archive + replace; see
+   docs/mindmap-notes.md). Returns null
    when the target card is not in the doc, or a plan { archiveIds, sessions, replaced,
    wholeBranch, lastSession, next }. */
 export function mindmapDeletePlan(doc, ownerId, turnSeq, emptyCard) {
@@ -134,22 +135,14 @@ export function mindmapDeletePlan(doc, ownerId, turnSeq, emptyCard) {
     const t = removed[cursor]
     for (const s of sessions) {
       if (pruneIds.has(String(s.sessionId))) continue
-      /* A null/undefined parentTurn child (legacy data) cannot be re-anchored
-         to any surviving card, so it is pruned whenever ANY turn of its parent
-         session is removed (truncation replaces the parent; whole-branch
-         removal archives it) — otherwise it would leak into the sidebar
-         forever, invisible in the map. */
       if (String(s?.parentSessionId) === String(t.sessionId)
-        && (t.n === undefined
-          || s?.parentTurn === null || s?.parentTurn === undefined
-          || Number(s?.parentTurn) === Number(t.n))) {
+        && (t.n === undefined || Number(s?.parentTurn) === Number(t.n))) {
         pruneIds.add(String(s.sessionId))
         /* An EMPTY pruned session has no turns to anchor ITS OWN subtree: seed
            it with a null-key work item (the same rule the whole-branch seed
-           above uses for the owner) so its null-parentTurn descendants are
-           pruned too. Without this the children would stay in nextSessions
-           while their parent is gone — invisible in the map, hidden from the
-           sidebar, unreachable. */
+           above uses for the owner) so its descendants are pruned too. Without
+           this the children would stay in nextSessions while their parent is
+           gone — invisible in the map, hidden from the sidebar, unreachable. */
         if ((s?.turns ?? []).length === 0) {
           removed.push({ sessionId: String(s.sessionId), seq: undefined, n: undefined })
         }
@@ -320,14 +313,11 @@ export function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_M
   const nodes = []
   const edges = []
   const sessions = (doc?.sessions ?? []).filter(s => s !== null && s !== undefined)
-  /* Children of a specific card, keyed `${parentSessionId}\u0000${cardN}`.
-     A child whose parentTurn is null (legacy v2 migration / defensive) is
-     keyed under the literal `null` so an empty parent session can still reach
-     it — without this it would be silently dropped from the layout. */
+  /* Children of a specific card, keyed `${parentSessionId}\u0000${cardN}`. */
   const childMap = new Map()
   for (const s of sessions) {
     if (!s.parentSessionId) continue
-    const key = `${String(s.parentSessionId)}\u0000${s.parentTurn === undefined || s.parentTurn === null ? 'null' : String(s.parentTurn)}`
+    const key = `${String(s.parentSessionId)}\u0000${String(s.parentTurn)}`
     if (!childMap.has(key)) childMap.set(key, [])
     childMap.get(key).push(s)
   }
@@ -340,12 +330,6 @@ export function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_M
     visited.add(sid)
     order.push(s)
     const turns = s.turns ?? []
-    /* A session can carry null-parentTurn children (legacy v2 migration /
-       defensive): visit them for EVERY session — not only card-less ones —
-       so they are never silently dropped from the layout once the parent
-       gains turns. headCol falls back to 0 and no mount edge renders
-       (defensive), matching the existing null-key handling. */
-    for (const kid of (childMap.get(`${sid}\u0000null`) ?? [])) visit(kid)
     for (let k = 0; k < turns.length; k += 1) {
       const n = Number(turns[k]?.n)
       if (!Number.isSafeInteger(n)) continue

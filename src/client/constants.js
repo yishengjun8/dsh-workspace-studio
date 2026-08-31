@@ -1,5 +1,10 @@
 export const PACKAGE_ID = '@yishengjun8/dsh-workspace-studio'
 export const API_PREFIX = '/workspace-studio/api'
+/* Plugin self-update (设置 → 工作区设置 → 插件更新): the check and the
+   download+install round trip both make real network calls from the Host, so
+   they get longer timeouts than the workspace API's generic 30 s. */
+export const UPDATE_CHECK_TIMEOUT_MS = 30_000
+export const UPDATE_DOWNLOAD_TIMEOUT_MS = 120_000
 export const EDITOR_CONTEXT_PROVIDER = 'workspace-editor-context'
 export const SEND_SESSION_BRIDGE_MARKER = Symbol('workspace-studio.send-session-bridge')
 /* The true original sendSession recorded on a wrapper, so an overlapping

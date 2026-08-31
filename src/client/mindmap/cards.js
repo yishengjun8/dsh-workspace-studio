@@ -16,9 +16,9 @@ export const MindMapCard = memo(function MindMapCard({
      overwrites the ring — the immunity stops at these two cards, ancestors
      above still trace normally, and the "当前" badge is kept (informational). */
   const ringed = ringPalette !== undefined
-  /* Every v3 question card is a branch node (no trunk anymore): the empty
-     placeholder keeps the dashed pending look (no data-branch), completed
-     cards are solid + primary-tinted. */
+  /* Every question card is a branch node: the empty placeholder keeps the
+     dashed pending look (no data-branch), completed cards are solid +
+     primary-tinted. */
   const classes = 'dsh-ws-mindmap-node dsh-ws-mindmap-branchcard'
     + (isEnd && !isStreaming ? ' dsh-ws-mindmap-endcard' : '')
     + (isCurrent && !ringed ? ' dsh-ws-mindmap-node-current' : '')
