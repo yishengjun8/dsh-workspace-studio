@@ -330,7 +330,10 @@ function MergedDiffRowView({ row }) {
 
 /* The merged diff card: one block per file change, additions on a green
    background and deletions struck through in red, with the same height cap,
-   copy control, and +/- footer as the shipped DiffBlock. */
+   copy control, and +/- footer as the shipped DiffBlock. When capped, only
+   the FIRST maxLines rows are shown and the expand/collapse control sits at
+   the bottom of the card (no tail preview), so the change reads continuously
+   from the top. */
 function StudioDiffBlock({ diffs, labels, maxLines = 16 }) {
   const { rows, added, removed, files } = useMemo(() => buildMergedRows(diffs), [diffs])
   const [expanded, setExpanded] = useState(false)
@@ -351,10 +354,7 @@ function StudioDiffBlock({ diffs, labels, maxLines = 16 }) {
 
   const hidden = rows.length - maxLines
   const capped = hidden > 0 && !expanded
-  const headLines = Math.ceil(maxLines / 2)
-  const tailLines = maxLines - headLines
-  const head = capped ? rows.slice(0, headLines) : rows
-  const tail = capped ? rows.slice(rows.length - tailLines) : []
+  const head = capped ? rows.slice(0, maxLines) : rows
 
   return h('div', { className: 'dsh-ws-diff-card', 'data-diff': '' },
     h('button', { type: 'button', className: 'dsh-ws-diff-copy', onClick: onCopy },
@@ -366,7 +366,6 @@ function StudioDiffBlock({ diffs, labels, maxLines = 16 }) {
         'aria-expanded': expanded || undefined,
         'aria-label': expanded ? labels.collapseAria : labels.expandAria(hidden),
       }, expanded ? labels.collapse : labels.expand(hidden)),
-      tail.map((row, index) => h(MergedDiffRowView, { key: index, row })),
     ),
     h('div', { className: 'dsh-ws-diff-footer' }, `└ +${added} -${removed} · ${labels.files(files)}`),
   )

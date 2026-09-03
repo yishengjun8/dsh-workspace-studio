@@ -571,7 +571,7 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-diff-del{color:var(--dsw-alias-state-error-primary);text-decoration:line-through;text-decoration-thickness:1.5px}
 .dsh-ws-diff-ins{background:var(--dsw-alias-state-success-tertiary);color:var(--dsw-alias-state-success-primary);border-radius:3px;padding:0 1px;box-decoration-break:clone;-webkit-box-decoration-break:clone}
 .dsh-ws-diff-ins-line{display:block;margin:0 -14px;padding:0 14px}
-.dsh-ws-diff-expand{display:block;width:100%;padding:0;border:none;background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer;font:inherit;text-align:left}
+.dsh-ws-diff-expand{display:block;width:100%;padding:6px 0 2px;border:none;background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer;font:inherit;text-align:left}
 .dsh-ws-diff-expand:hover{color:var(--dsw-alias-label-secondary)}
 .dsh-ws-diff-footer{padding:0 14px 12px;font:var(--dsw-font-markdown-code-block);color:var(--dsw-alias-label-tertiary)}
 `
