@@ -1,6 +1,6 @@
 import { createElement as h, Fragment, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
-import { AUTO_EXPAND_THINK_DEFAULT, AUTO_SYNC_MODE_AUTO, AUTO_SYNC_MODE_WATCH_ONLY, clampMountBulge, clampSpinSpeed, CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MAX, CONFLICT_FONT_SIZE_MIN, MINDMAP_END_COLOR_DEFAULT, MINDMAP_HEAD_COLOR_DEFAULT, MINDMAP_HOVER_COLOR_FALLBACK, MINDMAP_HOVER_THEME_VAR, MINDMAP_MOUNT_BULGE_DEFAULT_X, MINDMAP_MOUNT_BULGE_MAX_X, MINDMAP_MOUNT_BULGE_MIN_X, MINDMAP_SELECTED_COLOR_FALLBACK, MINDMAP_SELECTED_THEME_VAR, MINDMAP_SPIN_SPEED_DEFAULT_X, MINDMAP_SPIN_SPEED_MAX_X, MINDMAP_SPIN_SPEED_MIN_X, MINDMAP_SUMMARY_DEFAULT_LENGTH, MINDMAP_SUMMARY_LENGTH_STEP, MINDMAP_SUMMARY_MAX_LENGTH, MINDMAP_SUMMARY_MIN_LENGTH, MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH, MINDMAP_SUMMARY_SESSION_LENGTH_STEP, MINDMAP_SUMMARY_SESSION_MAX_LENGTH, MINDMAP_SUMMARY_SESSION_MIN_LENGTH, mindmapEffectiveColor, PREVIEW_RIGHT_DEFAULT, ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MAX, ROW_HEIGHT_MIN, SEARCH_MATCH_EXPAND_DEFAULT, THINK_COLLAPSE_DELAY_DEFAULT_S, THINK_COLLAPSE_DELAY_MAX_S, THINK_COLLAPSE_DELAY_MIN_S, THINK_COLLAPSE_DELAY_STEP_S, WATCH_FILES_DEFAULT } from '../constants.js'
+import { AUTO_EXPAND_EDIT_DIFF_DEFAULT, AUTO_EXPAND_THINK_DEFAULT, AUTO_SYNC_MODE_AUTO, AUTO_SYNC_MODE_WATCH_ONLY, clampMountBulge, clampSpinSpeed, CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MAX, CONFLICT_FONT_SIZE_MIN, MINDMAP_END_COLOR_DEFAULT, MINDMAP_HEAD_COLOR_DEFAULT, MINDMAP_HOVER_COLOR_FALLBACK, MINDMAP_HOVER_THEME_VAR, MINDMAP_MOUNT_BULGE_DEFAULT_X, MINDMAP_MOUNT_BULGE_MAX_X, MINDMAP_MOUNT_BULGE_MIN_X, MINDMAP_SELECTED_COLOR_FALLBACK, MINDMAP_SELECTED_THEME_VAR, MINDMAP_SPIN_SPEED_DEFAULT_X, MINDMAP_SPIN_SPEED_MAX_X, MINDMAP_SPIN_SPEED_MIN_X, MINDMAP_SUMMARY_DEFAULT_LENGTH, MINDMAP_SUMMARY_LENGTH_STEP, MINDMAP_SUMMARY_MAX_LENGTH, MINDMAP_SUMMARY_MIN_LENGTH, MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH, MINDMAP_SUMMARY_SESSION_LENGTH_STEP, MINDMAP_SUMMARY_SESSION_MAX_LENGTH, MINDMAP_SUMMARY_SESSION_MIN_LENGTH, mindmapEffectiveColor, PREVIEW_RIGHT_DEFAULT, ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MAX, ROW_HEIGHT_MIN, SEARCH_MATCH_EXPAND_DEFAULT, THINK_COLLAPSE_DELAY_DEFAULT_S, THINK_COLLAPSE_DELAY_MAX_S, THINK_COLLAPSE_DELAY_MIN_S, THINK_COLLAPSE_DELAY_STEP_S, WATCH_FILES_DEFAULT } from '../constants.js'
 import { translate } from '../locale/index.js'
 import { clamp, FILE_COLOR_GROUPS, fileColorGroupLabel, fileColorOf, HIGHLIGHT_PRESETS, highlightPresetLabel, highlightPresetOf } from '../format.js'
 import { checkUpdate, downloadUpdate, fetchMindmapModels } from '../api.js'
@@ -586,6 +586,16 @@ export function ExplorerSettingsSection({ settingsStore }) {
           title: translate('settings.thinkDelay.reset.title'),
           type: 'button',
         }, translate('settings.resetDefault'))),
+      h('div', { className: 'dsh-ws-settings-row' },
+        h('label', { className: 'dsh-ws-settings-label', htmlFor: 'dsh-ws-auto-expand-edit-diff' }, translate('settings.autoExpandEditDiff')),
+        h('input', {
+          'aria-label': translate('settings.autoExpandEditDiff'),
+          checked: (settings.autoExpandEditDiff ?? AUTO_EXPAND_EDIT_DIFF_DEFAULT) === true,
+          className: 'dsh-ws-settings-checkbox',
+          id: 'dsh-ws-auto-expand-edit-diff',
+          onChange: e => settingsStore.actions.setAutoExpandEditDiff(e.target.checked),
+          type: 'checkbox',
+        })),
     ),
     h('div', { className: 'dsh-ws-settings-hint' }, translate('settings.hint')),
   )

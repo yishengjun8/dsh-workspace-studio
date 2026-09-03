@@ -29,6 +29,7 @@ import { useChatDropMask } from './hooks/chat-drop.js'
 import { useSessionMenu } from './hooks/session-menu.js'
 import { useSidebarChrome } from './hooks/sidebar-chrome.js'
 import { useThinkDisclosure } from './hooks/think-disclosure.js'
+import { registerStudioFileMutationToolview, setStudioSettingsStore } from './toolview.js'
 
 export function AppFrame(props) {
   const panels = props.useStore(state => state)
@@ -341,6 +342,9 @@ export function mountStudio(ctx) {
   const layoutStore = createLayoutStore()
   const previewSessionsStore = createPreviewSessionStore().create()
   const settingsStore = createExplorerSettingsStore().create()
+  /* The chat edit/write toolview reads the auto-expand setting from this
+     store (the harness renderer has no access to plugin stores). */
+  setStudioSettingsStore(settingsStore)
   const explorerPaneStore = createExplorerPaneStore().create()
   // The explorer footer toggle is gone; keep the panes always on-screen.
   // Persisted `explorerOpen:false` self-heals here, since nothing else can
@@ -533,6 +537,10 @@ export function mountStudio(ctx) {
       ensureSession: id => { promptContextBridge.ensure(id) },
     }),
   }, EditorContextPrefix))
+  /* Chat edit/write rows: default-open Studio row with the merged diff view
+     (green-background additions, red-strikethrough deletions in one block),
+     shadowing the shipped FileMutationRow for the edit/write keys. */
+  registerStudioFileMutationToolview(ctx)
   ctx.effect(() => () => { editorContexts.dispose() }, 'workspace-studio: editor context state')
   /* Mobile mode entries: the sidebar-footer toggle, the session-header whale +
      file-content-browsing controls (declared by ui-conversation), and the

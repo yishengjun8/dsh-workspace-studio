@@ -45,6 +45,8 @@ export const THINK_COLLAPSE_DELAY_DEFAULT_S = 3
 export const THINK_COLLAPSE_DELAY_MIN_S = 0
 export const THINK_COLLAPSE_DELAY_MAX_S = 10
 export const THINK_COLLAPSE_DELAY_STEP_S = 0.1
+/* Open chat edit/write rows by default (user-tunable; off restores the shipped collapsed rows). */
+export const AUTO_EXPAND_EDIT_DIFF_DEFAULT = true
 /* Sidebar mind-map icon spin: speed multiplier over the 1.2 s base (default 1.2x = 1 s/rev; larger = faster, 0 = no rotation). */
 export const MINDMAP_SPIN_BASE_DURATION_S = 1.2
 export const MINDMAP_SPIN_SPEED_DEFAULT_X = 1.2
