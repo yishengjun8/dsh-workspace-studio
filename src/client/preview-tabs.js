@@ -6,6 +6,14 @@ export function entryFromPreviewTab(tab) { return { kind: 'file', name: tab.name
    stable across renames, and never collides with a real workspace path. */
 export function mindmapTabPath(rootId) { return `mindmap:${String(rootId)}` }
 export function isMindmapTab(tab) { return tab !== null && tab !== undefined && tab.kind === 'mindmap' }
+/* Family ROOT session id of a mind-map tab (the tab's sessionId stamp, falling
+   back to the synthetic path's root part — the tab strip only ever carries
+   this one family, so they are the same value). */
+export function mindmapRootIdOfTab(tab) {
+  if (tab !== null && tab !== undefined && typeof tab.sessionId === 'string' && tab.sessionId !== '') return tab.sessionId
+  const path = tab === null || tab === undefined || typeof tab.path !== 'string' ? '' : tab.path
+  return path.startsWith('mindmap:') ? path.slice('mindmap:'.length) : path
+}
 export function clonePreviewTab(tab) {
   if (tab === undefined || tab === null || typeof tab.path !== 'string') return null
   return {
@@ -20,7 +28,8 @@ export function clonePreviewTab(tab) {
     encoding: typeof tab.encoding === 'string' && tab.encoding !== '' ? tab.encoding : 'utf-8',
     external: Boolean(tab.external),
     /* A mind-map tab (kind 'mindmap') carries the map's ROOT session id and
-       renders MindMapView instead of a file; every other tab is a plain file.
+       renders a PLACEHOLDER for the global map host's stable body container
+       instead of a file; every other tab is a plain file.
        dockedAt records the persistence family key (previewSessionId) the tab
        was docked on: restore uses it to tell a map opened IN this session
        from one that leaked in from another session's snapshot. */

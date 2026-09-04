@@ -8,6 +8,13 @@ import { mindmapRegistry } from './registry.js'
    A title hides a row only when every session with that title is hidden (a
    visible non-mindmap sharing it keeps it visible); archived sessions add no
    titles and the clearing pass self-heals bad rows.
+   The current BLANK session renders as a provisional New Session row with a
+   localized placeholder title (never the stored, empty title), so it is
+   matched structurally instead (selected row without a time cell) and only
+   when it belongs to a mind-map family — via the registry, the parent chain,
+   or mindmapBlankSessions (created by mindmapActions.createSession, in flight
+   until the doc adoption). Plus-button blank sessions never match and stay
+   visible.
 
    Scan cost is bounded by three layers (2026 fix):
    1. Mutation records are FILTERED before a scan is scheduled: only a session
@@ -27,12 +34,21 @@ import { mindmapRegistry } from './registry.js'
       last scan — reorders and identical row rebuilds cost the walk only.
    3. The body guard re-anchors only when the observed target was actually
       REPLACED (disconnected): plain body churn (portals, toasts, dialogs)
-      does zero work. */
+      does zero work.
+   Additionally the observer watches CLASS attributes on the slot: the
+   harness renders session rows through React, and React owns each row's
+   className — when a hidden family row becomes (or stops being) the CURRENT
+   session, the selected-class toggle rewrites the whole class list and
+   WIPES our dsh-ws-mindmap-hidden-row without any childList record. Such
+   rewrites are re-hidden within the same animation frame (before paint), so
+   the row never flashes visible. */
 
 export function installMindmapBranchHider(getSessionList, getArchivedSessionIds, getWorkspaces) {
   if (typeof document === 'undefined') return () => {}
   let timer = 0
   let lastRun = 0
+  /* Pending frame-coalesced re-hide (row-class rewrite path below). */
+  let frame = 0
   /* Signature of the last applied scan (all driving inputs + the resulting
      row states + overflow-button texts): an identical scan writes nothing. */
   let lastSignature = null
@@ -59,6 +75,11 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
      hidden class or count. */
   const mutatesHiderState = (records) => {
     for (const record of records) {
+      /* Attribute records are handled exclusively by wipesHiddenRowClass
+         below (row-class rewrites → frame path): every other attribute
+         change (child-span classes, panel buttons) cannot alter hiding or
+         counts and must not schedule the throttled scan. */
+      if (record.type === 'attributes') continue
       const target = record.target
       if (target instanceof Element) {
         if (target.tagName === 'BUTTON') {
@@ -112,6 +133,26 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
     }
     const list = getSessionList()
     const archived = new Set((getArchivedSessionIds?.() ?? []).map(String))
+    /* In-flight mind-map blank sessions: prune what the registry now knows as
+       a doc branch (or what vanished / got archived after a failed doc write
+       — the view archives the fresh session so it cannot outlive its entry).
+       Never prune on "not in list": the store projection may lag the creation
+       RPC, and dropping the mark there would leave the row visible. */
+    for (const id of [...mindmapBlankSessions]) {
+      if (archived.has(id) || mindmapRegistry.isBranch(id)) mindmapBlankSessions.delete(id)
+    }
+    /* The harness renders ONLY the current blank session (a provisional New
+       Session row), with the localized placeholder title — the stored title
+       is empty, so title matching cannot see it. It counts as family when it
+       is a registry root/branch, resolves to one through the parent chain, or
+       was created by this plugin's mind-map createSession (in-flight set). A
+       plus-button blank session is none of those and stays visible. */
+    const currentId = list.current === undefined || list.current === null ? null : String(list.current)
+    const currentSummary = currentId !== null ? list.byId[currentId] : undefined
+    const blankFamilyCurrent = currentSummary !== undefined && currentSummary.blank === true
+      && (mindmapRegistry.isBranch(currentId)
+        || isMindmapFamilySession(list, currentId)
+        || mindmapBlankSessions.has(currentId))
     const byTitle = new Map()
     /* All driving inputs folded into the scan signature (see header): the row
        pass and the per-group count pass only run when one of them changed. */
@@ -149,7 +190,17 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
       // spacer spans would be caught by a numeric or empty family title.
       const titleSpan = row.querySelector('span[class*="title"]')
       const title = titleSpan !== null ? (titleSpan.textContent ?? '').trim() : ''
+      /* Blank current row of a mind-map family: matched structurally, not by
+         title. The harness renders blank rows with the localized New Session
+         label (never the stored title) and omits the time cell on blank rows,
+         while non-blank rows always have one — so "selected + title cell + no
+         time cell" can only be the current blank session's row (blank rows
+         never enter search, and group headers carry aria-expanded instead). */
       const matched = hideTitles.has(title)
+        || (blankFamilyCurrent
+          && titleSpan !== null
+          && row.getAttribute('aria-selected') === 'true'
+          && row.querySelector('span[class*="time"]') === null)
       rowDecisions.push({ row, matched })
       rowSig.push(`${title}\u0001${matched ? 1 : 0}\u0001${row.classList.contains('dsh-ws-mindmap-hidden-row') ? 1 : 0}`)
     }
@@ -162,7 +213,7 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
     const wsSig = workspaces
       .map(w => `${String(w.title ?? '')}\u0001${(w.sessionIds ?? []).map(String).sort().join('\u0003')}`)
       .join('\u0002')
-    const signature = `${sessionSig.join('\u0002')}\u0003${wsSig}\u0003${rowSig.join('\u0002')}\u0003${buttonTextSig}`
+    const signature = `${sessionSig.join('\u0002')}\u0003${wsSig}\u0003${rowSig.join('\u0002')}\u0003${buttonTextSig}\u0003${blankFamilyCurrent ? 1 : 0}`
     /* Identical inputs → the DOM already reflects the desired state: skip
        every write (class toggles, count patches) and the per-group pass. */
     if (signature === lastSignature) return
@@ -221,6 +272,14 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
         if (title === '' || hideTitles.has(title)) continue
         visibleCount += 1
       }
+      /* A visible blank CURRENT session renders as a provisional New Session
+         row, so the harness counts it among the group's rendered rows and the
+         recomputed remainder must count it too (its stored title is empty and
+         the loop above skips it). When this hider hides the blank family row,
+         it behaves like the hidden rows: excluded here, counted by
+         hiddenInRows below. */
+      if (!blankFamilyCurrent && currentId !== null && ids.includes(currentId)
+        && list.byId[currentId]?.blank === true) visibleCount += 1
       const remaining = visibleCount - (sectionRows.length - hiddenInRows)
       if (remaining > 0) {
         button.classList.remove('dsh-ws-mindmap-no-overflow')
@@ -256,6 +315,24 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
     }
     return false
   }
+  /* Whether a mutation batch REWROTE a session row's class attribute. The
+     harness re-renders rows through React, and React owns each row's
+     className: when a hidden family row becomes (or stops being) the CURRENT
+     session, the selected-class toggle rewrites the whole class list and
+     wipes dsh-ws-mindmap-hidden-row. Only class writes ON the row element
+     itself can do that (child-span class churn cannot), so the filter
+     matches the row exactly — panel buttons and the overflow button (whose
+     className is a constant string in the harness, never rewritten) never
+     match, and this hider's own toggles re-enter here once and settle on an
+     identical signature. */
+  const wipesHiddenRowClass = (records) => {
+    for (const record of records) {
+      if (record.type !== 'attributes' || record.attributeName !== 'class') continue
+      const target = record.target
+      if (target instanceof Element && target.matches('[role="treeitem"]')) return true
+    }
+    return false
+  }
   /* Time throttle: the observer fires per DOM mutation; one scan per throttle
      window keeps the hiding fresh without global jank. The slot may be
      re-created by the harness WITHOUT a body-direct childList change (deep
@@ -269,6 +346,22 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
          the first frame (no flash). A pending throttled scan is superseded. */
       if (timer !== 0) { clearTimeout(timer); timer = 0 }
       apply()
+      return
+    }
+    if (records !== undefined && records.length > 0 && wipesHiddenRowClass(records)) {
+      /* Row-class rewrite (React wiped our hidden class): re-hide within the
+         same animation frame, BEFORE the next paint — the wiped row is never
+         painted visible, unlike a 400 ms throttled scan. Coalesced to one
+         scan per frame; apply() reads the current DOM, so a coalesced scan
+         that follows further rewrites still lands on the final state. */
+      if (timer !== 0) { clearTimeout(timer); timer = 0 }
+      if (frame === 0) {
+        frame = window.requestAnimationFrame(() => {
+          frame = 0
+          ensureObserved()
+          apply()
+        })
+      }
       return
     }
     if (timer !== 0) return
@@ -291,7 +384,10 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
     if (observedTarget === target) return
     observer.disconnect()
     observedTarget = target
-    observer.observe(target, { childList: true, subtree: true })
+    /* Class attributes are watched for the row-rewrite path above: React
+       wiping dsh-ws-mindmap-hidden-row produces NO childList record, so the
+       observer must see attribute writes on the slot's rows too. */
+    observer.observe(target, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] })
   }
   const observer = new MutationObserver(schedule)
   /* Guard: re-anchor ONLY when the observed target was actually replaced
@@ -310,6 +406,7 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
     guardObserver.disconnect()
     unsubscribe()
     if (timer !== 0) { clearTimeout(timer); timer = 0 }
+    if (frame !== 0) { window.cancelAnimationFrame(frame); frame = 0 }
     /* Restore every touched row so hot reload / uninstall cannot leave the
        hidden class stuck on the DOM. */
     const browser = document.querySelector('[data-slot="sidebar.workspaces"]')
@@ -334,3 +431,15 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
    Entries are pruned when the registry catches up (see MindmapHeaderButton),
    so the set only ever holds in-flight conversions. */
 export const mindmapConvertedSessions = new Set()
+
+/* BLANK sessions this plugin created for a mind map (root-node 新建会话 / the
+   blank-card menu — every caller funnels through mindmapActions.createSession).
+   The registry learns them as doc branches only after the doc write + index
+   refresh, but the harness renders the CURRENT blank session immediately as a
+   provisional New Session row; without this set that row would stay visible
+   during the adoption window. The hider prunes entries once the registry
+   knows the branch (or the session vanished / got archived after a failed
+   doc write), so the set only ever holds in-flight creations. Sessions the
+   user creates with the sidebar's own plus button never enter this set and
+   stay visible — the two are deliberately distinct. */
+export const mindmapBlankSessions = new Set()

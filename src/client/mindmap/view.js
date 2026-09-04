@@ -26,7 +26,7 @@ const EMPTY_FAMILY_IDS = []
    rendered from the doc, with pan/zoom and per-card forking. Rendered as a
    preview tab (dsh-ws-preview); card clicks switch the right-side chat. */
 
-export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, deleteDoc, forkAt, createSession, listWorkspaces, openSession, renameSession, renameDoc, archiveSession, settingsStore, onDocGone, onTitleChange, freshDock }) {
+export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, deleteDoc, forkAt, createSession, listWorkspaces, openSession, renameSession, renameDoc, archiveSession, settingsStore, onDocGone, onFreshConsumed, onTitleChange, freshDock }) {
   const settings = useSyncExternalStore(settingsStore.subscribe, settingsStore.getSnapshot)
   const [phase, setPhase] = useState({ status: 'loading' })
   /* Manual retry for a failed load: the load effect's deps are sessionId-only,
@@ -81,6 +81,11 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
      would yank the chat away from the session the user just clicked). */
   const freshDockRef = useRef(freshDock)
   freshDockRef.current = freshDock
+  /* Consumes the fresh flag at the host once this mount captured it (see the
+     mount effect below): a later remount of this body must never replay
+     restoreLastSession off a stale fresh=true. */
+  const onFreshConsumedRef = useRef(onFreshConsumed)
+  onFreshConsumedRef.current = onFreshConsumed
   /* Every map-internal selection change funnels through here: openSession
      switches the right-side chat AND moves the "当前" highlight (its wrapper
      calls setSession). Recording the landing session here keeps the last
@@ -206,6 +211,11 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   const [peekedRuns, setPeekedRuns] = useState(() => new Set())
   useEffect(() => {
     mountedRef.current = true
+    /* Consume the fresh-dock flag exactly once, at this first mount: the ref
+       above already captured the value, so clearing the host-side flag cannot
+       change THIS mount's behavior — it only guarantees a later remount of
+       the same body never replays restoreLastSession off a stale fresh=true. */
+    if (freshDockRef.current === true) onFreshConsumedRef.current?.()
     return () => { mountedRef.current = false }
   }, [])
 

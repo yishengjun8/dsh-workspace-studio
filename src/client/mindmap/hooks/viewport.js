@@ -154,5 +154,19 @@ export function useMindmapViewport({ layoutRef }) {
     const fit = mindmapFitView(layoutRef.current.width, layoutRef.current.height, vw, vh)
     if (fit !== null) { fittedRef.current = true; updateView(fit) }
   }, [layoutRef, updateView, viewportSize])
+  /* Visibility-aware fit: while the body is parked in a hidden container
+     (tab inactive / user on another session) the viewport measures 0 and the
+     initial fit can never land (mindmapFitView returns null on a zero-size
+     viewport). A ResizeObserver refits the moment the element gains a real
+     size — parking the stable container into a visible strip placeholder
+     triggers exactly that transition. One-shot semantics via fittedRef: once
+     fitted, later resizes keep the user's view. */
+  useEffect(() => {
+    const el = viewportRef.current
+    if (el === null || typeof ResizeObserver !== 'function') return undefined
+    const observer = new ResizeObserver(() => { refitIfUnfitted() })
+    observer.observe(el)
+    return () => { observer.disconnect() }
+  }, [refitIfUnfitted, viewportMounted])
   return { viewportRef, canvasRef, dragging, restoreView, startPan, movePan, endPan, resetView, refitIfUnfitted }
 }

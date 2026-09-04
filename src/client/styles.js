@@ -303,6 +303,12 @@ html.dsh-ws-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal=
    strip: the body wrapper becomes a flex column and the map takes the rest. */
 .dsh-ws-preview-body.dsh-ws-mindmap-dock{display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-1)}
 .dsh-ws-preview-body.dsh-ws-mindmap-dock .dsh-ws-mindmap{flex:1;min-height:0;height:auto}
+/* The global host's STABLE per-map container: the explorer parks this element
+   (plain DOM move) into the dsh-ws-mindmap-dock placeholder above, so the
+   portal target never changes and the map body never remounts. It fills the
+   placeholder and is itself a flex column so the map's flex:1 rule keeps
+   working one level deeper. */
+.dsh-ws-preview-body.dsh-ws-mindmap-dock>.dsh-ws-mindmap-host-body{flex:1;min-height:0;display:flex;flex-direction:column}
 /* Convert-to-mind-map confirm dialog: a roomier modal than the default
    (larger width, more padding) with pill buttons — cancel gets a neutral
    border, confirm a primary-colored border. */

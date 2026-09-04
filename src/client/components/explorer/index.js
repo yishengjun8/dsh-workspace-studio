@@ -4,13 +4,13 @@ import { CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MAX, CONFLICT_FONT_SIZE_
 import { translate } from '../../locale/index.js'
 import { clamp, colorGroupOf, fileLabel, formatBytes, readOnlyReason } from '../../format.js'
 import { copyText, defaultEntryName, entryNameError, entryPath, joinAbsolutePath, parentPath, pathBaseName, rewriteDirectoryMap, rewritePathMap, rewritePathSet, rewriteRelativePath, selectedLevelPath } from '../../paths.js'
-import { ancestorDirectoryPaths, dropIndexFromEvent, entryFromPreviewTab, isMindmapTab, mindmapTabPath, normalizePreviewSession, orderPinnedFirst, rewritePreviewTabs, serializePreviewSession } from '../../preview-tabs.js'
+import { ancestorDirectoryPaths, dropIndexFromEvent, entryFromPreviewTab, isMindmapTab, mindmapRootIdOfTab, mindmapTabPath, normalizePreviewSession, orderPinnedFirst, rewritePreviewTabs, serializePreviewSession } from '../../preview-tabs.js'
 import { IconFolder, IconNewFile, IconNewFolder, IconRefresh, IconSearch } from '../../icons.js'
 import { encodingLabel, fetchEncodings, requestFsOperation, revealInExplorer, uploadExternalFile, WorkspaceApiError } from '../../api.js'
 import { hasDraggedFiles, hasNormalFile } from '../../utils.js'
 import { deleteEmergencyDraft, rewriteEmergencyDraftPath } from '../../drafts.js'
-import { mindmapDockStore, mindmapRegistry } from '../../mindmap/registry.js'
-import { MindMapView } from '../../mindmap/view.js'
+import { mindmapDockStore } from '../../mindmap/registry.js'
+import { mindmapViewHost } from '../../mindmap/host.js'
 import { EncodingMenu, PanelHeader, PreviewToast, TabContextMenu, TreeContextMenu } from '../menus.js'
 import { DeleteDialog, EncodingDialog, EntryDialog, SaveConflictDialog, SessionRenameDialog } from '../dialogs.js'
 import { DropOverlay } from './drop.js'
@@ -26,7 +26,7 @@ import { useSessionRename } from './hooks/session-rename.js'
 
 
 export function WorkspaceExplorer({
-  workspace, treePortalTarget, sessionTitle, sessionId, previewSessionId, renameSession, publishEditorContext, listDirectory, readFile, saveFile, createEntry, renameEntry, storedPreviewSession, persistPreviewSession, settingsStore, loadDraft, persistDraftFile, removeDraftFile, draftTree, checkFileChange, mindmapActions, useSessions,
+  workspace, treePortalTarget, sessionTitle, sessionId, previewSessionId, renameSession, publishEditorContext, listDirectory, readFile, saveFile, createEntry, renameEntry, storedPreviewSession, persistPreviewSession, settingsStore, loadDraft, persistDraftFile, removeDraftFile, draftTree, checkFileChange, mindmapActions,
 }) {
   const settings = useSyncExternalStore(settingsStore.subscribe, settingsStore.getSnapshot)
   /* Draft scope follows the SHARED persistence key: inside a mind map every
@@ -46,16 +46,6 @@ export function WorkspaceExplorer({
   const [expanded, setExpanded] = useState(() => new Set(['', ...(initialPreviewSession.expanded ?? [])]))
   const [tabs, setTabs] = useState(() => initialPreviewSession.tabs)
   const [activePath, setActivePath] = useState(() => initialPreviewSession.activePath)
-  /* The session each DOCKED mind map is "on" (drives its 当前 highlight),
-     keyed by tab path: starts at the tab's root and follows card clicks.
-     Per-tab because every docked map stays MOUNTED (hidden when inactive)
-     and must keep its own highlight. The MindMapView's sessionId prop below
-     prefers the HARNESS current session whenever it is a member of the tab's
-     family (a sidebar-entry click or the session switcher switches the chat
-     directly, bypassing this map — the highlight must follow), falling back
-     to this map only when the current session is not a member (hero page /
-     transient). */
-  const [mapSessionByPath, setMapSessionByPath] = useState({})
   const [selected, setSelected] = useState(() => {
     if (initialPreviewSession.activePath === null) return undefined
     const activeTab = initialPreviewSession.tabs.find(tab => tab.path === initialPreviewSession.activePath)
@@ -143,13 +133,6 @@ export function WorkspaceExplorer({
   // skip them until the cleaned snapshot is persisted, so a pruned path cannot
   // be re-seeded and 404 again within one mount.
   const prunedPathsRef = useRef(new Set())
-  /* Mind-map tab paths added by a DOCK REQUEST in this mount (as opposed to
-     restored from the persisted snapshot): the MindMapView's freshDock prop
-     reads this so restoreLastSession — landing the chat on the map's
-     remembered session — fires only for a deliberate open, never for a
-     session-switch restore (which would yank the chat away from the session
-     the user just clicked). */
-  const dockedFreshRef = useRef(new Set())
   const previewTabsBootstrapped = useRef(Boolean(initialPreviewSession.tabs.length > 0 || initialPreviewSession.activePath !== null))
   const selectedDirectoryPath = selectedLevelPath(selected)
   const activatePath = useCallback((path) => {
@@ -162,8 +145,9 @@ export function WorkspaceExplorer({
   useLayoutEffect(() => { activePathRef.current = activePath }, [activePath])
   useLayoutEffect(() => { expandedRef.current = expanded }, [expanded])
   const activeTab = useMemo(() => activePath === null ? undefined : tabs.find(tab => tab.path === activePath), [activePath, tabs])
-  /* A mind-map tab renders MindMapView instead of a file: no file header /
-     status bar, no tree selection, no file read. */
+  /* A mind-map tab hosts the GLOBAL host's stable body container (parked into
+     the placeholder by the layout effect below) instead of a file: no file
+     header / status bar, no tree selection, no file read. */
   const activeMindmap = activeTab !== undefined && isMindmapTab(activeTab)
   /* A session switch inside the same mind map keeps this explorer MOUNTED
      (its key is the shared persistence id), so the read pass does not re-run
@@ -254,10 +238,11 @@ export function WorkspaceExplorer({
       if (request === null) return
       if (request.expectFamily !== (previewSessionId ?? null)) return
       const path = mindmapTabPath(request.rootId)
-      /* Mark the tab as freshly docked so its MindMapView knows this mount is
-         a deliberate open (restoreLastSession may land the chat on the map's
-         remembered session) rather than a session-switch restore. */
-      dockedFreshRef.current.add(path)
+      /* The map needs a body in the GLOBAL host: a new tab's body mounts
+         FRESH (its restoreLastSession may land the chat on the map's
+         remembered session — a deliberate open); a re-dock of an already-open
+         tab is a no-op (the mounted body keeps its mount-time fresh flag). */
+      mindmapViewHost.ensure(String(request.rootId), true)
       /* Stamp the persistence family the tab was docked on (constant for the
          mount): restore later keeps the map only under this family, so a
          snapshot carrying the tab cannot leak it into unrelated sessions. */
@@ -1053,15 +1038,10 @@ export function WorkspaceExplorer({
       void clearDraftFile(path, '', closing.encoding ?? 'utf-8', closing.lineEnding ?? 'none', Boolean(closing.bom), closing.revision ?? null).catch(() => {})
     }
     if (isMindmapTab(closing)) {
-      /* Drop the map's remembered session so a re-dock cannot resurrect a
-         stale branch highlight (the map's own restore logic re-lands it from
-         localStorage instead). */
-      setMapSessionByPath(prev => {
-        if (!Object.prototype.hasOwnProperty.call(prev, path)) return prev
-        const next = { ...prev }
-        delete next[path]
-        return next
-      })
+      /* The tab is gone: the GLOBAL host unmounts this map's body (doc, sync
+         timers and viewport die with it). A later re-dock mounts a FRESH
+         body. */
+      mindmapViewHost.drop(mindmapRootIdOfTab(closing))
     }
     const nextTabs = current.filter(tab => tab.path !== path)
     const nextActivePath = activePathRef.current === path
@@ -1115,7 +1095,12 @@ export function WorkspaceExplorer({
       }
     }
     setTabs(current.filter(tab => tab.pinned || tab.path === keepPath))
-    for (const tab of closing) forgetPathRefs(tab.path)
+    for (const tab of closing) {
+      /* A closed map tab must also unmount its GLOBAL body (same rule as
+         closeTab). */
+      if (isMindmapTab(tab)) mindmapViewHost.drop(mindmapRootIdOfTab(tab))
+      forgetPathRefs(tab.path)
+    }
     activatePath(keep.path)
     if (isMindmapTab(keep)) {
       /* A mind-map tab selects nothing in the file tree. */
@@ -1196,66 +1181,98 @@ export function WorkspaceExplorer({
     setDraggingPath(null)
     setDropIndex(null)
   }, [clampDropIndexForTab, dropTabAt])
+  /* The strip API handed to the GLOBAL mind-map host: doc-gone closes the
+     tab, root renames update the tab label — while THIS explorer shows the
+     map's strip (the host falls back to fixing the persisted family snapshot
+     when the user is on another session). closeTab/updateTab may change
+     identity across renders, so the API forwards through refs; hasTab reads
+     the live tabsRef. */
+  const closeTabRef = useRef(closeTab)
+  closeTabRef.current = closeTab
+  const updateTabRef = useRef(updateTab)
+  updateTabRef.current = updateTab
+  const stripApiRef = useRef(null)
+  if (stripApiRef.current === null) {
+    stripApiRef.current = {
+      hasTab: (tabPath) => tabsRef.current.some(tab => tab.path === tabPath),
+      tabName: (tabPath) => {
+        const tab = tabsRef.current.find(item => item.path === tabPath)
+        return tab === undefined ? undefined : tab.name
+      },
+      closeTab: (tabPath) => closeTabRef.current(tabPath),
+      updateTab: (tabPath, patch) => updateTabRef.current(tabPath, patch),
+    }
+  }
+  useEffect(() => {
+    mindmapViewHost.registerStrip(stripApiRef.current)
+    return () => mindmapViewHost.unregisterStrip(stripApiRef.current)
+  }, [])
+  /* Strip placeholders of the docked map tabs — the host's STABLE map-body
+     containers are physically parked into these elements (populated by the
+     ref callbacks below); the map body itself lives in the global host. */
+  const mindmapTabElsRef = useRef(new Map())
+  /* The root ids parked into THIS mount's placeholders (rootId -> placeholder
+     element): the effect unparks only what disappeared, so tab churn never
+     moves a parked body unnecessarily. */
+  const placedMapRootsRef = useRef(new Map())
+  /* Placement runs as a LAYOUT effect so the container move lands before
+     paint: a session switch back shows the map instantly, never a blank
+     frame. Tabs arriving from ANY path (snapshot restore, late-arriving
+     storedPreviewSession, dock request) first ensure() their body so the
+     loading state renders in the same commit — ensure is idempotent and never
+     downgrades a body's mount-time fresh flag. The parked element is the
+     host's STABLE container (the portal target never changes): parking it
+     here is a plain DOM move, the map body never remounts. */
+  useLayoutEffect(() => {
+    const next = new Map()
+    for (const tab of tabs) {
+      if (!isMindmapTab(tab)) continue
+      const el = mindmapTabElsRef.current.get(tab.path)
+      if (el === undefined || el === null) continue
+      const rootId = mindmapRootIdOfTab(tab)
+      /* Restored tabs mount NOT fresh: a restore must never yank the chat
+         onto the map's remembered session (a dock request already ensured its
+         body with fresh = true — a no-op here). */
+      mindmapViewHost.ensure(rootId, false)
+      next.set(rootId, el)
+      mindmapViewHost.place(rootId, el)
+    }
+    for (const rootId of placedMapRootsRef.current.keys()) {
+      if (!next.has(rootId)) mindmapViewHost.unplace(rootId)
+    }
+    placedMapRootsRef.current = next
+  }, [tabs])
+  /* Explorer teardown (a session switch): unpark every placed container so
+     the map bodies fall back to the host's hidden holding node and keep
+     their state. A LAYOUT-effect cleanup: React runs it while this mount is
+     being deleted, so the containers are rescued to the holding node as the
+     strip goes away — before OR after the placeholder node itself is removed
+     (appendChild re-parents the possibly detached container either way). */
+  useLayoutEffect(() => () => {
+    for (const rootId of placedMapRootsRef.current.keys()) mindmapViewHost.unplace(rootId)
+    placedMapRootsRef.current = new Map()
+  }, [])
   // Markdown files offer a rendered-preview toggle (same extension table as the tree badge and editor highlighting).
   const isMarkdown = preview.state === 'ready' && colorGroupOf({ kind: 'file', name: preview.name }) === 'markdown'
-  /* A mind-map tab renders the map itself (its own toolbar + title bar) in the
-     preview body; the file header/status bar are hidden for it. Every docked
-     map stays MOUNTED (hidden with display:none while another tab is active)
-     so switching back is instant — the doc, pan/zoom and highlight survive —
-     and its background sync keeps the map fresh while hidden. */
+  /* A mind-map tab renders nothing HERE: this div is a PLACEHOLDER the global
+     host parks its STABLE map-body container into (one body per family root,
+     mounted across session switches; the actual map body lives in the host
+     and portals into its own container). Parking is a plain appendChild move
+     done by the layout effect below — React never re-keys the map body, so
+     the doc, pan/zoom and highlight survive a session switch. The file
+     header/status bar stay hidden for map tabs. */
   const mindmapTabs = tabs.filter(isMindmapTab)
   const body = mindmapTabs.length > 0
     ? h(Fragment, null,
         ...mindmapTabs.map(tab => h('div', {
           className: 'dsh-ws-preview-body dsh-ws-mindmap-dock',
           key: tab.path,
+          ref: (el) => {
+            if (el !== null) mindmapTabElsRef.current.set(tab.path, el)
+            else mindmapTabElsRef.current.delete(tab.path)
+          },
           style: tab.path === activePath ? undefined : { display: 'none' },
-        },
-          h(MindMapView, {
-            archiveSession: mindmapActions.archiveSession,
-            createSession: mindmapActions.createSession,
-            deleteDoc: mindmapActions.deleteDoc,
-            forkAt: mindmapActions.forkAt,
-            /* True only when THIS mount was created by a dock request (the
-               path was marked in dockedFreshRef): the map may land the chat
-               on its remembered session only for a deliberate open, never for
-               a tab restored from the shared snapshot on a session switch. */
-            freshDock: dockedFreshRef.current.has(tab.path),
-            key: tab.path,
-            listWorkspaces: mindmapActions.listWorkspaces,
-            loadDoc: mindmapActions.loadDoc,
-            onDocGone: () => closeTab(tab.path),
-            onTitleChange: title => {
-              /* The map's own title (doc.rootTitle) keeps the tab label in
-                 sync — a dock with an unknown title or a root rename
-                 self-corrects here. Fires on every doc change, so skip the
-                 redundant tab rewrite when the label already matches. */
-              if (typeof title !== 'string' || title === '') return
-              const current = tabsRef.current.find(item => item.path === tab.path)
-              if (current !== undefined && current.name === title) return
-              updateTab(tab.path, { name: title })
-            },
-            openSession: id => { mindmapActions.openSession(String(id)); setMapSessionByPath(prev => ({ ...prev, [tab.path]: String(id) })) },
-            renameDoc: mindmapActions.renameDoc,
-            renameSession: mindmapActions.renameSession,
-            saveDoc: mindmapActions.saveDoc,
-            /* The map's session follows the HARNESS current session whenever
-               it is a member of this tab's family: a sidebar-entry click or
-               the session switcher switches the chat directly (bypassing the
-               map's own openSession), and the highlight must follow instead of
-               stranding on the last card click. The registry check is the
-               membership gate — a non-member session must never reach
-               MindMapView (its load would build a NEW map for that session).
-               mapSessionByPath remains the fallback for the transient
-               no-session case. */
-            sessionId: (sessionId !== undefined && sessionId !== null && String(sessionId) !== ''
-              && (String(sessionId) === String(tab.sessionId) || mindmapRegistry.rootOf(String(sessionId)) === String(tab.sessionId)))
-              ? String(sessionId)
-              : (mapSessionByPath[tab.path] ?? tab.sessionId ?? ''),
-            settingsStore,
-            syncDoc: mindmapActions.syncDoc,
-            useSessions,
-          }))),
+        })),
         activeMindmap ? null : h(PreviewPane, {
     activePath,
     activeTab,

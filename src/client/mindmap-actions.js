@@ -1,5 +1,6 @@
 import { deleteMindmapDoc, fetchMindmapDoc, renameMindmapDoc, syncMindmapDoc, writeMindmapDoc } from './api.js'
 import { mindmapRootTitleOf, normalizeMindmapWorkspacePath } from './mindmap/helpers.js'
+import { mindmapBlankSessions } from './mindmap/hider.js'
 
   /* The mind-map action face shared by the docked mind-map view (formerly the
      conversation.view inject): document IO, fork, rename and archive. forkAt
@@ -53,6 +54,11 @@ export function buildMindmapActions(ctx) {
       const childId = workspaceId !== undefined
         ? await ctx.sessions.create({ workspaceId })
         : await ctx.sessions.create(cwd === undefined ? {} : { cwd })
+      /* Mark the fresh BLANK session as mind-map family for the sidebar hider:
+         the doc write + registry refresh lag the creation RPC, and the harness
+         renders the current blank session immediately. Plus-button sessions
+         (harness-internal) never enter the set and stay visible. */
+      mindmapBlankSessions.add(String(childId))
       return childId
     },
     deleteDoc: (id, signal) => deleteMindmapDoc(String(id), signal),

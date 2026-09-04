@@ -313,7 +313,7 @@ export function useEditorSession({
       return undefined
     }
     // A mind-map tab carries no file: no read, no draft, no editor state. The
-    // explorer renders MindMapView for it, so the preview state only needs to
+    // map body is owned by the global host; the preview state only needs to
     // stay out of the file paths (idle).
     const mindmapTab = tabsRef.current.find(item => item.path === activePath && item.kind === 'mindmap')
     if (mindmapTab !== undefined) {
