@@ -201,7 +201,7 @@ async function verifyCleanSelection(file, context, maximum) {
   }
   const logicalSlice = logical.slice(selection.from, selection.to)
   // The client LF-normalizes offsets and selection text before sending (see
-  // publishContextState in src/client/index.js), so the slice is compared
+  // publishContextState in src/client/components/explorer/hooks/editor-session.js), so the slice is compared
   // directly without re-adding the file's original line endings.
   if (logicalSlice !== selection.text) {
     throw new HttpError(409, 'context-content-mismatch', '选中文本与当前文件内容不一致')

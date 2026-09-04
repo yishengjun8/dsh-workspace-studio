@@ -1,6 +1,6 @@
 import { createElement as h, Fragment, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
-import { AUTO_EXPAND_EDIT_DIFF_DEFAULT, AUTO_EXPAND_THINK_DEFAULT, AUTO_SYNC_MODE_AUTO, AUTO_SYNC_MODE_WATCH_ONLY, clampMountBulge, clampSpinSpeed, CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MAX, CONFLICT_FONT_SIZE_MIN, MINDMAP_END_COLOR_DEFAULT, MINDMAP_HEAD_COLOR_DEFAULT, MINDMAP_HOVER_COLOR_FALLBACK, MINDMAP_HOVER_THEME_VAR, MINDMAP_MOUNT_BULGE_DEFAULT_X, MINDMAP_MOUNT_BULGE_MAX_X, MINDMAP_MOUNT_BULGE_MIN_X, MINDMAP_SELECTED_COLOR_FALLBACK, MINDMAP_SELECTED_THEME_VAR, MINDMAP_SPIN_SPEED_DEFAULT_X, MINDMAP_SPIN_SPEED_MAX_X, MINDMAP_SPIN_SPEED_MIN_X, MINDMAP_SUMMARY_DEFAULT_LENGTH, MINDMAP_SUMMARY_LENGTH_STEP, MINDMAP_SUMMARY_MAX_LENGTH, MINDMAP_SUMMARY_MIN_LENGTH, MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH, MINDMAP_SUMMARY_SESSION_LENGTH_STEP, MINDMAP_SUMMARY_SESSION_MAX_LENGTH, MINDMAP_SUMMARY_SESSION_MIN_LENGTH, mindmapEffectiveColor, PREVIEW_RIGHT_DEFAULT, ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MAX, ROW_HEIGHT_MIN, SEARCH_MATCH_EXPAND_DEFAULT, THINK_COLLAPSE_DELAY_DEFAULT_S, THINK_COLLAPSE_DELAY_MAX_S, THINK_COLLAPSE_DELAY_MIN_S, THINK_COLLAPSE_DELAY_STEP_S, WATCH_FILES_DEFAULT } from '../constants.js'
+import { AUTO_SYNC_MODE_AUTO, AUTO_SYNC_MODE_WATCH_ONLY, clampMountBulge, clampSpinSpeed, CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MAX, CONFLICT_FONT_SIZE_MIN, EDIT_LINES_DEFAULT, EDIT_LINES_MAX, EDIT_LINES_MIN, EDIT_LINES_STEP, MINDMAP_END_COLOR_DEFAULT, MINDMAP_HEAD_COLOR_DEFAULT, MINDMAP_HOVER_COLOR_FALLBACK, MINDMAP_HOVER_THEME_VAR, MINDMAP_MOUNT_BULGE_DEFAULT_X, MINDMAP_MOUNT_BULGE_MAX_X, MINDMAP_MOUNT_BULGE_MIN_X, MINDMAP_SELECTED_COLOR_FALLBACK, MINDMAP_SELECTED_THEME_VAR, MINDMAP_SPIN_SPEED_DEFAULT_X, MINDMAP_SPIN_SPEED_MAX_X, MINDMAP_SPIN_SPEED_MIN_X, MINDMAP_SUMMARY_DEFAULT_LENGTH, MINDMAP_SUMMARY_LENGTH_STEP, MINDMAP_SUMMARY_MAX_LENGTH, MINDMAP_SUMMARY_MIN_LENGTH, MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH, MINDMAP_SUMMARY_SESSION_LENGTH_STEP, MINDMAP_SUMMARY_SESSION_MAX_LENGTH, MINDMAP_SUMMARY_SESSION_MIN_LENGTH, mindmapEffectiveColor, PREVIEW_RIGHT_DEFAULT, ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MAX, ROW_HEIGHT_MIN, SEARCH_MATCH_EXPAND_DEFAULT, THINK_LINES_DEFAULT, THINK_LINES_MAX, THINK_LINES_MIN, THINK_LINES_STEP, WATCH_FILES_DEFAULT } from '../constants.js'
 import { translate } from '../locale/index.js'
 import { clamp, FILE_COLOR_GROUPS, fileColorGroupLabel, fileColorOf, HIGHLIGHT_PRESETS, highlightPresetLabel, highlightPresetOf } from '../format.js'
 import { checkUpdate, downloadUpdate, fetchMindmapModels } from '../api.js'
@@ -158,17 +158,14 @@ export function ExplorerSettingsSection({ settingsStore }) {
     MINDMAP_SUMMARY_SESSION_MAX_LENGTH,
     MINDMAP_SUMMARY_SESSION_LENGTH_STEP,
   )
-  /* Render-side normalization of the think-collapse delay: the store clamps on
-     write, but a legacy/out-of-range persisted value would otherwise show
-     "50.0s" next to a slider visually pinned at 10 (and keep the reset button
-     enabled). Same min/max + 0.1 rounding as setThinkCollapseDelay. */
-  const thinkCollapseDelayValue = (() => {
-    const seconds = Number(settings.thinkCollapseDelay ?? THINK_COLLAPSE_DELAY_DEFAULT_S)
-    const bounded = Number.isFinite(seconds)
-      ? Math.min(THINK_COLLAPSE_DELAY_MAX_S, Math.max(THINK_COLLAPSE_DELAY_MIN_S, seconds))
-      : THINK_COLLAPSE_DELAY_DEFAULT_S
-    return Math.round(bounded * 10) / 10
-  })()
+  /* Render-side normalization of the think-card line count: the store clamps
+     (and rounds) on write, but a legacy/out-of-range persisted value would
+     otherwise show e.g. "47 行" next to a slider visually pinned at 30 (and
+     keep the reset button enabled). Same min/max clamp as setThinkLines. */
+  const thinkLinesValue = clamp(settings.thinkLines ?? THINK_LINES_DEFAULT, THINK_LINES_MIN, THINK_LINES_MAX)
+  /* Same render-side normalization for the edit-row line count (legacy or
+     hand-written out-of-range values must not mislead the slider/reset). */
+  const editLinesValue = clamp(settings.editLines ?? EDIT_LINES_DEFAULT, EDIT_LINES_MIN, EDIT_LINES_MAX)
   const rowHeight = clamp(settings.rowHeight ?? ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MIN, ROW_HEIGHT_MAX)
   const conflictFontSize = clamp(settings.conflictFontSize ?? CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MIN, CONFLICT_FONT_SIZE_MAX)
   const mindmapSpinSpeed = clampSpinSpeed(settings.mindmapSpinSpeed)
@@ -555,47 +552,47 @@ export function ExplorerSettingsSection({ settingsStore }) {
     h('div', { className: 'dsh-ws-settings-group' },
       h('div', { className: 'dsh-ws-settings-group-title' }, translate('settings.group.dialog')),
       h('div', { className: 'dsh-ws-settings-row' },
-        h('label', { className: 'dsh-ws-settings-label', htmlFor: 'dsh-ws-auto-expand-think' }, translate('settings.autoExpandThink')),
+        h('label', { className: 'dsh-ws-settings-label', htmlFor: 'dsh-ws-think-lines' }, translate('settings.thinkLines')),
         h('input', {
-          'aria-label': translate('settings.autoExpandThink'),
-          checked: (settings.autoExpandThink ?? AUTO_EXPAND_THINK_DEFAULT) === true,
-          className: 'dsh-ws-settings-checkbox',
-          id: 'dsh-ws-auto-expand-think',
-          onChange: e => settingsStore.actions.setAutoExpandThink(e.target.checked),
-          type: 'checkbox',
-        })),
-      h('div', { className: 'dsh-ws-settings-row' },
-        h('label', { className: 'dsh-ws-settings-label', htmlFor: 'dsh-ws-think-collapse-delay' }, translate('settings.thinkDelay')),
-        h('input', {
-          'aria-label': translate('settings.thinkDelay'),
+          'aria-label': translate('settings.thinkLines'),
           className: 'dsh-ws-settings-slider',
-          disabled: (settings.autoExpandThink ?? AUTO_EXPAND_THINK_DEFAULT) !== true || undefined,
-          id: 'dsh-ws-think-collapse-delay',
-          max: THINK_COLLAPSE_DELAY_MAX_S,
-          min: THINK_COLLAPSE_DELAY_MIN_S,
-          onChange: e => settingsStore.actions.setThinkCollapseDelay(Number(e.target.value)),
-          step: THINK_COLLAPSE_DELAY_STEP_S,
+          id: 'dsh-ws-think-lines',
+          max: THINK_LINES_MAX,
+          min: THINK_LINES_MIN,
+          onChange: e => settingsStore.actions.setThinkLines(Number(e.target.value)),
+          step: THINK_LINES_STEP,
           type: 'range',
-          value: thinkCollapseDelayValue,
+          value: thinkLinesValue,
         }),
-        h('span', { className: 'dsh-ws-settings-value' }, `${thinkCollapseDelayValue.toFixed(1)}s`),
+        h('span', { className: 'dsh-ws-settings-value' }, translate('settings.thinkLines.value', { n: thinkLinesValue })),
         h('button', {
           className: 'dsh-ws-text-button',
-          disabled: ((settings.autoExpandThink ?? AUTO_EXPAND_THINK_DEFAULT) !== true || thinkCollapseDelayValue === THINK_COLLAPSE_DELAY_DEFAULT_S) || undefined,
-          onClick: () => settingsStore.actions.setThinkCollapseDelay(THINK_COLLAPSE_DELAY_DEFAULT_S),
-          title: translate('settings.thinkDelay.reset.title'),
+          disabled: thinkLinesValue === THINK_LINES_DEFAULT || undefined,
+          onClick: () => settingsStore.actions.setThinkLines(THINK_LINES_DEFAULT),
+          title: translate('settings.thinkLines.reset.title'),
           type: 'button',
         }, translate('settings.resetDefault'))),
       h('div', { className: 'dsh-ws-settings-row' },
-        h('label', { className: 'dsh-ws-settings-label', htmlFor: 'dsh-ws-auto-expand-edit-diff' }, translate('settings.autoExpandEditDiff')),
+        h('label', { className: 'dsh-ws-settings-label', htmlFor: 'dsh-ws-edit-lines' }, translate('settings.editLines')),
         h('input', {
-          'aria-label': translate('settings.autoExpandEditDiff'),
-          checked: (settings.autoExpandEditDiff ?? AUTO_EXPAND_EDIT_DIFF_DEFAULT) === true,
-          className: 'dsh-ws-settings-checkbox',
-          id: 'dsh-ws-auto-expand-edit-diff',
-          onChange: e => settingsStore.actions.setAutoExpandEditDiff(e.target.checked),
-          type: 'checkbox',
-        })),
+          'aria-label': translate('settings.editLines'),
+          className: 'dsh-ws-settings-slider',
+          id: 'dsh-ws-edit-lines',
+          max: EDIT_LINES_MAX,
+          min: EDIT_LINES_MIN,
+          onChange: e => settingsStore.actions.setEditLines(Number(e.target.value)),
+          step: EDIT_LINES_STEP,
+          type: 'range',
+          value: editLinesValue,
+        }),
+        h('span', { className: 'dsh-ws-settings-value' }, translate('settings.editLines.value', { n: editLinesValue })),
+        h('button', {
+          className: 'dsh-ws-text-button',
+          disabled: editLinesValue === EDIT_LINES_DEFAULT || undefined,
+          onClick: () => settingsStore.actions.setEditLines(EDIT_LINES_DEFAULT),
+          title: translate('settings.editLines.reset.title'),
+          type: 'button',
+        }, translate('settings.resetDefault'))),
     ),
     h('div', { className: 'dsh-ws-settings-hint' }, translate('settings.hint')),
   )

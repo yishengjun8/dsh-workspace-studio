@@ -6,42 +6,27 @@
  * at a LOWER priority than the shipped row, so slot cell shadowing (lowest
  * priority renders) replaces it in the chat flow:
  *
- *  - the row opens by default (the user asked for the change to be visible
- *    without a click; manual collapse still works),
- *  - the diff renders as ONE merged view: added text on a green background,
- *    removed text struck through in red, inline within the same line, instead
- *    of the split removed-block / added-block pair.
+ *  - the row opens by default (always; manual collapse still works),
+ *  - each file change renders as its OWN card — multi-file edits stack one
+ *    card per file vertically; the card header sits inside the card top
+ *    (chevron + edit icon + title + openable file path + per-file diffstat +
+ *    state dot/chrome + an always-visible copy button),
+ *  - the diff renders as ONE merged view per file: added text on a green
+ *    background, removed text struck through in red, inline within the same
+ *    line, instead of the split removed-block / added-block pair,
+ *  - the diff body is a fixed-height viewport (the 编辑显示行数 slider,
+ *    --dsh-ws-edit-lines) with its own right-side scrollbar, so the whole
+ *    change is reachable by scrolling instead of an expand button.
  *
  * The details panel and every other tool row are untouched: this entry only
  * owns the `edit`/`write` keys in the conversation flow.
  */
-import { createElement as h, Fragment, useCallback, useMemo, useState, useSyncExternalStore } from 'react'
+import { createElement as h, Fragment, useCallback, useMemo, useRef, useState } from 'react'
 import {
-  DisclosureRow, StateDot, diffTotals, IconEditOutline16, IconInspectOutline12, writeClipboard,
+  diffTotals, IconChevronDownOutline14, IconEditOutline16, StateDot, writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { inlineDiffSegments, myersDiff } from './merge.js'
-import { AUTO_EXPAND_EDIT_DIFF_DEFAULT } from './constants.js'
-
-/* The explorer settings store instance, handed over by mountStudio (the
-   toolview renders inside the harness renderer, which has no access to the
-   plugin's stores). Set once at apply time, before any row can render. The
-   stable subscribe/getSnapshot wrappers below read the current instance, so
-   useSyncExternalStore never re-subscribes on re-renders. */
-let studioSettingsStore = undefined
-export function setStudioSettingsStore(store) {
-  studioSettingsStore = store
-}
-const subscribeStudioSettings = (listener) => studioSettingsStore === undefined
-  ? () => {}
-  : studioSettingsStore.subscribe(listener)
-const getStudioSettingsSnapshot = () => studioSettingsStore === undefined
-  ? undefined
-  : studioSettingsStore.getSnapshot()
-
-/* Diff-body lines the chat row shows before collapsing the middle — the same
-   cap the shipped row applies (half the primitive's own default, so the flow
-   stays scannable across many calls). */
-const CHAT_DIFF_MAX_LINES = 8
+import { CONVERSATION_SCROLLPORT_SELECTOR, installScrollGate } from './scroll-gate.js'
 
 /* Above this many old+new lines, skip the line-level alignment (Myers is
    O(N*D) worst case) and fall back to the split removed/added blocks — the
@@ -257,20 +242,29 @@ function mergedHunkRows(oldText, newText) {
   return rows
 }
 
-/* Flatten the hunks into the merged body rows plus the footer counts. A path
-   header opens each new file; a same-file second hunk opens with a `⋯` gap. */
-function buildMergedRows(diffs) {
-  const rows = []
-  const paths = new Set()
+/* Group the hunks by path, preserving order (a path change opens a new
+   group): one card per path in the flow. A same-path second hunk joins the
+   current group (the in-body `⋯` gap keeps hunks apart). */
+function groupDiffsByPath(diffs) {
+  const groups = []
   let prevPath
   for (const diff of diffs) {
-    paths.add(diff.path)
-    if (diff.path !== prevPath) rows.push({ kind: 'path', text: diff.path })
-    else rows.push({ kind: 'gap', text: '⋯' })
+    if (diff.path !== prevPath) groups.push({ path: diff.path, diffs: [diff] })
+    else groups[groups.length - 1].diffs.push(diff)
     prevPath = diff.path
+  }
+  return groups
+}
+
+/* One file group's merged body rows: hunks in order, with a `⋯` gap between
+   same-file hunks. No path header row — the card header carries the path. */
+function buildFileRows(diffs) {
+  const rows = []
+  for (const diff of diffs) {
+    if (rows.length > 0) rows.push({ kind: 'gap', text: '⋯' })
     rows.push(...mergedHunkRows(diff.oldText, diff.newText))
   }
-  return { rows, ...diffTotals(diffs), files: paths.size }
+  return rows
 }
 
 /* The diff text a reader copies: each row's `-`/`+` prefix and its content,
@@ -286,24 +280,18 @@ function copyText(rows) {
   }).join('\n')
 }
 
-/* Localized chrome for the merged diff card (conversation namespace + the
+/* Localized chrome for the per-file diff cards (conversation namespace + the
    shared common vocabulary, the same keys the shipped DiffBlock labels use). */
 function diffLabels(t) {
   return {
     copy: t('copy'),
     copied: t('copied'),
-    collapseAria: t('diff.collapseAria'),
-    expandAria: count => t('diff.expandAria', { count }),
-    collapse: t('collapse'),
-    expand: count => t('diff.expandRest', { count }),
-    files: count => t(count === 1 ? 'diff.files.one' : 'diff.files.other', { count }),
   }
 }
 
 /* One merged body line: unchanged plain, whole-line deletion struck, whole-
    line addition on a green background, a pair as inline segments. */
 function MergedDiffRowView({ row }) {
-  if (row.kind === 'path') return h('div', { className: 'dsh-ws-diff-line dsh-ws-diff-path' }, row.text)
   if (row.kind === 'gap') return h('div', { className: 'dsh-ws-diff-line dsh-ws-diff-gap' }, row.text)
   if (row.kind === 'del') return h('div', { className: 'dsh-ws-diff-line dsh-ws-diff-del' }, row.text)
   if (row.kind === 'add') {
@@ -328,46 +316,102 @@ function MergedDiffRowView({ row }) {
   return h('div', { className: 'dsh-ws-diff-line' }, row.text)
 }
 
-/* The merged diff card: one block per file change, additions on a green
-   background and deletions struck through in red, with the same height cap,
-   copy control, and +/- footer as the shipped DiffBlock. When capped, only
-   the FIRST maxLines rows are shown and the expand/collapse control sits at
-   the bottom of the card (no tail preview), so the change reads continuously
-   from the top. */
-function StudioDiffBlock({ diffs, labels, maxLines = 16 }) {
-  const { rows, added, removed, files } = useMemo(() => buildMergedRows(diffs), [diffs])
-  const [expanded, setExpanded] = useState(false)
+/* One edit/write tool card: header chrome (chevron + leading state icon +
+   title + openable file path / summary + per-file diffstat + state chrome +
+   an always-visible copy button for diff cards) sits inside the card top;
+   the body is either the fixed-height scrollable diff viewport or a generic
+   input/output block. Collapsing hides the body only; each card owns its
+   expanded state, so a multi-file edit stacks independently collapsible
+   cards. The card shell is the row itself (.dsh-ws-tool-row), mirroring the
+   Think-card pattern. */
+function StudioToolCard({
+  toolName, title, leading, state, status, headText, headLink, openFile, diffs, labels, children,
+}) {
+  const rows = useMemo(() => diffs === null ? null : buildFileRows(diffs), [diffs])
+  const stat = useMemo(() => {
+    if (diffs === null) return null
+    const { added, removed } = diffTotals(diffs)
+    return `+${added} -${removed}`
+  }, [diffs])
+  const [expanded, setExpanded] = useState(true)
   const [copied, setCopied] = useState(false)
+  const expandable = diffs !== null || children !== null
+  /* Scroll gating: hovering alone must not scroll the card viewport — wheel
+     is forwarded to the conversation until the user clicks inside the body.
+     The gate lives as long as the body is mounted (collapsing removes it).
+     The card shell is found from the mounted body node (closest) instead of
+     a ref: React attaches child refs before parent refs in the same commit,
+     so a cardRef sibling is still null when this callback runs on mount. */
+  const gateRef = useRef(null)
+  const bodyRef = useCallback((node) => {
+    gateRef.current?.()
+    gateRef.current = null
+    if (node === null) return
+    const card = node.closest('.dsh-ws-tool-row')
+    if (card === null) return
+    gateRef.current = installScrollGate({
+      card,
+      viewport: node,
+      outer: () => document.querySelector(CONVERSATION_SCROLLPORT_SELECTOR),
+    })
+  }, [])
 
   const onCopy = useCallback(() => {
-    if (copied) return
+    if (rows === null || copied) return
     void writeClipboard(copyText(rows)).then((ok) => {
       if (!ok) return
       setCopied(true)
       window.setTimeout(() => { setCopied(false) }, 1000)
     })
   }, [copied, rows])
+  const toggle = useCallback(() => { setExpanded(value => !value) }, [])
+  const onKeyDown = (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    event.preventDefault()
+    toggle()
+  }
+  const openFileClick = (event) => {
+    event.stopPropagation()
+    if (headLink !== null && openFile !== undefined) openFile(headLink)
+  }
+  const fileLinkKeyDown = (event) => {
+    if (event.key === 'Enter' || event.key === ' ') event.stopPropagation()
+  }
+  const copyClick = (event) => {
+    event.stopPropagation()
+    onCopy()
+  }
 
-  const onToggle = useCallback(() => { setExpanded(value => !value) }, [])
-
-  if (rows.length === 0) return null
-
-  const hidden = rows.length - maxLines
-  const capped = hidden > 0 && !expanded
-  const head = capped ? rows.slice(0, maxLines) : rows
-
-  return h('div', { className: 'dsh-ws-diff-card', 'data-diff': '' },
-    h('button', { type: 'button', className: 'dsh-ws-diff-copy', onClick: onCopy },
-      copied ? labels.copied : labels.copy),
-    h('div', { className: 'dsh-ws-diff-body' },
-      head.map((row, index) => h(MergedDiffRowView, { key: index, row })),
-      hidden > 0 && h('button', {
-        type: 'button', className: 'dsh-ws-diff-expand', onClick: onToggle,
-        'aria-expanded': expanded || undefined,
-        'aria-label': expanded ? labels.collapseAria : labels.expandAria(hidden),
-      }, expanded ? labels.collapse : labels.expand(hidden)),
+  return h('div', { className: 'dsh-ws-tool-row', 'data-tool': toolName, 'data-state': state, 'data-collapsed': expanded ? undefined : true },
+    status !== null && h('span', { className: 'dsh-ws-tool-visually-hidden' }, status),
+    h('div', {
+      className: 'dsh-ws-tool-rowline',
+      'aria-expanded': expandable ? expanded || undefined : undefined,
+      onClick: toggle,
+      onKeyDown: onKeyDown,
+      role: expandable ? 'button' : undefined,
+      tabIndex: expandable ? 0 : undefined,
+    },
+      h('span', { className: 'dsh-ws-tool-chevron', 'aria-hidden': true },
+        h(IconChevronDownOutline14, { size: 14 })),
+      h('span', { className: 'dsh-ws-tool-leading' }, leading),
+      h('span', { className: 'dsh-ws-tool-title' }, title),
+      h('span', { className: 'dsh-ws-tool-sep', 'aria-hidden': true }),
+      headLink !== null && openFile !== undefined
+        ? h('button', { type: 'button', className: 'dsh-ws-tool-filelink', onClick: openFileClick, onKeyDown: fileLinkKeyDown }, headText)
+        : h('span', { className: `dsh-ws-tool-summary${headLink === null && state === 'error' ? ' dsh-ws-tool-error-summary' : ''}` }, headText),
+      h('span', { className: 'dsh-ws-tool-head-spacer', 'aria-hidden': true }),
+      stat !== null && h('span', { className: 'dsh-ws-tool-diffstat' }, stat),
+      status !== null && h('span', { className: 'dsh-ws-tool-state', 'data-state': state },
+        h('span', { className: 'dsh-ws-tool-state-dot', 'aria-hidden': true }),
+        h('span', { className: 'dsh-ws-tool-state-text' }, status)),
+      rows !== null && h('button', { type: 'button', className: 'dsh-ws-tool-copy', onClick: copyClick },
+        copied ? labels.copied : labels.copy),
     ),
-    h('div', { className: 'dsh-ws-diff-footer' }, `└ +${added} -${removed} · ${labels.files(files)}`),
+    expanded && rows !== null && h('div', { ref: bodyRef, className: 'dsh-ws-tool-body' },
+      h('div', { className: 'dsh-ws-diff-body' },
+        rows.map((row, index) => h(MergedDiffRowView, { key: index, row })))),
+    expanded && children !== null && h('div', { ref: bodyRef, className: 'dsh-ws-tool-body' }, children),
   )
 }
 
@@ -390,91 +434,67 @@ function formatToolBody(argsRaw) {
   return JSON.stringify(parsed, null, 2)
 }
 
-/* The Studio edit/write row: opens by default (unless the user turned the
-   auto-expand setting off), shows the merged diff card. */
-export function StudioFileMutationRow({ toolName, block, cwd, home, openFile, inspect, t }) {
+/* The Studio edit/write row: always open, one card per changed file (diff
+   hunks grouped by path), or a single generic card for body/output rows. */
+export function StudioFileMutationRow({ toolName, block, cwd, home, openFile, t }) {
   const model = useMemo(() => fileMutationModel(toolName, block, cwd, home), [toolName, block, cwd, home])
   const diffs = useMemo(() => diffCardModel(block), [block])
-  /* Default open: the change is the point of the row. The initial state reads
-     the user's auto-expand setting (on by default); manual collapse still
-     works and the per-row state is never re-opened by re-renders or a later
-     setting change (the setting governs rows that mount after it). */
-  const autoExpandEditDiff = useSyncExternalStore(
-    subscribeStudioSettings,
-    getStudioSettingsSnapshot,
-  )?.autoExpandEditDiff
-  const [expanded, setExpanded] = useState(autoExpandEditDiff ?? AUTO_EXPAND_EDIT_DIFF_DEFAULT)
   const labels = useMemo(() => diffLabels(t), [t])
-  const expandable = diffs !== null || model.bodyRaw !== null || model.output !== null
-  const open = expanded && expandable
-  const diffStat = useMemo(() => {
-    if (diffs === null) return null
-    const { added, removed } = diffTotals(diffs)
-    return `+${added} -${removed}`
-  }, [diffs])
   const status = stateStatus(model.state, t)
   const failureLine = model.state === 'error' ? model.errorSummary ?? null : null
-  const summaryText = failureLine ?? model.summary
-  const fileLink = model.filePath !== undefined && openFile !== undefined && failureLine === null
-  const toggleExpand = () => { setExpanded(value => !value) }
-  const openFileClick = (event) => {
-    event.stopPropagation()
-    if (model.filePath !== undefined) openFile(model.filePath)
-  }
-  const fileLinkKeyDown = (event) => {
-    if (event.key === 'Enter' || event.key === ' ') event.stopPropagation()
-  }
+  const bodyText = useMemo(
+    () => diffs === null && model.bodyRaw !== null ? formatToolBody(model.bodyRaw) : null,
+    [diffs, model.bodyRaw],
+  )
+  const genericBody = (bodyText !== null || model.output !== null)
+    ? h('div', { className: 'dsh-ws-tool-io' },
+      bodyText !== null && h('div', { className: 'dsh-ws-tool-io-section' },
+        h('span', { className: 'dsh-ws-tool-io-label' }, t('row.input')),
+        h('span', { className: 'dsh-ws-tool-io-text' }, bodyText)),
+      bodyText !== null && model.output !== null && h('span', { className: 'dsh-ws-tool-io-divider', 'aria-hidden': true }),
+      model.output !== null && h('div', { className: 'dsh-ws-tool-io-section' },
+        h('span', { className: 'dsh-ws-tool-io-label' }, t('row.output')),
+        h('span', { className: 'dsh-ws-tool-io-text', 'data-error': model.state === 'error' || undefined }, model.output)))
+    : null
+  const title = t(model.titleKey)
   const leading = model.state === 'error' ? h(StateDot, { state: 'error' })
     : model.state === 'stopped' ? h(StateDot, { state: 'warning' })
       : h(IconEditOutline16, { size: 14 })
-  const bodyText = useMemo(
-    () => open && diffs === null && model.bodyRaw !== null ? formatToolBody(model.bodyRaw) : null,
-    [diffs, model.bodyRaw, open],
-  )
-  return h('div', { className: 'dsh-ws-tool-row', 'data-tool': toolName, 'data-state': model.state },
-    status !== null && h('span', { className: 'dsh-ws-tool-visually-hidden' }, status),
-    h(DisclosureRow, {
-      className: 'dsh-ws-tool-row',
-      rowClassName: 'dsh-ws-tool-rowline',
-      leadingClassName: 'dsh-ws-tool-leading',
-      titleClassName: 'dsh-ws-tool-title',
-      chevronClassName: 'dsh-ws-tool-chevron',
-      icon: leading,
-      title: t(model.titleKey),
-      open,
-      expandable,
-      expandOnRowClick: true,
-      keepContentWhenOpen: true,
-      onToggle: toggleExpand,
-      collapsedContent: summaryText !== '' && h(Fragment, null,
-        h('span', { className: 'dsh-ws-tool-sep', 'aria-hidden': true }),
-        fileLink
-          ? h('button', {
-            type: 'button', className: 'dsh-ws-tool-filelink', onClick: openFileClick, onKeyDown: fileLinkKeyDown,
-          }, summaryText)
-          : h('span', {
-            className: `dsh-ws-tool-summary${failureLine !== null ? ' dsh-ws-tool-error-summary' : ''}`,
-          }, summaryText),
-        diffStat !== null && h('span', { className: 'dsh-ws-tool-diffstat' }, diffStat),
-      ),
-    },
-      h('div', { className: 'dsh-ws-tool-body' },
-        diffs !== null
-          ? h(StudioDiffBlock, { diffs, labels, maxLines: CHAT_DIFF_MAX_LINES })
-          : (bodyText !== null || model.output !== null) && h('div', { className: 'dsh-ws-tool-io' },
-            bodyText !== null && h('div', { className: 'dsh-ws-tool-io-section' },
-              h('span', { className: 'dsh-ws-tool-io-label' }, t('row.input')),
-              h('span', { className: 'dsh-ws-tool-io-text' }, bodyText)),
-            bodyText !== null && model.output !== null && h('span', { className: 'dsh-ws-tool-io-divider', 'aria-hidden': true }),
-            model.output !== null && h('div', { className: 'dsh-ws-tool-io-section' },
-              h('span', { className: 'dsh-ws-tool-io-label' }, t('row.output')),
-              h('span', { className: 'dsh-ws-tool-io-text', 'data-error': model.state === 'error' || undefined }, model.output)),
-          ),
-        inspect !== undefined && h('button', { type: 'button', className: 'dsh-ws-tool-inspect', onClick: inspect },
-          h(IconInspectOutline12, null), t('row.inspect')),
-      ),
-    ),
-  )
+  const cards = []
+  if (diffs !== null) {
+    for (const group of groupDiffsByPath(diffs)) {
+      cards.push(h(StudioToolCard, {
+        key: `file:${group.path}`,
+        toolName,
+        title,
+        leading,
+        state: model.state,
+        status,
+        headText: abbreviateHomePath(relativizeToCwd(group.path, cwd), home),
+        headLink: group.path,
+        openFile: failureLine === null ? openFile : undefined,
+        diffs: group.diffs,
+        labels,
+        children: null,
+      }))
+    }
+  } else {
+    cards.push(h(StudioToolCard, {
+      key: 'generic',
+      toolName,
+      title,
+      leading,
+      state: model.state,
+      status,
+      headText: failureLine ?? model.summary,
+      headLink: null,
+      openFile: undefined,
+      diffs: null,
+      labels,
+      children: genericBody,
+    }))
+  }
+  return h(Fragment, null, ...cards)
 }
 
 /* ---- Registration ---- */

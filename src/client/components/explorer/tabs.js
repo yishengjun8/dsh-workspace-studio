@@ -19,14 +19,28 @@ export function PreviewTabs({ tabs, activePath, draggingPath, dropIndex, contain
       onContextMenu: event => { event.preventDefault(); onContextMenu(tab.path, event.clientX, event.clientY) },
       onDragEnd: () => onDragEnd(),
       onDragStart: event => onDragStart(tab.path, event),
-      title: tab.path,
+      /* A mind-map tab's path is synthetic; its title is the map name. */
+      title: tab.kind === 'mindmap' ? tab.name : tab.path,
     },
+      /* Small tabbed-panel glyph marks a docked mind map. */
+      tab.kind === 'mindmap'
+        ? h('span', { 'aria-hidden': true, className: 'dsh-ws-preview-tab-mindmap' },
+          h('svg', { viewBox: '0 0 16 16' },
+            h('path', {
+              d: 'M2.5 6.5A1.5 1.5 0 0 1 4 5h8a1.5 1.5 0 0 1 1.5 1.5V11A1.5 1.5 0 0 1 12 12.5H4A1.5 1.5 0 0 1 2.5 11ZM5.5 5V3.5A.5.5 0 0 1 6 3h4a.5.5 0 0 1 .5.5V5',
+              fill: 'none',
+              stroke: 'currentColor',
+              strokeLinecap: 'round',
+              strokeLinejoin: 'round',
+              strokeWidth: 1.5,
+            })))
+        : null,
       h('button', {
         className: 'dsh-ws-preview-tab-button',
         onClick: () => onChoose(tab),
         role: 'tab',
         'aria-selected': tab.path === activePath,
-        title: tab.path,
+        title: tab.kind === 'mindmap' ? tab.name : tab.path,
         type: 'button',
       }, h('span', { className: 'dsh-ws-preview-tab-name' }, tab.name), tab.dirty ? h('span', { className: 'dsh-ws-dirty', title: translate('tab.dirty') }, '·') : null),
       tab.pinned

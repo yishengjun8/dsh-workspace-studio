@@ -32,8 +32,8 @@ export const MINDMAP_ICON = h('g', { fill: 'none', stroke: 'currentColor', strok
 /* Self-drawn sidebar entries replacing the hidden ordinary session rows.
    Rendered per workspace group: only docs whose root session belongs to that
    group's workspace; with groupTitle undefined (flat/search) every doc is
-   shown. Clicking opens the root session + floating mind-map overlay; drag
-   reorders (persisted per group in localStorage); right-click renames the
+   shown. Clicking opens the root session and docks the mind map as a preview
+   tab; drag reorders (persisted per group in localStorage); right-click renames the
    root session or reveals its workspace in the OS explorer. */
 export const MINDMAP_ORDER_ALL_KEY = '__all__'
 export function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, openSession, revealSession }) {
@@ -265,7 +265,7 @@ export function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, o
                click right after a drag so reordering never opens the session. */
             onClick: () => {
               if (Date.now() - lastDragEndRef.current < 400) return
-              openSession(sid)
+              openSession(sid, label)
             },
             onContextMenu: (event) => { event.preventDefault(); event.stopPropagation(); setContextMenu({ sessionId: sid, x: event.clientX, y: event.clientY }) },
             onDragEnd: () => { lastDragEndRef.current = Date.now(); setDragId(null); setDropTarget(null) },

@@ -1,9 +1,3 @@
-/** Harness sidebar shell seats: the shell owns its slots and they cannot be
- *  redeclared by this plugin, so two DOM containers are created inside the
- *  shell (the top actions row and the files region seat) and this plugin
- *  renders its own React content into them via portals. The observer here
- *  re-asserts the containers on structural rebuilds; in-place React updates
- *  leave foreign nodes alone, so nothing flickers. */
 import { useLayoutEffect, useRef, useState } from 'react'
 
 export function useSidebarChrome() {

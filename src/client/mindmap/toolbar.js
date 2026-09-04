@@ -1,11 +1,10 @@
-/** Mind-map toolbar: new top-level session, scope toggle, restore view,
- *  regenerate-all summaries and archive the whole map. */
+/** Mind-map toolbar: new top-level session, restore view, regenerate-all
+ *  summaries and archive the whole map. */
 import { createElement as h } from 'react'
 import { translate } from '../locale/index.js'
-import { mindmapOverlayStore } from './registry.js'
 import { MINDMAP_TOOLBAR_ICONS } from './cards.js'
 
-export function MindMapToolbar({ overlay, settings, previewRight, restoreView, addRootSession, startArchiveAll, startRegenerateAll }) {
+export function MindMapToolbar({ settings, restoreView, addRootSession, startArchiveAll, startRegenerateAll }) {
   return h('div', { className: 'dsh-ws-mindmap-toolbar' },
         /* Create a new top-level empty session — the same action as clicking
            the virtual root node (addRootSession), exposed as a highlighted
@@ -22,26 +21,6 @@ export function MindMapToolbar({ overlay, settings, previewRight, restoreView, a
             h('svg', { viewBox: '0 0 16 16' },
               h('path', { d: 'M8 3v10M3 8h10', stroke: 'currentColor', strokeLinecap: 'round', strokeWidth: 2.4 }))),
           translate('mindmap.newSession')),
-        h('button', {
-          'aria-pressed': overlay.scope === 'sidebar' ? 'true' : 'false',
-          className: 'dsh-ws-mindmap-toolbar-button dsh-ws-mindmap-scope-toggle',
-          onClick: () => { mindmapOverlayStore.toggleScope() },
-          title: translate(previewRight ? 'mindmap.scope.title.right' : 'mindmap.scope.title'),
-          type: 'button',
-        },
-          h('span', { 'aria-hidden': true, className: 'dsh-ws-mindmap-toolbar-badge' },
-            h('svg', { viewBox: '0 0 16 16' },
-              h('path', {
-                d: MINDMAP_TOOLBAR_ICONS.scope.d,
-                fill: 'none',
-                stroke: 'currentColor',
-                strokeLinecap: 'round',
-                strokeLinejoin: 'round',
-                strokeWidth: MINDMAP_TOOLBAR_ICONS.scope.sw,
-              }))),
-          translate(overlay.scope === 'sidebar'
-            ? (previewRight ? 'mindmap.scope.sidebar.right' : 'mindmap.scope.sidebar')
-            : (previewRight ? 'mindmap.scope.full.right' : 'mindmap.scope.full'))),
         h('button', { className: 'dsh-ws-mindmap-toolbar-button', onClick: restoreView, title: translate('mindmap.view.restoreTitle'), type: 'button' },
           h('span', { 'aria-hidden': true, className: 'dsh-ws-mindmap-toolbar-badge' },
             h('svg', { viewBox: '0 0 16 16' },
@@ -71,10 +50,7 @@ export function MindMapToolbar({ overlay, settings, previewRight, restoreView, a
             translate('mindmap.summary.regenerateAll'))
           : null,
         /* Archive the whole map: pushed to the right end of the toolbar
-           (margin-left:auto) and parked one close-button width (28px) left of
-           the overlay close button — the close button's left edge sits 38px
-           from the overlay's right edge, the toolbar's right padding is 16px,
-           so margin-right: 50px = 38 + 28 - 16. Red = destructive warning. */
+           (margin-left:auto). Red = destructive warning. */
         h('button', { className: 'dsh-ws-mindmap-toolbar-button dsh-ws-mindmap-toolbar-button-danger dsh-ws-mindmap-toolbar-archive', onClick: startArchiveAll, title: translate('mindmap.menu.archiveAll'), type: 'button' },
           h('span', { 'aria-hidden': true, className: 'dsh-ws-mindmap-toolbar-badge' },
             h('svg', { viewBox: '0 0 16 16' },

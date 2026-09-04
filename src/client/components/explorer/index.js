@@ -4,11 +4,13 @@ import { CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MAX, CONFLICT_FONT_SIZE_
 import { translate } from '../../locale/index.js'
 import { clamp, colorGroupOf, fileLabel, formatBytes, readOnlyReason } from '../../format.js'
 import { copyText, defaultEntryName, entryNameError, entryPath, joinAbsolutePath, parentPath, pathBaseName, rewriteDirectoryMap, rewritePathMap, rewritePathSet, rewriteRelativePath, selectedLevelPath } from '../../paths.js'
-import { ancestorDirectoryPaths, dropIndexFromEvent, entryFromPreviewTab, normalizePreviewSession, orderPinnedFirst, rewritePreviewTabs, serializePreviewSession } from '../../preview-tabs.js'
+import { ancestorDirectoryPaths, dropIndexFromEvent, entryFromPreviewTab, isMindmapTab, mindmapTabPath, normalizePreviewSession, orderPinnedFirst, rewritePreviewTabs, serializePreviewSession } from '../../preview-tabs.js'
 import { IconFolder, IconNewFile, IconNewFolder, IconRefresh, IconSearch } from '../../icons.js'
 import { encodingLabel, fetchEncodings, requestFsOperation, revealInExplorer, uploadExternalFile, WorkspaceApiError } from '../../api.js'
 import { hasDraggedFiles, hasNormalFile } from '../../utils.js'
 import { deleteEmergencyDraft, rewriteEmergencyDraftPath } from '../../drafts.js'
+import { mindmapDockStore, mindmapRegistry } from '../../mindmap/registry.js'
+import { MindMapView } from '../../mindmap/view.js'
 import { EncodingMenu, PanelHeader, PreviewToast, TabContextMenu, TreeContextMenu } from '../menus.js'
 import { DeleteDialog, EncodingDialog, EntryDialog, SaveConflictDialog, SessionRenameDialog } from '../dialogs.js'
 import { DropOverlay } from './drop.js'
@@ -24,19 +26,42 @@ import { useSessionRename } from './hooks/session-rename.js'
 
 
 export function WorkspaceExplorer({
-  workspace, treePortalTarget, sessionTitle, sessionId, renameSession, publishEditorContext, listDirectory, readFile, saveFile, createEntry, renameEntry, storedPreviewSession, persistPreviewSession, settingsStore, loadDraft, persistDraftFile, removeDraftFile, draftTree, checkFileChange,
+  workspace, treePortalTarget, sessionTitle, sessionId, previewSessionId, renameSession, publishEditorContext, listDirectory, readFile, saveFile, createEntry, renameEntry, storedPreviewSession, persistPreviewSession, settingsStore, loadDraft, persistDraftFile, removeDraftFile, draftTree, checkFileChange, mindmapActions, useSessions,
 }) {
   const settings = useSyncExternalStore(settingsStore.subscribe, settingsStore.getSnapshot)
-  const draftScopeId = sessionId === undefined ? `workspace:${workspace.workspaceId}` : `session:${sessionId}`
-  const initialPreviewSession = normalizePreviewSession(storedPreviewSession)
+  /* Draft scope follows the SHARED persistence key: inside a mind map every
+     member session shares one draft scope (the map's root), because the tab
+     strip — and with it the in-memory draft — is shared; a per-session scope
+     would strand unsaved edits under the session where they were typed and
+     lose them on a refresh in another member session. Sessions outside any
+     map keep their own scope. */
+  const draftScopeId = sessionId === undefined ? `workspace:${workspace.workspaceId}` : `session:${previewSessionId ?? sessionId}`
+  /* Restore under THIS mount's persistence family: a docked mind-map tab
+     whose dockedAt (or, for legacy snapshots, root session id) does not match
+     previewSessionId leaked in from another session's snapshot and must not
+     reappear here (session switch restore). The explorer's React key embeds
+     previewSessionId, so it is constant for the mount's lifetime. */
+  const initialPreviewSession = normalizePreviewSession(storedPreviewSession, previewSessionId)
   const [directories, setDirectories] = useState(() => new Map())
   const [expanded, setExpanded] = useState(() => new Set(['', ...(initialPreviewSession.expanded ?? [])]))
   const [tabs, setTabs] = useState(() => initialPreviewSession.tabs)
   const [activePath, setActivePath] = useState(() => initialPreviewSession.activePath)
+  /* The session each DOCKED mind map is "on" (drives its 当前 highlight),
+     keyed by tab path: starts at the tab's root and follows card clicks.
+     Per-tab because every docked map stays MOUNTED (hidden when inactive)
+     and must keep its own highlight. The MindMapView's sessionId prop below
+     prefers the HARNESS current session whenever it is a member of the tab's
+     family (a sidebar-entry click or the session switcher switches the chat
+     directly, bypassing this map — the highlight must follow), falling back
+     to this map only when the current session is not a member (hero page /
+     transient). */
+  const [mapSessionByPath, setMapSessionByPath] = useState({})
   const [selected, setSelected] = useState(() => {
     if (initialPreviewSession.activePath === null) return undefined
     const activeTab = initialPreviewSession.tabs.find(tab => tab.path === initialPreviewSession.activePath)
-    return activeTab ? entryFromPreviewTab(activeTab) : { path: initialPreviewSession.activePath, name: initialPreviewSession.activePath.slice(initialPreviewSession.activePath.lastIndexOf('/') + 1), kind: 'file' }
+    /* A restored mind-map tab selects nothing in the file tree. */
+    if (activeTab === undefined || isMindmapTab(activeTab)) return undefined
+    return entryFromPreviewTab(activeTab)
   })
   const [reloadToken, setReloadToken] = useState(0)
   const [searchReveal, setSearchReveal] = useState()
@@ -118,6 +143,13 @@ export function WorkspaceExplorer({
   // skip them until the cleaned snapshot is persisted, so a pruned path cannot
   // be re-seeded and 404 again within one mount.
   const prunedPathsRef = useRef(new Set())
+  /* Mind-map tab paths added by a DOCK REQUEST in this mount (as opposed to
+     restored from the persisted snapshot): the MindMapView's freshDock prop
+     reads this so restoreLastSession — landing the chat on the map's
+     remembered session — fires only for a deliberate open, never for a
+     session-switch restore (which would yank the chat away from the session
+     the user just clicked). */
+  const dockedFreshRef = useRef(new Set())
   const previewTabsBootstrapped = useRef(Boolean(initialPreviewSession.tabs.length > 0 || initialPreviewSession.activePath !== null))
   const selectedDirectoryPath = selectedLevelPath(selected)
   const activatePath = useCallback((path) => {
@@ -130,6 +162,22 @@ export function WorkspaceExplorer({
   useLayoutEffect(() => { activePathRef.current = activePath }, [activePath])
   useLayoutEffect(() => { expandedRef.current = expanded }, [expanded])
   const activeTab = useMemo(() => activePath === null ? undefined : tabs.find(tab => tab.path === activePath), [activePath, tabs])
+  /* A mind-map tab renders MindMapView instead of a file: no file header /
+     status bar, no tree selection, no file read. */
+  const activeMindmap = activeTab !== undefined && isMindmapTab(activeTab)
+  /* A session switch inside the same mind map keeps this explorer MOUNTED
+     (its key is the shared persistence id), so the read pass does not re-run
+     and the editor context would stay bound to the previous session. A file
+     tab is re-published automatically (the editor-session effect follows
+     publishEditorContext identity changes), but a mind-map tab carries no
+     file context — clear it for the new session, matching the remount
+     behavior. */
+  const lastSessionIdRef = useRef(sessionId)
+  useEffect(() => {
+    if (lastSessionIdRef.current === sessionId) return
+    lastSessionIdRef.current = sessionId
+    if (activePath === null || isMindmapTab(activeTab)) publishEditorContext(undefined)
+  }, [activePath, activeTab, publishEditorContext, sessionId])
   const hasDirtyTabs = useMemo(() => tabs.some(tab => tab.dirty || tab.saving), [tabs])
   const updateActiveTab = useCallback((patch) => {
     const path = activePathRef.current
@@ -191,6 +239,70 @@ export function WorkspaceExplorer({
     })
   }, [persistSessionTabs])
   useLayoutEffect(() => { schedulePersist() }, [activePath, schedulePersist, tabs, expanded])
+
+  /* Dock requests from the sidebar mind-map entries and the session-header
+     button: add/update the mind-map tab and activate it. Subscribed once — the handler
+     only touches stable setters and module stores. A request is consumed
+     only when its expectFamily matches THIS mount's previewSessionId: the
+     matching explorer is the one the opener just navigated to, so the map's
+     tab lands there — never on the session the click left behind (whose
+     explorer sees the request first and skips it). A request awaiting its
+     family stays pending for the matching mount. */
+  useEffect(() => {
+    const applyDock = () => {
+      const { request } = mindmapDockStore.getSnapshot()
+      if (request === null) return
+      if (request.expectFamily !== (previewSessionId ?? null)) return
+      const path = mindmapTabPath(request.rootId)
+      /* Mark the tab as freshly docked so its MindMapView knows this mount is
+         a deliberate open (restoreLastSession may land the chat on the map's
+         remembered session) rather than a session-switch restore. */
+      dockedFreshRef.current.add(path)
+      /* Stamp the persistence family the tab was docked on (constant for the
+         mount): restore later keeps the map only under this family, so a
+         snapshot carrying the tab cannot leak it into unrelated sessions. */
+      const dockedAt = previewSessionId ?? null
+      setTabs(current => {
+        const existing = current.find(tab => tab.path === path)
+        if (existing !== undefined) {
+          /* Re-dock refreshes the tab name (the map title may have changed)
+             and re-anchors the stamp on THIS family. */
+          return current.map(tab => tab.path === path ? { ...tab, name: request.name, dockedAt } : tab)
+        }
+        return [...current, {
+          baseText: '',
+          baseRevision: null,
+          bom: false,
+          dirty: false,
+          dockedAt,
+          bom: false,
+          dirty: false,
+          draft: '',
+          draftKnown: false,
+          editing: false,
+          encoding: 'utf-8',
+          external: false,
+          kind: 'mindmap',
+          lineEnding: 'none',
+          name: request.name,
+          path,
+          pinned: false,
+          revision: null,
+          saving: false,
+          scrollTop: 0,
+          sessionId: request.rootId,
+          size: null,
+          status: undefined,
+          symlink: false,
+        }]
+      })
+      setSelected(undefined)
+      activatePath(path)
+      mindmapDockStore.consume()
+    }
+    if (mindmapDockStore.getSnapshot().request !== null) applyDock()
+    return mindmapDockStore.subscribe(applyDock)
+  }, [activatePath, previewSessionId])
 
   const editorSession = useEditorSession({
     workspace, draftScopeId, activePath, activeTab, tabsRef, activePathRef, updateTab, setTabs,
@@ -360,18 +472,23 @@ export function WorkspaceExplorer({
   useLayoutEffect(() => {
     if (previewTabsBootstrapped.current) return
     if (tabsRef.current.length !== 0) return
-    const next = normalizePreviewSession(storedPreviewSession)
+    const next = normalizePreviewSession(storedPreviewSession, previewSessionId)
     if (next.tabs.length === 0) return
     previewTabsBootstrapped.current = true
     setTabs(next.tabs)
     activatePath(next.activePath)
     const nextTab = next.tabs.find(tab => tab.path === next.activePath)
     if (nextTab !== undefined) {
-      const entry = entryFromPreviewTab(nextTab)
-      setSelected(entry)
-      revealPath(entry)
+      if (isMindmapTab(nextTab)) {
+        /* A restored mind-map tab selects nothing in the file tree. */
+        setSelected(undefined)
+      } else {
+        const entry = entryFromPreviewTab(nextTab)
+        setSelected(entry)
+        revealPath(entry)
+      }
     }
-  }, [activatePath, revealPath, storedPreviewSession])
+  }, [activatePath, previewSessionId, revealPath, storedPreviewSession])
   // Late-arriving restore: if storedPreviewSession appears only after mount,
   // merge its expanded paths and load them. The hasAll guard keeps this
   // idempotent across store updates.
@@ -935,6 +1052,17 @@ export function WorkspaceExplorer({
       // the non-restorable state. Best-effort: the tab is closing anyway.
       void clearDraftFile(path, '', closing.encoding ?? 'utf-8', closing.lineEnding ?? 'none', Boolean(closing.bom), closing.revision ?? null).catch(() => {})
     }
+    if (isMindmapTab(closing)) {
+      /* Drop the map's remembered session so a re-dock cannot resurrect a
+         stale branch highlight (the map's own restore logic re-lands it from
+         localStorage instead). */
+      setMapSessionByPath(prev => {
+        if (!Object.prototype.hasOwnProperty.call(prev, path)) return prev
+        const next = { ...prev }
+        delete next[path]
+        return next
+      })
+    }
     const nextTabs = current.filter(tab => tab.path !== path)
     const nextActivePath = activePathRef.current === path
       ? (nextTabs[index]?.path ?? nextTabs[index - 1]?.path ?? null)
@@ -955,9 +1083,14 @@ export function WorkspaceExplorer({
     }
     const nextTab = nextTabs.find(tab => tab.path === nextActivePath)
     if (nextTab !== undefined) {
-      const entry = entryFromPreviewTab(nextTab)
-      setSelected(entry)
-      revealPath(entry)
+      if (isMindmapTab(nextTab)) {
+        /* A mind-map tab selects nothing in the file tree. */
+        setSelected(undefined)
+      } else {
+        const entry = entryFromPreviewTab(nextTab)
+        setSelected(entry)
+        revealPath(entry)
+      }
     }
   }, [clearDraftFile, forgetPathRefs, publishEditorContext, revealPath, updateTab])
   const closeOtherTabs = useCallback((keepPath) => {
@@ -984,9 +1117,14 @@ export function WorkspaceExplorer({
     setTabs(current.filter(tab => tab.pinned || tab.path === keepPath))
     for (const tab of closing) forgetPathRefs(tab.path)
     activatePath(keep.path)
-    const entry = entryFromPreviewTab(keep)
-    setSelected(entry)
-    revealPath(entry)
+    if (isMindmapTab(keep)) {
+      /* A mind-map tab selects nothing in the file tree. */
+      setSelected(undefined)
+    } else {
+      const entry = entryFromPreviewTab(keep)
+      setSelected(entry)
+      revealPath(entry)
+    }
   }, [activatePath, clearDraftFile, forgetPathRefs, revealPath, updateTab])
   const pinTab = useCallback((path) => {
     setTabs(current => {
@@ -1060,7 +1198,99 @@ export function WorkspaceExplorer({
   }, [clampDropIndexForTab, dropTabAt])
   // Markdown files offer a rendered-preview toggle (same extension table as the tree badge and editor highlighting).
   const isMarkdown = preview.state === 'ready' && colorGroupOf({ kind: 'file', name: preview.name }) === 'markdown'
-  const body = h(PreviewPane, {
+  /* A mind-map tab renders the map itself (its own toolbar + title bar) in the
+     preview body; the file header/status bar are hidden for it. Every docked
+     map stays MOUNTED (hidden with display:none while another tab is active)
+     so switching back is instant — the doc, pan/zoom and highlight survive —
+     and its background sync keeps the map fresh while hidden. */
+  const mindmapTabs = tabs.filter(isMindmapTab)
+  const body = mindmapTabs.length > 0
+    ? h(Fragment, null,
+        ...mindmapTabs.map(tab => h('div', {
+          className: 'dsh-ws-preview-body dsh-ws-mindmap-dock',
+          key: tab.path,
+          style: tab.path === activePath ? undefined : { display: 'none' },
+        },
+          h(MindMapView, {
+            archiveSession: mindmapActions.archiveSession,
+            createSession: mindmapActions.createSession,
+            deleteDoc: mindmapActions.deleteDoc,
+            forkAt: mindmapActions.forkAt,
+            /* True only when THIS mount was created by a dock request (the
+               path was marked in dockedFreshRef): the map may land the chat
+               on its remembered session only for a deliberate open, never for
+               a tab restored from the shared snapshot on a session switch. */
+            freshDock: dockedFreshRef.current.has(tab.path),
+            key: tab.path,
+            listWorkspaces: mindmapActions.listWorkspaces,
+            loadDoc: mindmapActions.loadDoc,
+            onDocGone: () => closeTab(tab.path),
+            onTitleChange: title => {
+              /* The map's own title (doc.rootTitle) keeps the tab label in
+                 sync — a dock with an unknown title or a root rename
+                 self-corrects here. Fires on every doc change, so skip the
+                 redundant tab rewrite when the label already matches. */
+              if (typeof title !== 'string' || title === '') return
+              const current = tabsRef.current.find(item => item.path === tab.path)
+              if (current !== undefined && current.name === title) return
+              updateTab(tab.path, { name: title })
+            },
+            openSession: id => { mindmapActions.openSession(String(id)); setMapSessionByPath(prev => ({ ...prev, [tab.path]: String(id) })) },
+            renameDoc: mindmapActions.renameDoc,
+            renameSession: mindmapActions.renameSession,
+            saveDoc: mindmapActions.saveDoc,
+            /* The map's session follows the HARNESS current session whenever
+               it is a member of this tab's family: a sidebar-entry click or
+               the session switcher switches the chat directly (bypassing the
+               map's own openSession), and the highlight must follow instead of
+               stranding on the last card click. The registry check is the
+               membership gate — a non-member session must never reach
+               MindMapView (its load would build a NEW map for that session).
+               mapSessionByPath remains the fallback for the transient
+               no-session case. */
+            sessionId: (sessionId !== undefined && sessionId !== null && String(sessionId) !== ''
+              && (String(sessionId) === String(tab.sessionId) || mindmapRegistry.rootOf(String(sessionId)) === String(tab.sessionId)))
+              ? String(sessionId)
+              : (mapSessionByPath[tab.path] ?? tab.sessionId ?? ''),
+            settingsStore,
+            syncDoc: mindmapActions.syncDoc,
+            useSessions,
+          }))),
+        activeMindmap ? null : h(PreviewPane, {
+    activePath,
+    activeTab,
+    draft,
+    editing,
+    editorRef,
+    isMarkdown,
+    mdPreview,
+    onBodyClick: () => { if (activePathRef.current !== null) scrollTabIntoView(activePathRef.current) },
+    onContext: publishContextState,
+    onDirty: (text) => {
+      const nextDirty = text !== baseText.current
+      setDraft(text)
+      setDirty(nextDirty)
+      updateActiveTab({ dirty: nextDirty, draft: text, draftKnown: nextDirty })
+      if (nextDirty) {
+        scheduleAutosave(activePath, text)
+      } else {
+        // Reverted exactly to the snapshot: drop the staging draft so a refresh can't resurrect intermediate edits.
+        lastWriteRef.current.set(activePath, { revision: null, content: text })
+        void clearDraftFile(activePath, text, preview.encoding ?? 'utf-8', preview.lineEnding ?? 'none', Boolean(preview.bom), preview.revision ?? null)
+      }
+    },
+    onRevealApplied: () => setSearchReveal(undefined),
+    onSaveShortcut: () => { if (editing && !saving) void save() },
+    onScroll: (path, scrollTop) => { scrollTopRef.current.set(path, scrollTop) },
+    onSearchPanelContextMenu: (event) => { if (event.button !== 2) event.preventDefault() },
+    preview,
+    readEpoch,
+    scrollTopRef,
+    searchPanelContainerRef,
+    searchReveal,
+    settings,
+  }))
+    : h(PreviewPane, {
     activePath,
     activeTab,
     draft,
@@ -1211,10 +1441,20 @@ export function WorkspaceExplorer({
     }) : null,
     treePortalTarget ? createPortal(treeSection, treePortalTarget) : null,
     h('section', { 'data-drop-active': dropActive || undefined, className: 'dsh-ws-preview', ref: previewSectionRef },
-      tabs.length ? h(PreviewTabs, { activePath, containerRef: previewTabsRef, draggingPath, dropIndex, onChoose: tab => chooseFile(entryFromPreviewTab(tab)), onClose: closeTab, onContextMenu: (path, x, y) => setTabContextMenu({ path, x, y }), onDragEnd: () => { setDraggingPath(null); setDropIndex(null) }, onDragLeave: handleTabsDragLeave, onDragOver: updateDropIndex, onDragStart: (path, event) => { setDraggingPath(path); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', path) }, onDrop: handleTabsDrop, onMouseEnter: handleTabsMouseEnter, onMouseLeave: handleTabsMouseLeave, onScroll: handleTabsScroll, onUnpin: unpinTab, tabs }) : null,
+      tabs.length ? h(PreviewTabs, { activePath, containerRef: previewTabsRef, draggingPath, dropIndex, onChoose: tab => {
+        if (isMindmapTab(tab)) {
+          /* A mind-map tab activates directly: no tree selection/reveal. */
+          setSelected(undefined)
+          activatePath(tab.path)
+        } else {
+          chooseFile(entryFromPreviewTab(tab))
+        }
+      }, onClose: closeTab, onContextMenu: (path, x, y) => setTabContextMenu({ path, x, y }), onDragEnd: () => { setDraggingPath(null); setDropIndex(null) }, onDragLeave: handleTabsDragLeave, onDragOver: updateDropIndex, onDragStart: (path, event) => { setDraggingPath(path); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', path) }, onDrop: handleTabsDrop, onMouseEnter: handleTabsMouseEnter, onMouseLeave: handleTabsMouseLeave, onScroll: handleTabsScroll, onUnpin: unpinTab, tabs }) : null,
       tabs.length ? h('div', { className: 'dsh-ws-preview-scrollbar', onMouseEnter: handleScrollbarMouseEnter, onMouseLeave: handleScrollbarMouseLeave, onPointerCancel: handleScrollbarPointerEnd, onPointerDown: handleScrollbarPointerDown, onPointerMove: handleScrollbarPointerMove, onPointerUp: handleScrollbarPointerEnd, ref: previewScrollbarRef }, h('div', { className: 'dsh-ws-preview-scrollbar-thumb', ref: previewScrollThumbRef })) : null,
       tabContextMenu ? h(TabContextMenu, { menuRef: tabMenuRef, onCloseOthers: () => { setTabContextMenu(undefined); closeOtherTabs(tabContextMenu.path) }, onTogglePin: () => { setTabContextMenu(undefined); if (tabMenuTarget?.pinned) unpinTab(tabContextMenu.path); else pinTab(tabContextMenu.path) }, pinned: Boolean(tabMenuTarget?.pinned), x: tabContextMenu.x, y: tabContextMenu.y }) : null,
-      h('header', { className: 'dsh-ws-panel-header dsh-ws-preview-file-header', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) }, ref: previewHeaderRef },
+      /* A mind-map tab hides the file header: the map draws its own toolbar
+         and title bar. */
+      activeMindmap ? null : h('header', { className: 'dsh-ws-panel-header dsh-ws-preview-file-header', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) }, ref: previewHeaderRef },
         h('span', { className: 'dsh-ws-preview-file-path', title: activeTab === undefined ? undefined : (activeTab.external ? translate('external.externalFile.title') : activeTab.path) },
           activeTab
             ? (activeTab.external
@@ -1246,7 +1486,8 @@ export function WorkspaceExplorer({
       ),
       body,
       // Merged bottom status bar: action buttons + file meta (left) and the transient status notice (right).
-      h('div', { className: 'dsh-ws-status', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) } },
+      // A mind-map tab hides it: the map surfaces its own notices.
+      activeMindmap ? null : h('div', { className: 'dsh-ws-status', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) } },
         h('div', { className: 'dsh-ws-preview-status-actions' },
           preview.state === 'ready'
             ? h(Fragment, null,

@@ -305,8 +305,6 @@ export const MindMapSessionHead = memo(function MindMapSessionHead({
    plus badge's line style, rendered inside .dsh-ws-mindmap-toolbar-badge.
    One path (possibly several M/Z sub-segments) + one stroke width each. */
 export const MINDMAP_TOOLBAR_ICONS = {
-  /* Expand/bracket corners — "fill scope" toggle. */
-  scope: { d: 'M4 7V5.5C4 4.67 4.67 4 5.5 4H7M9 4h1.5c.83 0 1.5.67 1.5 1.5V7M12 9v1.5c0 .83-.67 1.5-1.5 1.5H9M7 12H5.5C4.67 12 4 11.33 4 10.5V9', sw: 1.7 },
   /* Counter-clockwise return arrow — "restore view". */
   restore: { d: 'M3 12a9 9 0 1 0 2.64-6.36L3 8M3 3v5h5', sw: 1.7 },
   /* Twin sparkles — "regenerate all summaries". */

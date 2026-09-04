@@ -1,14 +1,7 @@
-/** Mind-map action face shared by the floating overlay: document IO, fork,
- *  rename and archive. forkAt does NOT open the child — the view opens it only
- *  after the doc write completes, so the branch is part of the document when it
- *  becomes visible. No increaseTitle: the host derives the title from the fork
- *  boundary; the child is renamed to the family-root title plus " ›" so its
- *  header never collides with the root (a root-replacement fork — card-deletion
- *  truncation of the root session — keeps the plain family title instead, asRoot). */
 import { deleteMindmapDoc, fetchMindmapDoc, renameMindmapDoc, syncMindmapDoc, writeMindmapDoc } from './api.js'
 import { mindmapRootTitleOf, normalizeMindmapWorkspacePath } from './mindmap/helpers.js'
 
-  /* The mind-map action face shared by the floating overlay (formerly the
+  /* The mind-map action face shared by the docked mind-map view (formerly the
      conversation.view inject): document IO, fork, rename and archive. forkAt
      does NOT open the child — the view opens it only after the doc write
      completes, so the branch is part of the document when it becomes visible.

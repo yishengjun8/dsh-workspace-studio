@@ -1,6 +1,6 @@
 import { createElement as h, Fragment, useRef, useState, useEffect, useLayoutEffect, useMemo, useCallback, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
-import { clampSpinSpeed, CONTEXT_MENU_WIDTH, EDITOR_CONTEXT_PROVIDER, EXPLORER_MAX_RATIO, MINDMAP_END_COLOR_DEFAULT, MINDMAP_HEAD_COLOR_DEFAULT, MINDMAP_SPIN_BASE_DURATION_S, MINDMAP_SPIN_STOP_DURATION_S, MOBILE_HEADER_FALLBACK_H, PACKAGE_ID, PREVIEW_DEFAULT, PREVIEW_MAX, PREVIEW_MIN, PREVIEW_SESSION_MAX, ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MAX, ROW_HEIGHT_MIN, SIDEBAR_COLLAPSED, SIDEBAR_MAX_FALLBACK, SIDEBAR_MAX_RATIO, SIDEBAR_MIN, TREE_MAX, TREE_MIN } from './constants.js'
+import { clampSpinSpeed, CONTEXT_MENU_WIDTH, EDIT_LINES_DEFAULT, EDIT_LINES_MAX, EDIT_LINES_MIN, EDITOR_CONTEXT_PROVIDER, EXPLORER_MAX_RATIO, MINDMAP_END_COLOR_DEFAULT, MINDMAP_HEAD_COLOR_DEFAULT, MINDMAP_SPIN_BASE_DURATION_S, MINDMAP_SPIN_STOP_DURATION_S, MOBILE_HEADER_FALLBACK_H, PACKAGE_ID, PREVIEW_DEFAULT, PREVIEW_MAX, PREVIEW_MIN, PREVIEW_SESSION_MAX, ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MAX, ROW_HEIGHT_MIN, SIDEBAR_COLLAPSED, SIDEBAR_MAX_FALLBACK, SIDEBAR_MAX_RATIO, SIDEBAR_MIN, THINK_LINES_DEFAULT, THINK_LINES_MAX, THINK_LINES_MIN, TREE_MAX, TREE_MIN } from './constants.js'
 import { installLocaleService, translate, useLocaleText } from './locale/index.js'
 import { setDrawerOpen, setMobile, useMobile } from './mobile.js'
 import { styles } from './styles.js'
@@ -15,10 +15,10 @@ import { EditorContextPrefix, installEditorContextMessageCompactor } from './con
    the last item stays reachable near the bottom of the viewport. */
 const SESSION_CONTEXT_MENU_HEIGHT = 140
 import { ThemePresenter } from './theme.js'
-import { mindmapRegistry, useMindmapOverlay } from './mindmap/registry.js'
+import { mindmapRegistry, useMindmapRegistry } from './mindmap/registry.js'
 import { installMindmapBranchHider } from './mindmap/hider.js'
 import { MindmapSessionsPanel } from './mindmap/panel.js'
-import { MindmapHeaderButton, MindmapOverlayHost } from './mindmap/overlay.js'
+import { MindmapHeaderButton } from './mindmap/overlay.js'
 import { ResizeHandle, SessionInlineRename, SidebarTopActions } from './components/menus.js'
 import { EmptyWorkspaceExplorer, ExplorerSettingsSection } from './components/settings.js'
 import { SessionSwitcherDropdown } from './components/switcher.js'
@@ -26,10 +26,11 @@ import { MobileHeaderControls, MobileHeroControls, MobileModeToggle } from './co
 import { WorkspaceExplorer } from './components/explorer/index.js'
 import { buildMindmapActions } from './mindmap-actions.js'
 import { useChatDropMask } from './hooks/chat-drop.js'
+import { useChatTailPin } from './hooks/chat-tail-pin.js'
 import { useSessionMenu } from './hooks/session-menu.js'
 import { useSidebarChrome } from './hooks/sidebar-chrome.js'
-import { useThinkDisclosure } from './hooks/think-disclosure.js'
-import { registerStudioFileMutationToolview, setStudioSettingsStore } from './toolview.js'
+import { useThinkCard } from './hooks/think-card.js'
+import { registerStudioFileMutationToolview } from './toolview.js'
 
 export function AppFrame(props) {
   const panels = props.useStore(state => state)
@@ -37,7 +38,6 @@ export function AppFrame(props) {
   const settings = useSyncExternalStore(props.settingsStore.subscribe, props.settingsStore.getSnapshot)
   const panes = useSyncExternalStore(props.explorerPaneStore.subscribe, props.explorerPaneStore.getSnapshot)
   const mobile = useMobile()
-  const overlay = useMindmapOverlay()
   /* One-time self-heal for legacy over-limit data: prunePreviewSessions only
      runs inside rememberPreviewSession, so a localStorage snapshot holding
      more than PREVIEW_SESSION_MAX keys (written before the cap existed) would
@@ -178,7 +178,8 @@ export function AppFrame(props) {
   }, [])
   const [resizing, setResizing] = useState(false)
   const chatDrop = useChatDropMask({ chatSectionRef })
-  useThinkDisclosure({ chatSectionRef, autoExpandThink: settings.autoExpandThink, thinkCollapseDelay: settings.thinkCollapseDelay })
+  useThinkCard({ chatSectionRef })
+  useChatTailPin({ chatSectionRef, currentSession })
   const sidebarChromeState = useSidebarChrome()
   const sessionMenu = useSessionMenu({ props, mountedRef })
   const { asideRef, sidebarChrome } = sidebarChromeState
@@ -204,7 +205,21 @@ export function AppFrame(props) {
   useEffect(() => {
     if (currentSession !== undefined) props.activateEditorSession(String(currentSession))
   }, [currentSession, props.activateEditorSession])
-  const previewSessionSelection = selectStoredPreviewSession(previewPanels.previewSessions, workspace, currentSession, workspaceId)
+  /* Shared dsh-ws-preview persistence: every session of the same mind map
+     (root + all branches) reads and writes ONE snapshot keyed by the map's
+     ROOT session id, so the tab strip follows the user across the whole tree;
+     sessions outside any map keep their own key. The registry index can lag
+     briefly (startup fetch, a fork just made in another tab): a member
+     session then falls back to its own key and switches over once the index
+     lands (same accepted staleness as the 30 s background poll). The
+     explorer's React key uses the SAME id, so switching between member
+     sessions keeps the whole preview area MOUNTED (tabs, docked maps, tree)
+     instead of remounting and reloading every view. */
+  const mindmapRegistryState = useMindmapRegistry()
+  const previewSessionId = currentSession === undefined
+    ? undefined
+    : (mindmapRegistryState.rootOf(currentSession) ?? String(currentSession))
+  const previewSessionSelection = selectStoredPreviewSession(previewPanels.previewSessions, workspace, previewSessionId, workspaceId)
   const previewSessionKey = previewSessionSelection.key
   const storedPreviewSession = previewSessionSelection.value
   // Skip a rewrite when this key-set already holds the same snapshot: each
@@ -214,18 +229,19 @@ export function AppFrame(props) {
   // same snapshot to a different key-set.
   const lastPersistedSnapshotRef = useRef(new Map())
   const persistPreviewSession = useCallback((value) => {
-    // Write the snapshot to every key restore may pick: the current session
-    // (highest priority) and the workspace anchor. The selected key joins
-    // them only when it IS one of those two (a session that already owns a
-    // snapshot, or the workspace itself). When restore fell back to ANOTHER
-    // session's snapshot (priority ②), that key is a borrowed template, not a
-    // write target: persisting to it would overwrite (or delete, on an empty
-    // snapshot) that session's saved tabs.
+    // Write the snapshot to every key restore may pick: the current session's
+    // persistence key (its mind-map ROOT id when the session is a map member,
+    // so the whole tree shares one snapshot) and the workspace anchor. The
+    // selected key joins them only when it IS one of those two (a session that
+    // already owns a snapshot, or the workspace itself). When restore fell
+    // back to ANOTHER session's snapshot (priority ②), that key is a borrowed
+    // template, not a write target: persisting to it would overwrite (or
+    // delete, on an empty snapshot) that session's saved tabs.
     const keys = new Set()
-    if (currentSession !== undefined) keys.add(String(currentSession))
+    if (previewSessionId !== undefined) keys.add(previewSessionId)
     if (workspaceId !== undefined) keys.add(String(workspaceId))
     if (previewSessionKey !== undefined
-      && (previewSessionKey === String(currentSession) || previewSessionKey === String(workspaceId))) {
+      && (previewSessionKey === previewSessionId || previewSessionKey === String(workspaceId))) {
       keys.add(previewSessionKey)
     }
     if (keys.size === 0) return
@@ -242,7 +258,7 @@ export function AppFrame(props) {
       if (oldest !== undefined) lastPersistedSnapshotRef.current.delete(oldest)
     }
     for (const key of keys) props.previewSessionsStore.actions.rememberPreviewSession(key, value)
-  }, [currentSession, previewSessionKey, props.previewSessionsStore, workspaceId])
+  }, [previewSessionId, previewSessionKey, props.previewSessionsStore, workspaceId])
   const last = useRef(currentSession)
   useEffect(() => {
     const liveSessionIds = sessionIds.map(String)
@@ -263,23 +279,6 @@ export function AppFrame(props) {
     observer.observe(viewport)
     return () => { observer.disconnect() }
   }, [])
-  /* The floating mind-map window spans everything left of the chat column:
-     track the chat column's live width (it changes when the sidebar/preview
-     splitters move the grid) so the window reflows with it. */
-  const [chatWidth, setChatWidth] = useState(0)
-  useLayoutEffect(() => {
-    const section = chatSectionRef.current
-    if (section === null) return undefined
-    const measure = () => { setChatWidth(section.getBoundingClientRect().width) }
-    measure()
-    if (typeof ResizeObserver !== 'function') {
-      window.addEventListener('resize', measure)
-      return () => window.removeEventListener('resize', measure)
-    }
-    const observer = new ResizeObserver(() => { measure() })
-    observer.observe(section)
-    return () => { observer.disconnect() }
-  }, [])
   // Chat drop mask: track file drags over the chat pane (capture phase,
   // without stopping propagation, so the harness composer still receives the
   // drop and attaches images as usual). The mask covers only the chat pane;
@@ -287,14 +286,13 @@ export function AppFrame(props) {
   // counter (Chrome's dragleave has a null relatedTarget, so a contains()
   // check would hide the mask on the first child transition). Closing the mask
   // suppresses it for the current drag until it ends or is dropped.
-  // Think disclosure auto behavior: a streaming think block (data-variant=
-  // "think", data-state="running") opens once and auto-collapses shortly
-  // after finishing (data-state="ok"). The harness renders the expanded body
-  // only while the row is open, and the row state is internal, so rows are
-  // toggled by clicking the disclosure row (expandOnRowClick). Manual
-  // interaction wins: a row collapsed during streaming is not re-opened, a
-  // click/keypress cancels a pending auto-collapse, and manually opened rows
-  // are never auto-collapsed.
+  // Think card behavior (useThinkCard): every think block (data-variant=
+  // "think") is kept open so the harness renders its body (the body exists
+  // only while the disclosure row is open — the row state is internal React
+  // state, toggled by clicking the disclosure row). The card body viewport
+  // shows only the latest --dsh-ws-think-lines rows and stays scroll-pinned
+  // to the newest text. User interaction owns a block: a row collapsed by
+  // the user is never force-reopened.
   const collapsed = panels.sidebar === 0
   // Mobile mode expands the sidebar so the drawer shows the full browsing
   // content (the rail has no drawer affordance); the previous collapsed state
@@ -334,7 +332,7 @@ export function AppFrame(props) {
   const preview = filesActive || panes.explorerOpen ? clamp(panes.preview ?? PREVIEW_DEFAULT, PREVIEW_MIN, previewMax) : 0
   const previewBoundary = sidebar + preview
   const treePortalTarget = sidebarChrome?.files ?? null
-  return h('div',{ref:viewportRef,className:'dsh-ws-viewport'},h('main',{className:'dsh-ws-frame','data-explorer-closed':!panes.explorerOpen&&!filesActive||undefined,'data-sidebar-collapsed':collapsed||undefined,'data-sidebar-files':filesActive||undefined,'data-resizing':resizing||undefined,'data-preview-right':settings.previewRight===true||undefined,style:{'--dsh-ws-preview':`${preview}px`,'--dsh-ws-sidebar':`${sidebar}px`,'--dsh-ws-row-height':`${clamp(settings.rowHeight ?? ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MIN, ROW_HEIGHT_MAX)}px`,'--dsh-ws-mobile-header-h':`${mobileHeaderHeight}px`,'--dsh-ws-mindmap-spin-duration':mindmapSpinDuration,...fileColorVars}},h('aside',{className:'dsh-ws-sidebar',ref:asideRef},props.renderSlot('sidebar',{collapsed,width:sidebar}),sidebarChrome?.top?createPortal(h(SidebarTopActions,{collapsed,view,width:sidebar,onSelectSessions:()=>{props.actions.setView('sessions')},onSelectFiles:()=>{if(collapsed)props.toggleSidebar();props.actions.setView('files')}}),sidebarChrome.top):null,sidebarChrome&&(sidebarChrome.groups.length>0?sidebarChrome.groups.map(group=>createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:group.title,openSession:openMindmapSession,revealSession:revealSessionById}),group.container)):sidebarChrome.fallback?createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:undefined,openSession:openMindmapSession,revealSession:revealSessionById}),sidebarChrome.fallback):null)),workspace?h(WorkspaceExplorer,{key:`${workspace.workspaceId}:${sessionId ?? 'workspace'}`,createEntry:props.createEntry,listDirectory:props.listDirectory,persistPreviewSession,publishEditorContext,readFile:props.readFile,renameEntry:props.renameEntry,saveFile:props.saveFile,loadDraft:props.loadDraft,persistDraftFile:props.persistDraftFile,removeDraftFile:props.removeDraftFile,draftTree:props.draftTree,checkFileChange:props.checkFileChange,settingsStore:props.settingsStore,storedPreviewSession,sessionTitle,sessionId,renameSession:props.renameSession,treePortalTarget,workspace}):h(EmptyWorkspaceExplorer,{sessionTitle,treePortalTarget}),h('section',{className:'dsh-ws-chat',ref:chatSectionRef},props.renderSlot('conversation',{}),chatDropActive?h('div',{className:'dsh-ws-chat-drop-mask',role:'presentation'},h('button',{'aria-label':translate('drop.closeAria'),className:'dsh-ws-chat-drop-close',onClick:()=>{chatDropSuppressed.current=true;setChatDropActive(false)},title:translate('drop.closeTitle'),type:'button'},'×'),h('div',{className:'dsh-ws-chat-drop-card'},translate('drop.releaseImages'))):null),!collapsed?h(ResizeHandle,{label:translate('resize.sidebar'),left:sidebar,max:sidebarMax,min:SIDEBAR_MIN,onDragging:setResizing,onResize:width=>props.actions.setSidebar(width,sidebarMax),value:sidebar}):null,(panes.explorerOpen||filesActive)?h(ResizeHandle,{label:translate('resize.preview'),left:settings.previewRight===true?Math.max(0,viewportWidth-preview):previewBoundary,max:previewMax,min:PREVIEW_MIN,onDragging:setResizing,onResize:width=>props.explorerPaneStore.actions.setPreview(width,previewMax),value:preview,invert:settings.previewRight===true||undefined}):null,h('aside',{className:'dsh-ws-details','data-closed':!panels.detailsOpen||!detailsCapable||undefined},h(props.SessionProvider,null,props.renderSlot('details',{}))),mobile.on&&mobile.drawerOpen?h('div',{className:'dsh-ws-mobile-scrim',onClick:()=>setDrawerOpen(false)}):null,h('div',{className:'dsh-ws-overlay','data-shell-overlay':true},props.renderSlot('shell.overlay',{})),sessionContextMenu?h('div',{className:'dsh-ws-context-menu',ref:sessionMenuRef,role:'menu',style:{left:Math.max(4,Math.min(sessionContextMenu.x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top:Math.max(4,Math.min(sessionContextMenu.y,window.innerHeight-SESSION_CONTEXT_MENU_HEIGHT-8))}},h('button',{className:'dsh-ws-context-item',onClick:beginSessionInlineRename,role:'menuitem',type:'button',title:sessionContextMenu.ambiguous?translate('context.ambiguousTitle',{id:String(sessionContextMenu.sessionId).slice(0,8)}):undefined},translate('context.renameSession')+(sessionContextMenu.ambiguous?` · ${String(sessionContextMenu.sessionId).slice(0,8)}`:'')),h('button',{className:'dsh-ws-context-item',onClick:archiveSessionFromMenu,role:'menuitem',type:'button',title:sessionContextMenu.ambiguous?translate('context.ambiguousTitle',{id:String(sessionContextMenu.sessionId).slice(0,8)}):undefined},translate('context.archiveSession')+(sessionContextMenu.ambiguous?` · ${String(sessionContextMenu.sessionId).slice(0,8)}`:'')),h('div',{className:'dsh-ws-context-separator',role:'separator'}),h('button',{className:'dsh-ws-context-item',onClick:revealSessionFromMenu,role:'menuitem',type:'button'},translate('context.reveal'))):null,sessionInlineRename?h(SessionInlineRename,{busy:sessionInlineRenameBusy,error:sessionInlineRenameError,key:sessionInlineRename.sessionId,onCancel:cancelSessionInlineRename,onConfirm:confirmSessionInlineRename,row:sessionInlineRename.row,title:sessionInlineRename.title}):null,sessionNotice?h('div',{className:'dsh-ws-copy-notice','data-error':sessionNotice.error||undefined,role:'status'},sessionNotice.text):null),overlay.open?h(MindmapOverlayHost,{actions:props.mindmapActions,chatWidth,mobile:mobile.on,previewRight:settings.previewRight===true,previewWidth:preview,sessionId:overlay.sessionId,settingsStore:props.settingsStore,sidebarWidth:sidebar,useSessions:props.useSessions}):null)}
+  return h('div',{ref:viewportRef,className:'dsh-ws-viewport'},h('main',{className:'dsh-ws-frame','data-explorer-closed':!panes.explorerOpen&&!filesActive||undefined,'data-sidebar-collapsed':collapsed||undefined,'data-sidebar-files':filesActive||undefined,'data-resizing':resizing||undefined,'data-preview-right':settings.previewRight===true||undefined,style:{'--dsh-ws-preview':`${preview}px`,'--dsh-ws-sidebar':`${sidebar}px`,'--dsh-ws-row-height':`${clamp(settings.rowHeight ?? ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MIN, ROW_HEIGHT_MAX)}px`,'--dsh-ws-mobile-header-h':`${mobileHeaderHeight}px`,'--dsh-ws-mindmap-spin-duration':mindmapSpinDuration,...fileColorVars}},h('aside',{className:'dsh-ws-sidebar',ref:asideRef},props.renderSlot('sidebar',{collapsed,width:sidebar}),sidebarChrome?.top?createPortal(h(SidebarTopActions,{collapsed,view,width:sidebar,onSelectSessions:()=>{props.actions.setView('sessions')},onSelectFiles:()=>{if(collapsed)props.toggleSidebar();props.actions.setView('files')}}),sidebarChrome.top):null,sidebarChrome&&(sidebarChrome.groups.length>0?sidebarChrome.groups.map(group=>createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:group.title,openSession:openMindmapSession,revealSession:revealSessionById}),group.container)):sidebarChrome.fallback?createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:undefined,openSession:openMindmapSession,revealSession:revealSessionById}),sidebarChrome.fallback):null)),workspace?h(WorkspaceExplorer,{key:`${workspace.workspaceId}:${previewSessionId ?? 'workspace'}`,createEntry:props.createEntry,listDirectory:props.listDirectory,mindmapActions:props.mindmapActions,persistPreviewSession,previewSessionId,publishEditorContext,readFile:props.readFile,renameEntry:props.renameEntry,saveFile:props.saveFile,loadDraft:props.loadDraft,persistDraftFile:props.persistDraftFile,removeDraftFile:props.removeDraftFile,draftTree:props.draftTree,checkFileChange:props.checkFileChange,settingsStore:props.settingsStore,storedPreviewSession,sessionTitle,sessionId,renameSession:props.renameSession,treePortalTarget,useSessions:props.useSessions,workspace}):h(EmptyWorkspaceExplorer,{sessionTitle,treePortalTarget}),h('section',{className:'dsh-ws-chat',ref:chatSectionRef},props.renderSlot('conversation',{}),chatDropActive?h('div',{className:'dsh-ws-chat-drop-mask',role:'presentation'},h('button',{'aria-label':translate('drop.closeAria'),className:'dsh-ws-chat-drop-close',onClick:()=>{chatDropSuppressed.current=true;setChatDropActive(false)},title:translate('drop.closeTitle'),type:'button'},'×'),h('div',{className:'dsh-ws-chat-drop-card'},translate('drop.releaseImages'))):null),!collapsed?h(ResizeHandle,{label:translate('resize.sidebar'),left:sidebar,max:sidebarMax,min:SIDEBAR_MIN,onDragging:setResizing,onResize:width=>props.actions.setSidebar(width,sidebarMax),value:sidebar}):null,(panes.explorerOpen||filesActive)?h(ResizeHandle,{label:translate('resize.preview'),left:settings.previewRight===true?Math.max(0,viewportWidth-preview):previewBoundary,max:previewMax,min:PREVIEW_MIN,onDragging:setResizing,onResize:width=>props.explorerPaneStore.actions.setPreview(width,previewMax),value:preview,invert:settings.previewRight===true||undefined}):null,h('aside',{className:'dsh-ws-details','data-closed':!panels.detailsOpen||!detailsCapable||undefined},h(props.SessionProvider,null,props.renderSlot('details',{}))),mobile.on&&mobile.drawerOpen?h('div',{className:'dsh-ws-mobile-scrim',onClick:()=>setDrawerOpen(false)}):null,h('div',{className:'dsh-ws-overlay','data-shell-overlay':true},props.renderSlot('shell.overlay',{})),sessionContextMenu?h('div',{className:'dsh-ws-context-menu',ref:sessionMenuRef,role:'menu',style:{left:Math.max(4,Math.min(sessionContextMenu.x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top:Math.max(4,Math.min(sessionContextMenu.y,window.innerHeight-SESSION_CONTEXT_MENU_HEIGHT-8))}},h('button',{className:'dsh-ws-context-item',onClick:beginSessionInlineRename,role:'menuitem',type:'button',title:sessionContextMenu.ambiguous?translate('context.ambiguousTitle',{id:String(sessionContextMenu.sessionId).slice(0,8)}):undefined},translate('context.renameSession')+(sessionContextMenu.ambiguous?` · ${String(sessionContextMenu.sessionId).slice(0,8)}`:'')),h('button',{className:'dsh-ws-context-item',onClick:archiveSessionFromMenu,role:'menuitem',type:'button',title:sessionContextMenu.ambiguous?translate('context.ambiguousTitle',{id:String(sessionContextMenu.sessionId).slice(0,8)}):undefined},translate('context.archiveSession')+(sessionContextMenu.ambiguous?` · ${String(sessionContextMenu.sessionId).slice(0,8)}`:'')),h('div',{className:'dsh-ws-context-separator',role:'separator'}),h('button',{className:'dsh-ws-context-item',onClick:revealSessionFromMenu,role:'menuitem',type:'button'},translate('context.reveal'))):null,sessionInlineRename?h(SessionInlineRename,{busy:sessionInlineRenameBusy,error:sessionInlineRenameError,key:sessionInlineRename.sessionId,onCancel:cancelSessionInlineRename,onConfirm:confirmSessionInlineRename,row:sessionInlineRename.row,title:sessionInlineRename.title}):null,sessionNotice?h('div',{className:'dsh-ws-copy-notice','data-error':sessionNotice.error||undefined,role:'status'},sessionNotice.text):null))}
 
 export const inject = ['slots', 'theme', 'sessions', 'workspaces']
 export function mountStudio(ctx) {
@@ -342,9 +340,6 @@ export function mountStudio(ctx) {
   const layoutStore = createLayoutStore()
   const previewSessionsStore = createPreviewSessionStore().create()
   const settingsStore = createExplorerSettingsStore().create()
-  /* The chat edit/write toolview reads the auto-expand setting from this
-     store (the harness renderer has no access to plugin stores). */
-  setStudioSettingsStore(settingsStore)
   const explorerPaneStore = createExplorerPaneStore().create()
   // The explorer footer toggle is gone; keep the panes always on-screen.
   // Persisted `explorerOpen:false` self-heals here, since nothing else can
@@ -367,6 +362,30 @@ export function mountStudio(ctx) {
     applyMindmapColors()
     return settingsStore.subscribe(applyMindmapColors)
   }, 'workspace-studio: mind-map highlight colors')
+  /* Publish the Think-card viewport height (in lines) as a document-wide CSS
+     custom property: the card CSS resolves it live, so moving the settings
+     slider restyles every open card instantly (no React re-render). */
+  ctx.effect(() => {
+    if (typeof document === 'undefined') return undefined
+    const applyThinkLines = () => {
+      const state = settingsStore.getSnapshot()
+      document.documentElement.style.setProperty('--dsh-ws-think-lines', String(clamp(state?.thinkLines ?? THINK_LINES_DEFAULT, THINK_LINES_MIN, THINK_LINES_MAX)))
+    }
+    applyThinkLines()
+    return settingsStore.subscribe(applyThinkLines)
+  }, 'workspace-studio: think card lines')
+  /* Publish the edit-row viewport height (in lines) as a document-wide CSS
+     custom property — the same mechanism as the Think-card line count, but
+     independent (the 编辑显示行数 slider drives --dsh-ws-edit-lines). */
+  ctx.effect(() => {
+    if (typeof document === 'undefined') return undefined
+    const applyEditLines = () => {
+      const state = settingsStore.getSnapshot()
+      document.documentElement.style.setProperty('--dsh-ws-edit-lines', String(clamp(state?.editLines ?? EDIT_LINES_DEFAULT, EDIT_LINES_MIN, EDIT_LINES_MAX)))
+    }
+    applyEditLines()
+    return settingsStore.subscribe(applyEditLines)
+  }, 'workspace-studio: edit row lines')
   const editorContexts = new EditorContextController()
   /* Follow the harness language setting (Settings -> General -> Language) when
      the locale plugin is present: register this plugin's dictionaries, bind
@@ -455,11 +474,11 @@ export function mountStudio(ctx) {
           archiveSession: sessionId => ctx.workspaces.archiveSession(sessionId),
           getSessionList: () => ctx.sessions.list.getSnapshot(),
           getWorkspaceItems: () => ctx.workspaces.list.getSnapshot().items,
-          // Mind-map sidebar entries open the root session and pop the
-          // floating mind-map overlay (the chat column stays visible).
+          // Mind-map sidebar entries open the root session and dock the mind
+          // map as a preview tab (the chat column stays visible).
           openSession: sessionId => { ctx.sessions.open(sessionId) },
           deleteMindmapDoc: (sessionId, signal) => deleteMindmapDoc(sessionId, signal),
-          // The floating mind-map overlay's document/fork/archive action face.
+          // The docked mind-map view's document/fork/archive action face.
           mindmapActions: buildMindmapActions(ctx),
         }
       },
@@ -560,11 +579,8 @@ export function mountStudio(ctx) {
     name: 'conversation.session.header.actions', id: 'workspace-session-switcher', order: -400,
     inject: () => ({ openSession: sessionId => { ctx.sessions.open(sessionId) } }),
   }, SessionSwitcherDropdown))
-  /* The session-header mind-map button: opens the floating mind-map overlay
-     for the current session (the chat column stays visible on the right).
-     Persisted full-page mind-map view selections fall back to the chat view
-     automatically (the harness treats unknown view ids as the stable Chat
-     view). */
+  /* The session-header mind-map button: opens the current session's mind map
+     as a preview tab (dsh-ws-preview), keeping the chat column visible. */
   ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
     name: 'conversation.session.header.actions', id: 'workspace-mindmap-toggle', order: -350,
   }, MindmapHeaderButton))
@@ -586,8 +602,9 @@ export function mountStudio(ctx) {
     name: 'shell.overlay', id: 'workspace-mobile-hero', order: -100,
   }, MobileHeroControls))
   // The browser Settings page owns every explorer preference in one section,
-  // grouped into file browsing, content browsing, and dialog settings (unset
-  // color/preset groups resolve to their defaults).
+  // grouped into plugin update, session browsing, mind-map browsing, file
+  // browsing, content browsing, and dialog settings (unset color/preset
+  // groups resolve to their defaults).
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section', id: 'workspace-explorer', order: 5, label: () => translate('settings.section.title'),
     inject: () => ({ settingsStore }),

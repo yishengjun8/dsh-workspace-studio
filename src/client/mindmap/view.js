@@ -4,7 +4,7 @@ import { clampMountBulge, CONTEXT_MENU_WIDTH, MINDMAP_SUMMARY_DEFAULT_LENGTH, MI
 import { translate } from '../locale/index.js'
 import { styles } from '../styles.js'
 import { regenerateAllMindmapSummaries, regenerateMindmapSummary, summarizeMindmapSession } from '../api.js'
-import { mindmapOverlayStore, mindmapRegistry, readMindmapLastSession, removeMindmapLastSession, useMindmapOverlay, writeMindmapLastSession } from './registry.js'
+import { mindmapRegistry, readMindmapLastSession, removeMindmapLastSession, writeMindmapLastSession } from './registry.js'
 import { useMindmapSummaryModels } from '../components/settings.js'
 import { mindmapCardClickAction, mindmapClip, mindmapDeletePlan, mindmapDocFingerprint, mindmapDocKey, mindmapDocLayout, mindmapDocStructureFingerprint, mindmapEmptyKey, mindmapFoldedRunOf, mindmapGradientId, mindmapStreamPalette, normalizeMindmapWorkspacePath, useMindmapSessionView } from './helpers.js'
 import { MindMapCard, MindMapFoldedCard, MindMapRootNode, MindMapSessionHead } from './cards.js'
@@ -22,12 +22,11 @@ let mindmapClientSessionSeq = 0
    the identity-keyed family-string cache in useMindmapSessionView). */
 const EMPTY_FAMILY_IDS = []
 
-/* The floating mind map: a persisted turn tree (flat session list)
-   rendered from the doc, with pan/zoom and per-card forking. Rendered inside
-   the left-side overlay window; card clicks switch the right-side chat. */
+/* The docked mind map: a persisted turn tree (flat session list)
+   rendered from the doc, with pan/zoom and per-card forking. Rendered as a
+   preview tab (dsh-ws-preview); card clicks switch the right-side chat. */
 
-export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, deleteDoc, forkAt, createSession, listWorkspaces, openSession, renameSession, renameDoc, archiveSession, previewRight, settingsStore }) {
-  const overlay = useMindmapOverlay()
+export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, deleteDoc, forkAt, createSession, listWorkspaces, openSession, renameSession, renameDoc, archiveSession, settingsStore, onDocGone, onTitleChange, freshDock }) {
   const settings = useSyncExternalStore(settingsStore.subscribe, settingsStore.getSnapshot)
   const [phase, setPhase] = useState({ status: 'loading' })
   /* Manual retry for a failed load: the load effect's deps are sessionId-only,
@@ -75,6 +74,13 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   listWorkspacesRef.current = listWorkspaces
   const openSessionRef = useRef(openSession)
   openSessionRef.current = openSession
+  /* True only when THIS mount was created by a dock request (the explorer
+     marks freshly docked tabs): restoreLastSession — landing the chat on the
+     map's remembered session — must fire only for a deliberate open, never
+     for a tab restored from the shared snapshot on a session switch (that
+     would yank the chat away from the session the user just clicked). */
+  const freshDockRef = useRef(freshDock)
+  freshDockRef.current = freshDock
   /* Every map-internal selection change funnels through here: openSession
      switches the right-side chat AND moves the "当前" highlight (its wrapper
      calls setSession). Recording the landing session here keeps the last
@@ -116,6 +122,16 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   archiveSessionRef.current = archiveSession
   const menuRef = useRef(null)
   const mountedRef = useRef(true)
+  /* Docked mode (map shown as a preview tab): the floating window's close
+     paths must instead tell the explorer to drop the tab. Read at call time so
+     the async load/sync continuations always see the latest callback. */
+  const onDocGoneRef = useRef(onDocGone)
+  onDocGoneRef.current = onDocGone
+  /* The map's own title (doc.rootTitle) reported to the explorer so the tab
+     name follows the doc — a dock with an unknown title (fresh conversion)
+     or a root rename self-corrects the tab label. */
+  const onTitleChangeRef = useRef(onTitleChange)
+  onTitleChangeRef.current = onTitleChange
   const lastFingerprintRef = useRef('')
   const savingRef = useRef(0)
   /* Counter (not a boolean): every doc-writing operation increments it on
@@ -208,18 +224,18 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
        "当前" highlight and the right-side chat follow sessionId — the doc is
        identical, so reloading would rebuild the whole canvas for nothing. Only
        a session OUTSIDE the family (another map opened over this one) triggers
-       a full reload. rootId/doc are read at call time on purpose. */
+       a full reload. rootId/doc are read at call time on purpose. The family
+       check also accepts a member the LOCAL doc has not folded yet (forked in
+       another tab — the registry index can be ahead of the 2.5 s sync): the
+       branch card appears with the next sync instead of resetting the canvas.
+       No restoreLastSession here: the sidebar entry pre-switches the chat to
+       the remembered session itself (openMindmapSession), and a switcher
+       switch to the root must NOT bounce the chat back to the last card click
+       (the old overlay re-open path that needed this restore is gone). */
     if (rootId !== null && (String(sessionId) === String(rootId)
-      || (doc?.sessions ?? []).some(s => String(s?.sessionId) === String(sessionId)))) {
+      || (doc?.sessions ?? []).some(s => String(s?.sessionId) === String(sessionId))
+      || mindmapRegistry.rootOf(String(sessionId)) === String(rootId))) {
       setForkError(null)
-      /* Re-opening THIS map while the overlay was already showing it (a
-         sidebar entry click after card clicks moved the highlight away) sets
-         the overlay sessionId back to the root: restore the map's
-         last-selected session here too, so the chat and highlight do not
-         strand on the first branch. In-family card clicks never hit this —
-         they funnel through switchToSession, which has already written the
-         new selection as the remembered session (a no-op restore). */
-      if (String(sessionId) === String(rootId)) restoreLastSession(doc, String(rootId))
       return undefined
     }
     let cancelled = false
@@ -285,7 +301,8 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         if (payload?.exists === false) {
           mindmapConvertedSessions.delete(id)
           if (cancelled) return
-          mindmapOverlayStore.close()
+          /* The map is gone: the explorer drops the tab. */
+          onDocGoneRef.current?.()
           return
         }
         if (loaded === null || loaded === undefined || (loaded.sessions ?? []).length === 0) {
@@ -300,6 +317,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         if (cancelled) return
         setRootId(loaded.rootSessionId)
         setDoc(loaded)
+        onTitleChangeRef.current?.(typeof loaded.rootTitle === 'string' ? loaded.rootTitle : '')
         lastFingerprintRef.current = mindmapDocFingerprint(loaded)
         setSummarizing(Array.isArray(payload?.summarizing) ? payload.summarizing : [])
         setSessionSummarizing(Array.isArray(payload?.sessionSummarizing) ? payload.sessionSummarizing : [])
@@ -309,12 +327,11 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         /* Restore the last selected session of this map family: the chat lands
            ONCE on the remembered session when it still exists in this doc
            (root fallback otherwise, keeping the "open on the first branch"
-           default). The sidebar entry no longer pre-switches the chat to the
-           root, so this single switch replaces the old double hop. An open
-           from a branch header button (id already inside the family) skips
-           this — the user's explicit choice wins. */
+           default). Gated on a FRESH dock: a tab restored from the shared
+           snapshot on a session switch must not yank the chat away from the
+           session the user just clicked. */
         const loadedRoot = String(loaded.rootSessionId)
-        if (id === loadedRoot) restoreLastSession(loaded, loadedRoot)
+        if (id === loadedRoot && freshDockRef.current) restoreLastSession(loaded, loadedRoot)
       })
       .catch((error) => {
         /* Same rule as the empty path: a failed conversion must not leave the
@@ -347,25 +364,27 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
              polling forever. */
           if (payload?.exists === false) {
             mindmapConvertedSessions.delete(String(sessionId))
-            mindmapOverlayStore.close()
+            /* The map is gone: the explorer drops the tab. */
+            onDocGoneRef.current?.()
             return
           }
           const loaded = payload?.doc
           if (loaded !== null && loaded !== undefined && (loaded.sessions ?? []).length > 0) {
             setRootId(loaded.rootSessionId)
             setDoc(loaded)
+            onTitleChangeRef.current?.(typeof loaded.rootTitle === 'string' ? loaded.rootTitle : '')
             lastFingerprintRef.current = mindmapDocFingerprint(loaded)
             setSummarizing(Array.isArray(payload?.summarizing) ? payload.summarizing : [])
             setSessionSummarizing(Array.isArray(payload?.sessionSummarizing) ? payload.sessionSummarizing : [])
             setPhase({ status: 'ready' })
             mindmapRegistry.markDirty()
             if (payload.created === true) showNotice(translate('mindmap.created'))
-            /* Same single-switch rule as the load path: once the probe's
-               conversion makes the doc authoritative, land the chat on the
-               remembered session (root fallback) — without this, opening an
-               EMPTY map from the sidebar never switches the chat (the old
-               openMindmapSession pre-switch covered it). */
-            if (String(sessionId) === String(loaded.rootSessionId)) {
+            /* Same single-switch rule as the load path (fresh-dock gated): once
+               the probe's conversion makes the doc authoritative, land the chat
+               on the remembered session (root fallback) — without this,
+               opening an EMPTY map from the sidebar never switches the chat
+               (the old openMindmapSession pre-switch covered it). */
+            if (String(sessionId) === String(loaded.rootSessionId) && freshDockRef.current) {
               restoreLastSession(loaded, String(loaded.rootSessionId))
             }
           }
@@ -396,7 +415,8 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
        { exists: false } — close the floating window instead of leaving a
        stale map. */
     if (payload?.exists === false) {
-      mindmapOverlayStore.close()
+      /* The map is gone: the explorer drops the tab. */
+      onDocGoneRef.current?.()
       return
     }
     const next = payload?.doc
@@ -420,6 +440,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       if (fp !== lastFingerprintRef.current) {
         lastFingerprintRef.current = fp
         setDoc(next)
+        onTitleChangeRef.current?.(typeof next.rootTitle === 'string' ? next.rootTitle : '')
       }
     }
     /* The live list is identity-compared so a static set of in-flight
@@ -1061,6 +1082,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
               localWriteSeqRef.current += 1
               setDoc(updated)
               lastFingerprintRef.current = mindmapDocFingerprint(updated)
+              onTitleChangeRef.current?.(trimmed)
             }
             return undefined
           }).catch((error) => {
@@ -1475,9 +1497,9 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         removeMindmapLastSession(String(root))
       }
       mindmapRegistry.markDirty()
-      /* The document is gone: close the floating window instead of leaving a
-         stale map (a later sync could resurrect the doc from the root's log). */
-      mindmapOverlayStore.close()
+      /* The document is gone: the explorer drops the tab (a later sync could
+         resurrect the doc from the root's log). */
+      onDocGoneRef.current?.()
     }
     run()
       .then(() => {
@@ -2260,7 +2282,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
 
   return h(Fragment, null,
     h('div', { className: 'dsh-ws-mindmap', 'data-conversation-composer-overlay': '' },
-      h(MindMapToolbar, { overlay, settings, previewRight, restoreView, addRootSession, startArchiveAll, startRegenerateAll }),
+      h(MindMapToolbar, { settings, restoreView, addRootSession, startArchiveAll, startRegenerateAll }),
       h('div', { className: 'dsh-ws-mindmap-bar' },
         translate('mindmap.rootLabel'),
         h('span', { className: 'dsh-ws-mindmap-bar-title' }, rootTitle)),

@@ -10,9 +10,10 @@ import { containsNul, decodeUtf8, encodeText, hasBom, revisionFor } from './enco
 import { header, readBody, readJsonObject } from './http.js'
 import { describeCreatedEntry, openRegularFile, readFileHandleBounded } from './fs.js'
 /* Per-key promise-chain queue primitive shared by workspace mutations, draft
-   writes and mind-map doc operations. A key has at most one PENDING operation
-   at a time; nested re-acquisition of the same key is never needed (the
-   mind-map re-anchor paths release-and-retry instead). */
+   writes and mind-map doc operations. Operations under a key run strictly one
+   at a time (later calls chain onto the tail); nested re-acquisition of the
+   same key is never needed (the mind-map re-anchor paths release-and-retry
+   instead). */
 const WRITE_QUEUE_STALL_MS = 45_000
 /* When the current tail of a queue key started pending (undefined = idle). */
 const queuePendingSince = new Map()

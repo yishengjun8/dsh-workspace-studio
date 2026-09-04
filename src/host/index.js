@@ -241,10 +241,9 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
       return
     }
     /* Plugin self-update (设置 → 工作区设置 → 插件更新): check compares the
-       installed version against the GitHub main branch; download pins the
-       codeload tarball to the checked commit and swaps the installed package
-       dir atomically. Plugin-global, so both are handled before the
-       workspaceId requirement. */
+       installed version against the GitHub main branch; download consumes the
+       cached checked payload and swaps the installed package dir atomically.
+       Plugin-global, so both are handled before the workspaceId requirement. */
     if (updateCheckEndpoint) {
       /* HEAD must not run the check: it would download the main-branch
          tarball for a request whose body the client never reads. Answer the

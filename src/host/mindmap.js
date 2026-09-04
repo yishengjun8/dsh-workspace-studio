@@ -42,7 +42,7 @@ const MINDMAP_SYNC_CACHE_MAX = 64
    collapses them into one SQLite metadata scan while still catching new
    fork orphans within a poll or two. */
 const MINDMAP_PERSISTENCE_LIST_CACHE_MS = 1000
-/* rootId -> { sig, doc, live, liveKey, at, refs, orphanSig, adoptClean }.
+/* rootId -> { sig, live, liveKey, at, refs, orphanSig, adoptClean }.
    Exported: the route dispatcher (index.js) invalidates it on the GET load
    path, which also writes docs (adoption / folded turns) without touching
    any log. */
@@ -93,7 +93,7 @@ const MINDMAP_SUMMARY_CONCURRENCY = 1
 const MINDMAP_SUMMARY_ENQUEUE_PER_SYNC = 5
 /* One-time cap for a "summarize this session" request's missing-card
    backfill: a single long session must not fire hundreds of LLM calls in one
-   go (the comments on summarizeMindmapSession promise pacing). Remaining
+   go (the comments on summarizeMindmapSession per-sync pacing). Remaining
    missing turns are enqueued by the routine per-sync scan (capped) while the
    session summary stays pending. */
 const MINDMAP_SUMMARY_SESSION_MISSING_CAP = 50
@@ -138,8 +138,8 @@ const mindmapSessionSummaryRunning = new Set() // mindmapSessionSummaryKey — L
 const mindmapSessionSummaryFailedAt = new Map() // key -> last failure timestamp (cooldown)
 /* Last known client toggle + config: the feature rides on every sync request,
    so a disable (config null) drops queued jobs immediately and in-flight jobs
-   skip their write; queued jobs re-read the LATEST config at run time so a
-   model/length change mid-queue is honored. */
+   skip their write; queued jobs use the config snapshot captured at enqueue
+   time, and the global last-config is only a fallback for jobs without one. */
 /* Per-ROOT enabled set: the old single global flag made the LAST sync's
    config govern every doc's queue — one map's disable would silently stop
    another map's queued jobs. `mindmapSummaryFeatureOn` stays as a cheap
@@ -163,9 +163,9 @@ export function mindmapLock(rootId, operation) {
 /* Acquire several per-root locks in sorted order, then run `operation` holding
    all. Multi-key writers (a root replacement touches the new root's doc and the
    retired root's alias stub) must use this so the cleaner serializes against
-   them, and so two multi-key writers can never deadlock. Exported for the GET
-   load path: a root replacement detected between the outer probe and the
-   in-lock re-read must re-acquire under BOTH roots before writing. */
+   them, and so two multi-key writers can never deadlock. Used by
+   writeMindmapDoc (a root replacement writes both roots); the GET load path
+   re-anchors with the single-lock mindmapLockedReanchorOp instead. */
 export function mindmapLocks(rootIds, operation) {
   const ordered = [...new Set((Array.isArray(rootIds) ? rootIds : []).map(String))].sort()
   const acquire = (index) => {
@@ -423,8 +423,9 @@ async function mindmapModelOf(ctx, persistence, sessionId) {
      'missing' -> 总结当前会话 prerequisite: bypass ONLY the cooldown (retry
                   previously failed turns), keep the has-summary check, no
                   regenerating mark
-   In-flight keys are always skipped (they finish with the config they started
-   with). `onlySessionId` (optional) restricts the scan to ONE session's turns:
+   In-flight keys are skipped except for force='all' (a replacement is queued
+   to run after the original finishes). `onlySessionId` (optional) restricts
+   the scan to ONE session's turns:
    the 总结当前会话 prerequisite must never force-enqueue the WHOLE doc's
    missing summaries (a large map would otherwise fire hundreds of LLM calls
    in one click, bypassing the per-sync pacing and the failure cooldown). */

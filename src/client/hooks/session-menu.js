@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { translate } from '../locale/index.js'
 import { revealInExplorer } from '../api.js'
 import { mindmapDescendantsOf } from '../mindmap/helpers.js'
-import { mindmapOverlayStore, mindmapRegistry } from '../mindmap/registry.js'
+import { mindmapDockStore, mindmapRegistry, readMindmapLastSession } from '../mindmap/registry.js'
 
 export function useSessionMenu({ props, mountedRef }) {
   const [sessionContextMenu, setSessionContextMenu] = useState()
@@ -51,9 +51,6 @@ export function useSessionMenu({ props, mountedRef }) {
       const title = titleSpan?.textContent?.trim() ?? ''
       if (title === '') return
       const snapshot = props.getSessionList()
-      /* Subagent sessions are excluded: their rows are not the right-click
-         target (the menu's rename/archive actions must never hit a subagent —
-         archiveSessionFromMenu skips them explicitly, so the lookup must too). */
       const candidates = snapshot.ids.filter(id => {
         const summary = snapshot.byId[id]
         /* Subagent sessions are excluded: their rows are not the right-click
@@ -212,14 +209,33 @@ export function useSessionMenu({ props, mountedRef }) {
     setSessionInlineRename(undefined)
     revealSessionById(menu.sessionId)
   }, [revealSessionById, sessionContextMenu])
-  // Sidebar mind-map entries: open the floating overlay for the document. The
-  // chat switch is left to the map view, which lands on the map's
-  // last-selected session (root as fallback) only AFTER the doc loads and
-  // validates it — pre-switching the chat to the root here caused a visible
-  // root → remembered double hop on every open.
-  const openMindmapSession = useCallback((id) => {
-    mindmapOverlayStore.open(String(id))
-  }, [])
+  // Sidebar mind-map entries: land the chat on the map FIRST, then dock the
+  // map as a preview tab. The dock request carries its expected family (the
+  // map's root) and is only consumed by the explorer whose previewSessionId
+  // matches — the OLD session's explorer (mounted at click time) skips it,
+  // so the map's tab can no longer be stamped onto the session the click is
+  // leaving and leak into its persisted snapshot. The switch targets the
+  // map's remembered session while it still exists AND still resolves to this
+  // map's root through the registry (the same localStorage source the view's
+  // restoreLastSession reads, so the later landing is a no-op — no root →
+  // remembered double hop). A remembered session the registry does not know
+  // (forked in another tab, index poll up to 30 s behind) would leave
+  // previewSessionId on the branch id and strand the dock request — fall back
+  // to the root, which the registry always knows (the entry itself came from
+  // it); the fresh-dock load then restores the remembered session from the
+  // doc. Falling back to the root also covers a remembered session that
+  // belongs to a DIFFERENT map (stale localStorage).
+  const openMindmapSession = useCallback((id, name) => {
+    const rootId = String(id)
+    const remembered = readMindmapLastSession(rootId)
+    const target = remembered !== null
+      && props.getSessionList().byId[String(remembered)] !== undefined
+      && mindmapRegistry.rootOf(String(remembered)) === rootId
+      ? String(remembered)
+      : rootId
+    props.mindmapActions?.openSession(target)
+    mindmapDockStore.dock(rootId, name, rootId)
+  }, [props.getSessionList, props.mindmapActions])
   return {
     sessionContextMenu, sessionMenuRef, sessionInlineRename, sessionInlineRenameBusy,
     sessionInlineRenameError, sessionNotice, beginSessionInlineRename,

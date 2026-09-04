@@ -2,6 +2,10 @@ import { PREVIEW_SESSION_MAX } from './constants.js'
 import { rewriteRelativePath } from './paths.js'
 
 export function entryFromPreviewTab(tab) { return { kind: 'file', name: tab.name, path: tab.path, symlink: Boolean(tab.symlink) } }
+/* Synthetic tab path of a docked mind map (root session id): unique per map,
+   stable across renames, and never collides with a real workspace path. */
+export function mindmapTabPath(rootId) { return `mindmap:${String(rootId)}` }
+export function isMindmapTab(tab) { return tab !== null && tab !== undefined && tab.kind === 'mindmap' }
 export function clonePreviewTab(tab) {
   if (tab === undefined || tab === null || typeof tab.path !== 'string') return null
   return {
@@ -15,11 +19,19 @@ export function clonePreviewTab(tab) {
     editing: Boolean(tab.editing),
     encoding: typeof tab.encoding === 'string' && tab.encoding !== '' ? tab.encoding : 'utf-8',
     external: Boolean(tab.external),
+    /* A mind-map tab (kind 'mindmap') carries the map's ROOT session id and
+       renders MindMapView instead of a file; every other tab is a plain file.
+       dockedAt records the persistence family key (previewSessionId) the tab
+       was docked on: restore uses it to tell a map opened IN this session
+       from one that leaked in from another session's snapshot. */
+    dockedAt: typeof tab.dockedAt === 'string' && tab.dockedAt !== '' ? tab.dockedAt : null,
+    kind: tab.kind === 'mindmap' ? 'mindmap' : 'file',
     lineEnding: typeof tab.lineEnding === 'string' ? tab.lineEnding : 'none',
     name: typeof tab.name === 'string' && tab.name !== '' ? tab.name : tab.path.slice(tab.path.lastIndexOf('/') + 1),
     path: tab.path,
     pinned: Boolean(tab.pinned),
     revision: tab.revision === undefined ? null : tab.revision,
+    sessionId: typeof tab.sessionId === 'string' && tab.sessionId !== '' ? tab.sessionId : null,
     // Never persist/restore the in-flight flag: a refresh mid-save would leave a
     // tab stuck in "saving" with every action disabled and no recovery path.
     saving: false,
@@ -83,11 +95,25 @@ export function orderPinnedFirst(tabs) {
   for (const tab of tabs) (tab.pinned ? pinned : unpinned).push(tab)
   return [...pinned, ...unpinned]
 }
-export function normalizePreviewSession(value) {
+export function normalizePreviewSession(value, familyKey) {
+  /* A docked mind-map tab may only ride the persistence family it was docked
+     on. A snapshot restored under family K must not carry a map tab from
+     another family: older builds restored borrowed templates without the
+     foreignMapTab guard and wrote them back, so an unrelated session's own
+     key can hold a leaked map tab — and every later switch to that session
+     replays it (priority ① has no foreign-tab guard by design). The tab's
+     dockedAt stamp (written at dock time) separates "opened IN this session"
+     (keep) from "leaked from another session's snapshot" (drop); snapshots
+     without the stamp fall back to comparing the map's root session id, so
+     map members keep their own map while historical leaks self-heal on the
+     next persisted write (the seeded tabs no longer contain the stray tab). */
+  const family = familyKey === undefined || familyKey === null ? null : String(familyKey)
   const seen = new Set()
   const tabs = Array.isArray(value?.tabs)
     ? value.tabs.map(clonePreviewTab).filter((tab) => {
         if (tab === null || seen.has(tab.path)) return false
+        if (family !== null && tab.kind === 'mindmap'
+          && (tab.dockedAt ?? tab.sessionId) !== family) return false
         seen.add(tab.path)
         return true
       })
@@ -115,6 +141,16 @@ export function selectStoredPreviewSession(previewSessions, workspace, currentSe
     const value = previewSessions[key]
     return Array.isArray(value?.tabs) && value.tabs.length > 0
   }
+  /* A borrowed template may carry a docked mind-map tab. Restoring a map the
+     current session does not belong to would mount a foreign map in the strip
+     (and, before the fresh-dock gate, yank the chat to it) — skip such
+     candidates. The current session's OWN snapshot is exempt (it is the
+     correct restore even when it holds a foreign tab). currentSession here is
+     the shared persistence key: a map member's own map tab matches it, any
+     other map's tab does not. */
+  const foreignMapTab = value => (value?.tabs ?? []).some(tab => tab?.kind === 'mindmap'
+    && typeof tab?.sessionId === 'string' && tab.sessionId !== ''
+    && tab.sessionId !== String(currentSession))
   /* A malformed workspace object (missing sessionIds) must degrade like every
      other bad input here — never throw out of the render path. */
   const sessionIdsOf = workspace => Array.isArray(workspace?.sessionIds) ? workspace.sessionIds : []
@@ -126,24 +162,24 @@ export function selectStoredPreviewSession(previewSessions, workspace, currentSe
     if (workspace !== undefined) {
       for (const sessionId of sessionIdsOf(workspace)) {
         const key = String(sessionId)
-        if (has(key) && restorable(key)) return { key, value: previewSessions[key] }
+        if (has(key) && restorable(key) && !foreignMapTab(previewSessions[key])) return { key, value: previewSessions[key] }
       }
     }
     if (workspaceId !== undefined) {
       const workspaceKey = String(workspaceId)
-      if (has(workspaceKey) && restorable(workspaceKey)) return { key: workspaceKey, value: previewSessions[workspaceKey] }
+      if (has(workspaceKey) && restorable(workspaceKey) && !foreignMapTab(previewSessions[workspaceKey])) return { key: workspaceKey, value: previewSessions[workspaceKey] }
     }
     return { key: currentKey, value: undefined }
   }
   if (workspace !== undefined) {
     for (const sessionId of sessionIdsOf(workspace)) {
       const key = String(sessionId)
-      if (has(key) && restorable(key)) return { key, value: previewSessions[key] }
+      if (has(key) && restorable(key) && !foreignMapTab(previewSessions[key])) return { key, value: previewSessions[key] }
     }
   }
   if (workspaceId !== undefined) {
     const workspaceKey = String(workspaceId)
-    if (has(workspaceKey) && restorable(workspaceKey)) return { key: workspaceKey, value: previewSessions[workspaceKey] }
+    if (has(workspaceKey) && restorable(workspaceKey) && !foreignMapTab(previewSessions[workspaceKey])) return { key: workspaceKey, value: previewSessions[workspaceKey] }
     return { key: workspaceKey, value: undefined }
   }
   return { key: undefined, value: undefined }
@@ -181,7 +217,7 @@ export function previewSnapshotFingerprint(value) {
   // and colons, and two different states could otherwise collide into the
   // same fingerprint, silently skipping a needed persistence write.
   const tabPart = JSON.stringify(tabs.map(tab =>
-    [tab.path, tab.dirty ? 1 : 0, tab.pinned ? 1 : 0, tab.encoding ?? '', tab.editing ? 1 : 0, tab.lineEnding ?? '', tab.bom ? 1 : 0, tab.baseRevision ?? '']))
+    [tab.path, tab.kind === 'mindmap' ? 'm' : 'f', tab.kind === 'mindmap' ? (tab.sessionId ?? '') : '', tab.kind === 'mindmap' ? (tab.dockedAt ?? '') : '', tab.name, tab.dirty ? 1 : 0, tab.pinned ? 1 : 0, tab.encoding ?? '', tab.editing ? 1 : 0, tab.lineEnding ?? '', tab.bom ? 1 : 0, tab.baseRevision ?? '']))
   const expandedPart = JSON.stringify(Array.isArray(value?.expanded) ? [...value.expanded].sort() : [])
   return `${value?.activePath ?? ''}|${tabPart}|${expandedPart}`
 }

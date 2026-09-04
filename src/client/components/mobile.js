@@ -73,7 +73,3 @@ export function MobileHeroControls() {
     h(MobileWhaleButton, { onToggle: () => setDrawerOpen(!drawerOpen), open: drawerOpen }),
     h(MobileFilesButton))
 }
-/* The floating mind-map window rendered by AppFrame while the overlay is
-   open. It spans everything left of the chat column (100% − chat width,
-   tracked live); on mobile it takes the whole screen. Card clicks switch the
-   conversation to the clicked session. */

@@ -219,7 +219,7 @@ export function useEditorSession({
     const inflight = new Set()
     const tick = () => {
       if (controller.signal.aborted || !mounted.current) return
-      const open = tabsRef.current.filter(tab => !tab.external && tab.path !== '')
+      const open = tabsRef.current.filter(tab => !tab.external && tab.kind !== 'mindmap' && tab.path !== '')
       if (open.length === 0) return
       void Promise.all(open.map(async (tab) => {
         if (controller.signal.aborted) return
@@ -310,6 +310,24 @@ export function useEditorSession({
       setDraft('')
       setStatus(undefined)
       baseText.current = ''
+      return undefined
+    }
+    // A mind-map tab carries no file: no read, no draft, no editor state. The
+    // explorer renders MindMapView for it, so the preview state only needs to
+    // stay out of the file paths (idle).
+    const mindmapTab = tabsRef.current.find(item => item.path === activePath && item.kind === 'mindmap')
+    if (mindmapTab !== undefined) {
+      readController.current?.abort()
+      publishEditorContext(undefined)
+      setSelected(undefined)
+      setEditing(false)
+      setDirty(false)
+      setSaving(false)
+      setStatus(undefined)
+      setDraft('')
+      baseText.current = ''
+      diskBaseRef.current = ''
+      setPreview({ state: 'idle' })
       return undefined
     }
     // External (dropped) files already carry decoded content in the tab: no

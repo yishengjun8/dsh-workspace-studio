@@ -145,7 +145,7 @@ export function SessionSwitcherDropdown({ useSessions, useWorkspaces, sessionId,
   return h('div', { className: 'dsh-ws-session-switcher' }, trigger, panel)
 }
 /* ---------------------------------------------------------------------------
-   Mind-map conversation branching ("导图"): a conversation.view tab backed by a
+   Mind-map conversation branching ("导图"): a docked preview tab backed by a
    persisted per-root-session document. Opening a session with no document
    reverse-parses its FULL event log into session turn cards and persists it;
    the session's row then hides from the sidebar and a self-drawn mind-map entry
@@ -153,6 +153,3 @@ export function SessionSwitcherDropdown({ useSessions, useWorkspaces, sessionId,
    opens it; Host sync folds the branch's own new turns in from its full log, so
    the document stays the single source of truth.
    --------------------------------------------------------------------------- */
-
-/* A fork-descendant of a mind-map family (any session whose ancestry reaches a mind-map
-   root/branch, subagent hops aside). The switcher hides these; the sidebar hider hides the family. */

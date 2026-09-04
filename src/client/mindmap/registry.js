@@ -29,6 +29,19 @@ export const mindmapRegistry = {
   isRoot(id) { return this._roots.has(String(id)) },
   isBranch(id) { return this._branches.has(String(id)) },
   isMember(id) { const key = String(id); return this._roots.has(key) || this._branches.has(key) },
+  /* Resolve a session to its mind-map ROOT session id: the root itself, or the
+     root of the doc whose branchSessionIds contains it. Returns null when the
+     session belongs to no mind map. Drives the SHARED dsh-ws-preview
+     persistence key: every member of the same map (root + all branches) reads
+     and writes one snapshot under the root's id. */
+  rootOf(id) {
+    const key = String(id)
+    for (const doc of this._docs) {
+      if (String(doc.sessionId) === key) return String(doc.sessionId)
+      if ((doc.branchSessionIds ?? []).some(branch => String(branch) === key)) return String(doc.sessionId)
+    }
+    return null
+  },
   _apply(docs) {
     /* Only a signature change (doc added/removed, rootTitle rename, branch-set
        fork, or updatedAt bump from a folded turn) may bump the version and
@@ -121,7 +134,6 @@ export const mindmapRegistry = {
    method reference would drop `this` off the call (React invokes the function
    bare, reading `undefined._listeners` and crashing the slot on mount). */
 const subscribeRegistry = listener => mindmapRegistry.subscribe(listener)
-const subscribeOverlay = listener => mindmapOverlayStore.subscribe(listener)
 export function useMindmapRegistry() {
   useSyncExternalStore(
     subscribeRegistry,
@@ -130,54 +142,46 @@ export function useMindmapRegistry() {
   return mindmapRegistry
 }
 
-/* Module-wide floating mind-map overlay state: which session's map shows as
-   the left-side floating window while chat stays visible on the right. Driven
-   by the session-header 导图 button, sidebar mind-map entries, and card clicks;
-   AppFrame renders the window. Snapshot replaced only on change so
-   useSyncExternalStore sees a stable reference. */
-export const mindmapOverlayStore = {
-  _snapshot: { open: false, sessionId: null, scope: 'full' },
+/* Module-wide dock-request bridge: the sidebar mind-map entries and the
+   session-header 导图 button ask the explorer to open the map as a preview
+   tab (dsh-ws-preview). The explorer consumes the request ONLY when its
+   previewSessionId matches the request's expectFamily — add/update the
+   mind-map tab, activate it — and clears it, so a later explorer mount
+   (session switch) never re-applies a stale request and an unrelated
+   session's explorer never adopts one. A request whose family has no
+   mounted explorer stays pending and docks on the next matching mount,
+   which is the closest the request can get to its intent. */
+export const mindmapDockStore = {
+  _snapshot: { seq: 0, request: null },
   _listeners: new Set(),
   subscribe(listener) {
     this._listeners.add(listener)
     return () => { this._listeners.delete(listener) }
   },
   getSnapshot() { return this._snapshot },
-  _set(open, sessionId) {
-    if (this._snapshot.open === open && this._snapshot.sessionId === sessionId) return
-    this._snapshot = { open, sessionId, scope: this._snapshot.scope }
-    for (const listener of [...this._listeners]) listener()
-  },
-  open(sessionId) { this._set(true, String(sessionId)) },
-  close() { this._set(false, null) },
-  toggle(sessionId) {
-    const next = String(sessionId)
-    if (this._snapshot.open && this._snapshot.sessionId === next) this._set(false, null)
-    else this._set(true, next)
-  },
-  /* Move the highlight inside an open map when a card click switches the
-     right-side conversation to another session. */
-  setSession(sessionId) {
-    if (!this._snapshot.open) return
-    this._set(true, String(sessionId))
-  },
-  /* Window scope: 'full' covers everything left of the chat column, 'sidebar'
-     only the sidebar column. A view preference kept across open/close and
-     session switches (not persisted). */
-  toggleScope() {
+  dock(rootId, name, expectFamily) {
     this._snapshot = {
-      ...this._snapshot,
-      scope: this._snapshot.scope === 'sidebar' ? 'full' : 'sidebar',
+      seq: this._snapshot.seq + 1,
+      request: {
+        rootId: String(rootId),
+        name: typeof name === 'string' ? name : '',
+        /* Only the explorer whose previewSessionId equals expectFamily may
+           consume the request. Without this gate the CURRENT session's
+           explorer (the one mounted at click time) consumes it first,
+           stamping the map's tab onto a session the click is about to leave
+           — and the tab then follows that session's snapshot forever. A
+           request awaiting its family stays pending until the matching
+           explorer mounts (after the session switch the opener performs). */
+        expectFamily: String(expectFamily ?? rootId),
+      },
     }
     for (const listener of [...this._listeners]) listener()
   },
-}
-export function useMindmapOverlay() {
-  useSyncExternalStore(
-    subscribeOverlay,
-    () => mindmapOverlayStore.getSnapshot(),
-  )
-  return mindmapOverlayStore.getSnapshot()
+  consume() {
+    if (this._snapshot.request === null) return
+    this._snapshot = { seq: this._snapshot.seq + 1, request: null }
+    for (const listener of [...this._listeners]) listener()
+  },
 }
 
 /* Per-group sidebar order of mind-map entries in localStorage (id list per

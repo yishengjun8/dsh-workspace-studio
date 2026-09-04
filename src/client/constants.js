@@ -1,8 +1,9 @@
 export const PACKAGE_ID = '@yishengjun8/dsh-workspace-studio'
 export const API_PREFIX = '/workspace-studio/api'
-/* Plugin self-update (设置 → 工作区设置 → 插件更新): the check and the
-   download+install round trip both make real network calls from the Host, so
-   they get longer timeouts than the workspace API's generic 30 s. */
+/* Plugin self-update (设置 → 工作区设置 → 插件更新): the download+install
+   round trip makes a real network call from the Host, so it gets a longer
+   timeout than the workspace API's generic 30 s (the check itself stays on
+   the generic 30 s). */
 export const UPDATE_CHECK_TIMEOUT_MS = 30_000
 export const UPDATE_DOWNLOAD_TIMEOUT_MS = 120_000
 export const EDITOR_CONTEXT_PROVIDER = 'workspace-editor-context'
@@ -38,15 +39,24 @@ export const AUTO_RELOAD_COOLDOWN_MS = 4000
 /* "Auto" = a clean tab reloads on change; "watch-only" = only shows a "file changed" status and waits for the user's refresh. */
 export const AUTO_SYNC_MODE_AUTO = 'auto'
 export const AUTO_SYNC_MODE_WATCH_ONLY = 'watch-only'
-/* Auto-open streaming Think disclosures and close them when done (user-tunable). */
-export const AUTO_EXPAND_THINK_DEFAULT = true
-/* Delay (s) before an auto-expanded Think disclosure collapses; user-tunable (0-10 s, 0.1 s steps), manual interaction cancels. */
-export const THINK_COLLAPSE_DELAY_DEFAULT_S = 3
-export const THINK_COLLAPSE_DELAY_MIN_S = 0
-export const THINK_COLLAPSE_DELAY_MAX_S = 10
-export const THINK_COLLAPSE_DELAY_STEP_S = 0.1
-/* Open chat edit/write rows by default (user-tunable; off restores the shipped collapsed rows). */
-export const AUTO_EXPAND_EDIT_DIFF_DEFAULT = true
+/* Think card: every Think block stays open as a card whose body viewport shows
+   only the latest N lines (user-tunable slider, 5-30, default 10); earlier
+   lines are reachable through the card's own scrollbar, which stays pinned to
+   the newest text while the block streams. Published as the document-wide
+   --dsh-ws-think-lines property for the card CSS. */
+export const THINK_LINES_DEFAULT = 10
+export const THINK_LINES_MIN = 5
+export const THINK_LINES_MAX = 30
+export const THINK_LINES_STEP = 1
+/* Edit/write tool rows always open by default. The merged-diff body and the
+   generic input/output sections are fixed-height viewports showing the latest
+   N lines (user-tunable slider, 5-30, default 10) with the card's own
+   scrollbar; published as the document-wide --dsh-ws-edit-lines property,
+   independent of the Think-card line count. */
+export const EDIT_LINES_DEFAULT = 10
+export const EDIT_LINES_MIN = 5
+export const EDIT_LINES_MAX = 30
+export const EDIT_LINES_STEP = 1
 /* Sidebar mind-map icon spin: speed multiplier over the 1.2 s base (default 1.2x = 1 s/rev; larger = faster, 0 = no rotation). */
 export const MINDMAP_SPIN_BASE_DURATION_S = 1.2
 export const MINDMAP_SPIN_SPEED_DEFAULT_X = 1.2
@@ -146,7 +156,7 @@ export const MOBILE_CLASS = 'dsh-ws-mobile-on'
 export const MOBILE_DRAWER_CLASS = 'dsh-ws-mobile-drawer-open'
 export const MOBILE_FILES_CLASS = 'dsh-ws-mobile-files-on'
 export const MOBILE_HEADER_FALLBACK_H = 52
-/* Mind-map conversation branching ("导图"): a left-side floating window over everything except the chat column, rendering a persisted per-root-session document (a flat list of session turn-chains + fork branches) left-to-right. Branch sessions are ordinary forks hidden from the sidebar list. */
+/* Mind-map conversation branching ("导图"): a docked preview tab rendering a persisted per-root-session document (a flat list of session turn-chains + fork branches) left-to-right. Branch sessions are ordinary forks hidden from the sidebar list. */
 export const MINDMAP_NODE_W = 236
 /* Card height fits the branch-title row, clamped two-line question, and status row. */
 export const MINDMAP_NODE_H = 124
