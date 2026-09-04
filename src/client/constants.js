@@ -223,3 +223,15 @@ export const ENCODING_FALLBACK = Object.freeze([
   { id: 'ascii', label: 'ASCII' },
 ])
 export const ENCODING_LABEL_FALLBACK = Object.fromEntries(ENCODING_FALLBACK.map(encoding => [encoding.id, encoding.label]))
+/* In-memory (never persisted) global file-content cache: readFile payloads +
+   their disk change snapshots keyed per (workspace, path, encoding). Survives
+   explorer remounts (session/workspace switches) inside one page load, so a
+   re-activated file needs no content GET while its disk state is unchanged.
+   Cap counts and total bytes; entries larger than MAX_ENTRY are not cached. */
+export const FILE_CACHE_MAX_ENTRIES = 48
+export const FILE_CACHE_MAX_BYTES = 12 * 1024 * 1024
+export const FILE_CACHE_MAX_ENTRY_BYTES = 4 * 1024 * 1024
+/* A fast activation serve skips its background change check only when the
+   mount's poll has confirmed the disk state equals the served content within
+   this window (watch baseline == content baseline, fresh checkedAt). */
+export const FILE_CACHE_REVALIDATE_SKIP_MS = 2 * AUTO_SYNC_CHECK_MS + 1000

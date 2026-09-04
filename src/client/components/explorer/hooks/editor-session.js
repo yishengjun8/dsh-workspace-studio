@@ -2,7 +2,7 @@
  * conflict resolution, external-change polling and editor-context publishing.
  * Extracted verbatim from WorkspaceExplorer; behavior is unchanged. */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { AUTO_RELOAD_COOLDOWN_MS, AUTO_SYNC_CHECK_MS, AUTO_SYNC_MODE_AUTO, AUTOSAVE_DELAY_MS, WATCH_FILES_DEFAULT } from '../../../constants.js'
+import { AUTO_RELOAD_COOLDOWN_MS, AUTO_SYNC_CHECK_MS, AUTO_SYNC_MODE_AUTO, AUTOSAVE_DELAY_MS, FILE_CACHE_REVALIDATE_SKIP_MS, WATCH_FILES_DEFAULT } from '../../../constants.js'
 import { translate } from '../../../locale/index.js'
 import { readOnlyReason } from '../../../format.js'
 import { encodingLabel } from '../../../api.js'
@@ -10,6 +10,7 @@ import { resolveMergeParts, threeWayMerge } from '../../../merge.js'
 import { entryFromPreviewTab } from '../../../preview-tabs.js'
 import { rewriteRelativePath } from '../../../paths.js'
 import { deleteEmergencyDraft, readEmergencyDraft, writeEmergencyDraft } from '../../../drafts.js'
+import { diskSnapshot, getCachedPreview, invalidateCachedPath, refreshCachedSnapshot, sameDiskSnapshot, storeCachedPreview } from '../../../file-cache.js'
 
 export function useEditorSession({
   workspace, draftScopeId, activePath, activeTab, tabsRef, activePathRef, updateTab, setTabs,
@@ -46,6 +47,19 @@ export function useEditorSession({
   /* Preview auto-sync state: per-path change snapshots (mtime/size/hash);
      only non-external tabs are tracked, all cleaned on unmount. */
   const watchSnapshotsRef = useRef(new Map())
+  /* Content baseline: per-path disk snapshot the content CURRENTLY shown was
+     read/saved against (mount-local, updated by read passes, saves and
+     unchanged validations). The poll moves watchSnapshotsRef when it observes
+     a disk change; their divergence is exactly "the served content is stale",
+     which the activation path turns into a fresh read (dev-notes §23). */
+  const contentBaselinesRef = useRef(new Map())
+  /* Retained CodeMirror EditorSessions of previously shown file/external
+     tabs: path -> { state, editable, wrap, phrases, name }. Rebuilding a view
+     from the SAME EditorState preserves doc/undo/selection/folds across tab
+     switches; an entry is dropped when the content genuinely changed (fresh
+     doc), the tab closes, or the file renamed (language extension is bound
+     into the state). */
+  const retainedStatesRef = useRef(new Map())
   /* Per-path reload cooldown (until timestamp) for AUTO mode: suppresses the
      remount storm for continuously-written files (see applyFileChanged). */
   const autoReloadCooldownRef = useRef(new Map())
@@ -251,12 +265,19 @@ export function useEditorSession({
           if (watchSnapshotsRef.current.get(tab.path) !== snapshot) return
           if (nextSnapshot !== null) {
             watchSnapshotsRef.current.set(tab.path, nextSnapshot)
-            if (result.changed === true) applyFileChanged(tab.path)
+            if (result.changed === true) {
+              /* The disk moved: the cache entry (content read against the old
+                 snapshot) is stale from now on — drop it so no later cold
+                 activation serves it (dev-notes §23 content/snapshot rule). */
+              invalidateCachedPath(workspace.workspaceId, tab.path)
+              applyFileChanged(tab.path)
+            }
           } else {
             /* File disappeared. Show the removal notice for the active tab
                once, then keep a `null` sentinel so later ticks (while it
                stays gone) do not repeat it; a re-create resets the baseline
                and reports again. */
+            invalidateCachedPath(workspace.workspaceId, tab.path)
             if (tab.path === activePathRef.current
               && watchSnapshotsRef.current.get(tab.path) !== null) {
               setStatus({ error: true, text: translate('status.fileRemoved') })
@@ -279,11 +300,15 @@ export function useEditorSession({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [applyFileChanged, settings.watchFiles, workspace.workspaceId])
-  /* Cleanup on unmount: stop polling and drop per-path change baselines. */
+  /* Cleanup on unmount: stop polling and drop per-path change baselines. The
+     content baselines and retained editor sessions are hook-owned and die
+     with the mount; cleared here for symmetry with the watch baselines. */
   useEffect(() => {
     return () => {
       syncControllerRef.current?.abort()
       watchSnapshotsRef.current.clear()
+      contentBaselinesRef.current.clear()
+      retainedStatesRef.current.clear()
       autoReloadCooldownRef.current.clear()
       reloadingPathsRef.current.clear()
     }
@@ -362,6 +387,209 @@ export function useEditorSession({
       setDraft(externalTab.baseText)
       setPreview(ready)
       return undefined
+    }
+    /* ---- Fast activation path (dev-notes §23) -------------------------
+       A CLEAN file whose content is already known paints INSTANTLY from
+       memory: no content GET, no loading state; the retained EditorState
+       (CodeEditor `restore`) keeps undo/selection/folds across the view
+       swap. Sources: (a) this mount already loaded the tab (tab.loaded +
+       mount content baseline) — served only while no poll-observed disk
+       change exists (watch baseline == content baseline); (b) the global
+       file cache for a cold tab shell (first activation of the path in this
+       mount). The served content is then validated in the BACKGROUND against
+       the snapshot it was read from: a real disk change upgrades to a full
+       read pass (the external-change refresh the user accepts), a dirty tab
+       only banners, and the cache entry is invalidated so stale content is
+       never served again. Dirty/saving tabs, explicit refreshes, encoding
+       re-opens and cancel-restores always take the full pass below. */
+    const candidateTab = tabsRef.current.find(item => item.path === activePath)
+    const mountLoaded = candidateTab?.loaded === true && typeof candidateTab?.baseText === 'string'
+    const contentBaseline = contentBaselinesRef.current.get(activePath)
+    const watchBaseline = watchSnapshotsRef.current.get(activePath)
+    const diskConfirmedClean = contentBaseline !== undefined
+      && watchBaseline !== null && watchBaseline !== undefined
+      && sameDiskSnapshot(watchBaseline, contentBaseline)
+    const cacheEntry = mountLoaded
+      ? undefined
+      : getCachedPreview(workspace.workspaceId, activePath, requestedEncodingRef.current ?? candidateTab?.encoding ?? 'utf-8')
+    const canFast = !refreshPending && !cancelRestore
+      && requestedEncodingRef.current === undefined
+      && !reloadingPathsRef.current.has(activePath)
+      && candidateTab !== undefined && candidateTab.kind !== 'mindmap'
+      && !candidateTab.external && !candidateTab.dirty && !candidateTab.saving
+      && (mountLoaded ? diskConfirmedClean : cacheEntry !== undefined)
+    if (canFast) {
+      readController.current?.abort()
+      const readSeq = ++readSeqRef.current
+      publishEditorContext(undefined)
+      const selection = entryFromPreviewTab(candidateTab)
+      setSelected(selection)
+      /* Disk-derived payload: for a loaded tab the live tab fields are the
+         runtime mirror of the last read (tab payload fields are set by every
+         read pass); for a cold shell the cache holds the full read payload.
+         Drafts are excluded here by the dirty gate, so baseText == the disk
+         content shown. */
+      const payload = mountLoaded
+        ? {
+            bom: Boolean(candidateTab.bom),
+            content: candidateTab.baseText,
+            editable: (candidateTab.readOnlyReason ?? null) === null,
+            encoding: candidateTab.encoding ?? 'utf-8',
+            lineEnding: candidateTab.lineEnding ?? 'none',
+            maxContextBytes: candidateTab.maxContextBytes ?? null,
+            mtimeMs: Number(candidateTab.mtimeMs) || 0,
+            readOnlyReason: candidateTab.readOnlyReason ?? null,
+            revision: candidateTab.revision ?? null,
+            size: candidateTab.size,
+            truncated: Boolean(candidateTab.truncated),
+          }
+        : cacheEntry.payload
+      const serveEncoding = String(payload.encoding ?? 'utf-8')
+      const serveSnapshot = mountLoaded ? contentBaseline : cacheEntry.snapshot
+      const content = typeof payload.content === 'string' ? payload.content : ''
+      const savedScrollTop = scrollTopRef.current.get(activePath) ?? candidateTab.scrollTop ?? 0
+      reloadingPathsRef.current.add(activePath)
+      setEditing(Boolean(candidateTab.editing))
+      setDirty(false)
+      setSaving(false)
+      setStatus(candidateTab.status?.error === true ? undefined : candidateTab.status)
+      const ready = {
+        state: 'ready',
+        content,
+        path: activePath,
+        name: selection.name,
+        symlink: Boolean(selection.symlink),
+        truncated: Boolean(payload.truncated),
+        encoding: serveEncoding,
+        lineEnding: payload.lineEnding ?? 'none',
+        bom: Boolean(payload.bom),
+        size: Number.isFinite(payload.size) ? payload.size : null,
+        editable: payload.editable === true,
+        readOnlyReason: payload.readOnlyReason ?? null,
+        revision: payload.revision ?? null,
+        maxContextBytes: payload.maxContextBytes ?? null,
+        mtimeMs: Number(payload.mtimeMs) || 0,
+      }
+      baseText.current = content
+      diskBaseRef.current = content
+      lastWriteRef.current.set(activePath, { generation: draftGenerationCounterRef.current, content })
+      /* Seeds (not real checks): no checkedAt, see the pass-end seeding. */
+      const serveWatch = {
+        mtimeMs: Number(serveSnapshot?.mtimeMs) || 0,
+        size: Number(serveSnapshot?.size) || 0,
+        hash: typeof serveSnapshot?.hash === 'string' ? serveSnapshot.hash : null,
+      }
+      watchSnapshotsRef.current.set(activePath, serveWatch)
+      contentBaselinesRef.current.set(activePath, serveWatch)
+      updateTab(activePath, {
+        baseText: content,
+        baseRevision: payload.revision ?? null,
+        bom: Boolean(payload.bom),
+        dirty: false,
+        draft: content,
+        draftKnown: true,
+        editing: payload.editable === true,
+        encoding: serveEncoding,
+        lineEnding: payload.lineEnding ?? 'none',
+        loaded: true,
+        maxContextBytes: payload.maxContextBytes ?? null,
+        mtimeMs: Number(payload.mtimeMs) || 0,
+        name: selection.name,
+        readOnlyReason: payload.readOnlyReason ?? null,
+        revision: payload.revision ?? null,
+        saving: false,
+        scrollTop: savedScrollTop,
+        size: Number.isFinite(payload.size) ? payload.size : null,
+        status: candidateTab.status?.error === true ? undefined : candidateTab.status,
+        symlink: Boolean(selection.symlink),
+        truncated: Boolean(payload.truncated),
+      })
+      setDraft(content)
+      setPreview(ready)
+      reloadingPathsRef.current.delete(activePath)
+      /* Background validation: one cheap change check against the snapshot
+         the served content was read from (skipped only when the poll has
+         JUST confirmed the same disk state — watch baseline equal + fresh
+         checkedAt). The editor stays interactive meanwhile; a detected
+         change upgrades exactly like a poll-driven reload. */
+      const baseline = serveSnapshot
+      const pollJustConfirmed = watchBaseline !== undefined && watchBaseline !== null
+        && sameDiskSnapshot(watchBaseline, baseline)
+        && Number.isFinite(watchBaseline?.checkedAt)
+        && Date.now() - watchBaseline.checkedAt < FILE_CACHE_REVALIDATE_SKIP_MS
+      if (pollJustConfirmed) return undefined
+      const validateController = new AbortController()
+      const runValidation = async () => {
+        let result
+        try {
+          result = await checkFileChange(String(workspace.workspaceId), activePath, baseline, validateController.signal)
+        } catch {
+          /* Abort or transient failure: keep serving; the poll (when
+             enabled) or the next activation re-validates. */
+          return
+        }
+        if (validateController.signal.aborted || !mounted.current) return
+        const stillCurrent = readSeq === readSeqRef.current && activePathRef.current === activePath
+        const tabNow = tabsRef.current.find(item => item.path === activePath)
+        if (!stillCurrent || tabNow === undefined) {
+          if (result?.exists === false || result?.changed === true) invalidateCachedPath(workspace.workspaceId, activePath)
+          return
+        }
+        const nextSnapshot = result?.snapshot ?? null
+        if (result?.exists === false) {
+          /* The file disappeared while we were away: serving cached content
+             would silently show a ghost. Upgrade to the full pass (which
+             surfaces the error preview like a plain activation) or, with
+             unsaved edits, mirror the poll's removal banner. */
+          watchSnapshotsRef.current.set(activePath, null)
+          invalidateCachedPath(workspace.workspaceId, activePath)
+          if (tabNow.dirty === true || tabNow.saving === true) {
+            const text = translate('status.fileRemoved')
+            setStatus({ error: true, text })
+            updateTab(activePath, { status: { error: true, text } })
+            return
+          }
+          if (!reloadingPathsRef.current.has(activePath)) {
+            reloadingPathsRef.current.add(activePath)
+            setReloadToken(token => token + 1)
+          }
+          return
+        }
+        if (result?.changed === true) {
+          watchSnapshotsRef.current.set(activePath, nextSnapshot)
+          invalidateCachedPath(workspace.workspaceId, activePath)
+          if (tabNow.dirty === true || tabNow.saving === true) {
+            /* Never overwrite unsaved edits with disk content: mirror the
+               poll's dirty-change banner and leave the draft untouched. */
+            const text = translate('status.fileChangedDirty')
+            setStatus({ error: true, text })
+            updateTab(activePath, { status: { error: true, text } })
+            return
+          }
+          if (reloadingPathsRef.current.has(activePath)) return
+          /* Silent fresh read — a plain activation re-reads without a banner
+             today, so the upgrade matches that (the full pass replaces the
+             stale content, rebuilds the doc and updates every baseline). */
+          reloadingPathsRef.current.add(activePath)
+          setReloadToken(token => token + 1)
+          return
+        }
+        /* Unchanged: this response is a REAL disk confirmation, so its
+           checkedAt may refresh the watch/content baselines (later
+           activations can then skip the check within the skip window) and
+           the cache snapshot stays coherent. Only when the baseline is still
+           the one this check ran against (a concurrent pass re-seeded it). */
+        if (nextSnapshot !== null && typeof nextSnapshot === 'object') {
+          const currentBaseline = contentBaselinesRef.current.get(activePath)
+          if (currentBaseline === undefined || sameDiskSnapshot(currentBaseline, baseline)) {
+            watchSnapshotsRef.current.set(activePath, nextSnapshot)
+            contentBaselinesRef.current.set(activePath, nextSnapshot)
+            refreshCachedSnapshot(workspace.workspaceId, activePath, serveEncoding, nextSnapshot)
+          }
+        }
+      }
+      void runValidation()
+      return () => { validateController.abort() }
     }
     readController.current?.abort()
     const controller = new AbortController()
@@ -531,12 +759,31 @@ export function useEditorSession({
         lastWriteRef.current.set(activePath, { generation: draftGenerationCounterRef.current, content })
         /* Auto-sync baseline: after any re-read, reset the per-path change
            snapshot so the watcher/poll does not re-report the just-loaded
-           content as a fresh external change. */
+           content as a fresh external change. Seeds carry NO checkedAt: only
+           a REAL change-check response may stamp one, otherwise the
+           revalidation skip window would fire without a disk confirmation. */
         watchSnapshotsRef.current.set(activePath, {
           mtimeMs: Number(result.mtimeMs) || 0,
           size: Number(result.size) || 0,
           hash: typeof result.revision === 'string' ? result.revision : null,
         })
+        /* Content baseline + global cache (dev-notes §23): the disk state the
+           payload was read against. The cache serves later cold activations
+           (session/workspace switches) without a content GET. CONTENT AND
+           SNAPSHOT ALWAYS MOVE TOGETHER — the cache holds the DISK payload
+           only (a restored draft never enters it); the encoding alias covers
+           the tab's own key (result.encoding) and the request key. */
+        const payloadEncoding = result.encoding ?? effectiveEncoding
+        const freshSnapshot = diskSnapshot(result.mtimeMs, result.size, result.revision)
+        contentBaselinesRef.current.set(activePath, {
+          mtimeMs: freshSnapshot.mtimeMs,
+          size: freshSnapshot.size,
+          hash: freshSnapshot.hash,
+        })
+        storeCachedPreview(workspace.workspaceId, activePath, payloadEncoding, result, freshSnapshot)
+        if (payloadEncoding !== effectiveEncoding) {
+          storeCachedPreview(workspace.workspaceId, activePath, effectiveEncoding, result, freshSnapshot)
+        }
         setDraft(content)
         setPreview(ready)
         setEditing(editable)
@@ -550,6 +797,20 @@ export function useEditorSession({
         }
         if (cancelRestore) setStatus({ text: translate('editor.cancelRestored') })
         else if (refreshPending) setStatus({ text: translate('editor.refreshed') })
+        /* Editor-session retention: a same-content re-read (tab switch back,
+           refresh with unchanged disk) must not destroy the file's undo/caret
+           — the remount below rebuilds from the retained EditorState when its
+           doc equals the new content. Any real content change (or a rename
+           that swapped the name/language) drops the retained state so the
+           remount builds fresh. A cancel/discard restore drops it too: undo
+           stepping back into the discarded keystrokes would resurrect the
+           abandoned edit. */
+        const retainedNow = retainedStatesRef.current.get(activePath)
+        if (retainedNow !== undefined && (cancelRestore
+          || retainedNow.state.doc.toString() !== content
+          || retainedNow.name !== selection.name)) {
+          retainedStatesRef.current.delete(activePath)
+        }
         setReadEpoch(epoch => epoch + 1)
         updateTab(activePath, {
           baseText: restored.baseText,
@@ -561,13 +822,18 @@ export function useEditorSession({
           editing: editable,
           encoding: result.encoding ?? effectiveEncoding,
           lineEnding: result.lineEnding ?? 'none',
+          loaded: true,
+          maxContextBytes: Number.isFinite(result.maxContextBytes) ? result.maxContextBytes : null,
+          mtimeMs: Number(result.mtimeMs) || 0,
           name: selection.name,
+          readOnlyReason: result.readOnlyReason ?? null,
           revision: result.revision ?? null,
           saving: false,
           scrollTop: savedScrollTop,
           size: Number.isFinite(result.size) ? result.size : null,
           status: cancelRestore ? { text: translate('editor.cancelRestored') } : (refreshPending ? { text: translate('editor.refreshed') } : (canRestore ? restoredStatus : ((hasDiskDraft || hasTabDraft) ? notRestorableStatus : (draftReadFailedStatus ?? (tab?.status?.error === true ? undefined : tab?.status))))),
           symlink: Boolean(selection.symlink),
+          truncated: Boolean(result.truncated),
         })
         /* For an auto-triggered re-read, the clean active tab's status was
            already set to "reloaded"; the read pass updates the baseline above.
@@ -613,7 +879,7 @@ export function useEditorSession({
       // (reloadToken bump) keeps the marker — the new read is still in flight.
       if (activePathRef.current !== activePath) reloadingPathsRef.current.delete(activePath)
     }
-  }, [activePath, draftScopeId, loadDraft, publishEditorContext, readFile, reloadToken, removeDraftFile, updateTab, workspace.workspaceId])
+  }, [activePath, checkFileChange, draftScopeId, loadDraft, publishEditorContext, readFile, reloadToken, removeDraftFile, updateTab, workspace.workspaceId])
   const nextDraftGeneration = useCallback((path) => {
     draftGenerationCounterRef.current += 1
     const next = draftGenerationCounterRef.current
@@ -677,6 +943,12 @@ export function useEditorSession({
        the stale mount-time scroll.) One number per closed path is a
        negligible cost. */
     watchSnapshotsRef.current.delete(path)
+    contentBaselinesRef.current.delete(path)
+    /* The retained editor session dies with the tab: a same-session reopen
+       builds a fresh session, like the pre-retention behavior. The global
+       content cache entry is deliberately KEPT (a reopen reads the file
+       content from memory). */
+    retainedStatesRef.current.delete(path)
     reloadingPathsRef.current.delete(path)
     /* Keep the per-path generation entry alive while a draft op is queued:
        closeTab's non-editable-dirty escape enqueues a clearDraftFile DELETE
@@ -751,9 +1023,35 @@ export function useEditorSession({
         size: Number.isFinite(result.size) ? result.size : 0,
         hash: typeof result.revision === 'string' ? result.revision : null,
       })
+      /* Keep the content baseline + global cache in lockstep with the write:
+         the saved text is now the disk state, and a re-activation must serve
+         it from memory, not re-fetch. Drop the path's other-encoding entries
+         first (the file now decodes under the saved encoding). */
       const savedEncoding = result.encoding ?? encoding
+      invalidateCachedPath(workspace.workspaceId, path)
+      const savedBytes = Number.isFinite(result.size) ? result.size : new TextEncoder().encode(content).byteLength
+      const savedSnapshot = diskSnapshot(result.mtimeMs, savedBytes, result.revision ?? null)
+      /* Seed (not a real check): no checkedAt in the live baseline. */
+      contentBaselinesRef.current.set(path, {
+        mtimeMs: savedSnapshot.mtimeMs,
+        size: savedSnapshot.size,
+        hash: savedSnapshot.hash,
+      })
+      storeCachedPreview(workspace.workspaceId, path, savedEncoding, {
+        content,
+        encoding: savedEncoding,
+        lineEnding: tab.lineEnding ?? 'none',
+        bom: Boolean(result.bom),
+        size: savedBytes,
+        revision: result.revision ?? null,
+        truncated: false,
+        editable: true,
+        readOnlyReason: null,
+        maxContextBytes: Number.isFinite(tab.maxContextBytes) ? tab.maxContextBytes : null,
+        mtimeMs: Number(result.mtimeMs) || 0,
+      }, savedSnapshot)
       const savedBom = Boolean(result.bom)
-      const size = Number.isFinite(result.size) ? result.size : new TextEncoder().encode(content).byteLength
+      const size = savedBytes
       const savedStatus = { text: statusText ?? translate('editor.saved') }
       let draftCleanupFailed = false
       try {
@@ -1346,7 +1644,7 @@ export function useEditorSession({
     publishContextState, save, cancel, discardDraft, resolveConflict,
     clearDraftFile, scheduleAutosave, invalidateDraftPath, nextDraftGeneration,
     forgetPathRefs, rollbackDraftTree, lastWriteRef, draftTailsRef, draftGenerationsRef,
-    watchSnapshotsRef,
+    watchSnapshotsRef, contentBaselinesRef, retainedStatesRef,
     readController, saveController, flushAutosavesRef, migratePendingAutosavesRef,
   }
 }

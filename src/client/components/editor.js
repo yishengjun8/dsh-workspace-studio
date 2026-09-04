@@ -102,14 +102,66 @@ export function foldLevel(view, level) {
   return false
 }
 
-export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShortcut, onScroll, reveal, scrollTop, editorRef, highlightPreset, searchPanelContainer, readEpoch, onRevealApplied }) {
+/* --- Live-editor bridge ------------------------------------------------
+ * The doc/selection update listener below is part of the EditorState
+ * CONFIGURATION. A state retained for a later tab re-activation therefore
+ * carries a listener created by an earlier CodeEditor instance, and a view
+ * rebuilt from that state would otherwise report updates through the OLD
+ * instance's stale closures. All listeners therefore delegate through this
+ * module-level bridge, which always points at the CURRENTLY mounted
+ * instance's refs — stale listeners and fresh ones end up at the same live
+ * callbacks (dev-notes §23). Only one editor view exists at a time, so the
+ * bridge has exactly one owner. */
+const liveEditorBridge = { current: null }
+let editorInstanceSeq = 0
+function handleEditorUpdate(update) {
+  const bridge = liveEditorBridge.current
+  if (bridge === null) return
+  if (update.docChanged) {
+    /* One sliceDoc per change, shared by the autosave and the context publish
+       (a second full copy per keystroke is pure cost on large files); the
+       docChanged flag lets the context publish rebuild its CRLF prefix table
+       only when the text actually changed. */
+    const text = update.state.sliceDoc()
+    bridge.dirtyRef.current(text)
+    bridge.contextRef.current(update.state, true, text)
+  } else if (update.selectionSet) {
+    bridge.contextRef.current(update.state, false)
+  }
+  const sink = bridge.stateSinkRef.current
+  if (sink !== null) {
+    const comps = bridge.compartmentsRef.current
+    sink(bridge.path, {
+      state: update.state,
+      editable: comps.editable,
+      wrap: comps.wrap,
+      phrases: comps.phrases,
+      name: bridge.name,
+    })
+  }
+}
+
+/* `restore` (optional) is a retained EditorSession of a file previously shown
+   by this component: { state, editable, wrap, phrases, name }. Mounting the
+   view from the SAME EditorState object preserves the doc, undo history,
+   selection and fold state across tab switches; without it the view is built
+   fresh from `file.content`. `onViewState` (optional) reports the live
+   { state, ...compartments, name } on every view update and at mount so the
+   owner can keep the retention map current (see dev-notes §23). */
+export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShortcut, onScroll, reveal, scrollTop, editorRef, highlightPreset, searchPanelContainer, readEpoch, onRevealApplied, restore = null, onViewState = null }) {
   const host = useRef(null)
   /* Lazy compartments: useRef(new Compartment()) would construct a discarded
-     object on every render (only the first is kept). */
+     object on every render (only the first is kept). A view mounted FROM a
+     restored state must reconfigure the compartments THAT state carries, so
+     every dispatch below targets `compartments` (restored when present, own
+     otherwise) — never blindly the own ones. */
   const [editableCompartment] = useState(() => new Compartment())
   const [wrapCompartment] = useState(() => new Compartment())
   const [phrasesCompartment] = useState(() => new Compartment())
   const localeTick = useLocaleText()
+  const compartments = restore !== null
+    ? { editable: restore.editable, wrap: restore.wrap, phrases: restore.phrases }
+    : { editable: editableCompartment, wrap: wrapCompartment, phrases: phrasesCompartment }
   const contextRef = useRef(onContext)
   const dirtyRef = useRef(onDirty)
   const saveRef = useRef(onSaveShortcut)
@@ -117,12 +169,16 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
   const revealRef = useRef(null)
   const onRevealAppliedRef = useRef(onRevealApplied)
   const revealAppliedRef = useRef(null)
+  const stateSinkRef = useRef(onViewState)
+  const compartmentsRef = useRef(compartments)
   contextRef.current = onContext
   dirtyRef.current = onDirty
   saveRef.current = onSaveShortcut
   scrollRef.current = onScroll
   revealRef.current = reveal
   onRevealAppliedRef.current = onRevealApplied
+  stateSinkRef.current = onViewState
+  compartmentsRef.current = compartments
   // A reveal is consumed the first time it is applied, so returning to the tab
   // later restores the persisted scroll instead of re-jumping to a stale match.
   const markRevealApplied = (target) => {
@@ -130,78 +186,109 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
     revealAppliedRef.current = target
     onRevealAppliedRef.current?.()
   }
+  /* The render-time instance owns the live bridge. A per-instance token keeps
+     an unmount cleanup from nulling a bridge a newer instance already took
+     over (same-path keyed remounts run old cleanups after the new render). */
+  const bridgeSelfRef = useRef(null)
+  if (bridgeSelfRef.current === null) {
+    bridgeSelfRef.current = {
+      token: ++editorInstanceSeq,
+      path: file.path,
+      name: file.name,
+      dirtyRef,
+      contextRef,
+      stateSinkRef,
+      compartmentsRef,
+    }
+  } else {
+    bridgeSelfRef.current.path = file.path
+    bridgeSelfRef.current.name = file.name
+  }
+  liveEditorBridge.current = bridgeSelfRef.current
 
   useEffect(() => {
-    const descriptor = languageFor(file.name)
-    const separator = lineSeparator(file.lineEnding)
-    const separatorExtension = file.lineEnding === 'mixed'
-      ? []
-      : EditorState.lineSeparator.of(separator)
-    const view = new EditorView({
-      parent: host.current,
-      state: EditorState.create({
-        doc: file.content,
-        extensions: [
-          lineNumbers(), highlightActiveLineGutter(), history(), foldGutter(), drawSelection(), dropCursor(),
-          EditorState.allowMultipleSelections.of(true), indentOnInput(), bracketMatching(), closeBrackets(),
-          highlightSelectionMatches(), highlightActiveLine(), syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-          /* The search panel renders into a container div between the status
-             bar and the preview body: top:true puts it in the top panel group
-             (the @codemirror/search default is bottom); panels({ topContainer })
-             places that group in the plugin-owned container, not in the editor. */
-          search({ top: true }),
-          panels(searchPanelContainer?.current ? { topContainer: searchPanelContainer.current } : undefined),
-          /* Search/goto-line panel labels render through EditorState.phrase();
-             without this map they show English. Keys mirror @codemirror/search's
-             phrases; keep the $ placeholders. The compartment follows the
-             active locale (English keeps the built-in defaults). */
-          phrasesCompartment.of(localeIsZh() ? EditorState.phrases.of(CM_PHRASES_ZH) : []),
-          syntaxHighlighting(tokenHighlight),
-          keymap.of([
-            /* Mod-s is deliberately NOT bound here: the window-level capture
-               handler owns it so saving works from every focus state (same
-               single-path rule as Ctrl+K and the find workflow). */
-            indentWithTab, ...closeBracketsKeymap, ...defaultKeymap,
-            /* Editor-only search keys stay in the keymap: Escape closes the
-               panel; Ctrl+D / Ctrl+Shift+L / Ctrl+Alt+G select occurrences,
-               matches, or jump to a line. The find workflow (Ctrl/Cmd+F,
-               Ctrl/Cmd+G, F3) is deliberately NOT bound here — the window
-               capture handler owns it so it works from every focus state
-               (single path, same as Ctrl+K). */
-            { key: 'Escape', run: closeSearchPanel, scope: 'editor search-panel' },
-            { key: 'Mod-Shift-l', run: selectSelectionMatches },
-            { key: 'Mod-Alt-g', run: gotoLine },
-            { key: 'Mod-d', run: selectNextOccurrence, preventDefault: true },
-            ...historyKeymap, ...foldKeymap,
-          ]),
-          EditorView.updateListener.of((update) => {
-            if (update.docChanged) {
-              /* One sliceDoc per change, shared by the autosave and the context
-                 publish (a second full copy per keystroke is pure cost on large
-                 files); the docChanged flag lets the context publish rebuild
-                 its CRLF prefix table only when the text actually changed. */
-              const text = update.state.sliceDoc()
-              dirtyRef.current(text)
-              contextRef.current(update.state, true, text)
-            } else if (update.selectionSet) {
-              contextRef.current(update.state, false)
-            }
-          }),
-          editableCompartment.of([
-            EditorView.editable.of(editing),
-            EditorState.readOnly.of(!editing),
-          ]),
-          wrapCompartment.of(wrap ? EditorView.lineWrapping : []),
-          descriptor.extension,
-          separatorExtension,
-          EditorView.theme({
-            '&': { backgroundColor: 'var(--dsw-alias-markdown-code-block)', color: 'var(--dsw-alias-label-primary)' },
-            '.cm-content': { caretColor: 'var(--dsw-alias-label-primary)' },
-            '&.cm-focused': { outline: 'none' },
-          }, { dark: false }),
-        ],
-      }),
-    })
+    const comps = compartments
+    const retained = restore === null ? null : restore.state
+    let view
+    if (retained !== null) {
+      /* Restored session: build the view around the retained EditorState so
+         the doc, undo history, selection and folds come back as they were.
+         The retained state already carries its own update listener (the
+         module-level handleEditorUpdate), which routes through the live
+         bridge — no new listener is added here. */
+      view = new EditorView({ parent: host.current, state: retained })
+    } else {
+      const descriptor = languageFor(file.name)
+      const separator = lineSeparator(file.lineEnding)
+      const separatorExtension = file.lineEnding === 'mixed'
+        ? []
+        : EditorState.lineSeparator.of(separator)
+      view = new EditorView({
+        parent: host.current,
+        state: EditorState.create({
+          doc: file.content,
+          extensions: [
+            lineNumbers(), highlightActiveLineGutter(), history(), foldGutter(), drawSelection(), dropCursor(),
+            EditorState.allowMultipleSelections.of(true), indentOnInput(), bracketMatching(), closeBrackets(),
+            highlightSelectionMatches(), highlightActiveLine(), syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+            /* The search panel renders into a container div between the status
+               bar and the preview body: top:true puts it in the top panel group
+               (the @codemirror/search default is bottom); panels({ topContainer })
+               places that group in the plugin-owned container, not in the editor. */
+            search({ top: true }),
+            panels(searchPanelContainer?.current ? { topContainer: searchPanelContainer.current } : undefined),
+            /* Search/goto-line panel labels render through EditorState.phrase();
+               without this map they show English. Keys mirror @codemirror/search's
+               phrases; keep the $ placeholders. The compartment follows the
+               active locale (English keeps the built-in defaults). */
+            comps.phrases.of(localeIsZh() ? EditorState.phrases.of(CM_PHRASES_ZH) : []),
+            syntaxHighlighting(tokenHighlight),
+            keymap.of([
+              /* Mod-s is deliberately NOT bound here: the window-level capture
+                 handler owns it so saving works from every focus state (same
+                 single-path rule as Ctrl+K and the find workflow). */
+              indentWithTab, ...closeBracketsKeymap, ...defaultKeymap,
+              /* Editor-only search keys stay in the keymap: Escape closes the
+                 panel; Ctrl+D / Ctrl+Shift+L / Ctrl+Alt+G select occurrences,
+                 matches, or jump to a line. The find workflow (Ctrl/Cmd+F,
+                 Ctrl/Cmd+G, F3) is deliberately NOT bound here — the window
+                 capture handler owns it so it works from every focus state
+                 (single path, same as Ctrl+K). */
+              { key: 'Escape', run: closeSearchPanel, scope: 'editor search-panel' },
+              { key: 'Mod-Shift-l', run: selectSelectionMatches },
+              { key: 'Mod-Alt-g', run: gotoLine },
+              { key: 'Mod-d', run: selectNextOccurrence, preventDefault: true },
+              ...historyKeymap, ...foldKeymap,
+            ]),
+            /* The listener is part of the STATE configuration: retained states
+               keep it across view rebuilds, and handleEditorUpdate delegates
+               to whichever instance currently owns the live bridge. */
+            EditorView.updateListener.of(handleEditorUpdate),
+            comps.editable.of([
+              EditorView.editable.of(editing),
+              EditorState.readOnly.of(!editing),
+            ]),
+            comps.wrap.of(wrap ? EditorView.lineWrapping : []),
+            descriptor.extension,
+            separatorExtension,
+            EditorView.theme({
+              '&': { backgroundColor: 'var(--dsw-alias-markdown-code-block)', color: 'var(--dsw-alias-label-primary)' },
+              '.cm-content': { caretColor: 'var(--dsw-alias-label-primary)' },
+              '&.cm-focused': { outline: 'none' },
+            }, { dark: false }),
+          ],
+        }),
+      })
+    }
+    if (onViewState !== null) {
+      onViewState(file.path, {
+        state: view.state,
+        editable: comps.editable,
+        wrap: comps.wrap,
+        phrases: comps.phrases,
+        name: file.name,
+      })
+    }
     const reportScroll = () => {
       scrollRef.current?.(file.path, view.scrollDOM.scrollTop)
     }
@@ -238,15 +325,17 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
       if (view.scrollDOM.isConnected) scrollRef.current?.(file.path, view.scrollDOM.scrollTop)
       view.scrollDOM.removeEventListener('scroll', reportScroll)
       if (editorRef.current === view) editorRef.current = undefined
+      if (liveEditorBridge.current === bridgeSelfRef.current) liveEditorBridge.current = null
       view.destroy()
     }
     // Rebuild only on a real re-read (path/encoding/read epoch), never on save:
     // rebuilding after a save would wipe the undo history and caret position.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [file.path, file.encoding, readEpoch])
 
   useEffect(() => {
     editorRef.current?.dispatch({
-      effects: editableCompartment.reconfigure([
+      effects: compartments.editable.reconfigure([
         EditorView.editable.of(editing),
         EditorState.readOnly.of(!editing),
       ]),
@@ -255,13 +344,13 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
 
   useEffect(() => {
     editorRef.current?.dispatch({
-      effects: wrapCompartment.reconfigure(wrap ? EditorView.lineWrapping : []),
+      effects: compartments.wrap.reconfigure(wrap ? EditorView.lineWrapping : []),
     })
   }, [wrap])
 
   useEffect(() => {
     editorRef.current?.dispatch({
-      effects: phrasesCompartment.reconfigure(localeIsZh() ? EditorState.phrases.of(CM_PHRASES_ZH) : []),
+      effects: compartments.phrases.reconfigure(localeIsZh() ? EditorState.phrases.of(CM_PHRASES_ZH) : []),
     })
   }, [localeTick])
 

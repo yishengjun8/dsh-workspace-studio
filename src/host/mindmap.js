@@ -381,7 +381,7 @@ export function parseMindmapSummaryConfig(value) {
 
 /* The model route of one session for "follow the session model" mode: the
    live request header first, then the latest request/header event in the full
-   log (non-resident sessions fall back to persistence.inspect). Null when the
+   log (non-resident sessions fall back to a persistence read handle). Null when the
    session has no usable route — generation is skipped and the card keeps the
    original text. */
 async function mindmapModelOf(ctx, persistence, sessionId) {
@@ -1217,19 +1217,56 @@ async function mindmapCwdOf(ctx, persistence, sessionId) {
   return undefined
 }
 
-/* Full event log of one session: resident instances are free; others fall back to the persistence backend, which may be absent or fail. A resident session whose events array is missing also falls back (a half-initialized live entry must not hide the durable log). */
-async function eventsOf(ctx, persistence, sessionId) {
-  const live = ctx.sessions.get(sessionId)
-  if (live !== undefined && Array.isArray(live.events)) {
-    return live.events
-  }
-  if (persistence === undefined) return null
+/* Cold (non-attached) session read through the handle-based persistence seam
+   (dsh >= 0.1.2-alpha.5): one read handle opened, read, closed. Returns
+   { events, inheritedEventCount } — events is null when the handle could not
+   be read — or null when the backend is absent / the session does not exist.
+   The legacy seam surfaces this used to ride on (`persistence.inspect`,
+   `live.events`) are gone since the handle-based refactor. */
+async function mindmapColdSessionRead(ctx, persistence, sessionId) {
+  if (persistence === undefined || typeof persistence.open !== 'function') return null
+  let handle
   try {
-    const inspected = await persistence.inspect(sessionId)
-    return Array.isArray(inspected?.events) ? inspected.events : null
+    handle = await persistence.open(String(sessionId), 'read')
   } catch {
     return null
   }
+  try {
+    const events = await handle.read()
+    return {
+      events: Array.isArray(events) ? events : null,
+      inheritedEventCount: handle.inheritedEventCount,
+    }
+  } catch {
+    return null
+  } finally {
+    try { await handle.close() } catch { /* release is best-effort */ }
+  }
+}
+
+/* Full event log of one session: an attached (resident) session's log is read
+   for free through its `snapshotEvents()` method (the session domain has no
+   `.events` array), everything else goes through a read handle on the
+   persistence backend, which may be absent or fail. `out` (optional) receives
+   the exact fork-inherited event count when the read succeeded — the adopt
+   pass needs it and must not open a second handle. Null when the log is
+   unavailable: callers keep their recorded turns and retry on a later sync. */
+async function eventsOf(ctx, persistence, sessionId, out) {
+  const live = ctx.sessions.get(sessionId)
+  if (live !== undefined && typeof live.snapshotEvents === 'function') {
+    try {
+      const events = live.snapshotEvents()
+      if (Array.isArray(events)) {
+        if (out !== undefined && out !== null) out.inheritedEventCount = live.inheritedEventCount
+        return events
+      }
+    } catch {
+      /* fall through to the durable read */
+    }
+  }
+  const cold = await mindmapColdSessionRead(ctx, persistence, sessionId)
+  if (out !== undefined && out !== null) out.inheritedEventCount = cold === null ? undefined : cold.inheritedEventCount
+  return cold === null ? null : cold.events
 }
 
 /* Cached persistence.list(): the sync path consults the session index up to
@@ -1250,14 +1287,14 @@ async function mindmapPersistenceList(persistence) {
 }
 let mindmapPersistenceListCache = { at: 0, value: null }
 
-/* Parse cache for reconcile: a resident session's events array is append-only
-   (identity stable, length grows while streaming), so re-parsing is only
-   needed when the array identity or length changed — idle family sessions
-   skip the full-log walk on every sync. Non-resident logs come back as fresh
-   arrays from persistence.inspect and always miss (their content is immutable,
-   so the cost is bounded by the harness's prepared-session cache). The TTL
+/* Parse cache for reconcile: a resident session's full-range snapshot is
+   stable and append-only (identity stable, length grows while streaming), so
+   re-parsing is only needed when the snapshot identity or length changed —
+   idle family sessions skip the full-log walk on every sync. Non-resident
+   logs come back as fresh arrays from the read handle and always miss (their
+   content is immutable, so the cost is bounded by the handle read). The TTL
    bounds same-length in-place edits (a rewritten user/message with unchanged
-   length would otherwise be invisible until the events array is replaced). */
+   length would otherwise be invisible until the snapshot is replaced). */
 const MINDMAP_PARSE_CACHE_TTL_MS = 30_000
 const mindmapParseCache = new Map()
 function parseMindmapTurnsCached(sessionId, events) {
@@ -1680,7 +1717,9 @@ async function mindmapSessionIndex(ctx, persistence) {
       const header = session.header
       merge(session.id ?? header?.id, {
         parent: header?.parentSession,
-        seedLength: header?.seedLength,
+        /* The fork cut lives on the session/handle as inheritedEventCount
+           since the handle-based seam (header.seedLength no longer exists). */
+        seedLength: session.inheritedEventCount,
         subagent: header?.origin === 'subagent',
       })
     }
@@ -1694,6 +1733,8 @@ async function mindmapSessionIndex(ctx, persistence) {
         if (header === null || header === undefined) continue
         merge(header.id, {
           parent: header.parentSession,
+          /* Absent on the handle-based seam (kept for older backends); the
+             adopt pass fills the cut from the child's read handle instead. */
           seedLength: header.seedLength,
           subagent: header.origin === 'subagent',
         })
@@ -1736,11 +1777,12 @@ function mindmapBoundaryOwner(doc, parentSessionId, t) {
    would mint the same id (a React key collision inside one doc). */
 let mindmapAdoptSeq = 0
 /* One adoption pass: adopt fork children whose IMMEDIATE parent is already
-   documented. The harness records the fork cut in the child's seedLength
-   (inherited-event count), so the boundary turn (last turn/end below the cut)
-   is exact even for mid-log forks and already-chatted children. Without
-   seedLength, the last completed turn is used — true only while the child has
-   not chatted. Subagent and archived sessions are never adopted. */
+   documented. The harness records the fork cut as the child's
+   inheritedEventCount (session/handle; formerly header.seedLength), so the
+   boundary turn (last turn/end below the cut) is exact even for mid-log forks
+   and already-chatted children. Without the cut, the last completed turn is
+   used — true only while the child has not chatted. Subagent and archived
+   sessions are never adopted. */
 async function adoptMindmapOrphanPass(ctx, persistence, doc) {
   const known = new Set()
   for (const session of doc.sessions ?? []) {
@@ -1761,11 +1803,19 @@ async function adoptMindmapOrphanPass(ctx, persistence, doc) {
     if (archived.has(sessionId)) continue
     const parent = info.parent
     if (parent === undefined || !known.has(String(parent))) continue
-    const events = await eventsOf(ctx, persistence, sessionId)
+    /* eventsOf reports the exact fork-inherited event count through `readInfo`
+       (live session or the SAME read handle that served the events — never a
+       second open), so already-chatted children still get their exact
+       boundary instead of being skipped by the un-chatted-only heuristic. */
+    const readInfo = {}
+    const events = await eventsOf(ctx, persistence, sessionId, readInfo)
     if (!Array.isArray(events)) continue
     const parsed = parseMindmapTurns(events)
     if (parsed.length === 0) continue
-    const seedLength = info.seedLength
+    const inheritedCount = readInfo.inheritedEventCount
+    const seedLength = Number.isSafeInteger(Number(inheritedCount)) && Number(inheritedCount) > 0
+      ? Number(inheritedCount)
+      : info.seedLength
     let boundary = undefined
     if (Number.isSafeInteger(seedLength) && seedLength > 0) {
       for (let i = parsed.length - 1; i >= 0; i -= 1) {
@@ -2030,11 +2080,12 @@ export async function syncMindmapDoc(ctx, persistence, sessionId, liveSessionIds
 }
 
 /* Cheap signature of everything that could change a doc's sync result, plus
-   the family's live event-array references for identity comparison:
-   - Family logs: a resident session's events array identity + length (only a
-     resident session can gain turns while the host runs); non-resident family
-     sessions are immutable. In-place edits keeping identity AND length are
-     only caught by the TTL.
+   the family's live event-snapshot references for identity comparison:
+   - Family logs: a resident session's snapshotEvents() identity + length (only
+     a resident session can gain turns while the host runs; the full-range
+     snapshot is a stable frozen array reused until the next append, so
+     identity comparison works); non-resident family sessions are immutable.
+     In-place edits keeping identity AND length are only caught by the TTL.
    - New fork orphans: the live session id set and the persistence index length.
    - The archived set reference: archiving a member changes the doc's fate even
      though no log changed.
@@ -2075,10 +2126,14 @@ function mindmapSyncSignatureFromParts(ctx, doc, cachedRefs, parts) {
   const refs = new Map()
   for (const id of family) {
     const live = ctx.sessions.get(id)
-    if (live !== undefined && Array.isArray(live.events)) {
+    let events = null
+    if (live !== undefined && typeof live.snapshotEvents === 'function') {
+      try { events = live.snapshotEvents() } catch { events = null }
+    }
+    if (Array.isArray(events)) {
       const prev = cachedRefs?.get(id)
-      logs.push(`L:${id}:${live.events.length}:${prev === live.events ? 'same' : 'new'}`)
-      refs.set(id, live.events)
+      logs.push(`L:${id}:${events.length}:${prev === events ? 'same' : 'new'}`)
+      refs.set(id, events)
     } else {
       logs.push(`D:${id}`)
     }

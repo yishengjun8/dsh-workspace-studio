@@ -9,6 +9,7 @@ import { IconFolder, IconNewFile, IconNewFolder, IconRefresh, IconSearch } from 
 import { encodingLabel, fetchEncodings, requestFsOperation, revealInExplorer, uploadExternalFile, WorkspaceApiError } from '../../api.js'
 import { hasDraggedFiles, hasNormalFile } from '../../utils.js'
 import { deleteEmergencyDraft, rewriteEmergencyDraftPath } from '../../drafts.js'
+import { invalidateCachedSubtree, rewriteCachedPaths } from '../../file-cache.js'
 import { mindmapDockStore } from '../../mindmap/registry.js'
 import { mindmapViewHost } from '../../mindmap/host.js'
 import { EncodingMenu, PanelHeader, PreviewToast, TabContextMenu, TreeContextMenu } from '../menus.js'
@@ -302,10 +303,17 @@ export function WorkspaceExplorer({
     publishContextState, save, cancel, discardDraft, resolveConflict,
     clearDraftFile, scheduleAutosave, invalidateDraftPath, nextDraftGeneration,
     forgetPathRefs, rollbackDraftTree, lastWriteRef, draftTailsRef, draftGenerationsRef,
-    watchSnapshotsRef,
+    watchSnapshotsRef, contentBaselinesRef, retainedStatesRef,
     readController: readControllerRef, saveController: saveControllerRef,
     flushAutosavesRef, migratePendingAutosavesRef,
   } = editorSession
+  /* Retain CodeMirror EditorSessions per open file tab: the CodeEditor
+     reports its live { state, ...compartments, name } here, and re-activating
+     a tab passes the entry back as `restore` so undo/selection/folds survive
+     the view swap (dev-notes §23). */
+  const retainEditorState = useCallback((path, session) => {
+    retainedStatesRef.current.set(path, session)
+  }, [retainedStatesRef])
   const search = useSearchState({ workspaceId: workspace.workspaceId, settings })
   const sessionRename = useSessionRename({ sessionId, sessionTitle, renameSession, mounted })
   const scrollbar = usePreviewScrollbar({ previewTabsRef, previewScrollbarRef, previewScrollThumbRef, activePath, tabsLength: tabs.length })
@@ -737,7 +745,19 @@ export function WorkspaceExplorer({
        moved file keeps its mtime/size/hash, so the rewritten baseline stays
        accurate. */
     watchSnapshotsRef.current = rewritePathMap(watchSnapshotsRef.current, from, to)
-  }, [])
+    /* The content baseline and the retained editor session describe the SAME
+       disk content, so they follow the move (the language extension of a
+       retained state is re-evaluated when the tab renames — the render-time
+       name check drops renamed entries then). */
+    contentBaselinesRef.current = rewritePathMap(contentBaselinesRef.current, from, to)
+    const retainedNext = new Map()
+    for (const [path, session] of retainedStatesRef.current) {
+      retainedNext.set(rewriteRelativePath(path, from, to), session)
+    }
+    retainedStatesRef.current = retainedNext
+    /* The global cache keys ride on the same path space: move the subtree. */
+    rewriteCachedPaths(workspace.workspaceId, from, to)
+  }, [workspace.workspaceId])
   /* Deps note (development-notes §16): this callback intentionally omits
      nextDraftGeneration / rollbackDraftTree / migratePendingAutosavesRef from
      its dependency array — they are declared LATER in the component body, and
@@ -881,6 +901,17 @@ export function WorkspaceExplorer({
         draftGenerationsRef.current.delete(item.path)
         scrollTopRef.current.delete(item.path)
       }
+      /* Runtime maps of CLOSED tabs (clean ones are not in `affected`) die
+         with the subtree too, and the global cache must not serve content of
+         a deleted path (or a later same-named file) as if it were current. */
+      const subtreeMatch = (path) => path === entry.path || (path !== '' && path.startsWith(`${entry.path}/`))
+      for (const path of [...retainedStatesRef.current.keys()]) {
+        if (subtreeMatch(path)) retainedStatesRef.current.delete(path)
+      }
+      for (const path of [...contentBaselinesRef.current.keys()]) {
+        if (subtreeMatch(path)) contentBaselinesRef.current.delete(path)
+      }
+      invalidateCachedSubtree(workspace.workspaceId, entry.path)
       const nextActivePath = activePathRef.current === null
         ? null
         : (activePathRef.current === entry.path || activePathRef.current.startsWith(`${entry.path}/`)) ? null : activePathRef.current
@@ -1262,6 +1293,19 @@ export function WorkspaceExplorer({
      the doc, pan/zoom and highlight survive a session switch. The file
      header/status bar stay hidden for map tabs. */
   const mindmapTabs = tabs.filter(isMindmapTab)
+  /* The active file's retained CodeMirror session (see retainEditorState).
+     Dropped here when its name no longer matches the tab: a rename binds the
+     language extension into the state, so the next view builds fresh. */
+  const retainedForActive = (() => {
+    if (activePath === null || activeTab === undefined || isMindmapTab(activeTab)) return null
+    const session = retainedStatesRef.current.get(activePath)
+    if (session === undefined) return null
+    if (session.name !== activeTab.name) {
+      retainedStatesRef.current.delete(activePath)
+      return null
+    }
+    return session
+  })()
   const body = mindmapTabs.length > 0
     ? h(Fragment, null,
         ...mindmapTabs.map(tab => h('div', {
@@ -1300,8 +1344,10 @@ export function WorkspaceExplorer({
     onSaveShortcut: () => { if (editing && !saving) void save() },
     onScroll: (path, scrollTop) => { scrollTopRef.current.set(path, scrollTop) },
     onSearchPanelContextMenu: (event) => { if (event.button !== 2) event.preventDefault() },
+    onViewState: retainEditorState,
     preview,
     readEpoch,
+    restore: retainedForActive,
     scrollTopRef,
     searchPanelContainerRef,
     searchReveal,
@@ -1334,8 +1380,10 @@ export function WorkspaceExplorer({
     onSaveShortcut: () => { if (editing && !saving) void save() },
     onScroll: (path, scrollTop) => { scrollTopRef.current.set(path, scrollTop) },
     onSearchPanelContextMenu: (event) => { if (event.button !== 2) event.preventDefault() },
+    onViewState: retainEditorState,
     preview,
     readEpoch,
+    restore: retainedForActive,
     scrollTopRef,
     searchPanelContainerRef,
     searchReveal,

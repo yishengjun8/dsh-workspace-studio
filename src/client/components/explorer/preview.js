@@ -8,7 +8,7 @@ import { CodeEditor } from '../editor.js'
    mounted under the rendered-Markdown overlay so switching back keeps caret,
    undo history and the draft), and the search-panel mount point. All editor
    callbacks (dirty/save/scroll/context) are props from the explorer shell. */
-export function PreviewPane({ preview, settings, editing, activeTab, draft, mdPreview, isMarkdown, searchReveal, readEpoch, activePath, editorRef, searchPanelContainerRef, scrollTopRef, onDirty, onSaveShortcut, onScroll, onRevealApplied, onBodyClick, onSearchPanelContextMenu, onContext }) {
+export function PreviewPane({ preview, settings, editing, activeTab, draft, mdPreview, isMarkdown, searchReveal, readEpoch, activePath, editorRef, searchPanelContainerRef, scrollTopRef, restore, onViewState, onDirty, onSaveShortcut, onScroll, onRevealApplied, onBodyClick, onSearchPanelContextMenu, onContext }) {
   if (preview.state === 'idle') {
     return h('div', { className: 'dsh-ws-empty' }, translate('panel.previewHint'))
   }
@@ -35,7 +35,9 @@ export function PreviewPane({ preview, settings, editing, activeTab, draft, mdPr
         file: preview,
         highlightPreset,
         onRevealApplied: onRevealApplied,
+        onViewState,
         readEpoch,
+        restore,
         searchPanelContainer: searchPanelContainerRef,
         wrap: settings.wrap === true,
         onContext: onContext,
