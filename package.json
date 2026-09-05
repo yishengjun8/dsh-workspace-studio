@@ -1,7 +1,7 @@
 {
   "name": "@yishengjun8/dsh-workspace-studio",
   "description": "DeepSeek Harness single-package plugin: workspace-confined editable file API, CodeMirror 6 editor, and a four-pane workspace-studio Web layout",
-  "version": "0.6.19",
+  "version": "0.6.20",
   "type": "module",
   "main": "./lib/index.js",
   "exports": {

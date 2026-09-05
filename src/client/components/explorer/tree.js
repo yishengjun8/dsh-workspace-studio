@@ -3,7 +3,7 @@ import { translate } from '../../locale/index.js'
 import { TreeRenameRow, TreeRow, TreeStatus } from '../menus.js'
 
 /* Pure render of the explorer's tree state; all interactions are callbacks. */
-export function ExplorerTree({ directories, expanded, entryDialog, entryBusy, entryDraft, entryDialogError, clipboard, selected, onCloseEntryDialog, onConfirmEntryDialog, onDraftEntry, onContextMenu, onDirectory, onFile, onSelect, onRename }) {
+export function ExplorerTree({ directories, expanded, entryDialog, entryBusy, entryDraft, entryDialogError, clipboard, selected, onCloseEntryDialog, onConfirmEntryDialog, onDraftEntry, onContextMenu, onDirectory, onFile, onSelect, onRename, containerRef }) {
   const renderDirectory = (path, depth) => {
     const dir = directories.get(path)
     if (!dir || dir.state === 'loading') return h(TreeStatus, { key: `${path}:loading` }, translate('tree.loading'))
@@ -23,5 +23,5 @@ export function ExplorerTree({ directories, expanded, entryDialog, entryBusy, en
     if (!rows.length) rows.push(h(TreeStatus, { key: `${path}:empty` }, translate('tree.empty')))
     return rows
   }
-  return h('div', { className: 'dsh-ws-tree-scroll' }, renderDirectory('', 0))
+  return h('div', { className: 'dsh-ws-tree-scroll', ref: containerRef }, renderDirectory('', 0))
 }

@@ -93,6 +93,10 @@ export function WorkspaceExplorer({
   // specific "reloaded from disk" status once the discard re-read completes.
   const cancelRestoreRef = useRef(null)
   const previewTabsRef = useRef(null)
+  // The file tree's native scroll container: a tree refresh re-lists expanded
+  // directories, and the container's scrollTop must be restored afterwards
+  // (clearing the listings briefly shrinks the content and clamps it to 0).
+  const treeScrollRef = useRef(null)
   const previewSectionRef = useRef(null)
   const previewScrollbarRef = useRef(null)
   const previewScrollThumbRef = useRef(null)
@@ -805,7 +809,31 @@ export function WorkspaceExplorer({
     }
   }, [])
 
-  const refresh=useCallback(()=>{if(hasDirtyTabs){setStatus({error:true,text:translate('tree.refreshBlocked')});return}abortDirectoryRequests();setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);composingRef.current=false;setDirectories(new Map());setExpanded(new Set(['']));setStatus(undefined);void loadDirectory('')},[abortDirectoryRequests,hasDirtyTabs,loadDirectory])
+  /* Re-apply the tree's pre-refresh scrollTop over a short animation-frame
+     window. The refresh clears every listing, so the content briefly collapses
+     to loading rows and the native scroll position clamps toward 0; listings
+     then settle back over a few frames and each commit can change the height
+     above the viewport, so one restore would land on an intermediate layout.
+     Re-applying every frame until the window closes holds the saved position
+     (clamped to the new max when files were deleted on disk) across the whole
+     settle. The window is bounded and short; later frames that find the same
+     layout simply re-assign the same value. */
+  const restoreTreeScroll = useCallback((savedScrollTop, framesLeft = 12) => {
+    const el = treeScrollRef.current
+    if (el === null) return
+    const maxScroll = el.scrollHeight - el.clientHeight
+    const target = Math.min(savedScrollTop, Math.max(0, maxScroll))
+    if (el.scrollTop !== target) el.scrollTop = target
+    if (framesLeft > 0) requestAnimationFrame(() => { if (mounted.current) restoreTreeScroll(savedScrollTop, framesLeft - 1) })
+  }, [])
+  const refresh=useCallback(()=>{if(hasDirtyTabs){setStatus({error:true,text:translate('tree.refreshBlocked')});return}/* Refresh must not collapse the tree: snapshot the scroll position and the
+     currently expanded paths BEFORE clearing the listings, then re-list the
+     root AND every expanded directory so disk changes appear in place while
+     the folders stay open. loadDirectory's pruneOnMissing mirrors the
+     restore-time self-heal: a folder deleted on disk 404s, drops itself and
+     its descendants from the expanded set/directory state and persists the
+     cleaned expansion, exactly as if it had vanished under a collapsed tree. */
+  const scrollEl=treeScrollRef.current;const savedScrollTop=scrollEl?.scrollTop??0;const expandedPaths=[...expandedRef.current].filter(path=>path!=='');abortDirectoryRequests();setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);composingRef.current=false;setDirectories(new Map());setStatus(undefined);const reloads=[loadDirectory(''),...expandedPaths.map(path=>loadDirectory(path,{pruneOnMissing:true}))];void Promise.allSettled(reloads).then(()=>{if(mounted.current)restoreTreeScroll(savedScrollTop)})},[abortDirectoryRequests,hasDirtyTabs,loadDirectory,restoreTreeScroll])
   const toggleDirectory=useCallback(entry=>{const path=entry.path;const opening=!expanded.has(path);setExpanded(cur=>{const next=new Set(cur);opening?next.add(path):next.delete(path);return next});if(opening){if(directories.get(path)?.state!=='ready')void loadDirectory(path);chooseDirectory(entry)}else setSelected(entry)},[chooseDirectory,directories,expanded,loadDirectory])
   const openContextMenu=useCallback((event,entry)=>{event.preventDefault();setSelected(entry);setContextMenu({entry,x:event.clientX,y:event.clientY})},[])
   const copyEntryPath=useCallback((entry,relative)=>{const value=relative?entry.path:joinAbsolutePath(workspace.path,entry.path);void copyText(value).then(ok=>{if(!mounted.current)return;setContextMenu(undefined);setCopyNotice(ok?(relative?translate('status.copiedRelative'):translate('status.copiedPath')):translate('status.copyFailed'));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},1600)})},[workspace.path])
@@ -1474,7 +1502,7 @@ export function WorkspaceExplorer({
             subtitle: workspace.path,
             title: sessionTitle ?? translate('panel.workspaceFiles'),
           }),
-          h(ExplorerTree, { clipboard, directories, entryBusy, entryDialog, entryDialogError, entryDraft, expanded, onCloseEntryDialog: closeEntryDialog, onConfirmEntryDialog: submitEntryDialog, onContextMenu: openContextMenu, onDirectory: toggleDirectory, onDraftEntry: value => { setEntryDraft(value); setEntryError(undefined) }, onFile: chooseFile, onSelect: setSelected, onRename: beginRename, selected }),
+          h(ExplorerTree, { clipboard, containerRef: treeScrollRef, directories, entryBusy, entryDialog, entryDialogError, entryDraft, expanded, onCloseEntryDialog: closeEntryDialog, onConfirmEntryDialog: submitEntryDialog, onContextMenu: openContextMenu, onDirectory: toggleDirectory, onDraftEntry: value => { setEntryDraft(value); setEntryError(undefined) }, onFile: chooseFile, onSelect: setSelected, onRename: beginRename, selected }),
           contextMenu ? h(TreeContextMenu, { entry: contextMenu.entry, menuRef, onRename: entry => { setContextMenu(undefined); beginRename(entry) }, onCopyName: copyEntryName, onCopyPath: copyEntryPath, onReveal: openInExplorer, onCopy: entry => copyEntryToClipboard(entry, false), onPaste: pasteEntry, onCut: entry => copyEntryToClipboard(entry, true), onDelete: openDeleteConfirm, pasteDisabled: clipboard === undefined || clipboard.workspaceId !== workspace.workspaceId, pasteTitle: clipboard === undefined ? translate('context.paste.titleEmpty') : clipboard.workspaceId !== workspace.workspaceId ? translate('context.paste.titleForeign') : translate('context.paste.title'), x: contextMenu.x, y: contextMenu.y }) : null,
           titleContextMenu ? h('div', { className: 'dsh-ws-context-menu', ref: titleMenuRef, role: 'menu', style: { left: Math.max(4, Math.min(titleContextMenu.x, window.innerWidth - CONTEXT_MENU_WIDTH - 4)), top: Math.max(4, Math.min(titleContextMenu.y, window.innerHeight - 52)) } }, h('button', { className: 'dsh-ws-context-item', onClick: openSessionRename, role: 'menuitem', title: translate('dialog.renameSession'), type: 'button' }, translate('dialog.renameSession'))) : null,
           copyNotice ? h('div', { className: 'dsh-ws-copy-notice', role: 'status' }, copyNotice) : null,
