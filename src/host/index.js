@@ -7,7 +7,7 @@ import { ENCODINGS } from './encodings.js'
 import { listTree, readExternalPreview, readPreview, readPreviewHead, revealInExplorer, searchWorkspace } from './fs.js'
 import { createEntry, fsOperation, renameEntry, saveFile } from './write.js'
 import { deleteDraftFile, draftTreeOperation, parseDraftGenerationQuery, readDraftFile, saveDraftFile, validateDraftOwner, validateDraftPayload, writeJsonAtomic } from './drafts.js'
-import { adoptMindmapOrphans, buildMindmapDoc, deleteMindmapDoc, findMindmapDocWithAncestors, indexMindmapDocs, isValidMindmapDoc, listMindmapModels, MINDMAP_DOC_MAX_BYTES, mindmapAnchorOf, mindmapDocPath, mindmapDrainPendingSessionSummaries, mindmapLock, mindmapLockedReanchorOp, mindmapSessionSummarizingOf, mindmapSummarizingOf, mindmapSyncCache, parseMindmapSummaryConfig, purgeArchivedMindmapDocs, readMindmapDocFile, refreshMindmapDocCore, regenerateAllMindmapSummaries, regenerateMindmapSummary, renameMindmapDoc, summarizeMindmapSession, syncMindmapDoc, validateMindmapSession, writeMindmapDoc } from './mindmap.js'
+import { adoptMindmapOrphans, buildMindmapDoc, deleteMindmapDoc, findMindmapDocWithAncestors, indexMindmapDocs, isValidMindmapDoc, listMindmapModels, MINDMAP_DOC_MAX_BYTES, mindmapAnchorOf, mindmapDocPath, mindmapDrainPendingSessionSummaries, mindmapLock, mindmapLockedReanchorOp, mindmapSessionSummarizingOf, mindmapSummarizingOf, mindmapSyncCache, parseMindmapSummaryConfig, purgeArchivedMindmapDocs, readMindmapDocFile, refreshMindmapDocCore, regenerateAllMindmapSummaries, regenerateMindmapSummary, renameMindmapDoc, seedMindmapSyncCacheAfterLoad, summarizeMindmapSession, syncMindmapDoc, validateMindmapSession, writeMindmapDoc } from './mindmap.js'
 import { renderPromptContext } from './prompt-context.js'
 import { checkForUpdate, downloadUpdate } from './update.js'
 import { workspaceFor } from './workspace.js'
@@ -47,6 +47,7 @@ const API_PREFIX = '/workspace-studio/api'
    served or written). */
 async function refreshMindmapDocLoad(ctx, persistence, doc) {
   const refresh = await refreshMindmapDocCore(ctx, persistence, doc)
+  let wrote = false
   if (refresh.changed) {
     doc.updatedAt = Date.now()
     /* Same size guard as the sync path: folding turns during an OPEN must not
@@ -61,6 +62,7 @@ async function refreshMindmapDocLoad(ctx, persistence, doc) {
     } else {
       try {
         await writeJsonAtomic(mindmapDocPath(doc.rootSessionId), doc)
+        wrote = true
       } catch (error) {
         ctx.logger.warn(`[workspace-studio] mindmap doc load write failed: ${String(error)}`)
       }
@@ -80,7 +82,9 @@ async function refreshMindmapDocLoad(ctx, persistence, doc) {
     const disk = await readMindmapDocFile(String(doc.rootSessionId))
     if (disk !== null && isValidMindmapDoc(disk)) result = disk
   }
-  return { doc: result, warnings: refresh.warnings }
+  /* `refresh` flags ride along so the GET route can seed the sync cache with
+     the same policy the sync settle uses (clean + persisted doc only). */
+  return { doc: result, warnings: refresh.warnings, refresh: { changed: refresh.changed, wrote, adoptIncomplete: refresh.adoptIncomplete } }
 }
 async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
   if (!isTrustedRequest(req, trustedHosts)) {
@@ -315,6 +319,10 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
              summary that stalled (e.g. its card jobs finished while the map was
              closed) gets another chance here. */
           mindmapDrainPendingSessionSummaries(ctx, persistence)
+          /* Seed the sync cache so the first periodic sync after this open is a
+             hit instead of repeating the whole refresh (same settle policy as
+             the sync path — a degraded/unwritten refresh stays unseeded). */
+          await seedMindmapSyncCacheAfterLoad(ctx, persistence, loaded.doc, loaded.refresh)
           sendJson(req, res, 200, { exists: true, created: false, doc: loaded.doc, warnings: loaded.warnings, summarizing: mindmapSummarizingOf(loaded.doc), sessionSummarizing: mindmapSessionSummarizingOf(loaded.doc) })
           return
         }
@@ -348,6 +356,15 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
         mindmapSyncCache.delete(String(built.rootSessionId))
         return { doc: built, created: true }
       })
+      /* First conversion also seeds the sync cache (its doc reached the disk):
+         the 2.5 s sync after a first open must not re-run build+adopt. The
+         conservative adoptIncomplete:true keeps adoptClean false for one cycle
+         so the next sync re-checks orphans the conversion pass may have
+         missed; the `created:false` (concurrent winner) branch is left
+         unseeded — the sync settles it after its own full refresh. */
+      if (firstAccess.doc !== null && firstAccess.created === true) {
+        await seedMindmapSyncCacheAfterLoad(ctx, persistence, firstAccess.doc, { changed: true, wrote: true, adoptIncomplete: true, warnings: [] })
+      }
       sendJson(req, res, 200, firstAccess.doc === null
         ? { exists: false }
         : { exists: true, created: firstAccess.created, doc: firstAccess.doc, summarizing: mindmapSummarizingOf(firstAccess.doc), sessionSummarizing: mindmapSessionSummarizingOf(firstAccess.doc) })

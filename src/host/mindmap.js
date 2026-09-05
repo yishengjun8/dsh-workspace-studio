@@ -37,16 +37,33 @@ const MINDMAP_SYNC_CACHE_TTL_MS = 30_000
    running host with many (still open) maps would otherwise grow the cache
    without bound; the LRU eviction below keeps it bounded. */
 const MINDMAP_SYNC_CACHE_MAX = 64
-/* Short-lived cache for persistence.list(): the sync path calls it up to
-   three times per poll (signature probe + settle + adopt index); a 1 s TTL
-   collapses them into one SQLite metadata scan while still catching new
-   fork orphans within a poll or two. */
-const MINDMAP_PERSISTENCE_LIST_CACHE_MS = 1000
+/* Cache for persistence.list(): the sync path consults the session index up to
+   three times per poll (signature probe + settle + adopt index); the harness
+   backend scans EVERY session directory's header on each call (measured
+   0.5-1.9 s for ~800 sessions), so the TTL must exceed the 2.5 s poll cadence
+   or every poll pays a full store scan. The TTL is kept ABOVE the sync-cache
+   TTL (30 s) so a periodic full refresh usually reuses the last scan instead
+   of paying a new one at the same cadence; staleness is bounded to ~45 s.
+   New fork orphans are still caught immediately by the live-session signals
+   (uncached), doc writes invalidate the entry right away (writeMindmapDoc),
+   and the periodic full refresh re-scans anyway. */
+const MINDMAP_PERSISTENCE_LIST_CACHE_MS = 45_000
 /* rootId -> { sig, live, liveKey, at, refs, orphanSig, adoptClean }.
    Exported: the route dispatcher (index.js) invalidates it on the GET load
    path, which also writes docs (adoption / folded turns) without touching
    any log. */
 export const mindmapSyncCache = new Map()
+
+/* Bounded LRU insert for mindmapSyncCache (the hit path refreshes insertion
+   order separately) — shared by the sync settle and the GET-load seeding so
+   both obey the same memory bound. */
+function mindmapSyncCacheStore(docRoot, entry) {
+  mindmapSyncCache.set(docRoot, entry)
+  if (mindmapSyncCache.size > MINDMAP_SYNC_CACHE_MAX) {
+    const oldest = mindmapSyncCache.keys().next().value
+    if (oldest !== undefined) mindmapSyncCache.delete(oldest)
+  }
+}
 
 /* Index stat fingerprint cache (2026 fix): the client registry polls
    /mindmap-doc/index on a 30 s timer whether or not the map window is open,
@@ -1187,12 +1204,20 @@ export async function listMindmapModels(ctx) {
    (same source as the client's displayTitle). */
 async function mindmapTitleOf(ctx, persistence, sessionId) {
   const events = await eventsOf(ctx, persistence, sessionId)
-  if (Array.isArray(events)) {
-    for (let i = events.length - 1; i >= 0; i -= 1) {
-      const event = events[i]
-      if (event?.type === 'session/title' && typeof event.data?.title === 'string' && event.data.title !== '') {
-        return event.data.title
-      }
+  return mindmapTitleFromEvents(events)
+}
+
+/* Backward scan for the last non-empty session/title event (the full-log
+   equivalent of mindmapTitleOf, factored out so the doc-build path can derive
+   the root title from the log it ALREADY decoded instead of opening the
+   session a second time — one cold log read can cost hundreds of ms). */
+function mindmapTitleFromEvents(events) {
+  if (!Array.isArray(events)) return undefined
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i]
+    if (event === null || event === undefined) continue
+    if (event.type === 'session/title' && typeof event.data?.title === 'string' && event.data.title !== '') {
+      return event.data.title
     }
   }
   return undefined
@@ -1206,8 +1231,12 @@ async function mindmapCwdOf(ctx, persistence, sessionId) {
   if (persistence !== undefined) {
     try {
       const headers = await mindmapPersistenceList(persistence)
-      for (const header of headers) {
-        if (header === null || header === undefined) continue
+      for (const row of headers) {
+        /* persistence.list() rows are { header, revision, sizeBytes }
+           snapshots, NOT flat headers (a flat read silently matched
+           nothing and forced live-only degradation everywhere). */
+        const header = row === null || row === undefined ? undefined : row.header
+        if (header === null || header === undefined || header.id === undefined) continue
         if (String(header.id) === String(sessionId) && header.cwd !== undefined) return String(header.cwd)
       }
     } catch {
@@ -1270,22 +1299,44 @@ async function eventsOf(ctx, persistence, sessionId, out) {
 }
 
 /* Cached persistence.list(): the sync path consults the session index up to
-   three times per poll (signature probe + settle + adopt); a 1 s TTL turns
-   those into one SQLite metadata scan. New fork orphans are still caught
-   within a poll or two (the live session-id set in the signature is NOT
-   cached), and every doc write path already invalidates the sync cache. */
+   three times per poll (signature probe + settle + adopt). The harness scan
+   is expensive (see the TTL constant above), so real backend calls are shared
+   in flight and the rows are cached for the TTL window; new fork orphans are
+   still caught immediately by the live-session signal (not cached), by the
+   doc-write invalidation below, and by the periodic full refresh. */
 async function mindmapPersistenceList(persistence) {
   if (persistence === undefined) return []
   const now = Date.now()
-  if (mindmapPersistenceListCache.value !== null
-    && now - mindmapPersistenceListCache.at < MINDMAP_PERSISTENCE_LIST_CACHE_MS) {
-    return mindmapPersistenceListCache.value
+  const cached = mindmapPersistenceListCache
+  if (cached.value !== null && now - cached.at < MINDMAP_PERSISTENCE_LIST_CACHE_MS) {
+    return cached.value
   }
-  const value = await persistence.list()
-  mindmapPersistenceListCache = { at: Date.now(), value }
-  return value
+  /* In-flight share: two map families poll on independent timers, and a
+     concurrent backend list() would otherwise scan the whole store twice
+     per window (the harness scan is the single most expensive call in the
+     sync path — see mindmap-notes). Late callers wait on ONE scan. */
+  if (mindmapPersistenceListInflight !== null) return mindmapPersistenceListInflight
+  const inflight = (async () => {
+    const value = await persistence.list()
+    mindmapPersistenceListCache = { at: Date.now(), value }
+    return value
+  })()
+  mindmapPersistenceListInflight = inflight
+  try {
+    return await inflight
+  } finally {
+    if (mindmapPersistenceListInflight === inflight) mindmapPersistenceListInflight = null
+  }
+}
+/* Doc writes change the family membership the index feeds (a forked/created
+   session must be visible to the very next adopt/orphan check, not the next
+   index window). Only the rows cache is dropped — the sync cache has its own
+   invalidation at every write site. */
+function mindmapInvalidatePersistenceList() {
+  mindmapPersistenceListCache = { at: 0, value: null }
 }
 let mindmapPersistenceListCache = { at: 0, value: null }
+let mindmapPersistenceListInflight = null
 
 /* Parse cache for reconcile: a resident session's full-range snapshot is
    stable and append-only (identity stable, length grows while streaming), so
@@ -1347,6 +1398,9 @@ export async function buildMindmapDoc(ctx, persistence, sessionId) {
      of that anchor. Walking stops at an archived/unknown parent, so a
      descendant of a dead (archived) ancestor still converts normally. */
   const anchor = await mindmapAnchorOf(ctx, persistence, sessionId)
+  /* ONE log read per conversion: parse the turns AND derive the root title
+     from the same decoded events (mindmapTitleOf used to re-open the anchor's
+     log — a second full decode of a cold multi-MB log). */
   const events = await eventsOf(ctx, persistence, anchor)
   const turns = parseMindmapTurns(events)
   const sessionTurns = turns.map((turn, index) => ({ ...turn, n: index + 1 }))
@@ -1354,7 +1408,7 @@ export async function buildMindmapDoc(ctx, persistence, sessionId) {
   const doc = {
     version: MINDMAP_DOC_VERSION,
     rootSessionId: anchor,
-    rootTitle: (await mindmapTitleOf(ctx, persistence, anchor)) ?? '',
+    rootTitle: mindmapTitleFromEvents(events) ?? '',
     workspaceCwd: anchorCwd,
     createdAt: Date.now(),
     updatedAt: Date.now(),
@@ -1564,8 +1618,10 @@ async function mindmapParentOf(ctx, persistence, sessionId) {
   if (persistence !== undefined) {
     try {
       const headers = await mindmapPersistenceList(persistence)
-      for (const header of headers) {
-        if (header === null || header === undefined) continue
+      for (const row of headers) {
+        /* Snapshot rows are { header, ... } — see mindmapCwdOf. */
+        const header = row === null || row === undefined ? undefined : row.header
+        if (header === null || header === undefined || header.id === undefined) continue
         if (String(header.id) === String(sessionId) && header.parentSession !== undefined) {
           return String(header.parentSession)
         }
@@ -1728,9 +1784,13 @@ async function mindmapSessionIndex(ctx, persistence) {
   }
   if (persistence !== undefined) {
     try {
-      const headers = await mindmapPersistenceList(persistence)
-      for (const header of headers) {
-        if (header === null || header === undefined) continue
+      const rows = await mindmapPersistenceList(persistence)
+      for (const row of rows) {
+        /* Snapshot rows are { header, revision, sizeBytes } — a flat read
+           made every persisted row invisible (adopt degraded to live-only,
+           2026 baseline probe: index=3 while 818 rows were scanned). */
+        const header = row === null || row === undefined ? undefined : row.header
+        if (header === null || header === undefined || header.id === undefined) continue
         merge(header.id, {
           parent: header.parentSession,
           /* Absent on the handle-based seam (kept for older backends); the
@@ -2053,13 +2113,7 @@ export async function syncMindmapDoc(ctx, persistence, sessionId, liveSessionIds
          The entry deliberately does NOT carry the doc: the hit path answers
          doc:null (the client keeps its own copy), so storing up to 2 MiB per
          entry would be pure dead memory (64 entries → up to 128 MiB). */
-      mindmapSyncCache.set(docRoot, { sig: settled.sig, live, liveKey, at: Date.now(), refs: settled.refs, orphanSig, adoptClean: refresh.adoptIncomplete !== true })
-      /* Bounded LRU: evict the oldest entry when the cap is exceeded (the hit
-         path refreshes insertion order). */
-      if (mindmapSyncCache.size > MINDMAP_SYNC_CACHE_MAX) {
-        const oldest = mindmapSyncCache.keys().next().value
-        if (oldest !== undefined) mindmapSyncCache.delete(oldest)
-      }
+      mindmapSyncCacheStore(docRoot, { sig: settled.sig, live, liveKey, at: Date.now(), refs: settled.refs, orphanSig, adoptClean: refresh.adoptIncomplete !== true })
     } else if (syncWriteFailed) {
       mindmapSyncCache.delete(docRoot)
     }
@@ -2139,6 +2193,34 @@ function mindmapSyncSignatureFromParts(ctx, doc, cachedRefs, parts) {
     }
   }
   return { sig: `${logs.join('|')}#${parts.liveIds}#${parts.persisted}#${parts.archivedRef}`, refs }
+}
+
+/* Seed the sync cache at the end of a GET load so the client's first periodic
+   sync (2.5 s later) is a genuine cache hit instead of re-running the whole
+   family refresh the load just performed. Mirrors the sync settle policy: only
+   a CLEAN refresh whose doc reached the disk (or needed no write) may seed — a
+   degraded or unwritten refresh leaves the cache empty so the next sync
+   re-runs the refresh and converges. `flags` = { changed, wrote,
+   adoptIncomplete, warnings } from the load path's refresh core; live is
+   deliberately [] (the load answered no live-turn request), so a client that
+   asks for live ids right after the load misses once and settles normally. */
+export async function seedMindmapSyncCacheAfterLoad(ctx, persistence, doc, flags) {
+  if (doc === null || doc === undefined || !isValidMindmapDoc(doc)) return
+  if (flags === null || flags === undefined) return
+  if (!Array.isArray(flags.warnings) || flags.warnings.length > 0) return
+  if (flags.changed === true && flags.wrote !== true) return
+  const parts = await mindmapSyncSignatureParts(ctx, persistence)
+  const settled = mindmapSyncSignatureFromParts(ctx, doc, undefined, parts)
+  const orphanSig = `${parts.liveIds}#${parts.persisted}#${parts.archivedRef}`
+  mindmapSyncCacheStore(String(doc.rootSessionId), {
+    sig: settled.sig,
+    live: [],
+    liveKey: '',
+    at: Date.now(),
+    refs: settled.refs,
+    orphanSig,
+    adoptClean: flags.adoptIncomplete !== true,
+  })
 }
 
 /* After a root replacement (card-deletion truncation), leave an alias stub at
@@ -2280,6 +2362,9 @@ export async function writeMindmapDoc(ctx, persistence, sessionId, doc, prevSess
        the sync cache so the next sync cannot serve a stale pre-edit doc. */
     mindmapSyncCache.delete(String(doc.rootSessionId))
     if (prevSessionId !== undefined && prevSessionId !== null) mindmapSyncCache.delete(String(prevSessionId))
+    /* A forked/created session in this write must be visible to the very next
+       adopt/orphan check, not the next 30 s index window. */
+    mindmapInvalidatePersistenceList()
     return doc
   })
 }
