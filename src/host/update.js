@@ -34,31 +34,17 @@ const CHECK_TIMEOUT_MS = 30_000
 const DOWNLOAD_TIMEOUT_MS = 120_000
 const MAX_TARBALL_BYTES = 50 * 1024 * 1024
 const SEMVER_RE = /^\d+\.\d+\.\d+$/
-/* Reuse window for the cached check payload: the settings group's mount
-   auto-check skips the (~MB) re-download while the cache is fresh; every
-   explicit user action (检查更新 / 重试) forces a fresh download. */
+/* Reuse window for the cached check payload: the settings group's mount auto-check skips the (~MB) re-download while the cache is fresh; every explicit user action (检查更新 / 重试) forces a fresh download. */
 const CHECK_CACHE_TTL_MS = 15 * 60_000
 const CHECK_BASE = join(homedir(), '.dsh-plugin', 'dsh-workspace-studio', 'updates')
 const CHECKED_META = 'checked.json'
 const CHECKED_CONTENT = 'checked-content'
 
 let updateInProgress = false
-/* Serialize the checked-content directory exchange: two concurrent
-   downloadAndCache calls (a forced check + a download, or two tabs) would
-   otherwise interleave their rename(old→aside) / rename(new→content) pairs —
-   on Windows the second rename fails (the target exists) and the request
-   errors out, and a worse interleaving can leave the meta pointing at
-   content that was renamed over. The downloads themselves may run
-   concurrently (wasteful but harmless); only the exchange is serialized. */
+/* Serialize the checked-content directory exchange: two concurrent downloadAndCache calls would otherwise interleave their rename pairs — on Windows the second rename fails and a worse interleaving can leave the meta pointing at content that was renamed over. The downloads themselves may run concurrently; only the exchange is serialized. */
 let contentSwapChain = Promise.resolve()
 
-/** Own installed package directory. Everything in the host bundle is inlined
-    into lib/index.js (bundled layout: one level below the package root; dev
-    source sits at src/host/, two levels below), so the root is located by
-    walking up from this module's file until a package.json naming this plugin
-    is found — import.meta.url always points at the bundle the user's profile
-    actually loads, so the swap below targets the INSTALLED copy (in the dev
-    layout it targets the checkout, which is exactly what a dev would expect). */
+/** Own installed package directory. Everything in the host bundle is inlined into lib/index.js, so the root is located by walking up from this module's file until a package.json naming this plugin is found — import.meta.url always points at the bundle the user's profile actually loads, so the swap below targets the INSTALLED copy (in the dev layout it targets the checkout). */
 export function ownPackageDir() {
   let dir = fileURLToPath(new URL('.', import.meta.url))
   for (let depth = 0; depth < 6; depth += 1) {
@@ -81,9 +67,7 @@ function readOwnPackageJson() {
   }
 }
 
-/* Version captured when THIS module loaded = the version of the running code.
-   After a successful swap the on-disk package.json differs from it — exactly
-   the "update installed, restart required" signal. */
+/* Version captured when THIS module loaded = the version of the running code. After a successful swap the on-disk package.json differs from it — exactly the "update installed, restart required" signal. */
 const LOADED_VERSION = readOwnPackageJson()?.version ?? null
 
 function parseSemver(value) {
@@ -102,10 +86,7 @@ export function compareVersions(a, b) {
   return 0
 }
 
-/** Install mode: 'file' when the profile manifest pins this package with a
-    file: spec (local checkout — the swap only replaces the profile copy, the
-    checkout stays untouched), 'git' when pinned from GitHub, 'other' when the
-    package is not laid out under a profile at all. */
+/** Install mode: 'file' when the profile manifest pins this package with a file: spec (local checkout — the swap only replaces the profile copy), 'git' when pinned from GitHub, 'other' when the package is not laid out under a profile at all. */
 async function detectInstallMode() {
   const scopeDir = dirname(ownPackageDir()) // .../node_modules/@yishengjun8
   const nmDir = dirname(scopeDir) // .../node_modules
@@ -127,10 +108,7 @@ async function detectInstallMode() {
 
 function readCheckedMeta() {
   try {
-    /* readFileSync comes from node:fs (imported above) — the promises API
-       (fsp) has no readFileSync, and calling it would throw a TypeError that
-       this catch swallows, making the check cache permanently empty (every
-       settings open re-downloaded the tarball). */
+    /* readFileSync comes from node:fs (imported above) — the promises API (fsp) has no readFileSync, and calling it would throw a TypeError that this catch swallows, making the check cache permanently empty. */
     const meta = JSON.parse(readFileSync(join(CHECK_BASE, CHECKED_META), 'utf8'))
     if (typeof meta?.version === 'string' && typeof meta?.at === 'number') return meta
   } catch {
@@ -148,8 +126,7 @@ async function cachedContentValid(meta) {
   }
 }
 
-/** Download the main-branch tarball, extract, verify, and atomically refresh
-    the checked cache (extracted payload + meta). Returns the checked version. */
+/** Download the main-branch tarball, extract, verify, and atomically refresh the checked cache (extracted payload + meta). Returns the checked version. */
 async function downloadAndCache(timeoutMs) {
   await fsp.mkdir(CHECK_BASE, { recursive: true })
   const staging = await fsp.mkdtemp(join(CHECK_BASE, 'dl-'))
@@ -198,12 +175,7 @@ async function downloadAndCache(timeoutMs) {
     }
     const version = pkg.version
     await verifyPackage(extracted, version)
-    /* Atomically replace the cached payload: old content aside → new in →
-       drop the old; the meta is written only after the content landed, so a
-       crash mid-swap leaves a stale meta whose content check fails (→ the
-       next check re-downloads). The exchange runs under the module-level
-       swap chain so concurrent downloadAndCache callers cannot interleave
-       their renames. */
+    /* Atomically replace the cached payload: old content aside → new in → drop the old; the meta is written only after the content landed, so a crash mid-swap leaves a stale meta whose content check fails (→ the next check re-downloads). The exchange runs under the module-level swap chain so concurrent callers cannot interleave their renames. */
     const contentDir = join(CHECK_BASE, CHECKED_CONTENT)
     const runSwap = contentSwapChain.then(async () => {
       const oldContent = join(CHECK_BASE, `${CHECKED_CONTENT}.old-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`)
@@ -231,9 +203,7 @@ async function downloadAndCache(timeoutMs) {
   }
 }
 
-/** Query the repo (codeload tarball, cached for CHECK_CACHE_TTL_MS unless
-    force) and compare against the installed version. Never mutates the
-    installation. */
+/** Query the repo (codeload tarball, cached for CHECK_CACHE_TTL_MS unless force) and compare against the installed version. Never mutates the installation. */
 export async function checkForUpdate(ctx, config, force) {
   if (config.enableUpdateCheck === false) return { enabled: false }
   let fresh = false
@@ -254,9 +224,7 @@ export async function checkForUpdate(ctx, config, force) {
     latest,
     updateAvailable: cmp !== null && cmp > 0,
     installMode: await detectInstallMode(),
-    /* On-disk version differs from the version this loaded module was built
-       with: an update (or a host rebuild) landed after startup, so the running
-       code is stale until the user restarts dsh. */
+    /* On-disk version differs from the version this loaded module was built with: an update (or a host rebuild) landed after startup, so the running code is stale until the user restarts dsh. */
     restartPending: current !== null && LOADED_VERSION !== null && current !== LOADED_VERSION,
   }
 }
@@ -285,10 +253,7 @@ function parsePaxRecords(data) {
     const record = data.subarray(space + 1, cursor + length).toString('utf8')
     const eq = record.indexOf('=')
     if (eq !== -1) {
-      /* pax record values are newline-terminated ("len key=value\n"); the
-         trailing newline is part of the record framing, NOT the value — a
-         'path' value carrying it would extract a file name with an embedded
-         newline (ENOENT on Windows, a wrong name on POSIX). */
+      /* pax record values are newline-terminated ("len key=value\n"); the trailing newline is part of the record framing, NOT the value — a 'path' value carrying it would extract a file name with an embedded newline. */
       records.push({ key: record.slice(0, eq), value: record.slice(eq + 1).replace(/\r?\n$/, '') })
     }
     cursor += length
@@ -296,25 +261,18 @@ function parsePaxRecords(data) {
   return records
 }
 
-/* Tar-entry path guard: pax/GNU overrides come from the archive itself, so
-   every extracted path is validated against traversal before touching disk. */
+/* Tar-entry path guard: pax/GNU overrides come from the archive itself, so every extracted path is validated against traversal before touching disk. */
 function validEntryPath(path) {
   if (typeof path !== 'string' || path === '') return false
   if (path.startsWith('/') || path.includes('\\')) return false
   const parts = path.split('/')
   if (parts.some(part => part === '' || part === '.' || part === '..')) return false
-  /* Windows strips trailing dots/spaces from path components when resolving
-     (NTFS aliasing): a segment like `.. ` resolves as `..` and `a.` as `a`,
-     so a crafted archive could write outside destDir. Reject trailing
-     dot/space segments on every platform (same rule as normalizeRelativePath). */
+  /* Windows strips trailing dots/spaces from path components when resolving (NTFS aliasing): a segment like `.. ` resolves as `..` and `a.` as `a`, so a crafted archive could write outside destDir. Reject trailing dot/space segments on every platform. */
   if (parts.some(part => /[. ]$/.test(part))) return false
   return true
 }
 
-/** Minimal tar extraction: gunzip (node:zlib) + a ustar reader that also
-    understands pax extended headers ('x' — git archive emits these for long
-    paths) and GNU long names ('L'). Regular files and directories only; any
-    other entry type or an invalid path fails the archive. */
+/** Minimal tar extraction: gunzip (node:zlib) + a ustar reader that also understands pax extended headers ('x' — git archive emits these for long paths) and GNU long names ('L'). Regular files and directories only; any other entry type or an invalid path fails the archive. */
 export async function extractTarball(tarballPath, destDir) {
   let tar
   try {
@@ -390,12 +348,7 @@ function uniqueSuffix() {
   return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
 }
 
-/** Atomic swap: rename the installed package dir aside, move the verified new
-    copy into place, re-verify the installed copy, then KEEP the backup (a
-    dev-layout install — dsh loading the plugin straight from a checkout —
-    would otherwise destroy the previous working copy, including any
-    uncommitted changes, the moment the swap succeeds). Any failure rolls back
-    to the backup before surfacing. */
+/** Atomic swap: rename the installed package dir aside, move the verified new copy into place, re-verify the installed copy, then KEEP the backup (a dev-layout install would otherwise destroy the previous working copy, including any uncommitted changes). Any failure rolls back to the backup before surfacing. */
 async function swapPackage(extractedDir, version) {
   const packageDir = ownPackageDir()
   const parent = dirname(packageDir)
@@ -414,10 +367,7 @@ async function swapPackage(extractedDir, version) {
   }
   try {
     await verifyPackage(packageDir, version)
-    /* Keep the backup directory (do NOT rm it): the previous copy is the
-       user's only rollback if the new version misbehaves, and in a dev
-       layout it holds the checkout's uncommitted work. Log its location so
-       it can be removed manually once the new version is confirmed. */
+    /* Keep the backup directory (do NOT rm it): the previous copy is the user's only rollback if the new version misbehaves, and in a dev layout it holds the checkout's uncommitted work. Log its location so it can be removed manually once the new version is confirmed. */
     console.warn(`[workspace-studio] update installed; previous copy kept at ${backup} (remove it once the new version is confirmed)`)
   } catch (error) {
     try {
@@ -428,13 +378,7 @@ async function swapPackage(extractedDir, version) {
   }
 }
 
-/** Install the version the client received from the check: the payload is the
-    CACHED checked tarball content (re-verified), fetched again only when the
-    cache is missing or its version no longer matches — in which case the user
-    must re-check first. The staging/swap happens on the same volume as the
-    install in the standard layout (both under the user home); a cross-volume
-    failure surfaces as a clear swap error and the backup rollback keeps the
-    old install intact. */
+/** Install the version the client received from the check: the payload is the CACHED checked tarball content (re-verified), fetched again only when the cache is missing or its version no longer matches — in which case the user must re-check first. The staging/swap happens on the same volume as the install in the standard layout; a cross-volume failure surfaces as a clear swap error and the backup rollback keeps the old install intact. */
 export async function downloadUpdate(ctx, config, payload) {
   if (config.enableUpdateCheck === false) {
     throw new HttpError(403, 'update-disabled', '已禁用检查更新')
@@ -451,9 +395,7 @@ export async function downloadUpdate(ctx, config, payload) {
     const contentDir = join(CHECK_BASE, CHECKED_CONTENT)
     const meta = readCheckedMeta()
     if (!(meta.version === version && await cachedContentValid(meta))) {
-      /* The checked payload is gone or stale (e.g. a cleared updates dir, or
-         the user checked a long time ago): re-check NOW and compare — the
-         install must match the version the user was shown. */
+      /* The checked payload is gone or stale (e.g. a cleared updates dir, or the user checked a long time ago): re-check NOW and compare — the install must match the version the user was shown. */
       const fresh = await downloadAndCache(DOWNLOAD_TIMEOUT_MS)
       if (fresh !== version) {
         throw new HttpError(409, 'update-version-changed', '检查结果已过期，请重新检查后再更新')

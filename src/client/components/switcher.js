@@ -10,9 +10,7 @@ export function SessionSwitcherDropdown({ useSessions, useWorkspaces, sessionId,
   const triggerRef = useRef(null)
   const panelRef = useRef(null)
   const [pos, setPos] = useState(null)
-  /* Panel width = 33% of the conversation column, re-measured on open and on resize so it
-     tracks live layout changes. The 360px floor keeps it readable on a narrow column, but
-     it must never exceed the column itself (a 320px chat column would overflow). */
+  /* Panel width = 33% of the conversation column (360px floor, never exceeding the column), re-measured on open and resize. */
   const measurePos = useCallback(() => {
     const trigger = triggerRef.current
     if (trigger === null) return null
@@ -20,14 +18,10 @@ export function SessionSwitcherDropdown({ useSessions, useWorkspaces, sessionId,
     const chat = trigger.closest('.dsh-ws-chat')
     const chatRect = chat?.getBoundingClientRect()
     const width = chatRect !== undefined && chatRect.width > 0
-      /* The 120px lower bound of the old max() could EXCEED a very narrow
-         column (<128px) and overflow it; the outer Math.min now always keeps
-         the panel inside the column (floor 1px so a degenerate measure never
-         produces a non-positive width). */
+      /* The outer Math.min keeps the panel inside the column (1px floor so a degenerate measure never yields a non-positive width). */
       ? Math.min(Math.max(360, Math.round(chatRect.width * 0.33)), Math.max(1, chatRect.width - 8))
       : Math.max(360, rect.width)
-    // Keep the panel inside the conversation column: on mobile the header icons push the
-    // trigger right, so the clamp leans the panel left to stay on screen (desktop: no-op).
+    // Keep the panel inside the conversation column; on mobile the clamp leans it left to stay on screen.
     const left = chatRect !== undefined && chatRect.width > 0
       ? Math.max(chatRect.left + 4, Math.min(rect.left, chatRect.right - width - 4))
       : rect.left
@@ -58,8 +52,7 @@ export function SessionSwitcherDropdown({ useSessions, useWorkspaces, sessionId,
       if (next === null) return
       setPos(prev => prev !== null && prev.left === next.left && prev.top === next.top && prev.width === next.width ? prev : next)
     }
-    // Scroll outside the panel closes it (capture phase); scrolls inside the scrollable panel
-    // must NOT close it — that made long session lists impossible to scroll through.
+    // Scroll outside the panel closes it; scrolls inside the scrollable panel must not.
     const onScroll = event => {
       const panel = panelRef.current
       if (panel !== null && event.target instanceof Node && panel.contains(event.target)) return
@@ -69,9 +62,7 @@ export function SessionSwitcherDropdown({ useSessions, useWorkspaces, sessionId,
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('resize', onResize)
     window.addEventListener('scroll', onScroll, true)
-    /* The chat column width also changes when the sidebar/preview splitters
-       move (no window resize fires on those drags): observe the column itself
-       so the panel re-anchors and keeps its 33%-of-column width live. */
+    /* Observe the chat column itself, since splitter drags change its width without a window resize. */
     let chatObserver
     const chat = triggerRef.current?.closest('.dsh-ws-chat')
     if (chat !== null && chat !== undefined && typeof ResizeObserver === 'function') {
@@ -90,9 +81,7 @@ export function SessionSwitcherDropdown({ useSessions, useWorkspaces, sessionId,
     ? undefined
     : (list.byId[sessionId]?.displayTitle ?? String(sessionId))
   const rows = useMemo(() => {
-    /* The full sorted list is only needed while open; the store re-renders this slot on every
-       session change (streaming churn included), so skip building rows while closed — the
-       trigger only needs the current title the subscription already delivers. */
+    /* Build rows only while open, since the store re-renders this slot on every session change. */
     if (!open) return []
     const workspaceTitleBySession = new Map()
     for (const item of workspaces) {
@@ -146,10 +135,6 @@ export function SessionSwitcherDropdown({ useSessions, useWorkspaces, sessionId,
 }
 /* ---------------------------------------------------------------------------
    Mind-map conversation branching ("导图"): a docked preview tab backed by a
-   persisted per-root-session document. Opening a session with no document
-   reverse-parses its FULL event log into session turn cards and persists it;
-   the session's row then hides from the sidebar and a self-drawn mind-map entry
-   takes its place. Clicking a card forks a new branch session at that card and
-   opens it; Host sync folds the branch's own new turns in from its full log, so
-   the document stays the single source of truth.
+   persisted per-root-session document; clicking a card forks a new branch
+   session, and Host sync keeps the document the single source of truth.
    --------------------------------------------------------------------------- */

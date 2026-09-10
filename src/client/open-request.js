@@ -1,13 +1,8 @@
-/* Module-wide open-file request bridge: the chat's file-open path (the
-   patched ctx.sidebarRight.openResource, see open-resource.js) asks the
-   mounted explorer to open a file as a preview tab (dsh-ws-preview). The
-   explorer consumes a request ONLY when its workspace matches the request's
-   workspaceId — add/activate the file tab, optionally reveal a line — and
-   clears it, so a later explorer mount (session switch) never re-applies a
-   stale request and an unrelated workspace's explorer never adopts one. A
-   request whose workspace has no mounted explorer stays pending until the
-   matching mount consumes it, which is the closest the request can get to its
-   intent (same semantics as mindmapDockStore). */
+/* Module-wide open-file request bridge: the chat's file-open path asks the
+   mounted explorer to open a file as a preview tab. The explorer consumes a
+   request only when its workspace matches the request's workspaceId, so a
+   later mount never re-applies a stale request; a request with no mounted
+   explorer stays pending until the matching mount consumes it. */
 export const fileOpenRequestStore = {
   _snapshot: { seq: 0, request: null },
   _listeners: new Set(),

@@ -43,11 +43,9 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
      optimistic updates from the LATEST doc, not the render-time closure. */
   const docRef = useRef(null)
   docRef.current = doc
-  /* Doc family ids, kept current BEFORE the narrowed sessions subscription
-     below runs: the selector can't close over doc/rootId, and its getSnapshot
-     must see the fresh family during this render. MEMOIZED per (doc, rootId)
-     so useMindmapSessionView can key its family-string by array identity —
-     an unconditional rebuild would allocate a new array on every render. */
+  /* Doc family ids, kept current before the narrowed sessions subscription
+     below runs and memoized per (doc, rootId) so useMindmapSessionView can key
+     its family-string by array identity. */
   const familyIds = useMemo(() => doc === null || rootId === null
     ? EMPTY_FAMILY_IDS
     : [...new Set([String(rootId), ...(doc.sessions ?? []).map(s => String(s?.sessionId))])],
@@ -83,10 +81,10 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   const onFreshConsumedRef = useRef(onFreshConsumed)
   onFreshConsumedRef.current = onFreshConsumed
   /* Every map-internal selection change funnels through here: openSession
-     switches the right-side chat AND moves the "当前" highlight (its wrapper
+     switches the right-side chat AND moves the current highlight (its wrapper
      calls setSession). Recording the landing session here keeps the last
      clicked card remembered per root (rootIdRef read at call time so a family
-     switch writes under the CURRENT root). */
+     switch writes under the current root). */
   /* Synchronous mirror of the last-selected session: writeMindmapLastSession
      persists through Web Locks (async), so a same-tick restoreLastSession
      could read the PREVIOUS selection from localStorage and bounce the chat
@@ -168,15 +166,14 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [deleteError, setDeleteError] = useState(null)
-  /* Toolbar "重新生成全部摘要" confirm dialog: { count } of turns to regenerate. */
+  /* Toolbar regenerate-all confirm dialog: { count } of turns to regenerate. */
   const [regenerateAllTarget, setRegenerateAllTarget] = useState(null)
   const [regenerateAllBusy, setRegenerateAllBusy] = useState(false)
   const [regenerateAllError, setRegenerateAllError] = useState(null)
-  /* 总结当前会话: the session id being waited on (missing card summaries are
-     generated first — the result lands via a later sync), the session id whose
+  /* Summarize-session state: the session id being waited on, the session whose
      synchronous request is in flight, and the Host-reported set of sessions
-     whose session summary is pending/running (regenerate-all auto-generation).
-     No result dialog: the card itself shows the outcome. */
+     whose session summary is pending/running. No result dialog: the card shows
+     the outcome. */
   const [sessionSummaryWaiting, setSessionSummaryWaiting] = useState(null)
   const [sessionSummaryBusyId, setSessionSummaryBusyId] = useState(null)
   const [sessionSummarizing, setSessionSummarizing] = useState([])
@@ -184,10 +181,8 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
      question } per doc-family session with a turn in flight — drives the
      streaming cards. */
   const [live, setLive] = useState([])
-  /* Turns currently generating an AI summary (方案 B status row): the Host
-     reports its background queue per sync (summarizing), and manual
-     regenerations are tracked locally (the Host's synchronous regenerate never
-     enters its in-flight set). */
+  /* Turns currently generating an AI summary: the Host reports its background
+     queue per sync, and manual regenerations are tracked locally. */
   const [summarizing, setSummarizing] = useState([])
   const [manualSummarizing, setManualSummarizing] = useState([])
   /* Key of the card under the pointer (undefined when none): drives the hover
@@ -195,11 +190,10 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
      additively on top of the selection trace. */
   const [hoverKey, setHoverKey] = useState(undefined)
   /* The folded runs currently temporarily expanded (peek): a pure view state —
-     the folded attribute is NOT changed. Clicking a folded card peeks that
-     run; 立刻折叠 folds one back; the blank-area menu folds ALL peeked runs
-     back or peeks every folded run; a doc change that dissolves a run clears
-     it too (same stale-cleanup pattern as hoverKey). Keyed
-     `${sessionId}:${firstSeq}` (same separator as summarizingKeys). */
+     the folded attribute is not changed. Clicking a folded card peeks that
+     run; the blank-area menu folds all peeked runs back or peeks every folded
+     run; a doc change that dissolves a run clears it too. Keyed
+     `${sessionId}:${firstSeq}`. */
   const [peekedRuns, setPeekedRuns] = useState(() => new Set())
   useEffect(() => {
     mountedRef.current = true
@@ -222,18 +216,10 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
      to its root's doc, building & persisting a fresh doc (full-log split) on
      first access. */
   useEffect(() => {
-    /* A session switch INSIDE the loaded family (one map per family): only the
-       "当前" highlight and the right-side chat follow sessionId — the doc is
-       identical, so reloading would rebuild the whole canvas for nothing. Only
-       a session OUTSIDE the family (another map opened over this one) triggers
-       a full reload. rootId/doc are read at call time on purpose. The family
-       check also accepts a member the LOCAL doc has not folded yet (forked in
-       another tab — the registry index can be ahead of the 2.5 s sync): the
-       branch card appears with the next sync instead of resetting the canvas.
-       No restoreLastSession here: the sidebar entry pre-switches the chat to
-       the remembered session itself (openMindmapSession), and a switcher
-       switch to the root must NOT bounce the chat back to the last card click
-       (the old overlay re-open path that needed this restore is gone). */
+    /* A session switch inside the loaded family only moves the current highlight
+       and the right-side chat — the doc is identical, so reloading would rebuild
+       the whole canvas for nothing. Only a session outside the family triggers a
+       full reload. */
     if (rootId !== null && (String(sessionId) === String(rootId)
       || (doc?.sessions ?? []).some(s => String(s?.sessionId) === String(sessionId))
       || mindmapRegistry.rootOf(String(sessionId)) === String(rootId))) {
@@ -265,7 +251,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     setSessionSummaryBusyId(null)
     /* Dialogs / context menus belong to the previous family: a root
        replacement in ANOTHER tab can re-anchor this view's doc while one is
-       open, and a stale 归档整个导图 dialog would then act on the NEW family
+       open, and a stale archive-all dialog would then act on the NEW family
        (confirmArchiveAll re-reads docRef/rootIdRef at confirm time). Close
        them all on this full-reload branch (in-family switches skip it). */
     setMenu(null)
@@ -475,8 +461,8 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       }
       return prev
     })
-    /* Sessions whose SESSION summary is pending/running (Host-reported, sorted):
-       drives the head card's "正在总结中…" status. Identity-compared the same way. */
+    /* Sessions whose session summary is pending/running (Host-reported, sorted):
+       drives the head card's summarizing status. Identity-compared the same way. */
     const sessionSummarizingNext = Array.isArray(payload?.sessionSummarizing) ? payload.sessionSummarizing : []
     setSessionSummarizing(prev => {
       if (prev.length !== sessionSummarizingNext.length) return sessionSummarizingNext
@@ -675,15 +661,14 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   }, [layout])
 
   /* Fit once when the map first becomes visible; later layout growth keeps the
-     user's view (还原视图 restores the fit at any time). */
+     user's view (restore-view refits at any time). */
   useLayoutEffect(() => { viewport.refitIfUnfitted() }, [layout.height, layout.width, viewport])
 
 
-  /* Key of the CURRENT session's chain TAIL for the "当前" highlight (badge +
-     solid selection highlight + ancestor trace all derive from it). The HEAD
-     card must NEVER carry the badge or solid highlight — the badge lands on
-     the tail: the last question card, the empty placeholder (no turns yet), or
-     the streaming card while generating (which wears its own ring instead). */
+  /* Key of the current session's chain tail for the current highlight (badge +
+     solid selection highlight + ancestor trace all derive from it). The head
+     card never carries the badge — it lands on the tail: the last question
+     card, the empty placeholder, or the streaming card while generating. */
   const currentKey = useMemo(() => {
     if (doc === null || rootId === null) return undefined
     const current = String(sessionId)
@@ -785,7 +770,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   }, [peekedRuns, doc])
 
   /* Open a session inside the map: openSession switches the right-side chat to
-     it and moves the "当前" highlight here; the overlay itself stays open. */
+     it and moves the current highlight here; the overlay itself stays open. */
   const openBranch = useCallback((id) => {
     switchToSession(String(id))
   }, [switchToSession])
@@ -957,14 +942,13 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     else if (action === 'switch') openBranchRef.current(node.sessionId)
     else if (action === 'fork') forkBranchAtRef.current(node.sessionId, node.turn)
     /* A folded card: temporarily expand its run (peek) — the folded attribute
-       is untouched; 立刻折叠 (or clicking another folded card) folds it back.
-       Clicking replaces the peek set with just this run (single-run peek). */
+       is untouched. Clicking replaces the peek set with just this run. */
     else if (action === 'peek') setPeekedRuns(new Set([`${String(node.sessionId)}:${Number(node.turn?.seq)}`]))
   }, [])
 
   /* Right-click a node: remember WHICH node so the menu can rename a session
      (head / card) or delete a card; the root node offers no menu (the toolbar
-     has 归档整个导图). */
+     has archive-all). */
   const openCardMenu = useCallback((entry, x, y) => {
     if (entry.kind === 'root') {
       /* Root menu: choose the workspace new sessions land in (from the doc's
@@ -1224,7 +1208,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       .finally(() => { savingRef.current -= 1; forkingRef.current = false })
   }, [doc, forking, rootId, showNotice, showNoticeError])
 
-  /* 立刻折叠: end the temporary expand of the peeked run under the menu card —
+  /* Fold-now: end the temporary expand of the peeked run under the menu card —
      pure view state, the folded attribute is untouched (no doc write). */
   const foldNow = useCallback(() => {
     if (menu === null || menu.kind !== 'card') return
@@ -1240,10 +1224,10 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     })
   }, [menu])
 
-  /* Blank-area menu items — pure VIEW state, the folded markers are never
-     touched (no doc write, no sync): 折叠全部可折叠的卡片 folds back every
-     temporarily-expanded (peeked) run; 展开全部已经折叠的卡片 peeks every
-     folded run. The menu closes first (same as every other menu item). */
+  /* Blank-area menu items — pure view state, the folded markers are never
+     touched (no doc write, no sync): fold-all folds back every temporarily
+     expanded (peeked) run; unfold-all peeks every folded run. The menu closes
+     first (same as every other menu item). */
   const foldAllCollapsible = useCallback(() => {
     setMenu(null)
     setPeekedRuns(new Set())
@@ -1265,7 +1249,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     }
     setPeekedRuns(runs)
   }, [])
-  /* 创建新对话: the same action as the toolbar button / root node click —
+  /* Create-session: the same action as the toolbar button / root node click —
      create a new top-level empty session and open it. */
   const createSessionFromBlankMenu = useCallback(() => {
     setMenu(null)
@@ -1292,7 +1276,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   /* Archive ONE session branch (right-click a session head): archive the
      session + its whole subtree and remove it from the doc. Re-anchors when
      the archived session was the anchor; blocked when it would empty the map
-     (use 归档整个导图 instead). */
+     (use archive-all instead). */
   const startArchiveBranch = useCallback(() => {
     if (menu === null || menu.kind !== 'head') return
     const plan = mindmapDeletePlan(doc, String(menu.sessionId), undefined, true)
@@ -1555,10 +1539,10 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     setDeleteTarget(null)
     setDeleteError(null)
   }, [deleteBusy])
-  /* Right-click a card → 重新生成摘要: the Host runs the LLM call synchronously
-     and persists the new summary; the card updates optimistically here (the
-     periodic sync would converge anyway). In-flight sync responses issued before
-     the optimistic write are dropped so the fresh summary cannot flicker away. */
+  /* Right-click a card → regenerate summary: the Host runs the LLM call
+     synchronously and persists the new summary; the card updates optimistically
+     here. In-flight sync responses issued before the write are dropped so the
+     fresh summary cannot flicker away. */
   const regenerateSummary = useCallback(() => {
     if (menu === null || menu.kind !== 'card' || !Number.isSafeInteger(menu.turnSeq)) return
     const sessionId = String(menu.sessionId)
@@ -1620,10 +1604,10 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         }
       })
   }, [menu, showNotice, showNoticeError])
-  /* Toolbar → 重新生成全部摘要: count the doc's turns, confirm (token cost is
-     transparent), then ask the Host to force-enqueue every turn. Old summaries
-     stay until the new ones land; the per-card "正在生成摘要中…" status arrives
-     via the sync response, so no optimistic doc change is needed here. */
+  /* Toolbar → regenerate all summaries: count the doc's turns, confirm (token
+     cost is transparent), then ask the Host to force-enqueue every turn. Old
+     summaries stay until the new ones land; the per-card generating status
+     arrives via the sync response, so no optimistic doc change is needed. */
   const startRegenerateAll = useCallback(() => {
     if (doc === null) return
     let count = 0
@@ -1702,11 +1686,11 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         }
       })
   }, [regenerateAllBusy, regenerateAllTarget, rootId, showNotice, showNoticeError])
-  /* 右键会话头 → 总结当前会话: ready sessions return synchronously ('done' —
-     show the result dialog + optimistic doc update); sessions with missing or
+  /* Right-click a session head → summarize session: ready sessions return
+     synchronously ('done' — optimistic doc update); sessions with missing or
      in-flight card summaries return 'waiting' — the Host generates the missing
-     ones and the drain finishes the session summary in the background, which
-     the waiting effect below picks up from a later sync. */
+     ones and finishes the session summary in the background, which the waiting
+     effect below picks up from a later sync. */
   const startSummarizeSession = useCallback(() => {
     if (menu === null || menu.kind !== 'head') return
     const sessionId = String(menu.sessionId)
@@ -2046,9 +2030,9 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     return map
   }, [doc])
 
-  /* Sessions whose SESSION summary is being generated: the Host-reported set
-     (regenerate-all auto-generation) plus the local synchronous request and the
-     waiting flag. Drives the head card's "正在总结中…" status row. */
+  /* Sessions whose session summary is being generated: the Host-reported set
+     plus the local synchronous request and the waiting flag. Drives the head
+     card's summarizing status row. */
   const sessionSummarizingSet = useMemo(() => {
     const set = new Set()
     for (const id of sessionSummarizing) {
@@ -2060,8 +2044,8 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   }, [sessionSummarizing, sessionSummaryBusyId, sessionSummaryWaiting])
 
   /* Blank-area menu availability (drives the disabled state of the fold-all /
-     unfold-all items): 折叠全部 needs at least one temporarily-expanded
-     (peeked) run to fold back; 展开全部 needs at least one folded run. */
+     unfold-all items): fold-all needs at least one peeked run; unfold-all needs
+     at least one folded run. */
   const hasCollapsible = peekedRuns.size > 0
   const hasFolded = useMemo(() => {
     for (const s of doc?.sessions ?? []) {
@@ -2100,9 +2084,9 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     const isStreaming = entry.streaming === true
     const title = list.titles[String(entry.sessionId)] || translate('mindmap.session.untitled')
     const isRunning = runningFamilyIds.includes(String(entry.sessionId))
-    /* 方案 B: a completed card whose AI summary is in flight shows
-       "正在生成摘要中…" in its status row instead of "已完成". Streaming and
-       empty cards never summarize (no completed turn to summarize). */
+    /* A completed card whose AI summary is in flight shows the generating
+       status in its row instead of done. Streaming and empty cards never
+       summarize (no completed turn to summarize). */
     const isSummarizing = !isStreaming && entry.empty !== true && entry.turn !== undefined && entry.turn !== null
       && summarizingKeys.has(mindmapDocKey(String(entry.sessionId), Number(entry.turn.seq)))
     /* The card's AI summary, read from the CURRENT doc (layout nodes keep the
@@ -2123,11 +2107,9 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       const info = streamingEntries.find(s => s.parentKey === entry.key)
       ringPalette = info?.palette
     }
-    /* Single source of truth for what this node IS / does: the same decision
-       tree as openCard and the hover hint. The click action is computed once
-       and drives BOTH the hover hint ('fork' → 点击分支 / 'switch' → 点击跳转)
-       and the capsule (fork glyph "分支" vs. end chip "末端"), so the hint and
-       chip can never drift apart. */
+    /* Single source of truth for what this node is / does: the same decision
+       tree as openCard and the hover hint. The click action is computed once and
+       drives both the hover hint and the capsule, so they can never drift. */
     const clickAction = mindmapCardClickAction(entry, doc, runningFamilyIds, lastTurnSeqBySession)
     const common = {
       key: entry.key,
@@ -2138,7 +2120,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       isHover: entry.key === hoverKey,
       hintAction: entry.key === hoverKey ? clickAction : undefined,
       /* End-of-branch: click jumps (switch) instead of forking — the capsule
-         chip flips from the fork glyph "分支" to the terminal "末端". */
+         chip flips from the fork glyph to the terminal chip. */
       isEnd: clickAction === 'switch',
       ringPalette,
       onOpen: openCard,
@@ -2176,7 +2158,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       isSummarizing,
       summary,
       /* A peeked card (a folded-marked turn temporarily expanded) shows the
-         "已折叠" status row instead of "已完成". */
+         folded status row instead of done. */
       peeked: entry.peeked === true,
       /* The streaming question is a plain string prop read from the CURRENT
          live state (the layout node's question is empty by design): memo
@@ -2203,15 +2185,14 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     },
       menu.kind === 'card' ? h(Fragment, null,
         h('button', { className: 'dsh-ws-context-item', onClick: startRename, role: 'menuitem', title: translate('mindmap.menu.rename'), type: 'button' }, translate('mindmap.menu.rename')),
-        /* 重新生成摘要: only meaningful with the AI-summary feature on AND a
-           real turn (empty placeholder cards have no question to summarize).
-           A FOLDED card spans a whole run — unfold it first (peeked cards are
-           individual turns and stay eligible). */
+        /* Regenerate summary: only meaningful with the AI-summary feature on
+           AND a real turn (empty placeholder cards have no question to
+           summarize). A folded card spans a whole run — unfold it first. */
         settings.mindmapSummaryEnabled === true && menu.empty !== true && Number.isSafeInteger(menu.turnSeq) && menu.foldCount === undefined
           ? h('button', { className: 'dsh-ws-context-item', onClick: regenerateSummary, role: 'menuitem', title: translate('mindmap.menu.regenerateSummary'), type: 'button' }, translate('mindmap.menu.regenerateSummary'))
           : null,
         h('div', { className: 'dsh-ws-context-separator', role: 'separator' }),
-        /* 折叠 checkbox: check = mark folded (persisted); uncheck = permanent
+        /* Fold checkbox: check = mark folded (persisted); uncheck = permanent
            unfold (whole run for a folded card, this card for a peeked one). */
         menu.empty !== true && Number.isSafeInteger(menu.turnSeq)
           ? h('button', {
@@ -2224,7 +2205,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
             h('span', { className: 'dsh-ws-context-item-check-mark' }, menu.folded === true ? '✓' : null),
             h('span', { className: 'dsh-ws-context-item-text' }, translate('mindmap.menu.fold')))
           : null,
-        /* 立刻折叠: only on a marked-folded card that is temporarily expanded
+        /* Fold-now: only on a marked-folded card that is temporarily expanded
            (a folded card is already folded — nothing to fold back). */
         menu.folded === true && menu.foldCount === undefined
           ? h('button', { className: 'dsh-ws-context-item', onClick: foldNow, role: 'menuitem', title: translate('mindmap.menu.foldNow'), type: 'button' }, translate('mindmap.menu.foldNow'))
@@ -2233,7 +2214,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         h('button', { className: 'dsh-ws-context-item dsh-ws-context-item-danger', onClick: startDelete, role: 'menuitem', title: translate('mindmap.menu.deleteCard'), type: 'button' }, translate('mindmap.menu.deleteCard')))
         : menu.kind === 'head' ? h(Fragment, null,
           h('button', { className: 'dsh-ws-context-item', onClick: startRename, role: 'menuitem', title: translate('mindmap.menu.rename'), type: 'button' }, translate('mindmap.menu.rename')),
-          /* 总结当前会话: only with the AI-summary feature on AND a session
+          /* Summarize session: only with the AI-summary feature on AND a session
              that has at least one turn to summarize. */
           settings.mindmapSummaryEnabled === true
             && (doc?.sessions ?? []).some(s => s !== null && s !== undefined

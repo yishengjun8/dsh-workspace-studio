@@ -4,29 +4,14 @@ import { mindmapTabPath } from '../preview-tabs.js'
 import { mindmapRegistry } from './registry.js'
 import { MindMapView } from './view.js'
 
-/* The GLOBAL mind-map view host (scheme B, revised): every docked map body
-   lives HERE, mounted once per family root and independent of the per-session
-   explorer — whose React key (`workspaceId:previewSessionId`) tears the whole
-   preview column down on every session switch, taking any in-explorer
-   MindMapView (doc, pan/zoom, highlight, sync timers) with it. Explorers no
-   longer render MindMapView and no longer offer a portal target: the host
-   owns ONE STABLE CONTAINER div per map body and the explorer PHYSICALLY
-   PARKS that element (plain appendChild — no React reconciliation involved)
-   into its strip placeholder while the tab is shown, and back into the host's
-   hidden holding node while away.
-
-   The 2026-02 revision of this design portalled the body directly into the
-   explorer's strip container and switched the portal target to a hidden
-   fallback while away. That does NOT work: React treats a CHANGED portal
-   container as a new portal (react-dom `updatePortal` /
-   `reconcileSinglePortal` only reuse the portal fiber when `containerInfo` is
-   the same — otherwise `deleteRemainingChildren` unmounts the whole subtree
-   and a fresh one mounts). Every attach/detach remounted MindMapView: the
-   doc, pan/zoom, highlight and sync timers died, and switching back ran a
-   full loadDoc again (the exact bug the host was built to fix — verified
-   against react 18.2.0 and 18.3.1). Keeping the portal container identity
-   CONSTANT for the body's lifetime is what makes the keep-alive real: same
-   fibers, DOM parked wherever the tab currently shows. */
+/* The GLOBAL mind-map view host: every docked map body lives here, mounted
+   once per family root and independent of the per-session explorer (whose React
+   key tears the preview column down on every session switch). The host owns one
+   STABLE container div per body and the explorer physically parks that element
+   (plain appendChild) into its strip placeholder while the tab is shown, and
+   back into the host's hidden holding node while away. Keeping the portal
+   container identity constant for the body's lifetime is what makes the
+   keep-alive real: same fibers, DOM parked wherever the tab currently shows. */
 
 /* Hidden holding node: the stable containers live here while no strip shows
    their tab (display:none keeps the bodies invisible but MOUNTED — background
@@ -63,7 +48,7 @@ export const mindmapViewHost = {
      and title updates reach the tab strip only while it is displayed; the
      host fixes the persisted family snapshot directly when it is not. */
   _strip: null,
-  /* rootId -> last map-internal session id: the 当前-highlight fallback when
+  /* rootId -> last map-internal session id: the current-highlight fallback when
      the harness current session is not a family member (hero page /
      transient), mirroring the old per-explorer mapSessionByPath. */
   _sessions: new Map(),

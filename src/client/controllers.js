@@ -25,7 +25,7 @@ export class EditorContextController {
     this.disabledSessions = new Set()
     this.stores = new Map()
     // Last published context per session id: activation restores a session's
-    // own value only, never a foreign session's.
+    // own value only, never a foreign one.
     this.latest = new Map()
   }
   active(sessionId) { return this.records.has(sessionId) && !this.disabledSessions.has(sessionId) }
@@ -71,15 +71,13 @@ export class EditorContextController {
   }
   activate(sessionId) {
     // Restore only this session's own last published context; a foreign
-    // session's value must never leak into the session being activated.
+    // value must never leak in.
     const own = this.latest.get(sessionId)
     if (own !== undefined) this.update(sessionId, own)
     this.publish(sessionId)
   }
   /* Field-level gating for the snapshot store: a projection equal to the
-     currently published one must not re-notify subscribers (a cursor move
-     within the SAME selection would otherwise re-render EditorContextPrefix
-     on every editor selection change). */
+     published one must not re-notify subscribers. */
   publish(sessionId) {
     const store = this.stores.get(sessionId)
     if (store === undefined) return
@@ -117,7 +115,7 @@ export class EditorContextController {
       ...common,
       mode: 'selection',
       // The decode encoding the editor displayed; the server verifies a clean
-      // selection against this same decode.
+      // selection against it.
       encoding: record.encoding,
       dirty: record.dirty,
       ...(record.revision === undefined ? {} : { revision: record.revision }),
@@ -134,16 +132,14 @@ export class EditorContextController {
 }
 
 
-/* Pure workspace resolution shared by AppFrame (explorer mount) and
-   workspaceOfSession (editor-context / /init): membership first, then the
-   session cwd path. The two call sites must never disagree — a mismatch
-   would mount the explorer and the editor context on different workspaces
-   (U1 audit: AppFrame's single OR-find picked whichever item came first in
-   the array, while workspaceOfSession strictly preferred membership). */
+/* Pure workspace resolution shared by AppFrame and workspaceOfSession:
+   membership first, then the session cwd path. The two call sites must never
+   disagree, or the explorer and editor context would mount on different
+   workspaces. */
 export function selectWorkspaceForSession(items, sessionId, cwd) {
-  /* A malformed workspace item (missing sessionIds) must degrade like every
-     other bad input here — this runs in AppFrame's render path, where a
-     TypeError would blank the whole GUI (same guard as selectStoredPreviewSession). */
+  /* A malformed workspace item must degrade like every other bad input here —
+     this runs in AppFrame's render path, where a TypeError would blank the
+     whole GUI. */
   const byMembership = items.find(item => Array.isArray(item?.sessionIds) && item.sessionIds.includes(sessionId))
   if (byMembership !== undefined) return byMembership
   if (cwd !== undefined) {
@@ -154,7 +150,7 @@ export function selectWorkspaceForSession(items, sessionId, cwd) {
 }
 
 /* Resolve the workspace a session belongs to — membership first, then the
-   session cwd path — the same selection AppFrame uses for the explorer. */
+   session cwd path — the same selection AppFrame uses. */
 export function workspaceOfSession(ctx, id) {
   const row = ctx.sessions.list.getSnapshot().byId[id]
   if (row === undefined) return undefined
@@ -180,18 +176,14 @@ export class PromptContextBridge {
   install() {
     const conversation = this.ctx.get('conversation')
     if (conversation === undefined) return () => {}
-    /* Local captures, not instance fields: a re-install (HMR / service rebuild)
-       overlapping the previous cleanup must restore THIS install's original
-       sendSession, and the older cleanup must not clobber the newer install's
-       state (the shared instance fields would otherwise cross-wire them). */
+    /* Local captures, not instance fields: an overlapping re-install must
+       restore this install's original sendSession, and the older cleanup must
+       not clobber the newer install's state. */
     let originalSendSession = conversation.sendSession
     if (typeof originalSendSession === 'function' && originalSendSession[SEND_SESSION_BRIDGE_MARKER] === true) {
-      /* An overlapping re-install running before the previous install's
-         cleanup captured the OLD wrapper as "original": the new wrapper would
-         call the old one, which calls back into the SAME bridge instance —
-         unbounded recursion on every send. Unwrap to the true original the old
-         wrapper recorded (cleanup-only installs never leave a wrapper behind,
-         so this is a defense for the overlap window, not the normal path). */
+      /* An overlapping re-install may have captured the old wrapper as
+         "original", causing unbounded recursion; unwrap to the true original
+         the old wrapper recorded. */
       originalSendSession = originalSendSession[SEND_SESSION_BRIDGE_ORIGINAL] ?? originalSendSession
     }
     if (typeof originalSendSession !== 'function') {
@@ -206,9 +198,8 @@ export class PromptContextBridge {
       return bridge.sendSessionWithEditorContext(session, text, imageIds, mode)
     }
     Object.defineProperty(wrappedSendSession, SEND_SESSION_BRIDGE_MARKER, { value: true })
-    /* Record the true original on the wrapper itself: an overlapping
-       re-install before this install's cleanup can then unwrap instead of
-       recursing through the stale wrapper (see the install head). */
+    /* Record the true original on the wrapper itself so an overlapping
+       re-install can unwrap instead of recursing. */
     Object.defineProperty(wrappedSendSession, SEND_SESSION_BRIDGE_ORIGINAL, { value: originalSendSession })
     this.wrappedSendSession = wrappedSendSession
     conversation.sendSession = wrappedSendSession
@@ -217,8 +208,8 @@ export class PromptContextBridge {
     reconcile()
     return () => {
       off()
-      /* A newer install superseded this one: leave its state (and its own
-         cleanup) alone — restoring here would put the WRONG original back. */
+      /* A newer install superseded this one: leave its state alone, since
+         restoring here would put the wrong original back. */
       if (this.installToken !== token) return
       for (const retry of bridge.ensureRetries.values()) clearTimeout(retry.timer)
       bridge.ensureRetries.clear()
@@ -230,7 +221,7 @@ export class PromptContextBridge {
       bridge.sendTails.clear()
       clearEditorContextDisplays()
       // Cordis returns a fresh trace proxy per service-method read, so
-      // identity comparison cannot detect our wrapper.
+      // identity cannot detect our wrapper.
       const currentSendSession = conversation.sendSession
       if (currentSendSession?.[SEND_SESSION_BRIDGE_MARKER] === true) {
         conversation.sendSession = originalSendSession
@@ -265,8 +256,7 @@ export class PromptContextBridge {
         rendered = await renderContext(session.sessionId, context, signal)
       } catch (error) {
         /* A TIMEOUT is a real failure, not a cancellation: surface it in the
-           input dock instead of silently dropping the context send (the
-           AbortError name is shared by both, so distinguish by reason). */
+           input dock instead of silently dropping the context send. */
         const timedOut = error?.name === 'AbortError' && error?.reason?.name === 'TimeoutError'
         if (timedOut) {
           const wrapped = new Error(translate('editor.requestTimeout'))
@@ -279,9 +269,8 @@ export class PromptContextBridge {
       }
       const combined = text === '' ? rendered : `${rendered}\n\n${text}`
       const display = describeEditorContext(context, rendered)
-      /* The handle lets a failed send discard EXACTLY this entry: popping the
-         queue tail by text key would remove a different concurrent send's
-         entry when two identical messages are in flight. */
+      /* The handle lets a failed send discard exactly this entry, since
+         popping by text key could remove a different concurrent send's entry. */
       const displayHandle = rememberEditorContextDisplay(combined, display)
       try {
         return await this.originalSendSession.call(this.conversation, session, combined, imageIds, mode)
@@ -292,8 +281,7 @@ export class PromptContextBridge {
     })
   }
   /* The /init command (Claude Code style): resolve the session's workspace and
-     instruct the model to analyze it and write AGENTS.md at its root. Errors
-     surface in the popupSelect shell (its error strip keeps it open). */
+     instruct the model to analyze it and write AGENTS.md at its root. */
   async runInitCommand(id) {
     if (this.conversation === undefined || this.originalSendSession === undefined) {
       throw new Error(translate('init.error.send-failed', { message: translate('init.error.seams-unavailable') }))
@@ -331,8 +319,7 @@ export class PromptContextBridge {
       if (!list.ids.some(candidate => String(candidate) === id) || !this.directSession(id)) this.restoreInput(id, patch)
     }
     /* Drop retry timers for sessions that left the list: a vanished session's
-       binding can never become ready, and its timer would otherwise keep
-       re-arming (bounded only by the retry cap in ensure()). */
+       binding can never become ready. */
     for (const [id, retry] of this.ensureRetries) {
       if (!list.ids.some(candidate => String(candidate) === id)) {
         clearTimeout(retry.timer)
@@ -343,24 +330,16 @@ export class PromptContextBridge {
   ensure(id) {
     if (this.inputPatches.has(id)) return
     // Missing seams must never escape into the sessions-list subscription
-    // dispatch (a throw there could break later subscribers); the session
-    // keeps its original input behavior.
+    // dispatch; the session keeps its original input behavior.
     try {
       const binding = this.ctx.sessions.binding(id)
       if (binding === undefined || this.conversation === undefined) {
-        /* A brand-new session's binding may not be ready on the first frame
-           (the input dock can render before the subscription callback runs):
-           retry briefly instead of silently leaving the input unpatched — an
-           early send with an empty draft + active context would otherwise
-           no-op through the original submit. Bounded: a session whose binding
-           never becomes ready (or a missing conversation service) must not
-           spin a 50 ms timer forever. The retry ENTRY persists across timer
-           firings and counts every scheduled attempt; once ENSURE_RETRY_MAX
-           attempts have been scheduled the entry is dropped (a later
-           reconcile() re-arms it if the session is still listed and the seams
-           have appeared). Earlier code deleted the entry inside the timer and
-           re-created it with count 1 on every fire, so the cap never engaged
-           and an unavailable binding retried forever. */
+        /* A brand-new session's binding may not be ready on the first frame,
+           so retry briefly instead of silently leaving the input unpatched.
+           Bounded: a binding that never becomes ready must not spin a 50 ms
+           timer forever. The retry entry persists across timer firings and
+           counts every scheduled attempt; once ENSURE_RETRY_MAX attempts are
+           scheduled the entry is dropped (a later reconcile() re-arms it). */
         const existing = this.ensureRetries.get(id)
         if (existing !== undefined && existing.count >= ENSURE_RETRY_MAX) {
           clearTimeout(existing.timer)
@@ -372,10 +351,9 @@ export class PromptContextBridge {
         const timer = setTimeout(() => {
           const current = this.ensureRetries.get(id)
           if (current === undefined) return
-          /* Advance the attempt counter on the PERSISTED entry (not a
-             deleted-then-recreated one): the cap check in ensure() compares
-             against it, so an unavailable binding stops re-arming after
-             ENSURE_RETRY_MAX attempts instead of forever. */
+          /* Advance the attempt counter on the persisted entry so the cap
+             check in ensure() stops an unavailable binding from re-arming
+             forever. */
           current.count += 1
           this.ensure(id)
         }, 50)
@@ -439,18 +417,17 @@ export class PromptContextBridge {
     const patch = this.inputPatches.get(id)
     const message = error instanceof Error ? error.message : String(error)
     if (patch === undefined) {
-      /* No input patch to surface the error on (the session's binding never
-         became ready, or the patch was restored): never swallow silently —
-         the console keeps the failure diagnosable. */
+      /* No input patch to surface the error on: never swallow silently — the
+         console keeps the failure diagnosable. */
       console.warn(`workspace-studio: editor-context error for session ${id}: ${message}`)
       return
     }
     try {
       patch.input.notify('error', message)
     } catch (notifyError) {
-      /* The input dock may be mid-teardown (plugin reload, session switch): a
-         notify throw must not replace the original error or escape the caller's
-         catch as an unhandled rejection — degrade to a console record. */
+      /* The input dock may be mid-teardown: a notify throw must not replace
+         the original error or escape as an unhandled rejection — degrade to a
+         console record. */
       console.warn(`workspace-studio: input notify failed for session ${id}: ${String(notifyError)}`)
     }
   }

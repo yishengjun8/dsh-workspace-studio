@@ -10,11 +10,9 @@ import { mindmapClip } from './helpers.js'
 export const MindMapCard = memo(function MindMapCard({
   entry, title, isCurrent, isStreaming, isSummarizing, summary, streamingQuestion, isAncestor, isHover, isHoverAncestor, hintAction, isEnd, ringPalette, onOpen, onMenu, onHover, peeked,
 }) {
-  /* Ring cards (the streaming card + its parent, both wearing the flowing
-     gradient ring) are the pair's single visual signal: selection/hover
-     border/glow classes are suppressed on BOTH so a dashed border never
-     overwrites the ring — the immunity stops at these two cards, ancestors
-     above still trace normally, and the "当前" badge is kept (informational). */
+  /* Ring cards (the streaming card + its parent) are the pair's single visual
+     signal: selection/hover border/glow classes are suppressed on both so a
+     dashed border never overwrites the ring. */
   const ringed = ringPalette !== undefined
   /* Every question card is a branch node: the empty placeholder keeps the
      dashed pending look (no data-branch), completed cards are solid +
@@ -28,9 +26,8 @@ export const MindMapCard = memo(function MindMapCard({
     + (isHoverAncestor && !ringed ? ' dsh-ws-mindmap-node-hover-ancestor' : '')
     + (isHover && !ringed ? ' dsh-ws-mindmap-node-hover' : '')
   const turn = entry.turn
-  /* The AI summary arrives as a plain string prop (from the CURRENT doc via
-     summaryByKey — the layout node's turn object may predate the write). The
-     FULL original text stays one hover away via the title attribute below. */
+  /* The AI summary arrives as a plain string prop from the current doc; the
+     full original text stays one hover away via the title attribute. */
   const style = { left: entry.x, top: entry.y, width: entry.width, height: entry.height }
   if (ringPalette !== undefined) {
     style['--dsw-ws-mm-c1'] = ringPalette[0]
@@ -58,11 +55,8 @@ export const MindMapCard = memo(function MindMapCard({
     style,
     title: isStreaming
       ? translate('mindmap.streaming.click')
-      /* A summarized card shows the FULL original question on hover (the
-         summary is a lossy replacement, so the source text must stay reachable);
-         while the summary is still being generated the placeholder hides the
-         original text (no original→summary flicker), so hover shows it there
-         too. Without either, the card already shows the text — keep the hint. */
+      /* A summarized or still-generating card shows the full original question
+         on hover, since the summary is a lossy replacement. */
       : (summary !== undefined || isSummarizing)
         ? String(turn?.user ?? '') || translate('mindmap.open.hint')
         : translate('mindmap.open.hint'),
@@ -107,10 +101,9 @@ export const MindMapCard = memo(function MindMapCard({
       : isStreaming
         ? h('div', { className: 'dsh-ws-mindmap-node-q' }, mindmapClip(streamingQuestion || entry.question || translate('mindmap.streaming'), MINDMAP_TEXT_MAX))
         : h('div', { className: 'dsh-ws-mindmap-node-q' + (isSummarizing && summary === undefined ? ' dsh-ws-mindmap-node-q-summarizing' : '') },
-          /* Three-level card text (A1): summary once ready; a muted
-             "generating" placeholder while the background queue owns the turn
-             (so the original text never flashes in between); the original
-             question otherwise (off / failed / not yet enqueued). */
+          /* Three-level card text: summary once ready, a muted "generating"
+             placeholder while the background queue owns the turn, otherwise the
+             original question. */
           summary !== undefined
             ? mindmapClip(summary, MINDMAP_TEXT_MAX)
             : isSummarizing
@@ -126,9 +119,8 @@ export const MindMapCard = memo(function MindMapCard({
           ? h('div', { className: 'dsh-ws-mindmap-node-status dsh-ws-mindmap-node-summarizing' },
               h('span', { className: 'dsh-ws-mindmap-node-streaming-dot' }),
               h('span', null, translate('mindmap.summary.generating')))
-          /* A peeked card: a folded-marked turn temporarily expanded (click on
-             the folded card) — the folded attribute is untouched, so the status
-             row says 已折叠 instead of 已完成. */
+          /* A peeked card: a folded-marked turn temporarily expanded, so the
+             status row says folded instead of done. */
           : peeked
             ? h('div', { className: 'dsh-ws-mindmap-node-status dsh-ws-mindmap-node-peeked-status' }, translate('mindmap.fold.status'))
             : h('div', { className: 'dsh-ws-mindmap-node-status dsh-ws-mindmap-node-done' }, translate('mindmap.done')),
@@ -141,11 +133,9 @@ export const MindMapCard = memo(function MindMapCard({
 })
 
 /* A FOLDED card: one compact card standing in for a maximal run of consecutive
-   folded turns. Shows the run's count badge + the first turn's text (or its
-   AI summary); clicking TEMPORARILY expands the run (peek — the folded
-   attribute is untouched); right-click offers the fold checkbox (uncheck =
-   permanently unfold the whole run) and delete (truncate from the run's first
-   card). */
+   folded turns, showing the run's count badge + the first turn's text (or its
+   AI summary). Clicking temporarily expands the run (peek); right-click offers
+   fold (uncheck = permanently unfold the run) and delete. */
 export const MindMapFoldedCard = memo(function MindMapFoldedCard({
   entry, title, isCurrent, isAncestor, isHover, isHoverAncestor, hintAction, ringPalette, onOpen, onMenu, onHover, summary,
 }) {
@@ -234,7 +224,7 @@ export const MindMapRootNode = memo(function MindMapRootNode({ entry, isAncestor
 
 /* A session's HEAD node: the identity card at the left of its question chain.
    Shows the session title / round count / status; clicking switches to the
-   session (the "当前" badge sits here); right-click renames it. */
+   session (the current badge sits here); right-click renames it. */
 export const MindMapSessionHead = memo(function MindMapSessionHead({
   entry, title, isCurrent, isRunning, isAncestor, isHover, isHoverAncestor, hintAction, ringPalette, onOpen, onMenu, onHover, summary, isSummarizing,
 }) {
@@ -249,8 +239,7 @@ export const MindMapSessionHead = memo(function MindMapSessionHead({
   const countLabel = turns.length > 0
     ? translate('mindmap.rounds', { n: turns.length })
     : translate('mindmap.session.empty')
-  /* Status priority: streaming (生成中…) > session summary in flight
-     (正在总结中…) > done / waiting. */
+  /* Status priority: streaming > session summary in flight > done / waiting. */
   const statusLabel = isRunning
     ? translate('mindmap.streaming')
     : isSummarizing

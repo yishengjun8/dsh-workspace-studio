@@ -5,8 +5,7 @@ export function useMindmapNotices({ mountedRef }) {
   const [notice, setNotice] = useState(null)
   const noticeTimerRef = useRef(0)
   const showNotice = useCallback((text) => {
-    // The notice render expects { error, text }; a bare string has neither, so
-    // it rendered an empty div and every mind-map success toast was invisible.
+    // The notice render expects { error, text }; a bare string would render an empty div.
     setNotice({ error: false, text })
     if (noticeTimerRef.current !== 0) clearTimeout(noticeTimerRef.current)
     noticeTimerRef.current = window.setTimeout(() => {

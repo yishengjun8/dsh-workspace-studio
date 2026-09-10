@@ -22,8 +22,7 @@ export function MobileModeToggle(props) {
     props.wide ? h('span', { className: 'dsh-ws-mobile-toggle-label' }, label) : null,
   )
 }
-/* The whale button toggling the mobile floating sidebar drawer (shared by
-   the session header and the hero overlay). */
+/* The whale button toggling the mobile floating sidebar drawer. */
 export function MobileWhaleButton({ open, onToggle }) {
   const label = open ? translate('mobile.sidebarClose') : translate('mobile.sidebarOpen')
   return h('button', {
@@ -37,9 +36,7 @@ export function MobileWhaleButton({ open, onToggle }) {
     h('svg', { 'aria-hidden': true, fill: 'none', height: 18 * 19.04 / 25.16, stroke: 'currentColor', strokeWidth: 1.4, viewBox: '-1 -1 25.16 19.04', width: 18 },
       h('path', { d: FISH })))
 }
-/* The file-content-browsing button shared by the session header and the hero
-   overlay: toggles file-fullscreen (setMobileFiles), showing active state via
-   dsh-ws-mobile-active. */
+/* The file-content-browsing button shared by the session header and hero overlay: toggles file-fullscreen. */
 export function MobileFilesButton() {
   const { files } = useMobile()
   return h('button', {
@@ -54,19 +51,14 @@ export function MobileFilesButton() {
       h('path', { d: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z', stroke: 'currentColor', strokeLinejoin: 'round', strokeWidth: 1.6 }),
       h('path', { d: 'M14 2v6h6', stroke: 'currentColor', strokeLinejoin: 'round', strokeWidth: 1.6 })))
 }
-/* Session-header mobile controls: the whale (drawer toggle) + file button at
-   the phone column's top-left; CSS hides them outside mobile. The drawer
-   scrim is drawn by AppFrame (its sibling) so it stacks between page and
-   drawer. */
+/* Session-header mobile controls: the whale (drawer toggle) + file button at the phone column's top-left; CSS hides them outside mobile. */
 export function MobileHeaderControls() {
   const { drawerOpen } = useMobile()
   return h('div', { className: 'dsh-ws-mobile-controls' },
     h(MobileWhaleButton, { onToggle: () => setDrawerOpen(!drawerOpen), open: drawerOpen }),
     h(MobileFilesButton))
 }
-/* The hero-page whale + file button, rendered in the shell.overlay seat for
-   the blank-session hero (no session header there). Visible only under the
-   mobile gate + hero page (CSS :has gate). */
+/* The hero-page whale + file button, rendered in the shell.overlay seat for the blank-session hero. */
 export function MobileHeroControls() {
   const { drawerOpen } = useMobile()
   return h('div', { className: 'dsh-ws-mobile-hero' },

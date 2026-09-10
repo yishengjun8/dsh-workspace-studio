@@ -1,17 +1,12 @@
 /** Scroll gating for card viewports (Think-card body, edit-card diff/io
  *  bodies): while the card is not "armed" (no click inside its viewport yet),
- *  wheel events over the card are prevented and forwarded to the conversation
- *  scrollport, so hovering alone never scrolls the card — the conversation
- *  scrolls instead. A click inside the viewport arms the card (wheel then
- *  scrolls the card natively), and any click outside it disarms it again.
- *  Dragging the viewport's own scrollbar is a click inside, so it always
- *  works; touch is not intercepted (the first touch arms the card). The armed
- *  state is published as a data-scroll-armed attribute on the card element
- *  for a light visual cue. */
+ *  wheel events are forwarded to the conversation scrollport, so hovering
+ *  alone never scrolls the card. A click inside the viewport arms the card;
+ *  any click outside disarms it. The armed state is published as a
+ *  data-scroll-armed attribute for a light visual cue. */
 export const CONVERSATION_SCROLLPORT_SELECTOR = '[data-conversation-scroll]'
 
-/* Firefox wheel events report deltaMode 1 (lines); approximate a line as
-   16 px so forwarded deltas keep their magnitude. */
+/* Firefox wheel events report deltaMode 1 (lines); approximate a line as 16 px. */
 const WHEEL_LINE_PX = 16
 
 export function installScrollGate({ card, viewport, outer }) {
@@ -23,8 +18,7 @@ export function installScrollGate({ card, viewport, outer }) {
     else card.removeAttribute('data-scroll-armed')
   }
   const outerOf = () => (typeof outer === 'function' ? outer() : outer) ?? null
-  /* Capture on the card: wheel over any scrollable descendant (the viewport
-     or its sections) is gated as one unit. */
+  /* Capture on the card: wheel over any scrollable descendant is gated as one unit. */
   const onWheel = (event) => {
     if (armed) return
     event.preventDefault()

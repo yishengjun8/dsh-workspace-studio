@@ -1,8 +1,4 @@
-/* Paged text reading for the read-only browse view: one page of lines at a
-   time through the standard workspaceFiles.read Remote, appended on
-   scroll-to-bottom. Generation-guarded like the harness document-preview
-   face: a path switch or unmount retires every in-flight read, so a stale
-   settlement never writes. */
+/* Paged text reading for the read-only browse view: one page of lines at a time via the read Remote, appended on scroll-to-bottom; generation-guarded so a stale settlement never writes. */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { remoteFaces, useRemoteFaces } from './remote.js'
 
@@ -13,8 +9,7 @@ export function usePagedText(sessionId, path, readEpoch) {
   const controllerRef = useRef()
   const eofRef = useRef(false)
   const loadingRef = useRef(false)
-  /* Re-render (and re-run the reset effect) when the Remote faces install, so
-     a view mounted before the harness Remote was ready starts reading. */
+  /* Re-run the reset effect when the Remote faces install, so a view mounted before the harness Remote was ready starts reading. */
   const faces = useRemoteFaces()
 
   const loadMore = useCallback(() => {
@@ -53,8 +48,7 @@ export function usePagedText(sessionId, path, readEpoch) {
     })
   }, [path, sessionId])
 
-  /* Reset on path/session change (or Remote install), then read the first
-     page; a read-epoch bump (refresh / external-change reload) re-reads. */
+  /* Reset on path/session change (or Remote install), then read the first page; a read-epoch bump re-reads. */
   useEffect(() => {
     generationRef.current += 1
     nextOffsetRef.current = 1

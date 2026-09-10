@@ -3,12 +3,9 @@ import { useLayoutEffect, useRef, useState } from 'react'
 export function useSidebarChrome() {
   const asideRef = useRef(null)
   // The harness sidebar shell owns the New Session button and the browsing
-  // region, and its slots cannot be redeclared by this plugin. Instead two
-  // DOM containers are created inside the shell — the top actions row
-  // (replacing the hidden New Session button) and the files region seat —
-  // and this plugin renders its own React content into them via portals. The
-  // observer re-asserts the containers on structural rebuilds; in-place React
-  // updates leave foreign nodes alone, so nothing flickers.
+  // region, so this plugin creates two DOM containers inside it — the top
+  // actions row and the files region seat — and renders its own React content
+  // into them via portals.
   const [sidebarChrome, setSidebarChrome] = useState(null)
   useLayoutEffect(() => {
     const aside = asideRef.current
@@ -35,12 +32,9 @@ export function useSidebarChrome() {
             files.className = 'dsh-ws-sidebar-files'
             regionArea.append(files)
           }
-          /* Mind-map seats: one container per workspace group section (after
-             its session rows), so entries live inside their workspace's
-             session list. Sections are recognized by the header row
-             (`role="treeitem"` with `aria-expanded`); the header title names
-             the workspace. Flat/search modes have no sections — a single
-             region-area seat at the bottom covers them. */
+          /* Mind-map seats: one container per workspace group section, so
+             entries live inside their workspace's session list; flat/search
+             modes use a single region-area seat at the bottom. */
           for (const header of workspacesOutlet.querySelectorAll('[role="treeitem"][aria-expanded]')) {
             const section = header.parentElement
             if (section === null) continue
@@ -50,10 +44,7 @@ export function useSidebarChrome() {
               container.className = 'dsh-ws-sidebar-mindmaps'
               section.append(container)
             }
-            /* Keep the seat above the group's "show more sessions" button:
-               React appends that button after the seat when it appears, so
-               re-anchor it on every pass (insertBefore is a no-op when the
-               seat already sits right before the button). */
+            /* Keep the seat above the group's "show more sessions" button, re-anchoring on every pass. */
             const overflow = section.querySelector(':scope > button[aria-expanded]')
             if (overflow !== null) section.insertBefore(container, overflow)
             const titleEl = header.querySelector('span[class*="title"]')
@@ -67,8 +58,7 @@ export function useSidebarChrome() {
               regionArea.append(fallback)
             }
           } else {
-            /* Grouped mode: drop any stale region-area seat from a previous
-               flat / search pass. */
+            /* Grouped mode: drop any stale region-area seat from a previous flat/search pass. */
             regionArea.querySelector(':scope > .dsh-ws-sidebar-mindmaps-fallback')?.remove()
           }
         }
@@ -79,9 +69,7 @@ export function useSidebarChrome() {
       && a.every((group, index) => group.container === b[index]?.container && group.title === b[index]?.title)
     let current = ensure()
     if (current !== null) setSidebarChrome(current)
-    /* Coalesce mutation bursts (streaming churn mutates the aside constantly)
-       to one ensure() per frame: a full querySelectorAll + possible DOM
-       insertion per mutation is O(nodes) on a large session list. */
+    /* Coalesce mutation bursts to one ensure() per frame. */
     let scheduled = false
     let rafId = 0
     const observer = new MutationObserver(() => {

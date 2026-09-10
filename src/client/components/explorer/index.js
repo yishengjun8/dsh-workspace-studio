@@ -32,17 +32,9 @@ export function WorkspaceExplorer({
   workspace, treePortalTarget, sessionTitle, sessionId, previewSessionId, renameSession, publishEditorContext, listDirectory, readFile, saveFile, createEntry, renameEntry, storedPreviewSession, persistPreviewSession, settingsStore, loadDraft, persistDraftFile, removeDraftFile, draftTree, checkFileChange, mindmapActions,
 }) {
   const settings = useSyncExternalStore(settingsStore.subscribe, settingsStore.getSnapshot)
-  /* Draft scope follows the SHARED persistence key: inside a mind map every
-     member session shares one draft scope (the map's root), because the tab
-     strip — and with it the in-memory draft — is shared; a per-session scope
-     would strand unsaved edits under the session where they were typed.
-     Sessions outside any map keep their own scope. */
+  /* Draft scope follows the shared persistence key: inside a mind map every member session shares one draft scope (the map's root), since the tab strip and its in-memory draft are shared. */
   const draftScopeId = sessionId === undefined ? `workspace:${workspace.workspaceId}` : `session:${previewSessionId ?? sessionId}`
-  /* Restore under THIS mount's persistence family: a docked mind-map tab whose
-     dockedAt (or, for legacy snapshots, root session id) does not match
-     previewSessionId leaked in from another session's snapshot and must not
-     reappear here. The explorer's React key embeds previewSessionId, so it is
-     constant for the mount's lifetime. */
+  /* Restore under this mount's persistence family: a docked mind-map tab whose dockedAt (or root session id) does not match previewSessionId must not reappear here. */
   const initialPreviewSession = normalizePreviewSession(storedPreviewSession, previewSessionId)
   const [directories, setDirectories] = useState(() => new Map())
   const [expanded, setExpanded] = useState(() => new Set(['', ...(initialPreviewSession.expanded ?? [])]))
@@ -65,11 +57,7 @@ export function WorkspaceExplorer({
   const [dropIndex, setDropIndex] = useState(null)
   const [dropActive, setDropActive] = useState(false)
   const [previewToast, setPreviewToast] = useState()
-  /* Viewer mode for the active file (registry-driven, mirroring the harness
-     right-Sidebar viewer menu): 'edit' = the editor, 'preview' = the rendered
-     view (Markdown overlay / HTML iframe / paged read-only browse). Per-file
-     and reset on switch, exactly like the toggles it replaces; deliberately
-     NOT persisted (no per-tab renderer preference in the tab model). */
+  /* Viewer mode for the active file (registry-driven): 'edit' = the editor, 'preview' = the rendered view; per-file, reset on switch, and deliberately not persisted. */
   const [viewMode, setViewMode] = useState(VIEW_EDIT)
   const [entryDialog, setEntryDialog] = useState()
   const [entryDraft, setEntryDraft] = useState('')
@@ -80,9 +68,7 @@ export function WorkspaceExplorer({
   const [titleContextMenu, setTitleContextMenu] = useState()
   const [copyNotice, setCopyNotice] = useState()
   const [clipboard, setClipboard] = useState()
-  /* Live mirror of the clipboard for in-flight guards: a paste's success
-     handler must not clear a clipboard the user re-filled while the move was
-     in flight (the closure `clipboard` is the render-time snapshot). */
+  /* Live mirror of the clipboard for in-flight guards: a paste's success handler must not clear a clipboard the user re-filled while the move was in flight. */
   const clipboardRef = useRef(clipboard)
   clipboardRef.current = clipboard
   const [deleteDialog, setDeleteDialog] = useState()
@@ -94,13 +80,10 @@ export function WorkspaceExplorer({
   const requestedEncodingRef = useRef()
   // Set by the preview-header refresh action; the file-read effect consumes it and surfaces a "reloaded" status.
   const refreshPendingRef = useRef(null)
-  // Like refreshPendingRef but for the cancel action: surfaces the cancel-
-  // specific "reloaded from disk" status once the discard re-read completes.
+  // Like refreshPendingRef but for the cancel action: surfaces the "reloaded from disk" status once the discard re-read completes.
   const cancelRestoreRef = useRef(null)
   const previewTabsRef = useRef(null)
-  // The file tree's native scroll container: a tree refresh re-lists expanded
-  // directories, and the container's scrollTop must be restored afterwards
-  // (clearing the listings briefly shrinks the content and clamps it to 0).
+  // The file tree's native scroll container; its scrollTop must be restored after a refresh re-lists expanded directories.
   const treeScrollRef = useRef(null)
   const previewSectionRef = useRef(null)
   const previewScrollbarRef = useRef(null)
@@ -111,36 +94,23 @@ export function WorkspaceExplorer({
   const copyNoticeTimer = useRef()
   const requests = useRef(new Map())
   const mutationController = useRef()
-  // Monotonic sequence for tree mutations (create/rename/paste/delete): each
-  // op applies its UI result only while it is still the latest, so a stranded
-  // server-side op can never corrupt the tree with a stale result.
+  // Monotonic sequence for tree mutations: each op applies its UI result only while still the latest, so a stranded server-side op cannot corrupt the tree.
   const mutationSeqRef = useRef(0)
   const editorRef = useRef()
   const searchPanelContainerRef = useRef(null)
   const composingRef = useRef(false)
   const mounted = useRef(true)
-  // Paths being re-read by an auto-sync reload: the polling tick skips them so
-  // a change check racing the in-flight read cannot bump reloadToken again (a
-  // second remount would discard the scroll the first reload just restored).
-  // Cleared when the read pass settles or the path closes.
+  // Paths being re-read by an auto-sync reload; the polling tick skips them so a racing change check cannot bump reloadToken again.
   const reloadingPathsRef = useRef(new Set())
   const tabsRef = useRef(initialPreviewSession.tabs)
   const activePathRef = useRef(initialPreviewSession.activePath)
   const expandedRef = useRef(new Set(['', ...(initialPreviewSession.expanded ?? [])]))
-  // Live editor scroll positions: written per scroll event without touching
-  // React state or persistence; merged into the snapshot only when serialized.
+  // Live editor scroll positions, written per scroll event without touching React state or persistence.
   const scrollTopRef = useRef(new Map())
   const sessionEstablishedRef = useRef(false)
-  /* Whether a snapshot with REAL content (a non-external tab or a tree
-     expansion) was ever persisted for this mount. External-only tabs must not
-     drive persisted state, but closing the LAST real tab must still persist
-     (clearing the stale snapshot) — so the skip guard below only applies while
-     nothing real was ever persisted. Seeded from the restored snapshot. */
+  /* Whether a snapshot with real content (a non-external tab or a tree expansion) was ever persisted for this mount; the skip guard below only applies while nothing real was ever persisted. */
   const persistedRealContentRef = useRef(initialPreviewSession.tabs.some(tab => !tab.external) || (initialPreviewSession.expanded ?? []).length > 0)
-  // Paths confirmed missing in the current workspace while restoring persisted
-  // expansion. Later restore passes skip them until the cleaned snapshot is
-  // persisted, so a pruned path cannot be re-seeded and 404 again within one
-  // mount.
+  // Paths confirmed missing while restoring persisted expansion; later restore passes skip them until the cleaned snapshot is persisted.
   const prunedPathsRef = useRef(new Set())
   const previewTabsBootstrapped = useRef(Boolean(initialPreviewSession.tabs.length > 0 || initialPreviewSession.activePath !== null))
   const selectedDirectoryPath = selectedLevelPath(selected)
@@ -154,15 +124,9 @@ export function WorkspaceExplorer({
   useLayoutEffect(() => { activePathRef.current = activePath }, [activePath])
   useLayoutEffect(() => { expandedRef.current = expanded }, [expanded])
   const activeTab = useMemo(() => activePath === null ? undefined : tabs.find(tab => tab.path === activePath), [activePath, tabs])
-  /* A mind-map tab hosts the GLOBAL host's stable body container (parked into
-     the placeholder by the layout effect below) instead of a file: no file
-     header / status bar, no tree selection, no file read. */
+  /* A mind-map tab hosts the global host's stable body container instead of a file: no file header, status bar, tree selection, or file read. */
   const activeMindmap = activeTab !== undefined && isMindmapTab(activeTab)
-  /* A session switch inside the same mind map keeps this explorer MOUNTED (its
-     key is the shared persistence id), so the read pass does not re-run and the
-     editor context would stay bound to the previous session. A file tab is
-     re-published automatically, but a mind-map tab carries no file context —
-     clear it for the new session, matching the remount behavior. */
+  /* A session switch inside the same mind map keeps this explorer mounted, so the editor context would stay bound to the previous session; clear it for the new session. */
   const lastSessionIdRef = useRef(sessionId)
   useEffect(() => {
     if (lastSessionIdRef.current === sessionId) return
@@ -190,22 +154,13 @@ export function WorkspaceExplorer({
     if (persistPreviewSession === undefined) return
     const hasTreeExpansion = Array.from(expandedRef.current).some(path => path !== '')
     const liveTabs = tabsRef.current
-    /* External files serialize to null. When the ONLY tabs are external and the
-       tree carries no expansion, writing would produce an empty snapshot and
-       the store action would DELETE the current-session and workspace anchor
-       keys — the workspace key may be the only saved copy of ANOTHER session's
-       tabs. But the skip must NOT apply once real content was ever persisted:
-       closing the last real tab is a real state change and must write through,
-       or the closed tab would resurrect on refresh. */
+    /* External files serialize to null; when only external tabs exist with no tree expansion, writing would delete the anchor keys that may hold another session's tabs. The skip must not apply once real content was ever persisted, or the closed tab would resurrect on refresh. */
     const hasRealTabs = liveTabs.some(tab => !tab.external)
     const hasRealContent = hasRealTabs || hasTreeExpansion
     if (!hasRealContent && !persistedRealContentRef.current) return
     if (hasRealContent) persistedRealContentRef.current = true
     const meaningful = previewTabsBootstrapped.current || liveTabs.length !== 0 || activePathRef.current !== null || hasTreeExpansion
-    // Skip until this session establishes state: a bare empty mount must not
-    // clobber another session's workspace-key snapshot. Once established, keep
-    // writing (an empty snapshot deletes the stale entry, so collapse-to-root
-    // persists).
+    // Skip until this session establishes state so a bare empty mount cannot clobber another session's snapshot; once established, keep writing.
     if (!meaningful && !sessionEstablishedRef.current) return
     if (meaningful) sessionEstablishedRef.current = true
     // Merge live scroll positions (kept out of React state so scrolling never re-renders or writes) into the serialized copy only.
@@ -215,11 +170,7 @@ export function WorkspaceExplorer({
     })
     persistPreviewSession(serializePreviewSession(activePathRef.current, snapshotTabs, expandedRef.current))
   }, [persistPreviewSession])
-  // Persist on a microtask after commit (still before paint) so a pin + an
-  // immediate refresh cannot race the localStorage write, and bursts (typing,
-  // tab drags) coalesce into one write per event-loop tick. Unmount and
-  // pagehide/beforeunload still flush synchronously below. Declared after the
-  // tabsRef sync effect so it always serializes the freshest tabs.
+  // Persist on a microtask after commit so a pin + immediate refresh cannot race the localStorage write, and bursts coalesce into one write per event-loop tick.
   const persistPendingRef = useRef(false)
   const schedulePersist = useCallback(() => {
     if (persistPendingRef.current) return
@@ -231,32 +182,21 @@ export function WorkspaceExplorer({
   }, [persistSessionTabs])
   useLayoutEffect(() => { schedulePersist() }, [activePath, schedulePersist, tabs, expanded])
 
-  /* Dock requests from the sidebar mind-map entries and the session-header
-     button: add/update the mind-map tab and activate it. A request is consumed
-     only when its expectFamily matches THIS mount's previewSessionId: the
-     matching explorer is the one the opener just navigated to, so the map's
-     tab lands there — never on the session the click left behind. A request
-     awaiting its family stays pending for the matching mount. */
+  /* Dock requests from the sidebar mind-map entries and the session-header button: add/update the mind-map tab and activate it. A request is consumed only when its expectFamily matches this mount's previewSessionId. */
   useEffect(() => {
     const applyDock = () => {
       const { request } = mindmapDockStore.getSnapshot()
       if (request === null) return
       if (request.expectFamily !== (previewSessionId ?? null)) return
       const path = mindmapTabPath(request.rootId)
-      /* The map needs a body in the GLOBAL host: a new tab's body mounts FRESH
-         (its restoreLastSession may land the chat on the map's remembered
-         session — a deliberate open); a re-dock of an already-open tab is a
-         no-op (the mounted body keeps its mount-time fresh flag). */
+      /* The map needs a body in the global host: a new tab's body mounts fresh, while a re-dock of an already-open tab is a no-op. */
       mindmapViewHost.ensure(String(request.rootId), true)
-      /* Stamp the persistence family the tab was docked on (constant for the
-         mount): restore later keeps the map only under this family, so a
-         snapshot carrying the tab cannot leak it into unrelated sessions. */
+      /* Stamp the persistence family the tab was docked on so a snapshot carrying the tab cannot leak it into unrelated sessions. */
       const dockedAt = previewSessionId ?? null
       setTabs(current => {
         const existing = current.find(tab => tab.path === path)
         if (existing !== undefined) {
-          /* Re-dock refreshes the tab name (the map title may have changed)
-             and re-anchors the stamp on THIS family. */
+          /* Re-dock refreshes the tab name (the map title may have changed) and re-anchors the stamp on this family. */
           return current.map(tab => tab.path === path ? { ...tab, name: request.name, dockedAt } : tab)
         }
         return [...current, {
@@ -311,10 +251,7 @@ export function WorkspaceExplorer({
     readController: readControllerRef, saveController: saveControllerRef,
     flushAutosavesRef, migratePendingAutosavesRef,
   } = editorSession
-  /* Retain CodeMirror EditorSessions per open file tab: the CodeEditor
-     reports its live { state, ...compartments, name } here, and re-activating
-     a tab passes the entry back as `restore` so undo/selection/folds survive
-     the view swap (dev-notes §23). */
+  /* Retain CodeMirror EditorSessions per open file tab so re-activating a tab passes the entry back as `restore` and undo/selection/folds survive the view swap. */
   const retainEditorState = useCallback((path, session) => {
     retainedStatesRef.current.set(path, session)
   }, [retainedStatesRef])
@@ -359,12 +296,7 @@ export function WorkspaceExplorer({
     window.addEventListener('beforeunload', warn)
     return () => window.removeEventListener('beforeunload', warn)
   }, [hasDirtyTabs])
-  // Restore-time self-heal: a persisted expansion path missing from the
-  // workspace (server 404 path-not-found) is dropped from the expanded set —
-  // including every descendant, which cannot exist under a missing parent —
-  // with its per-directory state, and the cleaned snapshot is persisted so
-  // stale paths stop 404-ing on later loads. Only restore-time loads pass
-  // pruneOnMissing; a user clicking a missing directory keeps the error row.
+  // Restore-time self-heal: a persisted expansion path missing from the workspace is dropped from the expanded set (with its descendants and per-directory state), and the cleaned snapshot is persisted so stale paths stop 404-ing.
   const pruneExpandedPath = useCallback((path) => {
     prunedPathsRef.current.add(path)
     const prefix = `${path}/`
@@ -384,9 +316,7 @@ export function WorkspaceExplorer({
       for (const key of keys) next.delete(key)
       return next
     })
-    // Persist the cleaned expansion so stale paths do not 404 again. Mark the
-    // session established so this restore-time snapshot writes through even
-    // with empty tabs — the bare-mount guard must not suppress the self-heal.
+    // Persist the cleaned expansion so stale paths do not 404 again; mark the session established so the bare-mount guard does not suppress the self-heal.
     sessionEstablishedRef.current = true
     schedulePersist()
   }, [schedulePersist])
@@ -485,9 +415,7 @@ export function WorkspaceExplorer({
       }
     }
   }, [activatePath, previewSessionId, revealPath, storedPreviewSession])
-  // Late-arriving restore: if storedPreviewSession appears only after mount,
-  // merge its expanded paths and load them. The hasAll guard keeps this
-  // idempotent across store updates.
+  // Late-arriving restore: if storedPreviewSession appears only after mount, merge its expanded paths and load them.
   useLayoutEffect(() => {
     const stored = normalizePreviewSession(storedPreviewSession)
     const paths = (stored.expanded ?? []).filter(path => !prunedPathsRef.current.has(path))
@@ -507,8 +435,7 @@ export function WorkspaceExplorer({
     previewTabsBootstrapped.current = true
     setSelected(entry)
     activatePath(entry.path)
-    // A re-open re-runs the read pass, which re-seeds the change snapshot
-    // baseline, so the polling tick never re-reports the just-loaded content.
+    // A re-open re-runs the read pass, which re-seeds the change snapshot baseline so the polling tick never re-reports the just-loaded content.
     setTabs(current => current.some(tab => tab.path === entry.path)
       ? current
       : [...current, {
@@ -535,12 +462,7 @@ export function WorkspaceExplorer({
     setSelected(entry)
     revealPath(entry)
   }, [revealPath])
-  /* Open requests from the chat's file-open path (the patched
-     ctx.sidebarRight.openResource, see open-resource.js): add/activate the
-     file tab and optionally reveal a line, mirroring the search-result open.
-     Consumed only when the request's workspace matches THIS mount's workspace;
-     a request awaiting its workspace stays pending for the matching mount
-     (same semantics as the mind-map dock subscription). */
+  /* Open requests from the chat's file-open path: add/activate the file tab and optionally reveal a line. Consumed only when the request's workspace matches this mount's workspace. */
   useEffect(() => {
     const applyOpen = () => {
       const { request } = fileOpenRequestStore.getSnapshot()
@@ -555,10 +477,7 @@ export function WorkspaceExplorer({
     if (fileOpenRequestStore.getSnapshot().request !== null) applyOpen()
     return fileOpenRequestStore.subscribe(applyOpen)
   }, [chooseFile, workspace.workspaceId])
-  // Open a non-workspace file dropped into the preview pane: upload its raw
-  // bytes to the plugin endpoint, which decodes them into a read-only preview
-  // payload, then add a session-only external tab. Resolves true on success,
-  // or the failure message (to toast) when the file is not loadable as text.
+  // Open a non-workspace file dropped into the preview pane: upload its raw bytes, decode them into a read-only preview payload, and add a session-only external tab.
   const openExternalFile = useCallback(async (file, encoding) => {
     try {
       const bytes = await file.arrayBuffer()
@@ -592,12 +511,9 @@ export function WorkspaceExplorer({
       setStatus({ text: translate('status.externalOpened', { name: tab.name }) })
       return true
     } catch (error) {
-      /* A request TIMEOUT is a real failure, not a cancellation: surface it
-         through the failure toast instead of counting the upload as success
-         (AbortError's reason distinguishes the 30 s AbortSignal.timeout). */
+      /* A request TIMEOUT is a real failure, not a cancellation; surface it through the failure toast instead of counting the upload as success. */
       if ((error?.name === 'AbortError' && error?.reason?.name !== 'TimeoutError') || !mounted.current) return true
-      // Only normal (text) files preview; a file that is not text (binary,
-      // image, empty, oversized) reports the server's message via the toast.
+      // Only normal (text) files preview; a non-text file reports the server's message via the toast.
       const message = error?.name === 'AbortError' && error?.reason?.name === 'TimeoutError'
         ? translate('editor.requestTimeout')
         : (error instanceof Error ? error.message : String(error))
@@ -624,9 +540,7 @@ export function WorkspaceExplorer({
       showPreviewToast(translate('status.folderNotPreviewable'))
       return
     }
-    // Every dropped file goes through the upload endpoint: the server rejects
-    // non-text files (binary, images, empty, oversized, wrong encoding) with a
-    // message the toast announces — "cannot load" always reports, never silent.
+    // Every dropped file goes through the upload endpoint; the server rejects non-text files with a message the toast announces.
     const files = Array.from(event.dataTransfer?.files ?? [])
     if (files.length === 0) return
     event.preventDefault()
@@ -645,14 +559,7 @@ export function WorkspaceExplorer({
         : translate('status.externalFailedMany', { count: failures.length }))
     }
   }, [openExternalFile, showPreviewToast])
-  // File drags are intercepted in the capture phase on the whole preview
-  // section: CodeMirror's own drop handler would otherwise insert the file's
-  // text into the editor first. Internal tab reorders carry no files, so they
-  // pass through. Highlight only appears for normal (non-image) drags; images
-  // are still processed and rejected with a "cannot preview" toast, never
-  // silently ignored (development-notes §17). Enter/leave use a depth counter
-  // because Chrome's dragleave.relatedTarget is null; closing the hint
-  // suppresses the current drag.
+  // File drags are intercepted in the capture phase on the whole preview section so CodeMirror's own drop handler cannot insert the file's text first; internal tab reorders carry no files and pass through. Enter/leave use a depth counter because Chrome's dragleave.relatedTarget is null.
   useEffect(() => {
     const section = previewSectionRef.current
     if (section === null) return undefined
@@ -664,8 +571,7 @@ export function WorkspaceExplorer({
     }
     const onDragEnter = (event) => {
       if (!hasDraggedFiles(event)) return
-      // Suppress the harness chat drop mask over the preview (any file kind)
-      // so each area keeps its own response.
+      // Suppress the harness chat drop mask over the preview so each area keeps its own response.
       event.preventDefault()
       event.stopPropagation()
       if (dropSuppressedRef.current) return
@@ -674,9 +580,7 @@ export function WorkspaceExplorer({
         if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
         setDropActive(true)
       } else if (event.dataTransfer) {
-        // Images/folders are not preview targets (no highlight), but the drop
-        // stays allowed so the handler can announce "cannot preview" instead
-        // of the browser silently refusing.
+        // Images/folders are not preview targets (no highlight), but the drop stays allowed so the handler can announce "cannot preview".
         event.dataTransfer.dropEffect = 'copy'
       }
     }
@@ -694,14 +598,7 @@ export function WorkspaceExplorer({
       }
     }
     const onDragLeave = (event) => {
-  /* Firefox can clear dataTransfer.types on dragleave, and OS file drags never
-     fire window dragend — gating the decrement on hasDraggedFiles could leave
-     the depth stuck at 1 and the overlay up until the next drag. Decrement
-     unconditionally (dragenter only ever incremented for file drags); the
-     suppressed flag still stops the overlay from flashing. When the drag is
-     fully out (depth 0) the suppressed flag is cleared too: closing the hint
-     mid-drag then leaving the section must not mute every later drag forever
-     (there is no window dragend to run resetDrop for OS file drags). */
+  /* Firefox can clear dataTransfer.types on dragleave and OS file drags never fire window dragend, so decrement the depth unconditionally; the suppressed flag still stops the overlay from flashing. */
       depth = Math.max(0, depth - 1)
       if (depth === 0) {
         dropSuppressedRef.current = false
@@ -712,11 +609,7 @@ export function WorkspaceExplorer({
       if (!hasDraggedFiles(event)) return
       event.preventDefault()
       event.stopPropagation()
-      /* The mask's × marks THIS drag as suppressed: dropping after dismissing
-         must not upload/open the file either (OS file drags never fire window
-         dragend, so the flag would otherwise survive until the next
-         dragleave/dragend). Swallow the drop like the dragenter/dragover
-         paths do. */
+      /* The mask's × marks this drag as suppressed: dropping after dismissing must not upload/open the file either. */
       if (dropSuppressedRef.current) {
         resetDrop()
         return
@@ -762,16 +655,9 @@ export function WorkspaceExplorer({
     lastWriteRef.current = rewritePathMap(lastWriteRef.current, from, to)
     draftGenerationsRef.current = rewritePathMap(draftGenerationsRef.current, from, to)
     scrollTopRef.current = rewritePathMap(scrollTopRef.current, from, to)
-    /* The change-poll baseline must follow the move too: a stale entry under
-       the OLD path would otherwise linger until unmount, and the new path
-       would start with no baseline (a full re-check on the next tick). The
-       moved file keeps its mtime/size/hash, so the rewritten baseline stays
-       accurate. */
+    /* The change-poll baseline must follow the move too, or the new path would start with no baseline and trigger a full re-check. */
     watchSnapshotsRef.current = rewritePathMap(watchSnapshotsRef.current, from, to)
-    /* The content baseline and the retained editor session describe the SAME
-       disk content, so they follow the move (the language extension of a
-       retained state is re-evaluated when the tab renames — the render-time
-       name check drops renamed entries then). */    contentBaselinesRef.current = rewritePathMap(contentBaselinesRef.current, from, to)
+    /* The content baseline and the retained editor session describe the same disk content, so they follow the move. */    contentBaselinesRef.current = rewritePathMap(contentBaselinesRef.current, from, to)
     const retainedNext = new Map()
     for (const [path, session] of retainedStatesRef.current) {
       retainedNext.set(rewriteRelativePath(path, from, to), session)
@@ -780,21 +666,10 @@ export function WorkspaceExplorer({
     /* The global cache keys ride on the same path space: move the subtree. */
     rewriteCachedPaths(workspace.workspaceId, from, to)
   }, [workspace.workspaceId])
-  /* Deps note (development-notes §16): this callback intentionally omits
-     nextDraftGeneration / rollbackDraftTree / migratePendingAutosavesRef from
-     its dependency array — they are declared LATER in the component body, and
-     listing them here would throw a TDZ ReferenceError at the useCallback call
-     site (the deps array is evaluated eagerly). Their identities are stable
-     for the lifetime of one mount, so the omission is safe; body references
-     are lazy and resolve at call time. draftTree (a prop, declared before) IS
-     listed. */
+  /* Deps note (development-notes §16): this callback omits callbacks declared later in the body, since listing them would throw a TDZ ReferenceError; their identities are stable for the mount, so the omission is safe. */
   const submitEntryDialog=useCallback(()=>{if(entryBusy||entryDialog===undefined)return;/* A concurrent tree mutation would bump mutationSeq and drop this op's bookkeeping after the server already succeeded — refuse while one is in flight (same guard as pasteEntry). */if(mutationController.current!==undefined){setEntryError(translate('editor.operationBusy'));return}const trimmed=entryDraft.trim();const message=entryNameError(entryDraft);if(message!==undefined){setEntryError(message);return}const parentPathValue=entryDialog.mode==='create'?entryDialog.parentPath:parentPath(entryDialog.entry.path);const siblings=directories.get(parentPathValue)?.entries??[];if(entryDialog.mode==='create'){if(siblings.some(entry=>entry.name===trimmed)){setEntryError(translate('entry.duplicate'));return}}else if(trimmed===entryDialog.entry.name||siblings.some(entry=>entry.name===trimmed&&entry.path!==entryDialog.entry.path)){setEntryError(trimmed===entryDialog.entry.name?translate('entry.nameUnchanged'):translate('entry.duplicate'));return}const controller=new AbortController();mutationController.current=controller;setEntryBusy(true);setEntryError(undefined);const mutationSeq=mutationSeqRef.current+=1;let draftMoveGeneration;const request=(async()=>{if(entryDialog.mode==='rename'){draftMoveGeneration=nextDraftGeneration('__tree__');await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:draftMoveGeneration,fromPath:entryDialog.entry.path,toPath:entryPath(parentPath(entryDialog.entry.path),trimmed)},controller.signal)}return entryDialog.mode==='create'?createEntry(workspace.workspaceId,entryDialog.parentPath,entryDialog.kind,trimmed,controller.signal):renameEntry(workspace.workspaceId,entryDialog.entry.path,trimmed,controller.signal)})();request.then(result=>{if(!mounted.current||mutationSeq!==mutationSeqRef.current)return;const mode=entryDialog.mode;const sourcePath=mode==='create'?entryDialog.parentPath:entryDialog.entry.path;const nextStatus=mode==='create'?result.kind==='directory'?translate('status.createdFolder'):translate('status.createdFile'):result.kind==='directory'?translate('status.renamedFolder'):translate('status.renamedFile');composingRef.current=false;setEntryBusy(false);setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);setStatus({text:nextStatus});if(mode==='create'){setExpanded(cur=>{const next=new Set(cur);next.add(sourcePath);if(result.kind==='directory')next.add(result.path);return next});if(result.kind==='file'){previewTabsBootstrapped.current = true;setTabs(cur=>cur.some(tab=>tab.path===result.path)?cur:[...cur,{baseText:'',dirty:false,draft:'',editing:false,name:result.name,path:result.path,pinned:false,saving:false,scrollTop:0,size:null,status:undefined,symlink:Boolean(result.symlink),bom:false,lineEnding:'none',revision:null}]);activatePath(result.path)}setSelected(result);void loadDirectory(sourcePath);if(result.kind==='directory')void loadDirectory(result.path)}else{setDirectories(cur=>rewriteDirectoryMap(cur,sourcePath,result.path,result));setExpanded(cur=>rewritePathSet(cur,sourcePath,result.path));setTabs(cur=>rewritePreviewTabs(cur,sourcePath,result.path,result));rewriteRuntimePaths(sourcePath,result.path);migratePendingAutosavesRef.current?.(sourcePath,result.path);void rewriteEmergencyDraftPath(workspace.workspaceId,draftScopeId,sourcePath,result.path).catch(error=>{if(mounted.current)setStatus({error:true,text:translate('editor.autosaveFailed',{message:error instanceof Error?error.message:String(error)})})});{const nextActivePath=activePathRef.current===null?null:rewriteRelativePath(activePathRef.current,sourcePath,result.path);if(nextActivePath!==activePathRef.current)setActivePath(nextActivePath)}setSelected(result);void loadDirectory(parentPath(sourcePath))}}).catch(error=>{if(error?.name==='AbortError'||!mounted.current||mutationSeq!==mutationSeqRef.current){return}if(entryDialog?.mode==='rename'&&draftMoveGeneration!==undefined){void rollbackDraftTree(entryDialog.entry.path,entryPath(parentPath(entryDialog.entry.path),trimmed))}setEntryBusy(false);setEntryError(error instanceof Error?error.message:String(error))}).finally(()=>{if(mutationController.current===controller)mutationController.current=undefined;if(mounted.current)setEntryBusy(false)})},[createEntry,directories,draftScopeId,draftTree,entryBusy,entryDialog,entryDraft,loadDirectory,renameEntry,rewriteRuntimePaths,workspace.workspaceId])
 
-  // The unmount cleanup must run exactly once per real unmount. flushAutosaves
-  // depends on performAutosave → `preview`, so its identity changes on every
-  // preview transition; listing it in the deps would re-run the effect and
-  // abort in-flight requests (tree listing + active file read), leaving both
-  // stuck loading. Snapshot the callbacks in refs to keep the effect stable.
+  // The unmount cleanup must run exactly once per real unmount; snapshot the callbacks in refs so the effect stays stable.
   const persistSessionTabsRef = useRef(persistSessionTabs)
   persistSessionTabsRef.current = persistSessionTabs
   const publishEditorContextRef = useRef(publishEditorContext)
@@ -813,9 +688,7 @@ export function WorkspaceExplorer({
     }
   }, [])
 
-  // Navigation never unmounts React, so the unmount cleanup above cannot cover
-  // a refresh or tab close. Flush pending auto-saves and persist the final tab
-  // session synchronously on page hide/unload.
+  // Navigation never unmounts React, so flush pending auto-saves and persist the final tab session synchronously on page hide/unload.
   useEffect(() => {
     const flush = () => { flushAutosavesRef.current(); persistSessionTabsRef.current() }
     window.addEventListener('pagehide', flush)
@@ -826,13 +699,7 @@ export function WorkspaceExplorer({
     }
   }, [])
 
-  /* Re-apply the tree's pre-refresh scrollTop over a short animation-frame
-     window: the refresh clears every listing, so the content briefly collapses
-     to loading rows and the native scroll position clamps toward 0; listings
-     then settle back over a few frames, so one restore would land on an
-     intermediate layout. Re-applying every frame until the window closes holds
-     the saved position (clamped to the new max when files were deleted on
-     disk) across the whole settle. */
+  /* Re-apply the tree's pre-refresh scrollTop over a short animation-frame window, since listings settle back over a few frames and one restore would land on an intermediate layout. */
   const restoreTreeScroll = useCallback((savedScrollTop, framesLeft = 12) => {
     const el = treeScrollRef.current
     if (el === null) return
@@ -841,13 +708,7 @@ export function WorkspaceExplorer({
     if (el.scrollTop !== target) el.scrollTop = target
     if (framesLeft > 0) requestAnimationFrame(() => { if (mounted.current) restoreTreeScroll(savedScrollTop, framesLeft - 1) })
   }, [])
-  const refresh=useCallback(()=>{if(hasDirtyTabs){setStatus({error:true,text:translate('tree.refreshBlocked')});return}/* Refresh must not collapse the tree: snapshot the scroll position and the
-     currently expanded paths BEFORE clearing the listings, then re-list the
-     root AND every expanded directory so disk changes appear in place while
-     the folders stay open. loadDirectory's pruneOnMissing mirrors the
-     restore-time self-heal: a folder deleted on disk 404s, drops itself and
-     its descendants from the expanded set/directory state and persists the
-     cleaned expansion, exactly as if it had vanished under a collapsed tree. */  const scrollEl=treeScrollRef.current;const savedScrollTop=scrollEl?.scrollTop??0;const expandedPaths=[...expandedRef.current].filter(path=>path!=='');abortDirectoryRequests();setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);composingRef.current=false;setDirectories(new Map());setStatus(undefined);const reloads=[loadDirectory(''),...expandedPaths.map(path=>loadDirectory(path,{pruneOnMissing:true}))];void Promise.allSettled(reloads).then(()=>{if(mounted.current)restoreTreeScroll(savedScrollTop)})},[abortDirectoryRequests,hasDirtyTabs,loadDirectory,restoreTreeScroll])
+  const refresh=useCallback(()=>{if(hasDirtyTabs){setStatus({error:true,text:translate('tree.refreshBlocked')});return}/* Refresh must not collapse the tree: snapshot the scroll position and expanded paths before clearing the listings, then re-list the root and every expanded directory so disk changes appear in place. */  const scrollEl=treeScrollRef.current;const savedScrollTop=scrollEl?.scrollTop??0;const expandedPaths=[...expandedRef.current].filter(path=>path!=='');abortDirectoryRequests();setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);composingRef.current=false;setDirectories(new Map());setStatus(undefined);const reloads=[loadDirectory(''),...expandedPaths.map(path=>loadDirectory(path,{pruneOnMissing:true}))];void Promise.allSettled(reloads).then(()=>{if(mounted.current)restoreTreeScroll(savedScrollTop)})},[abortDirectoryRequests,hasDirtyTabs,loadDirectory,restoreTreeScroll])
   const toggleDirectory=useCallback(entry=>{const path=entry.path;const opening=!expanded.has(path);setExpanded(cur=>{const next=new Set(cur);opening?next.add(path):next.delete(path);return next});if(opening){if(directories.get(path)?.state!=='ready')void loadDirectory(path);chooseDirectory(entry)}else setSelected(entry)},[chooseDirectory,directories,expanded,loadDirectory])
   const openContextMenu=useCallback((event,entry)=>{event.preventDefault();setSelected(entry);setContextMenu({entry,x:event.clientX,y:event.clientY})},[])
   const copyEntryPath=useCallback((entry,relative)=>{const value=relative?entry.path:joinAbsolutePath(workspace.path,entry.path);void copyText(value).then(ok=>{if(!mounted.current)return;setContextMenu(undefined);setCopyNotice(ok?(relative?translate('status.copiedRelative'):translate('status.copiedPath')):translate('status.copyFailed'));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},1600)})},[workspace.path])
@@ -872,10 +733,7 @@ export function WorkspaceExplorer({
     const affected = tabsRef.current
       .filter(tab => tab.path === entry.path || (prefix !== '' && tab.path.startsWith(prefix)))
       .map(tab => ({ path: tab.path, draft: tab.draft, dirty: tab.dirty || tab.saving, saving: tab.saving }))
-    // Deleting under an in-flight save would race it: the save's PUT hits a 404
-    // and its failure toast lands on a tab that no longer exists. Refuse and
-    // close the dialog instead (the warning row mentions saving tabs, so the
-    // reason is visible before confirming).
+    // Deleting under an in-flight save would race it: the save's PUT hits a 404 and its failure toast lands on a tab that no longer exists.
     if (affected.some(item => item.saving)) {
       setDeleteDialog(undefined)
       setStatus({ error: true, text: translate('editor.unsavedBlocked') })
@@ -886,17 +744,14 @@ export function WorkspaceExplorer({
     mutationController.current = controller
     const mutationSeq = (mutationSeqRef.current += 1)
     for (const item of affected) invalidateDraftPath(item.path)
-    // Drain requests that already reached the Host before deleting the source;
-    // otherwise a late PUT could recreate a draft for a future same-named file.
+    // Drain requests that already reached the Host before deleting the source, or a late PUT could recreate a draft for a future same-named file.
     await Promise.all(affected.map(item => (draftTailsRef.current.get(item.path) ?? Promise.resolve()).catch(() => {})))
     if (!mounted.current) return
     const treeGeneration = nextDraftGeneration('__tree__')
     try {
       await draftTree(workspace.workspaceId, { action: 'delete', owner: draftScopeId, generation: treeGeneration, path: entry.path }, controller.signal)
     } catch (error) {
-      // The source tree was not touched, so the delete can be retried: keep the
-      // dialog open, release the busy flag, and reschedule the affected drafts
-      // exactly like the fs-operation failure path below.
+      // The source tree was not touched, so the delete can be retried: keep the dialog open, release the busy flag, and reschedule the affected drafts.
       if (!mounted.current || mutationSeq !== mutationSeqRef.current) return
       setDeleteBusy(false)
       for (const item of affected) {
@@ -915,10 +770,7 @@ export function WorkspaceExplorer({
         scheduleAutosave(item.path, fresh?.draft ?? item.draft, true)
       }
       if (error?.name === 'AbortError' && error?.reason?.name !== 'TimeoutError') {
-        /* Release the mutation slot even on abort (defensive: the
-           mounted/mutationSeq guard above already returns for the unmount
-           case, but a future reorder must not leave the controller stuck and
-           block every later paste with "operation busy"). */
+        /* Release the mutation slot even on abort so a future reorder cannot leave the controller stuck and block later pastes. */
         if (mutationController.current === controller) mutationController.current = undefined
         return
       }
@@ -943,9 +795,7 @@ export function WorkspaceExplorer({
         draftGenerationsRef.current.delete(item.path)
         scrollTopRef.current.delete(item.path)
       }
-      /* Runtime maps of CLOSED tabs (clean ones are not in `affected`) die
-         with the subtree too, and the global cache must not serve content of
-         a deleted path (or a later same-named file) as if it were current. */      const subtreeMatch = (path) => path === entry.path || (path !== '' && path.startsWith(`${entry.path}/`))
+      /* Runtime maps of closed tabs die with the subtree too, and the global cache must not serve content of a deleted path as if it were current. */      const subtreeMatch = (path) => path === entry.path || (path !== '' && path.startsWith(`${entry.path}/`))
       for (const path of [...retainedStatesRef.current.keys()]) {
         if (subtreeMatch(path)) retainedStatesRef.current.delete(path)
       }
@@ -997,10 +847,7 @@ export function WorkspaceExplorer({
     const onKeyDown=event=>{
       if(event.isComposing)return
       const key=event.key
-      /* Modifier discipline: Ctrl/Cmd+C/X/V copy/cut/paste only when NO
-         other modifier rides along (Ctrl+Shift+C is the browser's "copy as
-         text" and must pass through), and Delete opens the delete confirm
-         only UNMODIFIED (Shift+Delete is the browser's cut-to-clipboard). */
+      /* Modifier discipline: Ctrl/Cmd+C/X/V copy/cut/paste only when no other modifier rides along, and Delete opens the delete confirm only unmodified. */
       const withMod=(event.ctrlKey||event.metaKey)&&!event.shiftKey&&!event.altKey
       const isFileShortcut=(withMod&&(key==='c'||key==='C'||key==='x'||key==='X'||key==='v'||key==='V'))||(key==='Delete'&&!event.shiftKey&&!event.altKey&&!event.ctrlKey&&!event.metaKey)
       if(!isFileShortcut)return
@@ -1014,9 +861,7 @@ export function WorkspaceExplorer({
       if(!treeFocused&&contextMenu===undefined)return
       if(selected===undefined)return
       const isPaste=key==='v'||key==='V'
-      // A paste with an empty/foreign-workspace clipboard would no-op inside
-      // pasteEntry; swallowing the key anyway would kill the browser's native
-      // paste with zero feedback. Let those pass through.
+      // A paste with an empty/foreign-workspace clipboard would no-op inside pasteEntry, so let it pass through to keep the browser's native paste.
       if(isPaste&&(clipboard===undefined||clipboard.workspaceId!==workspace.workspaceId))return
       event.preventDefault()
       event.stopPropagation()
@@ -1044,8 +889,7 @@ export function WorkspaceExplorer({
     setReloadToken(token => token + 1)
   }, [activePath, dirty])
   const refreshFile = useCallback(() => {
-    // Reloading while a draft exists would silently discard unsaved work;
-    // refuse loudly instead (the user can save or cancel first).
+    // Reloading while a draft exists would silently discard unsaved work; refuse loudly instead.
     if (dirty) {
       setStatus({ error: true, text: translate('editor.refreshBlocked') })
       return
@@ -1073,12 +917,9 @@ export function WorkspaceExplorer({
       setEncodingDialog(undefined)
       openWithEncoding(selected)
     } else {
-      // Close the picker before saving: a three-way conflict opens the
-      // SaveConflictDialog, and two stacked modals would block the UI until it
-      // resolves. Errors surface in the status bar instead.
+      // Close the picker before saving so a three-way conflict cannot stack two modals; errors surface in the status bar instead.
       setEncodingDialog(undefined)
-      /* save() silently returns false while another save is in flight — say so
-         instead of dropping the user's encoding choice without a trace. */
+      /* save() silently returns false while another save is in flight; say so instead of dropping the user's encoding choice. */
       if (saving) {
         setStatus({ error: true, text: translate('editor.operationBusy') })
         return
@@ -1093,10 +934,7 @@ export function WorkspaceExplorer({
     const index = current.findIndex(tab => tab.path === path)
     if (index < 0) return
     const closing = current[index]
-    // A dirty tab is close-guarded only while EDITABLE: a non-editable file
-    // with a leftover draft has no save/cancel path (both gated on
-    // editability), so it would be stuck forever — allow closing and drop its
-    // staging draft below.    const nonEditableDirty = closing.dirty === true && closing.editing === false
+    // A dirty tab is close-guarded only while editable: a non-editable file with a leftover draft has no save/cancel path, so allow closing and drop its staging draft below.    const nonEditableDirty = closing.dirty === true && closing.editing === false
     if (closing.saving || (closing.dirty && !nonEditableDirty)) {
       const nextStatus = { error: true, text: translate('editor.unsavedTabClose') }
       if (activePathRef.current === path) setStatus(nextStatus)
@@ -1104,14 +942,11 @@ export function WorkspaceExplorer({
       return
     }
     if (nonEditableDirty) {
-      // Discard the orphaned staging draft so the next open does not restore
-      // the non-restorable state. Best-effort: the tab is closing anyway.
+      // Discard the orphaned staging draft so the next open does not restore the non-restorable state.
       void clearDraftFile(path, '', closing.encoding ?? 'utf-8', closing.lineEnding ?? 'none', Boolean(closing.bom), closing.revision ?? null).catch(() => {})
     }
     if (isMindmapTab(closing)) {
-      /* The tab is gone: the GLOBAL host unmounts this map's body (doc, sync
-         timers and viewport die with it). A later re-dock mounts a FRESH
-         body. */
+      /* The tab is gone: the global host unmounts this map's body; a later re-dock mounts a fresh body. */
       mindmapViewHost.drop(mindmapRootIdOfTab(closing))
     }
     const nextTabs = current.filter(tab => tab.path !== path)
@@ -1150,9 +985,7 @@ export function WorkspaceExplorer({
     if (keep === undefined) return
     const closing = current.filter(tab => tab.path !== keepPath && !tab.pinned)
     if (closing.length === 0) return
-    /* Same rule as closeTab: a dirty tab is close-guarded only while EDITABLE
-       (a non-editable file with a leftover draft has no save/cancel path, so
-       it closes and drops its staging draft below). */
+    /* Same rule as closeTab: a dirty tab is close-guarded only while editable. */
     if (closing.some(tab => tab.saving || (tab.dirty && tab.editing !== false))) {
       const nextStatus = { error: true, text: translate('editor.unsavedTabsClose') }
       if (activePathRef.current === keepPath) setStatus(nextStatus)
@@ -1167,8 +1000,7 @@ export function WorkspaceExplorer({
     }
     setTabs(current.filter(tab => tab.pinned || tab.path === keepPath))
     for (const tab of closing) {
-      /* A closed map tab must also unmount its GLOBAL body (same rule as
-         closeTab). */
+      /* A closed map tab must also unmount its global body (same rule as closeTab). */
       if (isMindmapTab(tab)) mindmapViewHost.drop(mindmapRootIdOfTab(tab))
       forgetPathRefs(tab.path)
     }
@@ -1216,13 +1048,7 @@ export function WorkspaceExplorer({
       return orderPinnedFirst(next)
     })
   }, [draggingPath])
-  /* The tab bar renders pinned-first (orderPinnedFirst invariant), but a drag
-     may point anywhere in that order — a plain splice then re-partition would
-     make the tab "snap back" across the pinned boundary, disagreeing with the
-     drop indicator. Clamp the insertion point to the dragged tab's OWN
-     partition (pinned: anywhere inside the pinned block; unpinned: only at or
-     after the first unpinned slot), so the indicator promise and the final
-     position always match. */
+  /* The tab bar renders pinned-first, so clamp the insertion point to the dragged tab's own partition (pinned: inside the pinned block; unpinned: at or after the first unpinned slot) to match the drop indicator. */
   const clampDropIndexForTab = useCallback((rawIndex) => {
     if (draggingPath === null || !Number.isInteger(rawIndex)) return rawIndex
     const current = tabsRef.current
@@ -1252,12 +1078,7 @@ export function WorkspaceExplorer({
     setDraggingPath(null)
     setDropIndex(null)
   }, [clampDropIndexForTab, dropTabAt])
-  /* The strip API handed to the GLOBAL mind-map host: doc-gone closes the tab,
-     root renames update the tab label — while THIS explorer shows the map's
-     strip (the host falls back to fixing the persisted family snapshot when
-     the user is on another session). closeTab/updateTab may change identity
-     across renders, so the API forwards through refs; hasTab reads the live
-     tabsRef. */
+  /* The strip API handed to the global mind-map host: doc-gone closes the tab and root renames update the tab label. closeTab/updateTab may change identity across renders, so the API forwards through refs. */
   const closeTabRef = useRef(closeTab)
   closeTabRef.current = closeTab
   const updateTabRef = useRef(updateTab)
@@ -1278,21 +1099,11 @@ export function WorkspaceExplorer({
     mindmapViewHost.registerStrip(stripApiRef.current)
     return () => mindmapViewHost.unregisterStrip(stripApiRef.current)
   }, [])
-  /* Strip placeholders of the docked map tabs — the host's STABLE map-body
-     containers are physically parked into these elements (populated by the
-     ref callbacks below); the map body itself lives in the global host. */
+  /* Strip placeholders of the docked map tabs; the host's stable map-body containers are physically parked into these elements. */
   const mindmapTabElsRef = useRef(new Map())
-  /* The root ids parked into THIS mount's placeholders (rootId -> placeholder
-     element): the effect unparks only what disappeared, so tab churn never
-     moves a parked body unnecessarily. */
+  /* The root ids parked into this mount's placeholders; the effect unparks only what disappeared. */
   const placedMapRootsRef = useRef(new Map())
-  /* Placement runs as a LAYOUT effect so the container move lands before
-     paint: a session switch back shows the map instantly, never a blank frame.
-     Tabs arriving from ANY path first ensure() their body so the loading state
-     renders in the same commit — ensure is idempotent and never downgrades a
-     body's mount-time fresh flag. The parked element is the host's STABLE
-     container (the portal target never changes): parking it here is a plain
-     DOM move, the map body never remounts. */
+  /* Placement runs as a layout effect so the container move lands before paint; the parked element is the host's stable container, so parking it is a plain DOM move and the map body never remounts. */
   useLayoutEffect(() => {
     const next = new Map()
     for (const tab of tabs) {
@@ -1300,9 +1111,7 @@ export function WorkspaceExplorer({
       const el = mindmapTabElsRef.current.get(tab.path)
       if (el === undefined || el === null) continue
       const rootId = mindmapRootIdOfTab(tab)
-      /* Restored tabs mount NOT fresh: a restore must never yank the chat
-         onto the map's remembered session (a dock request already ensured its
-         body with fresh = true — a no-op here). */
+      /* Restored tabs mount not fresh: a restore must never yank the chat onto the map's remembered session. */
       mindmapViewHost.ensure(rootId, false)
       next.set(rootId, el)
       mindmapViewHost.place(rootId, el)
@@ -1312,29 +1121,18 @@ export function WorkspaceExplorer({
     }
     placedMapRootsRef.current = next
   }, [tabs])
-  /* Explorer teardown (a session switch): unpark every placed container so the
-     map bodies fall back to the host's hidden holding node and keep their
-     state. A LAYOUT-effect cleanup: React runs it while this mount is being
-     deleted, so the containers are rescued to the holding node as the strip
-     goes away — before OR after the placeholder node itself is removed
-     (appendChild re-parents the possibly detached container either way). */
+  /* Explorer teardown (a session switch): unpark every placed container so the map bodies fall back to the host's hidden holding node and keep their state. */
   useLayoutEffect(() => () => {
     for (const rootId of placedMapRootsRef.current.keys()) mindmapViewHost.unplace(rootId)
     placedMapRootsRef.current = new Map()
   }, [])
-  // Renderer dispatch (registry-driven, mirroring the harness right-Sidebar
-  // document-preview pipeline): markdown/html offer a rendered preview; image
-  // files render standalone; read-only text files offer a paged full-file
-  // browse the editor cannot show.
+  // Renderer dispatch (registry-driven): markdown/html offer a rendered preview, image files render standalone, and read-only text files offer a paged full-file browse.
   const isMarkdown = preview.state === 'ready' && isMarkdownName(preview.name)
   const isHtmlFile = preview.state === 'ready' && isHtmlName(preview.name)
   const isImage = preview.state === 'ready' && isImageName(preview.name)
   const isReadOnlyText = preview.state === 'ready' && preview.kind !== 'image'
     && (preview.editable === false || preview.readOnlyReason)
-  /* Browse mode = the paged full-file view; it replaces the editor for
-     read-only text files (markdown renders as MarkdownText, everything else
-     as a highlighted CodeBlock). HTML keeps the iframe overlay instead;
-     external (dropped) files have no workspace path the Remote could read. */
+  /* Browse mode = the paged full-file view; it replaces the editor for read-only text files, while HTML keeps the iframe overlay and external files have no workspace path the Remote could read. */
   const showBrowse = viewMode === VIEW_PREVIEW && isReadOnlyText && !isHtmlFile && activeTab?.external !== true
   const browseKind = isMarkdown ? 'markdown' : 'code'
   const viewerItems = useMemo(() => {
@@ -1342,21 +1140,12 @@ export function WorkspaceExplorer({
     return viewerCandidates(preview, activeTab.name, activeTab.external)
   }, [activeTab, preview])
   const currentViewer = viewerItems.find(item => item.id === (isImage ? 'image' : viewMode)) ?? viewerItems[0]
-  /* The toggle button's tooltip names the view it switches TO (the old
-     per-type toggle titles, registry-driven). */
+  /* The toggle button's tooltip names the view it switches to. */
   const viewerToggleTitle = currentViewer?.id === VIEW_PREVIEW
     ? (isMarkdown ? translate('mdPreview.edit.title') : isHtmlFile ? translate('htmlPreview.edit.title') : translate('editor.edit.title'))
     : (isMarkdown ? translate('mdPreview.preview.title') : isHtmlFile ? translate('htmlPreview.preview.title') : translate('renderer.browse.title'))
-  /* A mind-map tab renders nothing HERE: this div is a PLACEHOLDER the global
-     host parks its STABLE map-body container into (one body per family root,
-     mounted across session switches; the actual map body lives in the host
-     and portals into its own container). Parking is a plain appendChild move
-     done by the layout effect below — React never re-keys the map body, so
-     the doc, pan/zoom and highlight survive a session switch. The file
-     header/status bar stay hidden for map tabs. */  const mindmapTabs = tabs.filter(isMindmapTab)
-  /* The active file's retained CodeMirror session (see retainEditorState).
-     Dropped here when its name no longer matches the tab: a rename binds the
-     language extension into the state, so the next view builds fresh. */
+  /* A mind-map tab renders nothing here: this div is a placeholder the global host parks its stable map-body container into; parking is a plain appendChild move, so the doc, pan/zoom and highlight survive a session switch. */  const mindmapTabs = tabs.filter(isMindmapTab)
+  /* The active file's retained CodeMirror session; dropped when its name no longer matches the tab, so a rename builds the next view fresh. */
   const retainedForActive = (() => {
     if (activePath === null || activeTab === undefined || isMindmapTab(activeTab)) return null
     const session = retainedStatesRef.current.get(activePath)
@@ -1482,10 +1271,7 @@ export function WorkspaceExplorer({
   const reason = preview.state === 'ready' ? readOnlyReason(preview) : translate('editor.notLoaded')
   const size = preview.state === 'ready' ? formatBytes(preview.size) : ''
   const tabMenuTarget = tabContextMenu === undefined ? undefined : tabs.find(tab => tab.path === tabContextMenu.path)
-  /* "Open in new window" is limited to workspace file tabs: a mind-map tab has
-     no file content, an external (dropped) tab has no workspace path the Host
-     could serve, and an image tab's raw bytes are rejected by the Host's
-     binary guard (the image view is the preview). */
+  /* "Open in new window" is limited to workspace file tabs: mind-map, external, and image tabs have no servable file content. */
   const canOpenInNewWindow = tabMenuTarget !== undefined && !isMindmapTab(tabMenuTarget) && !tabMenuTarget.external
     && !isImageName(tabMenuTarget.name)
   const openTabInNewWindow = () => {
@@ -1608,11 +1394,7 @@ export function WorkspaceExplorer({
             : workspace.title),
         preview.state === 'ready'
           ? h(Fragment, null,
-            /* Viewer toggle (registry-driven): exactly two candidates exist
-               for every file that shows the button (edit + one rendered
-               view), so the button flips directly instead of opening a menu;
-               a single candidate (image files, editable plain text) renders
-               no button. */
+            /* Viewer toggle (registry-driven): exactly two candidates exist for every file that shows the button, so it flips directly instead of opening a menu. */
             viewerItems.length > 1
               ? h('button', {
                 'aria-label': translate('viewer.menu'),
@@ -1635,8 +1417,7 @@ export function WorkspaceExplorer({
           : null,
       ),
       body,
-      // Merged bottom status bar: action buttons + file meta (left) and the transient status notice (right).
-      // A mind-map tab hides it: the map surfaces its own notices.
+      // Merged bottom status bar: action buttons + file meta (left) and the transient status notice (right); a mind-map tab hides it.
       activeMindmap ? null : h('div', { className: 'dsh-ws-status', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && preview.kind !== 'image' && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) } },
         h('div', { className: 'dsh-ws-preview-status-actions' },
           preview.state === 'ready' && preview.kind !== 'image'

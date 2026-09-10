@@ -2,9 +2,7 @@ import { createElement as h } from 'react'
 import { translate } from '../../locale/index.js'
 import { IconCloseWin10, IconPinVscode } from '../../icons.js'
 
-/* Preview tab strip: one tab per open file, with pin/close actions, drag
-   reordering (drop indicators), and the tab context menu trigger. All
-   interactions are callbacks; the container ref + scroll handlers live here. */
+/* Preview tab strip: one tab per open file with pin/close, drag reordering, and context-menu trigger; all interactions are callbacks. */
 export function PreviewTabs({ tabs, activePath, draggingPath, dropIndex, containerRef, onChoose, onClose, onContextMenu, onDragEnd, onDragStart, onDragLeave, onDragOver, onDrop, onMouseEnter, onMouseLeave, onScroll, onUnpin }) {
   const nodes = []
   for (const [index, tab] of tabs.entries()) {
@@ -55,10 +53,7 @@ export function PreviewTabs({ tabs, activePath, draggingPath, dropIndex, contain
         : h('button', {
           'aria-label': translate('tab.closeAria', { name: tab.name }),
           className: 'dsh-ws-preview-tab-close',
-          /* A dirty tab is close-guarded only while EDITABLE: a non-editable
-             file with a leftover draft has no save/cancel path, so its close
-             must stay enabled (closeTab drops the staging draft — the escape
-             documented in development-notes §15). */
+          /* A dirty tab is close-guarded only while editable: a non-editable file with a leftover draft has no save/cancel path, so its close stays enabled. */
           disabled: (tab.dirty && tab.editing !== false) || tab.saving || undefined,
           onClick: event => { event.stopPropagation(); onClose(tab.path) },
           title: (tab.dirty && tab.editing !== false) || tab.saving ? translate('tab.close.title') : translate('tab.close'),

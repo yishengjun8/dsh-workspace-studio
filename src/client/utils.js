@@ -1,13 +1,9 @@
-// Whether a dropped File is an image. Images go to the chat composer, not the
-// preview: the drop highlight is withheld and a real drop is server-rejected
-// with a toast (development-notes §17). Empty MIME types count as files.
+// Whether a dropped File is an image; images go to the chat composer, not the preview.
 export function isImageFile(file) {
   const type = typeof file?.type === 'string' ? file.type : ''
   return type.startsWith('image/')
 }
-// File-drag detection mirroring the harness composer: dataTransfer.types is
-// authoritative and stable during the drag, while dataTransfer.files is only
-// guaranteed populated at drop time.
+// File-drag detection mirroring the harness composer: dataTransfer.types is authoritative and stable during the drag.
 export function hasDraggedFiles(event) {
   const dataTransfer = event?.dataTransfer
   if (dataTransfer === null || dataTransfer === undefined) return false
@@ -18,9 +14,7 @@ export function hasDraggedFiles(event) {
     return false
   }
 }
-// Whether the drag carries a non-image file. Controls only the drop
-// highlight: during dragover File objects may not be inspectable, so any file
-// drag counts as "normal" (images are still rejected at drop — see isImageFile).
+// Whether the drag carries a non-image file; controls only the drop highlight.
 export function hasNormalFile(event) {
   if (!hasDraggedFiles(event)) return false
   const files = event.dataTransfer?.files

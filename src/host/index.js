@@ -43,20 +43,13 @@ export const Config = z.object({
 })
 
 const API_PREFIX = '/workspace-studio/api'
-/* Shared GET-load refresh: reconcile + adopt under the caller's lock, write
-   back when changed, invalidate the sync cache, and serve the last good disk
-   doc when the refresh degraded (a partial in-memory mutation must never be
-   served or written). */
+/* Shared GET-load refresh: reconcile + adopt under the caller's lock, write back when changed, invalidate the sync cache, and serve the last good disk doc when the refresh degraded (a partial in-memory mutation must never be served or written). */
 async function refreshMindmapDocLoad(ctx, persistence, doc) {
   const refresh = await refreshMindmapDocCore(ctx, persistence, doc)
   let wrote = false
   if (refresh.changed) {
     doc.updatedAt = Date.now()
-    /* Same size guard as the sync path: folding turns during an OPEN must not
-       push the doc past MINDMAP_DOC_MAX_BYTES — beyond it every later full-doc
-       client write (fork / branch removal) would 413 and lock the map with no
-       shrink path. Refuse the write and surface the warning; the turns stay
-       in the logs and are re-folded after a prune. */
+    /* Same size guard as the sync path: folding turns during an OPEN must not push the doc past MINDMAP_DOC_MAX_BYTES — beyond it every later full-doc client write would 413 and lock the map with no shrink path. Refuse the write and surface the warning; the turns stay in the logs and are re-folded after a prune. */
     const serialized = new TextEncoder().encode(JSON.stringify(doc)).byteLength
     if (serialized > MINDMAP_DOC_MAX_BYTES) {
       refresh.warnings.push(`doc-size-limit: serialized ${serialized} bytes exceeds ${MINDMAP_DOC_MAX_BYTES}`)
@@ -69,23 +62,16 @@ async function refreshMindmapDocLoad(ctx, persistence, doc) {
         ctx.logger.warn(`[workspace-studio] mindmap doc load write failed: ${String(error)}`)
       }
     }
-    /* This load path WRITES the doc (adoption or folded turn) without
-       touching any log — invalidate the sync cache like every other
-       doc write, or the next sync serves the stale pre-adopt doc for
-       up to the TTL (an adopted branch briefly vanishing). */
+    /* This load path WRITES the doc without touching any log — invalidate the sync cache like every other doc write, or the next sync serves the stale pre-adopt doc for up to the TTL. */
     mindmapSyncCache.delete(String(doc.rootSessionId))
   }
-  /* A degraded reconcile/adopt (warnings) may have PARTIALLY mutated
-     `doc` in memory; `changed` is false so nothing was written —
-     serve the last good DISK doc instead of the half-reconciled copy
-     (the next sync retries the refresh). */
+  /* A degraded reconcile/adopt may have PARTIALLY mutated `doc` in memory; `changed` is false so nothing was written — serve the last good DISK doc instead of the half-reconciled copy. */
   let result = doc
   if (refresh.warnings.length > 0) {
     const disk = await readMindmapDocFile(String(doc.rootSessionId))
     if (disk !== null && isValidMindmapDoc(disk)) result = disk
   }
-  /* `refresh` flags ride along so the GET route can seed the sync cache with
-     the same policy the sync settle uses (clean + persisted doc only). */
+  /* `refresh` flags ride along so the GET route can seed the sync cache with the same policy the sync settle uses (clean + persisted doc only). */
   return { doc: result, warnings: refresh.warnings, refresh: { changed: refresh.changed, wrote, adoptIncomplete: refresh.adoptIncomplete } }
 }
 async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
@@ -190,8 +176,7 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
     }
     if (mindmapDocSyncEndpoint) {
       const payload = await readJsonObject(req, config, MINDMAP_DOC_MAX_BYTES)
-      /* The live-session selector is the plural `liveSessionIds` (query param
-         or body field); the response's `live` is always an array. */
+      /* The live-session selector is the plural `liveSessionIds` (query param or body field); the response's `live` is always an array. */
       const liveRaw = url.searchParams.get('liveSessionIds') ?? payload?.liveSessionIds
       let liveSessionIds
       if (Array.isArray(liveRaw)) {
@@ -249,20 +234,14 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
       sendJson(req, res, 200, await renameMindmapDoc(ctx, persistence, sessionId, rawTitle.trim()))
       return
     }
-    /* Plugin self-update (设置 → 工作区设置 → 插件更新): check compares the
-       installed version against the GitHub main branch; download consumes the
-       cached checked payload and swaps the installed package dir atomically.
-       Plugin-global, so both are handled before the workspaceId requirement. */
+    /* Plugin self-update (设置 → 工作区设置 → 插件更新): check compares the installed version against the GitHub main branch; download consumes the cached checked payload and swaps the installed package dir atomically. Plugin-global, so both are handled before the workspaceId requirement. */
     if (updateCheckEndpoint) {
-      /* HEAD must not run the check: it would download the main-branch
-         tarball for a request whose body the client never reads. Answer the
-         gate only (sendJson omits the body for HEAD). */
+      /* HEAD must not run the check: it would download the main-branch tarball for a request whose body the client never reads. Answer the gate only (sendJson omits the body for HEAD). */
       if (req.method === 'HEAD') {
         sendJson(req, res, 200, { enabled: config.enableUpdateCheck !== false })
         return
       }
-      /* force=1 from the explicit 检查更新/重试 buttons: bypass the check
-         cache TTL and re-download the main-branch tarball. */
+      /* force=1 from the explicit 检查更新/重试 buttons: bypass the check cache TTL and re-download the main-branch tarball. */
       sendJson(req, res, 200, await checkForUpdate(ctx, config, url.searchParams.get('force') === '1'))
       return
     }
@@ -291,52 +270,32 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
         return
       }
       const sessionId = validateMindmapSession(url.searchParams.get('sessionId'))
-      /* Sweep archived maps first: a doc whose root was archived (by any UI path) is dead — reopening must not resurrect it. */
+      /* Sweep archived maps first: a doc whose root was archived is dead — reopening must not resurrect it. */
       try {
         await purgeArchivedMindmapDocs(ctx)
       } catch (error) {
-        /* A sweep failure (locked file, transient fs) must never block an
-           open: the map resolves below and the next index poll retries. */
+        /* A sweep failure must never block an open: the map resolves below and the next index poll retries. */
         ctx.logger.warn(`[workspace-studio] mindmap archive sweep failed: ${String(error)}`)
       }
-      /* Ancestor-aware: a fork descendant resolves to its ancestor's document
-         (a raced branch write cannot split off as a new root); only a session
-         with NO documented ancestor is converted. */
+      /* Ancestor-aware: a fork descendant resolves to its ancestor's document (a raced branch write cannot split off as a new root); only a session with NO documented ancestor is converted. */
       const existing = await findMindmapDocWithAncestors(ctx, persistence, sessionId)
       if (existing !== null) {
-        /* Fold the latest turns and adopt fork children so a freshly opened map
-           is complete; write back only when something changed (the sidebar
-           order keys on updatedAt). Runs under the per-root lock with a fresh
-           read, so a concurrent sync or client write is never clobbered. The
-           refresh core is fault-isolated: a reconcile/adopt failure degrades
-           to the RECORDED doc (warnings surfaced to the client) instead of a
-           500, and the next sync retries it. A root replacement that lands
-           between the probe and the lock re-anchors the retry to the new root
-           (automatic — see mindmapLockedReanchorOp: each attempt holds exactly
-           ONE lock, so the former nested re-acquisition deadlock is gone). */
+        /* Fold the latest turns and adopt fork children so a freshly opened map is complete; write back only when something changed (the sidebar order keys on updatedAt). Runs under the per-root lock with a fresh read, so a concurrent sync or client write is never clobbered. The refresh core is fault-isolated: a reconcile/adopt failure degrades to the RECORDED doc instead of a 500, and the next sync retries it. A root replacement between probe and lock re-anchors the retry to the new root. */
         const loaded = await mindmapLockedReanchorOp(
           () => findMindmapDocWithAncestors(ctx, persistence, sessionId),
           () => findMindmapDocWithAncestors(ctx, persistence, sessionId),
           doc => refreshMindmapDocLoad(ctx, persistence, doc),
         )
         if (loaded !== null) {
-          /* Reopening the map is also a drain opportunity: a pending session
-             summary that stalled (e.g. its card jobs finished while the map was
-             closed) gets another chance here. */
+          /* Reopening the map is also a drain opportunity: a pending session summary that stalled gets another chance here. */
           mindmapDrainPendingSessionSummaries(ctx, persistence)
-          /* Seed the sync cache so the first periodic sync after this open is a
-             hit instead of repeating the whole refresh (same settle policy as
-             the sync path — a degraded/unwritten refresh stays unseeded). */
+          /* Seed the sync cache so the first periodic sync after this open is a hit instead of repeating the whole refresh (same settle policy as the sync path). */
           await seedMindmapSyncCacheAfterLoad(ctx, persistence, loaded.doc, loaded.refresh)
           sendJson(req, res, 200, { exists: true, created: false, doc: loaded.doc, warnings: loaded.warnings, summarizing: mindmapSummarizingOf(loaded.doc), sessionSummarizing: mindmapSessionSummarizingOf(loaded.doc) })
           return
         }
       }
-      /* First access: serialize the conversion under the ANCHOR root's lock
-         (the root buildMindmapDoc will write, resolved up-front so the lock
-         key and the on-disk root can never disagree). The second lookup closes
-         the two-first-open race; sync/fork writers use the same root key, so
-         this stale build cannot overwrite them. */
+      /* First access: serialize the conversion under the ANCHOR root's lock (the root buildMindmapDoc will write, resolved up-front so the lock key and the on-disk root can never disagree). The second lookup closes the two-first-open race; sync/fork writers use the same root key, so this stale build cannot overwrite them. */
       const anchorId = await mindmapAnchorOf(ctx, persistence, sessionId)
       const firstAccess = await mindmapLock(String(anchorId), async () => {
         const concurrent = await findMindmapDocWithAncestors(ctx, persistence, sessionId)
@@ -344,9 +303,7 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
         const built = await buildMindmapDoc(ctx, persistence, sessionId)
         if (built === null) return { doc: null, created: false }
         try {
-          /* Adoption is fault-isolated here too: a first conversion must not
-             fail as a whole because one orphan's log misbehaved — the doc is
-             still built and written (the next sync retries the adoption). */
+          /* Adoption is fault-isolated here too: a first conversion must not fail as a whole because one orphan's log misbehaved — the doc is still built and written (the next sync retries the adoption). */
           try {
             await adoptMindmapOrphans(ctx, persistence, built)
           } catch (error) {
@@ -361,12 +318,7 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
         mindmapSyncCache.delete(String(built.rootSessionId))
         return { doc: built, created: true }
       })
-      /* First conversion also seeds the sync cache (its doc reached the disk):
-         the 2.5 s sync after a first open must not re-run build+adopt. The
-         conservative adoptIncomplete:true keeps adoptClean false for one cycle
-         so the next sync re-checks orphans the conversion pass may have
-         missed; the `created:false` (concurrent winner) branch is left
-         unseeded — the sync settles it after its own full refresh. */
+      /* First conversion also seeds the sync cache (its doc reached the disk): the 2.5 s sync after a first open must not re-run build+adopt. The conservative adoptIncomplete:true keeps adoptClean false for one cycle so the next sync re-checks orphans the conversion pass may have missed; the `created:false` branch is left unseeded. */
       if (firstAccess.doc !== null && firstAccess.created === true) {
         await seedMindmapSyncCacheAfterLoad(ctx, persistence, firstAccess.doc, { changed: true, wrote: true, adoptIncomplete: true, warnings: [] })
       }
@@ -399,13 +351,7 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
     const relativePath = normalizeRelativePath(url.searchParams.get('path') ?? '')
     const encodingId = url.searchParams.get('encoding') ?? 'utf-8'
     if (rawEndpoint) {
-      /* "Open in new window": serve the file's original bytes with a sandbox
-         CSP so the opened document is a unique origin (scripts run, but it
-         cannot read the GUI's storage or call the API with credentials).
-         Markdown files get a server-rendered HTML document instead, whose
-         CSP drops allow-scripts entirely (the page carries no scripts);
-         errors go out as plain text — the response is a browser tab, not a
-         fetch. */
+      /* "Open in new window": serve the file's original bytes with a sandbox CSP so the opened document is a unique origin (scripts run, but it cannot read the GUI's storage or call the API with credentials). Markdown files get a server-rendered HTML document instead, whose CSP drops allow-scripts entirely; errors go out as plain text — the response is a browser tab, not a fetch. */
       try {
         const raw = await readRawFile(workspace, relativePath, config)
         if (raw.isMarkdown) {
@@ -417,8 +363,7 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
             })
             return
           }
-          /* Undecodable as the detected encoding: fall through to the raw
-             bytes (the pre-rendering behavior). */
+          /* Undecodable as the detected encoding: fall through to the raw bytes (the pre-rendering behavior). */
         }
         sendRaw(req, res, 200, raw.bytes, `${raw.isHtml ? 'text/html' : 'text/plain'}; charset=${raw.charset}`, {
           'content-security-policy': 'sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms allow-modals allow-downloads',
@@ -461,12 +406,7 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
       sendJson(req, res, 200, await revealInExplorer(workspace, relativePath))
       return
     }
-    /* Cheap change check for open preview tabs: the client polls this on a
-       fixed cadence (no SSE push). The previous snapshot is parsed once and
-       passed into fileChangeSnapshot so an unchanged mtime/size short-circuits
-       before the hash, then the returned snapshot is compared for the client's
-       `changed` answer. Scoped to the FILE endpoint's read methods: a stray
-       `check=1` on /tree, /entry or a PUT must never hijack the real operation. */
+    /* Cheap change check for open preview tabs: the client polls this on a fixed cadence (no SSE push). The previous snapshot is parsed once and passed into fileChangeSnapshot so an unchanged mtime/size short-circuits before the hash, then the returned snapshot is compared for the client's `changed` answer. Scoped to the FILE endpoint's read methods: a stray `check=1` on /tree, /entry or a PUT must never hijack the real operation. */
     if (fileEndpoint && (req.method === 'GET' || req.method === 'HEAD') && url.searchParams.get('check') === '1') {
       if (relativePath === '') throw new HttpError(400, 'invalid-path', '变更检查必须指定文件路径')
       const previousRaw = url.searchParams.get('prev')
@@ -474,23 +414,14 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
       if (previousRaw !== null && previousRaw !== '') {
         try {
           const parsed = JSON.parse(previousRaw)
-          // Only a plain object may seed fileChangeSnapshot (its fast path reads
-          // .mtimeMs/.size/.hash); a malformed prev stays undefined = full re-check.
+          // Only a plain object may seed fileChangeSnapshot (its fast path reads .mtimeMs/.size/.hash); a malformed prev stays undefined = full re-check.
           if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) previous = parsed
         } catch { /* malformed prev: treat as unknown (full re-check) */ }
       }
       const snapshot = await readPreviewHead(workspace, relativePath, config.maxPreviewBytes, previous)
       let changed = false
       if (snapshot !== null && previous !== undefined && previous !== null) {
-        /* A { gone: true } baseline means the file was deleted and has now been
-           re-created: report a change so the client reloads instead of keeping
-           the stale content (a plain missing baseline answers changed:false).
-           When the baseline carries a STRING hash, content is the only change
-           signal (fileChangeSnapshot re-stats on hash match, so a touch -r /
-           rsync -t with identical content must NOT reload the tab and must not
-           disable the mtime fast path). A non-string baseline (truncated
-           previews carry no revision) falls back to mtime/size comparison,
-           matching the snapshot the Host stores in that case. */
+        /* A { gone: true } baseline means the file was deleted and has now been re-created: report a change so the client reloads instead of keeping the stale content. When the baseline carries a STRING hash, content is the only change signal (a touch -r / rsync -t with identical content must NOT reload the tab). A non-string baseline falls back to mtime/size comparison. */
         changed = previous?.gone === true
           || (typeof previous?.hash === 'string'
             ? previous.hash !== snapshot.hash
@@ -520,10 +451,7 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
     const failure = normalizeFailure(error)
     if (failure.status === 500) ctx.logger.warn(error instanceof Error ? error : new Error(String(error)))
     if (failure.status === 500) {
-      /* Surface the INTERNAL cause only on unexpected failures: a state-
-         dependent 500 (like a mind-map open) becomes diagnosable from the
-         browser console/toast instead of a black-box 工作区操作失败. Expected
-         4xx error responses keep their shape. */
+      /* Surface the INTERNAL cause only on unexpected failures: a state-dependent 500 (like a mind-map open) becomes diagnosable from the browser console/toast instead of a black-box 工作区操作失败. Expected 4xx error responses keep their shape. */
       sendJson(req, res, 500, {
         error: { code: failure.code, message: failure.message, detail: String(error instanceof Error ? error.message : error) },
       })

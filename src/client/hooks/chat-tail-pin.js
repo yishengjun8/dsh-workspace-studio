@@ -1,32 +1,17 @@
 /** Chat tail-pin compensation (DOM-driven; the harness is not modified).
  *
- *  The harness (ui-chat ChatView) restores the resident conversation
- *  scrollport per session from an in-memory absolute position (anchor row +
- *  offset) and arms its "follow the tail" ownership (atBottomRef) from scroll
- *  samples. Under its restore races — anchor row not yet rendered when the
- *  one-shot restore runs, clamp-corrected scrollTop on the resident scroller
- *  across session switches, and the Think cards reopening (height churn) right
- *  after a ChatView remount — the restored viewport can land above the true
- *  tail and no scroll sample ever re-arms the ownership, so the position
- *  stays stuck off the end.
- *
- *  This hook tracks whether the user was at the tail when they last left each
- *  session (geometry samples from scroll events; the harness's own toBottom
- *  writes fire events, so passive watching keeps the flag true) and, on
- *  returning to a tail-left session, runs a short settle-pin loop that drags
- *  the viewport to the actual floor and stops once the flow height
- *  stabilizes (or the user scrolls). Our first write lands the viewport at
- *  the floor; the harness's next scroll sample then normalizes its own
- *  at-bottom ownership from the geometry, so later streaming follows again. */
+ *  Tracks whether the user was at the tail when they last left each session
+ *  and, on returning to a tail-left session, runs a short settle-pin loop
+ *  that drags the viewport to the actual floor until the flow height
+ *  stabilizes (or the user scrolls), so the restored position never stays
+ *  stuck off the end. */
 import { useEffect, useRef } from 'react'
 
 /* Same tolerance the harness uses to decide "at bottom" (FOLLOW_THRESHOLD). */
 const TAIL_THRESHOLD_PX = 24
-/* Stop re-pinning after this many consecutive frames with a stable flow
-   height (the harness's own follow machinery takes over from then on). */
+/* Stop re-pinning after this many consecutive frames with a stable flow height. */
 const SETTLE_FRAMES = 2
-/* Hard cap for the settle window; content still moving after this is left to
-   the harness's follow machinery (re-armed by our first write). */
+/* Hard cap for the settle window; content still moving after this is left to the harness. */
 const SETTLE_TIMEOUT_MS = 800
 const SCROLLPORT_SELECTOR = '[data-conversation-scroll]'
 
@@ -69,16 +54,14 @@ export function useChatTailPin({ chatSectionRef, currentSession }) {
       attach(el)
     }
     sample()
-    /* The conversation may mount a frame after the plugin boots; retry on
-       every section mutation until the scrollport exists. */
+    /* The conversation may mount a frame after boot; retry until the scrollport exists. */
     const observer = new MutationObserver(() => {
       const current = scrollportRef.current
       if (current !== null && current.isConnected) return
       sample()
     })
     observer.observe(section, { childList: true, subtree: true })
-    /* User-gesture latch: any wheel/pointer/touch/keyboard scroll aborts a
-       running settle-pin loop on its next frame. */
+    /* Any user wheel/pointer/touch/keyboard scroll aborts a running settle-pin loop. */
     const abort = () => { userAbortRef.current = true }
     document.addEventListener('wheel', abort, true)
     document.addEventListener('pointerdown', abort, true)
@@ -94,8 +77,7 @@ export function useChatTailPin({ chatSectionRef, currentSession }) {
     }
   }, [sectionRef])
 
-  /* Returning to a session the user left at the tail: settle-pin the
-     viewport to the real floor until the flow height stabilizes. */
+  /* Returning to a tail-left session: settle-pin the viewport to the floor until the flow height stabilizes. */
   useEffect(() => {
     if (currentSession === undefined) return undefined
     const key = String(currentSession)

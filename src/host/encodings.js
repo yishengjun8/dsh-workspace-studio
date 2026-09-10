@@ -22,9 +22,7 @@ export function revisionFor(bytes) {
   return createHash('sha256').update(bytes).digest('hex')
 }
 /**
- * Supported text encodings. `id` is the canonical API/client identifier;
- * `decodeLabel` feeds the WHATWG TextDecoder, `encode` the iconv-lite name.
- * UTF-8/UTF-16 LE/BE BOMs are written by the encoder itself.
+ * Supported text encodings. `id` is the canonical API/client identifier; `decodeLabel` feeds the WHATWG TextDecoder, `encode` the iconv-lite name. UTF-8/UTF-16 LE/BE BOMs are written by the encoder itself.
  */
 export const ENCODINGS = Object.freeze([
   { id: 'utf-8', label: 'UTF-8', decodeLabel: 'utf-8', encode: 'utf8' },
@@ -53,9 +51,7 @@ export function hasBom(bytes, encodingId) {
   return bytes.byteLength >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf
 }
 /**
- * Decode bytes strictly as `encodingId`. UTF-8 keeps its existing trim-aware
- * decoder; other encodings use a fatal TextDecoder, retrying progressively
- * shorter prefixes so a truncated trailing character does not fail the read.
+ * Decode bytes strictly as `encodingId`. UTF-8 keeps its existing trim-aware decoder; other encodings use a fatal TextDecoder, retrying progressively shorter prefixes so a truncated trailing character does not fail the read.
  */
 export function decodeBytes(bytes, encodingId, mayEndMidCharacter) {
   if (encodingId === 'utf-8' || encodingId === 'utf-8-bom') {
@@ -72,10 +68,7 @@ export function decodeBytes(bytes, encodingId, mayEndMidCharacter) {
   }
   return undefined
 }
-/* Code-point -> byte maps for the single-byte encodings, built from the same
- * TextDecoder instances decodeBytes uses. iconv-lite round-tripping is lossy
- * in 0x80..0x9F, silently corrupting those bytes on save; encoding through the
- * inverse decoder map keeps save-as identical to the preview. */
+/* Code-point -> byte maps for the single-byte encodings, built from the same TextDecoder instances decodeBytes uses. iconv-lite round-tripping is lossy in 0x80..0x9F, silently corrupting those bytes on save; encoding through the inverse decoder map keeps save-as identical to the preview. */
 const SINGLE_BYTE_ENCODE_MAPS = (() => {
   const maps = new Map()
   for (const id of ['ascii', 'iso-8859-1', 'windows-1252', 'windows-1251']) {
@@ -87,11 +80,7 @@ const SINGLE_BYTE_ENCODE_MAPS = (() => {
       if (decoded.length === 1) map.set(decoded.codePointAt(0), byte)
     }
     if (id === 'ascii') {
-      /* TextDecoder('ascii') is a WHATWG label alias for windows-1252, so the
-         naive map above covers all 256 bytes and the documented single-byte
-         '?' policy would never fire: an é in the text would be written as the
-         non-ASCII byte 0xE9. Prune every code point whose byte is above 0x7F
-         so "save as ASCII" truly is ASCII (unmappable chars become '?'). */
+      /* TextDecoder('ascii') is a WHATWG label alias for windows-1252, so the naive map above covers all 256 bytes and the documented single-byte '?' policy would never fire: an é would be written as the non-ASCII byte 0xE9. Prune every code point whose byte is above 0x7F so "save as ASCII" truly is ASCII. */
       for (const [codepoint, byte] of [...map]) {
         if (byte > 0x7f) map.delete(codepoint)
       }
@@ -100,11 +89,7 @@ const SINGLE_BYTE_ENCODE_MAPS = (() => {
   }
   return maps
 })()
-/** Encode text into bytes for `encodingId`. Single-byte encodings replace
- * unmappable chars with '?' (preserving every byte the decoder can produce);
- * UTF-16 encodings add their BOM only when `withBom` is true — a BOM-less
- * UTF-16 file must round-trip without gaining two bytes (saveFile passes the
- * original file's BOM state). */
+/** Encode text into bytes for `encodingId`. Single-byte encodings replace unmappable chars with '?' (preserving every byte the decoder can produce); UTF-16 encodings add their BOM only when `withBom` is true — a BOM-less UTF-16 file must round-trip without gaining two bytes. */
 export function encodeText(text, encodingId, withBom = true) {
   if (encodingId === 'utf-8') return Buffer.from(text, 'utf8')
   if (encodingId === 'utf-8-bom') {
@@ -112,9 +97,7 @@ export function encodeText(text, encodingId, withBom = true) {
   }
   const singleByteMap = SINGLE_BYTE_ENCODE_MAPS.get(encodingId)
   if (singleByteMap !== undefined) {
-    /* Iterate by CODE POINT (for..of), not by UTF-16 code unit: a surrogate
-       pair (e.g. an emoji) is ONE unmappable character and must produce ONE
-       replacement byte — indexing units would emit '??' for it. */
+    /* Iterate by CODE POINT (for..of), not by UTF-16 code unit: a surrogate pair (e.g. an emoji) is ONE unmappable character and must produce ONE replacement byte — indexing units would emit '??' for it. */
     const bytes = []
     for (const char of text) {
       const byte = singleByteMap.get(char.codePointAt(0))
@@ -124,13 +107,7 @@ export function encodeText(text, encodingId, withBom = true) {
   }
   const spec = encodingById(encodingId)
   let body = iconv.encode(text, spec.encode)
-  /* Round-trip guard for the multi-byte encodings: iconv-lite silently
-     replaces characters the target encoding cannot represent with '?' (its
-     default replacement behavior), which would corrupt the saved file without
-     any error. Refuse the save instead — the round trip back through the
-     SAME decoder must reproduce the exact text. (The single-byte encodings
-     keep their documented '?' policy via SINGLE_BYTE_ENCODE_MAPS, where every
-     byte the decoder can produce is preserved by construction.) */
+  /* Round-trip guard for the multi-byte encodings: iconv-lite silently replaces characters the target encoding cannot represent with '?', which would corrupt the saved file without any error. Refuse the save instead — the round trip back through the SAME decoder must reproduce the exact text. (The single-byte encodings keep their documented '?' policy via SINGLE_BYTE_ENCODE_MAPS.) */
   if (iconv.decode(body, spec.encode) !== text) {
     throw new HttpError(415, 'unencodable-char', '文件包含目标编码无法表示的字符，无法保存')
   }

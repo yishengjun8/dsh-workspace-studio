@@ -9,7 +9,7 @@ import { localeIsZh, translate, useLocaleText } from '../locale/index.js'
 import { languageFor, tokenHighlight } from '../languages.js'
 import { HIGHLIGHT_PRESET_DEFAULT, lineSeparator } from '../format.js'
 
-/* CodeMirror search/goto-line panel phrases (EditorState.phrases keys; keep the $ placeholders). English is CodeMirror's default, so the override is only installed for the Chinese surface. */
+/* CodeMirror search/goto-line panel phrases (EditorState.phrases keys; keep the $ placeholders); only installed for the Chinese surface, since English is CodeMirror's default. */
 export const CM_PHRASES_ZH = Object.freeze({
   'Find': '查找',
   'Replace': '替换为',
@@ -31,9 +31,9 @@ export const CM_PHRASES_ZH = Object.freeze({
 })
 
 export function revealPosition(view, reveal) {
-  /* NaN/non-numeric line data (corrupt search results, stale caches) must not
-     reach Text.line: Math.min/max propagate NaN and the line() guard treats
-     NaN as in-bounds, so the binary search would land on a wrong line. */
+  /* NaN/non-numeric line data must not reach Text.line: Math.min/max propagate
+     NaN and the line() guard treats NaN as in-bounds, so the search would land
+     on a wrong line. */
   const rawLine = Number(reveal?.line)
   const lineNumber = Number.isFinite(rawLine)
     ? Math.min(Math.max(1, Math.round(rawLine)), view.state.doc.lines)
@@ -52,8 +52,8 @@ export function revealPosition(view, reveal) {
   view.dispatch({ selection: { anchor: from, head: to }, effects: EditorView.scrollIntoView(from, { y: 'center' }) })
 }
 
-/* Code-folding helpers backing Ctrl+K+J / Ctrl+K+<n>. Nesting depth is
-   1-based: a top-level region is level 1, one directly inside another is 2. */
+/* Code-folding helpers backing Ctrl+K+J / Ctrl+K+<n>; nesting depth is
+   1-based. */
 export function collectFoldableRanges(view) {
   const state = view.state
   const seen = new Set()
@@ -72,9 +72,8 @@ export function collectFoldableRanges(view) {
   }
   return ranges
 }
-/* Nesting depth per foldable range: 1 for top-level, +1 per enclosing region.
-   Fold regions are disjoint-or-nested in document order, so one stack sweep
-   computes all depths in linear time (the old per-range scan was quadratic). */
+/* Nesting depth per foldable range: 1 for top-level, +1 per enclosing region;
+   one stack sweep computes all depths in linear time. */
 export function foldLevelsOf(ranges) {
   const ordered = [...ranges].sort((a, b) => a.from - b.from || b.to - a.to)
   const levels = new Array(ordered.length)
@@ -103,25 +102,20 @@ export function foldLevel(view, level) {
 }
 
 /* --- Live-editor bridge ------------------------------------------------
- * The doc/selection update listener below is part of the EditorState
- * CONFIGURATION. A state retained for a later tab re-activation therefore
- * carries a listener created by an earlier CodeEditor instance, and a view
- * rebuilt from that state would otherwise report updates through the OLD
- * instance's stale closures. All listeners therefore delegate through this
- * module-level bridge, which always points at the CURRENTLY mounted
- * instance's refs — stale listeners and fresh ones end up at the same live
- * callbacks (dev-notes §23). Only one editor view exists at a time, so the
- * bridge has exactly one owner. */
+ * The update listener is part of the EditorState CONFIGURATION, so a state
+ * retained for a later tab re-activation carries a listener created by an
+ * earlier instance. All listeners delegate through this module-level bridge,
+ * which always points at the currently mounted instance's refs, so stale and
+ * fresh listeners end up at the same live callbacks (dev-notes §23). */
 const liveEditorBridge = { current: null }
 let editorInstanceSeq = 0
 function handleEditorUpdate(update) {
   const bridge = liveEditorBridge.current
   if (bridge === null) return
   if (update.docChanged) {
-    /* One sliceDoc per change, shared by the autosave and the context publish
-       (a second full copy per keystroke is pure cost on large files); the
-       docChanged flag lets the context publish rebuild its CRLF prefix table
-       only when the text actually changed. */
+    /* One sliceDoc per change, shared by the autosave and the context publish;
+       the docChanged flag lets the context publish rebuild its CRLF prefix
+       table only when the text changed. */
     const text = update.state.sliceDoc()
     bridge.dirtyRef.current(text)
     bridge.contextRef.current(update.state, true, text)
@@ -141,20 +135,18 @@ function handleEditorUpdate(update) {
   }
 }
 
-/* `restore` (optional) is a retained EditorSession of a file previously shown
-   by this component: { state, editable, wrap, phrases, name }. Mounting the
-   view from the SAME EditorState object preserves the doc, undo history,
-   selection and fold state across tab switches; without it the view is built
-   fresh from `file.content`. `onViewState` (optional) reports the live
-   { state, ...compartments, name } on every view update and at mount so the
-   owner can keep the retention map current (see dev-notes §23). */
+/* `restore` (optional) is a retained EditorSession of a file previously shown:
+   { state, editable, wrap, phrases, name }. Mounting from the same EditorState
+   preserves the doc, undo history, selection and fold state across tab
+   switches; without it the view is built fresh from `file.content`.
+   `onViewState` (optional) reports the live { state, ...compartments, name }
+   on every update and at mount. */
 export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShortcut, onScroll, reveal, scrollTop, editorRef, highlightPreset, searchPanelContainer, readEpoch, onRevealApplied, restore = null, onViewState = null }) {
   const host = useRef(null)
   /* Lazy compartments: useRef(new Compartment()) would construct a discarded
-     object on every render (only the first is kept). A view mounted FROM a
-     restored state must reconfigure the compartments THAT state carries, so
-     every dispatch below targets `compartments` (restored when present, own
-     otherwise) — never blindly the own ones. */
+     object on every render. A view mounted from a restored state must
+     reconfigure the compartments that state carries, so every dispatch targets
+     `compartments` (restored when present, own otherwise). */
   const [editableCompartment] = useState(() => new Compartment())
   const [wrapCompartment] = useState(() => new Compartment())
   const [phrasesCompartment] = useState(() => new Compartment())
@@ -180,15 +172,15 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
   stateSinkRef.current = onViewState
   compartmentsRef.current = compartments
   // A reveal is consumed the first time it is applied, so returning to the tab
-  // later restores the persisted scroll instead of re-jumping to a stale match.
+  // restores the persisted scroll instead of re-jumping to a stale match.
   const markRevealApplied = (target) => {
     if (target === null || revealAppliedRef.current === target) return
     revealAppliedRef.current = target
     onRevealAppliedRef.current?.()
   }
-  /* The render-time instance owns the live bridge. A per-instance token keeps
+  /* The render-time instance owns the live bridge; a per-instance token keeps
      an unmount cleanup from nulling a bridge a newer instance already took
-     over (same-path keyed remounts run old cleanups after the new render). */
+     over. */
   const bridgeSelfRef = useRef(null)
   if (bridgeSelfRef.current === null) {
     bridgeSelfRef.current = {
@@ -212,10 +204,9 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
     let view
     if (retained !== null) {
       /* Restored session: build the view around the retained EditorState so
-         the doc, undo history, selection and folds come back as they were.
-         The retained state already carries its own update listener (the
-         module-level handleEditorUpdate), which routes through the live
-         bridge — no new listener is added here. */
+         the doc, undo history, selection and folds come back as they were;
+         the retained state already carries its update listener, which routes
+         through the live bridge. */
       view = new EditorView({ parent: host.current, state: retained })
     } else {
       const descriptor = languageFor(file.name)
@@ -232,37 +223,33 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
             EditorState.allowMultipleSelections.of(true), indentOnInput(), bracketMatching(), closeBrackets(),
             highlightSelectionMatches(), highlightActiveLine(), syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
             /* The search panel renders into a container div between the status
-               bar and the preview body: top:true puts it in the top panel group
-               (the @codemirror/search default is bottom); panels({ topContainer })
-               places that group in the plugin-owned container, not in the editor. */
+               bar and the preview body: top:true puts it in the top panel group,
+               and panels({ topContainer }) places that group in the
+               plugin-owned container. */
             search({ top: true }),
             panels(searchPanelContainer?.current ? { topContainer: searchPanelContainer.current } : undefined),
             /* Search/goto-line panel labels render through EditorState.phrase();
-               without this map they show English. Keys mirror @codemirror/search's
-               phrases; keep the $ placeholders. The compartment follows the
-               active locale (English keeps the built-in defaults). */
+               without this map they show English. Keys mirror
+               @codemirror/search's phrases; keep the $ placeholders. */
             comps.phrases.of(localeIsZh() ? EditorState.phrases.of(CM_PHRASES_ZH) : []),
             syntaxHighlighting(tokenHighlight),
             keymap.of([
-              /* Mod-s is deliberately NOT bound here: the window-level capture
-                 handler owns it so saving works from every focus state (same
-                 single-path rule as Ctrl+K and the find workflow). */
+              /* Mod-s is deliberately not bound here: the window-level capture
+                 handler owns it so saving works from every focus state. */
               indentWithTab, ...closeBracketsKeymap, ...defaultKeymap,
               /* Editor-only search keys stay in the keymap: Escape closes the
                  panel; Ctrl+D / Ctrl+Shift+L / Ctrl+Alt+G select occurrences,
-                 matches, or jump to a line. The find workflow (Ctrl/Cmd+F,
-                 Ctrl/Cmd+G, F3) is deliberately NOT bound here — the window
-                 capture handler owns it so it works from every focus state
-                 (single path, same as Ctrl+K). */
+                 matches, or jump to a line. The find workflow is deliberately
+                 not bound here — the window capture handler owns it. */
               { key: 'Escape', run: closeSearchPanel, scope: 'editor search-panel' },
               { key: 'Mod-Shift-l', run: selectSelectionMatches },
               { key: 'Mod-Alt-g', run: gotoLine },
               { key: 'Mod-d', run: selectNextOccurrence, preventDefault: true },
               ...historyKeymap, ...foldKeymap,
             ]),
-            /* The listener is part of the STATE configuration: retained states
+            /* The listener is part of the state configuration: retained states
                keep it across view rebuilds, and handleEditorUpdate delegates
-               to whichever instance currently owns the live bridge. */
+               to whichever instance owns the live bridge. */
             EditorView.updateListener.of(handleEditorUpdate),
             comps.editable.of([
               EditorView.editable.of(editing),
@@ -294,8 +281,8 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
     }
     view.scrollDOM.addEventListener('scroll', reportScroll)
     editorRef.current = view
-    // A reveal consumes itself (parent clears the request), so the second pass
-    // must not fall through to the persisted scrollTop; the closure flag scopes that.
+    // A reveal consumes itself, so the second pass must not fall through to the
+    // persisted scrollTop; the closure flag scopes that.
     let revealHandled = false
     const restoreScroll = () => {
       const target = revealRef.current
@@ -310,26 +297,23 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
     }
     restoreScroll()
     // Second pass after layout: the first assignment can be clamped before the
-    // browser sizes the fresh editor content; next frame the real height exists.
-    // Known limitation: rAF is paused while the tab is backgrounded, so a file
-    // opened in a hidden tab restores its scroll on the next visible frame —
-    // acceptable (the value is re-read from the tab on the next open anyway).
+    // browser sizes the fresh content. rAF is paused while the tab is
+    // backgrounded, so a file opened in a hidden tab restores its scroll on the
+    // next visible frame.
     const animation = requestAnimationFrame(restoreScroll)
     contextRef.current(view.state)
     return () => {
       cancelAnimationFrame(animation)
       // React removes the editor DOM before passive cleanups, so a detached
-      // scroller reads scrollTop as 0; reporting that would poison the live
-      // scroll map and wipe the next remount's restore target. Only report
-      // while still connected.
+      // scroller reads scrollTop as 0; only report while still connected.
       if (view.scrollDOM.isConnected) scrollRef.current?.(file.path, view.scrollDOM.scrollTop)
       view.scrollDOM.removeEventListener('scroll', reportScroll)
       if (editorRef.current === view) editorRef.current = undefined
       if (liveEditorBridge.current === bridgeSelfRef.current) liveEditorBridge.current = null
       view.destroy()
     }
-    // Rebuild only on a real re-read (path/encoding/read epoch), never on save:
-    // rebuilding after a save would wipe the undo history and caret position.
+    // Rebuild only on a real re-read (path/encoding/read epoch), never on save,
+    // which would wipe the undo history and caret position.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [file.path, file.encoding, readEpoch])
 
@@ -359,18 +343,16 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
     if (view === undefined || reveal === null) return
     /* Same path guard as the mount-time restoreScroll: in a fast file switch
        the effect can fire with a stale reveal while editorRef already points
-       at the NEW file's editor — jumping to the old file's line would be wrong
-       (and would consume the reveal). */
+       at the new file's editor. */
     if (reveal.path !== file.path) return
     revealPosition(view, reveal)
     markRevealApplied(reveal)
   }, [reveal])
 
   // Ctrl+K+J / Ctrl+K+<n> are handled at the window level (capture phase) so
-  // they work in every focus state; the editor keymap path proved unreliable,
-  // so it deliberately does not bind these keys (one handling path avoids
-  // folding twice). Keys are consumed only for the Ctrl+K prefix and its
-  // completion J / 1..9.
+  // they work in every focus state; the editor keymap deliberately does not
+  // bind them. Keys are consumed only for the Ctrl+K prefix and its completion
+  // J / 1..9.
   useEffect(() => {
     let armed = false
     let timer
@@ -378,8 +360,8 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
     const onKeyDown = (event) => {
       const view = editorRef.current
       if (view === undefined) return
-      // IME composition must never arm or complete the fold sequence (same as
-      // other shortcut paths): composing keystrokes pass through untouched.
+      // IME composition must never arm or complete the fold sequence; composing
+      // keystrokes pass through untouched.
       if (event.isComposing) { cancel(); return }
       const target = event.target
       // Outside text fields (chat, rename, search, dialogs) keep their keys; the editor's contenteditable is inside host.
@@ -395,10 +377,8 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
       const key = String(event.key).toLowerCase()
       const isCtrlK = key === 'k' && (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey
       /* The prefix is consumed only while the editor is focused or the focus
-         sits on the explorer's own chrome (tree rows, tabs, panel headers) —
-         the fold workflow's natural focus states. Anywhere else (buttons,
-         body, harness chrome) Ctrl+K passes through to the harness instead of
-         being swallowed by the capture listener. */
+         sits on the explorer's own chrome (tree rows, tabs, panel headers);
+         anywhere else Ctrl+K passes through to the harness. */
       const foldChrome = target instanceof Element
         && target.closest('.dsh-ws-tree-row, .dsh-ws-preview-tab, .dsh-ws-panel-header') !== null
       if (isCtrlK && (insideEditor || foldChrome)) {
@@ -413,19 +393,15 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
       if (!armed) return
       cancel()
       /* The arm window may have outlived the focus: if the user moved focus to
-         an external input (chat, rename, search, dialogs) after arming, the
-         completion key belongs to that field — pass it through instead of
-         folding. (The pre-arm guard above already cancels on such targets;
-         this is the same fence at the completion site so a future reorder of
-         the guards cannot swallow a keystroke.) */
+         an external input after arming, the completion key belongs to that
+         field — pass it through instead of folding. */
       if (!insideEditor && target instanceof Element
         && (target.isContentEditable || target.closest('input, textarea, select') !== null)) {
         return
       }
-      /* Completion keys must carry NO modifiers: within the 1 s arm window a
-         plain J / 1..9 completes the sequence, but Ctrl+J, Ctrl+1, Shift+J etc.
-         are the user's own shortcuts and must pass through untouched instead of
-         being hijacked as a fold command. */
+      /* Completion keys must carry no modifiers: within the 1 s arm window a
+         plain J / 1..9 completes the sequence, but modified shortcuts must
+         pass through untouched. */
       const hasModifier = event.ctrlKey || event.metaKey || event.altKey || event.shiftKey
       if (!hasModifier && key === 'j') {
         event.preventDefault()
@@ -449,25 +425,22 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
 
   // Find shortcuts (Ctrl/Cmd+F, Ctrl/Cmd+G, Ctrl/Cmd+Shift+G, F3, Shift+F3)
   // are handled at the window level (capture phase) so they work in every
-  // focus state, like Ctrl+K above; the editor keymap deliberately does not
-  // bind them (one handling path). With no editor mounted, keys pass through
-  // so the browser's own find still works.
+  // focus state; with no editor mounted, keys pass through so the browser's
+  // own find still works.
   useEffect(() => {
     const onKeyDown = (event) => {
       const view = editorRef.current
       if (view === undefined) return
-      // IME composition must never trigger find shortcuts (same guard as the
-      // Ctrl+K handler and the explorer clipboard handler): composing
-      // keystrokes pass through untouched.
+      // IME composition must never trigger find shortcuts; composing keystrokes
+      // pass through untouched.
       if (event.isComposing) return
-      /* A modal dialog (new/rename/delete, save-conflict) is open: the search
-         panel would render behind its backdrop (z-index below the dialog) and
-         the keys belong to the dialog — pass through. */
+      /* A modal dialog is open: the search panel would render behind its
+         backdrop and the keys belong to the dialog — pass through. */
       if (typeof document !== 'undefined' && document.querySelector('.dsh-ws-dialog-backdrop') !== null) return
       const target = event.target
       // Outside text fields (chat, rename, dialogs) keep their keys; the
-      // editor's contenteditable and the search panel input (in the search
-      // container) are editor-internal and still reach this handler.
+      // editor's contenteditable and the search panel input are editor-internal
+      // and still reach this handler.
       const panelContainer = searchPanelContainer?.current
       const insideEditor = (host.current !== null && target instanceof Node && host.current.contains(target))
         || (panelContainer !== null && target instanceof Node && panelContainer.contains(target))
@@ -503,18 +476,15 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
   }, [])
 
   // Save shortcut (Ctrl/Cmd+S) at the window level (capture phase) so it works
-  // from every focus state — the editor keymap path only fired while the
-  // editor itself was focused, leaving Ctrl+S to the browser's save dialog
-  // whenever the user had moved focus to the chat or a button. The save
-  // callback itself no-ops when the tab is clean or saving.
+  // from every focus state; the editor keymap path only fired while the editor
+  // itself was focused. The save callback no-ops when the tab is clean or
+  // saving.
   useEffect(() => {
     const onKeyDown = (event) => {
       if (event.isComposing) return
       /* A modal dialog is open (same rule as the find shortcuts): the save
-         belongs to the dialog's context. Acting behind its backdrop would save
-         a file the user cannot see — and in the save-conflict dialog the tab is
-         legitimately `saving`, so the keystroke would be swallowed with no
-         feedback. */
+         belongs to the dialog's context, since acting behind its backdrop would
+         save a file the user cannot see. */
       if (typeof document !== 'undefined' && document.querySelector('.dsh-ws-dialog-backdrop') !== null) return
       const key = String(event.key).toLowerCase()
       const isSave = key === 's' && (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey
@@ -530,19 +500,15 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
   }, [])
 
   // Search field drag-to-resize grip: CodeMirror builds the panel DOM itself
-  // and SearchPanel is not exported, so watch the panel container for
-  // .cm-panel.cm-search and wrap its [main-field] input in an inline-flex
-  // wrapper with a col-resize handle (once per input; the panel creates a
-  // fresh input each time it opens).
+  // and SearchPanel is not exported, so watch the panel container and wrap its
+  // [main-field] input in an inline-flex wrapper with a col-resize handle.
   useEffect(() => {
     const container = searchPanelContainer?.current
     if (container === null || container === undefined) return undefined
     let detach = undefined
     const enhance = () => {
-      /* The panel can close while a drag is in flight (Escape, blur): the
-         pointer listeners are on window and would otherwise linger until the
-         next drag or the editor unmount. Detach them as soon as the panel
-         leaves the DOM. */
+      /* The panel can close while a drag is in flight; detach the window
+         pointer listeners as soon as the panel leaves the DOM. */
       if (container.querySelector('.cm-panel.cm-search') === null) {
         detach?.()
         return
@@ -577,8 +543,7 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
         }
         const onPointerUp = () => { detachPointer() }
         // Replace any prior drag state so a second drag cannot leak a stale
-        // pair; the cleanup also detaches, so an unmount mid-drag never leaves
-        // window listeners bound to a detached input.
+        // pair; the cleanup also detaches on unmount.
         detachPointer()
         moveListener = onPointerMove
         upListener = onPointerUp

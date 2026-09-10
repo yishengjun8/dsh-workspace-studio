@@ -1,8 +1,6 @@
-/** Chat drop mask: track file drags over the chat pane (capture phase,
+/** Chat drop mask: tracks file drags over the chat pane (capture phase,
  *  without stopping propagation, so the harness composer still receives the
- *  drop and attaches images as usual). The mask covers only the chat pane;
- *  the harness's full-viewport mask is hidden by CSS. Closing the mask
- *  suppresses it for the current drag until it ends or is dropped. */
+ *  drop). Closing the mask suppresses it for the current drag until it ends. */
 import { useEffect, useRef, useState } from 'react'
 import { hasDraggedFiles } from '../utils.js'
 
@@ -30,16 +28,9 @@ export function useChatDropMask({ chatSectionRef }) {
       setChatDropActive(true)
     }
     const onDragLeave = (event) => {
-      /* Firefox can clear dataTransfer.types on dragleave, and OS file drags
-         never fire window dragend — gating the decrement on hasDraggedFiles
-         here could leave the depth stuck at 1 and the mask up until the next
-         drag. Decrement unconditionally (dragenter only ever incremented for
-         file drags, so non-file drags hit the Math.max floor harmlessly).
-         Closing the hint mid-drag (suppressed) then leaving the section must
-         not mute every later drag forever: the decrement runs even while
-         suppressed (suppressed drags never incremented, so the depth reaches
-         0 on the first leave and hide() clears the flag) — same self-healing
-         contract as the preview-pane drop handler. */
+      /* Decrement unconditionally: Firefox can clear dataTransfer.types on
+         dragleave and OS file drags never fire window dragend, so gating on
+         hasDraggedFiles could leave the depth stuck and the mask up. */
       depth = Math.max(0, depth - 1)
       if (depth === 0) hide()
     }

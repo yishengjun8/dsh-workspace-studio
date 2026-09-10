@@ -1,10 +1,4 @@
-/* Renderer registry: extension-matched view modes for the preview pane,
-   mirroring the harness right-Sidebar document-preview pipeline (extension
-   band first, then longest suffix). The plugin renders with its own
-   components over the kept-mounted CodeMirror editor; PDF is deferred.
-   View modes: 'edit' = the editor; 'preview' = the rendered view (Markdown
-   overlay / HTML iframe / paged read-only browse). Image files render
-   standalone and never enter the text read path. */
+/* Renderer registry: extension-matched view modes for the preview pane, mirroring the harness document-preview pipeline (extension band first, then longest suffix). */
 import { translate } from '../locale/index.js'
 
 export const VIEW_EDIT = 'edit'
@@ -15,8 +9,7 @@ export const RENDERER_HTML = 'html'
 export const RENDERER_IMAGE = 'image'
 export const RENDERER_CODE = 'code'
 
-/* One renderer definition: id + recognized suffixes (no leading dot;
-   compound suffixes are accepted by the longest-match ranking). */
+/* One renderer definition: id + recognized suffixes (no leading dot). */
 const RENDERERS = Object.freeze([
   { id: RENDERER_MARKDOWN, extensions: ['md', 'markdown', 'mdx'] },
   { id: RENDERER_HTML, extensions: ['html', 'htm'] },
@@ -24,9 +17,7 @@ const RENDERERS = Object.freeze([
   { id: RENDERER_CODE, extensions: [] },
 ])
 
-/* Rank the renderers matching one file name: longest suffix first, then
-   registration order (same ranking as the harness documentPreviews
-   registry's matchingDocumentPreviews). */
+/* Rank matching renderers: longest suffix first, then registration order. */
 export function matchingRenderers(name) {
   const normalized = String(name ?? '').replaceAll('\\', '/').toLowerCase()
   const base = normalized.slice(normalized.lastIndexOf('/') + 1)
@@ -43,8 +34,7 @@ export function matchingRenderers(name) {
     .map(candidate => candidate.renderer)
 }
 
-/* File suffixes mapped to grammars already supported by the shared CodeBlock
-   (shiki ids, NOT the CodeMirror ids of languages.js). */
+/* File suffixes mapped to grammars supported by the shared CodeBlock (shiki ids, not the CodeMirror ids of languages.js). */
 const SHIKI_LANGUAGE_BY_EXTENSION = Object.freeze({
   ts: 'typescript', tsx: 'typescript', mts: 'typescript', cts: 'typescript',
   js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript',
@@ -81,13 +71,7 @@ export function isImageName(name) {
   return matchingRenderers(name).some(renderer => renderer.id === RENDERER_IMAGE)
 }
 
-/* The viewer-menu items for the active file: 'edit' is always present for
-   text files; 'preview' is the rendered view. A read-only text file
-   (truncated / too large / read-only) offers a paged read-only browse of the
-   FULL file, which the editor cannot show; editable files keep the editor
-   only. External (dropped) files have no workspace path the Remote could
-   read, so they never offer the browse view. Image files have a single
-   auto-selected view and no menu. */
+/* The viewer-menu items for the active file: 'edit' is always present for text files; 'preview' is the rendered view. Read-only text files offer a paged browse of the full file; external files never offer it; image files have a single auto-selected view. */
 export function viewerCandidates(preview, name, external) {
   if (isImageName(name)) return [{ id: 'image', label: translate('renderer.image') }]
   if (isMarkdownName(name)) {

@@ -1,25 +1,14 @@
-/* Global in-memory (never persisted) cache of decoded file-read payloads.
+/* Global in-memory (never persisted) cache of decoded file-read payloads,
+ * keyed per (workspaceId, path, encoding) with the DISK CHANGE SNAPSHOT the
+ * payload was read against, so a re-activation paints instantly and only
+ * re-fetches when a change check reports the disk moved.
  *
- * The workspace explorer re-reads a file's full content on every activation
- * (tab switch, encoding re-open, explorer remount on session/workspace
- * switch). This module keeps the last readFile payload per
- * (workspaceId, path, encoding) together with the DISK CHANGE SNAPSHOT the
- * payload was read against, so a re-activation can paint instantly and only
- * re-fetch when a cheap change check reports the disk moved.
- *
- * Invariants (dev-notes §23):
- * - CONTENT AND SNAPSHOT ALWAYS MOVE TOGETHER: a baseline-only update (a
- *   poll observing a change) must never be written into an entry — it would
- *   make the next activation "validate" stale content against the new disk
- *   state and serve it as fresh. When the disk moved, the entry is dropped.
- * - The payload is DISK content only; restored drafts never enter the cache.
- * - The cache is bounded (entry/byte caps, LRU per path) and dies with the
- *   page: a full refresh re-reads once, exactly like the pre-cache behavior.
- *
- * Key layout: workspaceId \u0000 path \u0000 encoding — the RESULT encoding
- * the tab carries (a plain file open without a BOM decodes under the
- * requested encoding, so keying on the payload's own encoding keeps every
- * later activation on the same key). */
+ * Invariants (dev-notes §23): content and snapshot always move together (a
+ * baseline-only update is never written into an entry — when the disk moved
+ * the entry is dropped); the payload is disk content only (restored drafts
+ * never enter); the cache is bounded and dies with the page. Key layout:
+ * workspaceId \u0000 path \u0000 encoding (the RESULT encoding the tab
+ * carries). */
 import { FILE_CACHE_MAX_BYTES, FILE_CACHE_MAX_ENTRIES, FILE_CACHE_MAX_ENTRY_BYTES } from './constants.js'
 
 const SEP = '\u0000'
@@ -38,7 +27,7 @@ function removePath(key) {
   for (const entry of group.encodings.values()) totalBytes -= entry.bytes
   return true
 }
-/* Drop oldest path groups until the byte/count caps fit `extra`. A single over-cap path is skipped at store time, so eviction always converges. */
+/* Drop oldest path groups until the byte/count caps fit `extra`; a single over-cap path is skipped at store time, so eviction always converges. */
 function evictFor(extra) {
   while ((cache.size >= FILE_CACHE_MAX_ENTRIES || totalBytes + extra > FILE_CACHE_MAX_BYTES) && cache.size > 0) {
     let oldestKey
@@ -71,7 +60,7 @@ export function getCachedPreview(workspaceId, path, encoding) {
   touch(keyOf(workspaceId, path), Date.now())
   return { payload: entry.payload, snapshot: entry.snapshot }
 }
-/* Store (or replace) one (path, encoding) payload+snapshot pair. Payloads larger than FILE_CACHE_MAX_ENTRY_BYTES are not cached (they would dominate the budget and evict everything else on every open). */
+/* Store (or replace) one (path, encoding) payload+snapshot pair; payloads larger than FILE_CACHE_MAX_ENTRY_BYTES are not cached. */
 export function storeCachedPreview(workspaceId, path, encoding, payload, snapshot) {
   const enc = String(encoding ?? 'utf-8')
   if (typeof payload?.content !== 'string') return
@@ -91,7 +80,7 @@ export function storeCachedPreview(workspaceId, path, encoding, payload, snapsho
   totalBytes += bytes
   touch(pathKey, Date.now())
 }
-/* Refresh the snapshot of an existing entry after a successful UNCHANGED change check (same disk state, fresher stat/checkedAt). Never call with a snapshot describing a DIFFERENT disk state than the stored payload. */
+/* Refresh an entry's snapshot after a successful UNCHANGED change check; never call with a snapshot describing a different disk state than the stored payload. */
 export function refreshCachedSnapshot(workspaceId, path, encoding, snapshot) {
   const group = cache.get(keyOf(workspaceId, path))
   if (group === undefined) return
@@ -137,7 +126,7 @@ export function diskSnapshot(mtimeMs, size, revision) {
     checkedAt: Date.now(),
   }
 }
-/* Change-signal equality of two snapshots: mtime/size/hash only (checkedAt is a per-check timestamp and never participates in content identity). */
+/* Change-signal equality of two snapshots: mtime/size/hash only (checkedAt never participates in content identity). */
 export function sameDiskSnapshot(a, b) {
   if (a === b) return true
   if (a === undefined || a === null || b === undefined || b === null) return false

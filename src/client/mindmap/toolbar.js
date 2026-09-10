@@ -6,9 +6,8 @@ import { MINDMAP_TOOLBAR_ICONS } from './cards.js'
 
 export function MindMapToolbar({ settings, restoreView, addRootSession, startArchiveAll, startRegenerateAll }) {
   return h('div', { className: 'dsh-ws-mindmap-toolbar' },
-        /* Create a new top-level empty session — the same action as clicking
-           the virtual root node (addRootSession), exposed as a highlighted
-           toolbar button (light-blue pill + plus badge echoing the root). */
+        /* Create a new top-level empty session, same as clicking the virtual
+           root node, exposed as a highlighted toolbar button. */
         h('button', {
           className: 'dsh-ws-mindmap-toolbar-button dsh-ws-mindmap-toolbar-button-new',
           onClick: addRootSession,
@@ -33,8 +32,8 @@ export function MindMapToolbar({ settings, restoreView, addRootSession, startArc
                 strokeWidth: MINDMAP_TOOLBAR_ICONS.restore.sw,
               }))),
           translate('mindmap.view.restore')),
-        /* 重新生成全部摘要: only meaningful with the AI-summary feature on (no
-           model to regenerate with otherwise) — same gate as the card menu item. */
+        /* Regenerate-all summaries: only meaningful with the AI-summary feature
+           on, same gate as the card menu item. */
         settings.mindmapSummaryEnabled === true
           ? h('button', { className: 'dsh-ws-mindmap-toolbar-button', onClick: startRegenerateAll, title: translate('mindmap.summary.regenerateAll'), type: 'button' },
             h('span', { 'aria-hidden': true, className: 'dsh-ws-mindmap-toolbar-badge' },

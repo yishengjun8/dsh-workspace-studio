@@ -5,8 +5,7 @@ export class HttpError extends Error {
     this.name = 'HttpError'
     this.status = status
     this.code = code
-    /* Optional structured payload (e.g. { currentGeneration } on a draft
-       generation conflict) so a client can recover without parsing prose. */
+    /* Optional structured payload (e.g. { currentGeneration } on a draft generation conflict) so a client can recover without parsing prose. */
     if (data !== undefined) this.data = data
   }
 }

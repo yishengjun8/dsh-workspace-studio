@@ -93,8 +93,7 @@ export function usePreviewScrollbar({ previewTabsRef, previewScrollbarRef, previ
     const frame = requestAnimationFrame(syncPreviewScrollbar)
     return () => cancelAnimationFrame(frame)
   })
-  // Scroll a target tab fully visible — the tab requested by pin/unpin or a preview-body
-  // click, else the newly activated tab. One-shot: consume the path so later changes fall back.
+  // Scroll a target tab fully visible (pin/unpin, preview-body click, or the newly activated tab); one-shot, so the path is consumed.
   useLayoutEffect(() => {
     const strip = previewTabsRef.current
     const target = tabScrollPathRef.current ?? activePath
@@ -107,8 +106,7 @@ export function usePreviewScrollbar({ previewTabsRef, previewScrollbarRef, previ
       }
     }
     if (tabNode === null) {
-      // Tab not (yet) rendered — e.g. a pinned tab scrolled right after closing. Consume the
-      // one-shot request so a later unrelated activePath change doesn't re-target the stale path.
+      // Tab not (yet) rendered; consume the one-shot request so a later activePath change doesn't re-target the stale path.
       if (tabScrollPathRef.current === target) tabScrollPathRef.current = null
       return
     }
@@ -124,8 +122,7 @@ export function usePreviewScrollbar({ previewTabsRef, previewScrollbarRef, previ
     strip.scrollTo({ left: strip.scrollLeft + delta, behavior: 'smooth' })
     tabScrollPathRef.current = null
   }, [activePath, pinScrollToken])
-  // Wheel over the overflowing strip scrolls it horizontally; a native non-passive listener
-  // is required so the default (page) scroll can be prevented.
+  // Wheel over the overflowing strip scrolls it horizontally; a non-passive listener lets us prevent the default page scroll.
   useEffect(() => {
     const strip = previewTabsRef.current
     if (strip === null) return undefined

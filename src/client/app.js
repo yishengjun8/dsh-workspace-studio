@@ -10,9 +10,8 @@ import { checkFileChange, createWorkspaceEntry, deleteDraft, deleteMindmapDoc, p
 import { createExplorerPaneStore, createExplorerSettingsStore, createLayoutStore, createPreviewSessionStore, LayoutController } from './stores.js'
 import { EditorContextController, PromptContextBridge, selectWorkspaceForSession, workspaceOfSession } from './controllers.js'
 import { EditorContextPrefix, installEditorContextMessageCompactor } from './context-bridge.js'
-/* The session-row context menu is a FIXED 3 items + separator; clamp its top
-   edge against its real height (not the 52 px used for other overlays), so
-   the last item stays reachable near the bottom of the viewport. */
+/* The session-row context menu is a fixed 3 items + separator; clamp its top
+   edge against its real height so the last item stays reachable. */
 const SESSION_CONTEXT_MENU_HEIGHT = 140
 import { ThemePresenter } from './theme.js'
 import { mindmapRegistry, useMindmapRegistry } from './mindmap/registry.js'
@@ -42,12 +41,9 @@ export function AppFrame(props) {
   const panes = useSyncExternalStore(props.explorerPaneStore.subscribe, props.explorerPaneStore.getSnapshot)
   const mobile = useMobile()
   /* One-time self-heal for legacy over-limit data: prunePreviewSessions only
-     runs inside rememberPreviewSession, so a localStorage snapshot holding
-     more than PREVIEW_SESSION_MAX keys (written before the cap existed) would
-     stay oversized — and keep 3-key whole-value serializations large — until
-     the next real write. Re-stamping every key through the store action
-     converges to the cap in one pass and refreshes updatedAt so genuinely
-     stale sessions prune first. */
+     runs inside rememberPreviewSession, so a snapshot holding more than
+     PREVIEW_SESSION_MAX keys stays oversized until the next real write.
+     Re-stamping every key converges to the cap in one pass. */
   useLayoutEffect(() => {
     const entries = previewPanels.previewSessions
     if (entries === null || entries === undefined || typeof entries !== 'object') return
@@ -58,12 +54,11 @@ export function AppFrame(props) {
   }, [])
   // Mirror the sidebar width into the persisted pane store: the layout store
   // owns the live value but cannot persist wholesale, so the pane store's
-  // small layout value is the durable copy, rehydrated on the next load.
+  // small layout value is the durable copy.
   const sidebarMirrorRef = useRef(null)
-  // Viewport-driven sidebar width ceiling. Declared BEFORE the mirror effect
-  // below (and the mobile-header effect reading chatSectionRef): the persisted
-  // value must not be clamped to the 420 fallback while the live grid allows
-  // a wider sidebar, or a refresh loses the wider width.
+  // Viewport-driven sidebar width ceiling. Declared before the mirror effect
+  // below so the persisted value is not clamped to the 420 fallback while the
+  // live grid allows a wider sidebar.
   const viewportRef = useRef(null)
   const chatSectionRef = useRef(null)
   const [viewportWidth, setViewportWidth] = useState(0)
@@ -71,19 +66,15 @@ export function AppFrame(props) {
     ? Math.max(SIDEBAR_MIN, Math.floor(viewportWidth * SIDEBAR_MAX_RATIO))
     : SIDEBAR_MAX_FALLBACK
   useLayoutEffect(() => {
-    // In mobile mode the sidebar width is a transient force-expand (the mobile
-    // effect unfolds a collapsed sidebar so the drawer shows full content);
-    // persisting it would make a mobile-mode refresh lose the user's collapsed
-    // preference. While mobile, only track the value in the ref; the exit
-    // render compares against the restored desktop width and writes once.
+    // In mobile mode the sidebar width is a transient force-expand; persisting
+    // it would make a mobile-mode refresh lose the user's collapsed preference.
+    // While mobile, only track the value in the ref.
     if (mobile.on) {
       sidebarMirrorRef.current = { value: panels.sidebar, max: sidebarMax }
       return
     }
-    // Re-mirror when the VALUE changed (the ceiling only clamps the write);
-    // keep the ref current on a ceiling-only change (viewport resize) WITHOUT
-    // rewriting the persisted store — a whole-store setItem per resize tick
-    // is pure cost when the value did not move.
+    // Re-mirror when the value changed; on a ceiling-only change (viewport
+    // resize) keep the ref current without rewriting the persisted store.
     const previousMirror = sidebarMirrorRef.current
     if (previousMirror?.value !== panels.sidebar) {
       sidebarMirrorRef.current = { value: panels.sidebar, max: sidebarMax }
@@ -93,15 +84,13 @@ export function AppFrame(props) {
     }
   }, [mobile.on, panels.sidebar, props.explorerPaneStore, sidebarMax])
   // In mobile file-fullscreen the conversation header stays pinned above the
-  // file browsing page; its live height feeds --dsh-ws-mobile-header-h so the
-  // preview fills the phone column below it.
+  // file browsing page; its live height feeds --dsh-ws-mobile-header-h.
   const currentSession = props.useSessions(state => state.current)
   const sessionIds = props.useSessions(state => state.ids)
   const [mobileHeaderHeight, setMobileHeaderHeight] = useState(MOBILE_HEADER_FALLBACK_H)
   useLayoutEffect(() => {
-    // A session switch may swap the header element (or blank it out entirely);
-    // reset to the fallback on every pass, then re-measure when present, so the
-    // pinned file page never sits under a stale or missing header height.
+    // A session switch may swap or blank the header element; reset to the
+    // fallback on every pass, then re-measure when present.
     setMobileHeaderHeight(MOBILE_HEADER_FALLBACK_H)
     if (!mobile.on || !mobile.files) return undefined
     const section = chatSectionRef.current
@@ -117,11 +106,9 @@ export function AppFrame(props) {
       observer.observe(headerElement)
       return () => { observer.disconnect() }
     }
-    /* The header may mount a frame or two AFTER this layout effect (the
-       conversation slot renders asynchronously): retry for a few frames before
-       giving up, so the fixed file page does not sit under a stale fallback
-       height for the whole session. Both paths funnel their observer cleanup
-       through detachObserver so a late-found header never leaks its observer. */
+    /* The header may mount a frame or two after this layout effect, so retry
+       for a few frames before giving up; both paths funnel their observer
+       cleanup through detachObserver so a late-found header never leaks. */
     let detachObserver = undefined
     let rafId = 0
     const findHeader = () => section.querySelector('[data-slot="conversation.session.header"]')
@@ -144,23 +131,20 @@ export function AppFrame(props) {
     }
     return () => { cancelAnimationFrame(rafId); detachObserver?.() }
   }, [currentSession, mobile.files, mobile.on])
-  /* Sidebar mind-map entry icon spin: user speed multiplier (1.2x default over
-     the 1.2 s base = 1 s per revolution; larger = faster) becomes the
+  /* Sidebar mind-map entry icon spin: the user speed multiplier becomes the
      animation duration var; speed 0 freezes the spin. */
   const mindmapSpinSpeed = clampSpinSpeed(settings.mindmapSpinSpeed)
   const mindmapSpinDuration = mindmapSpinSpeed > 0
     ? `${(MINDMAP_SPIN_BASE_DURATION_S / mindmapSpinSpeed).toFixed(3)}s`
     : `${MINDMAP_SPIN_STOP_DURATION_S}s`
   // One accent custom property per color group; unset groups resolve to their
-  // default inside the CSS rule's var() fallback (the value here is the
-  // effective color either way, so the fallback is only a safety net).
+  // default inside the CSS rule's var() fallback.
   const fileColorVars = {}
   for (const { group } of FILE_COLOR_GROUPS) fileColorVars[`--dsh-ws-file-${group}`] = fileColorOf(settings, group)
   // The session rename dialog targets the current session id.
   const sessionId = currentSession
   // The workspace-files header names the current session (its durable title)
-  // instead of a fixed label, so the panel reads as belonging to the session
-  // being worked on; fall back when none is selected.
+  // instead of a fixed label; fall back when none is selected.
   const sessionTitle = props.useSessions(state => state.current === undefined
     ? undefined
     : state.byId[state.current]?.title)
@@ -171,9 +155,9 @@ export function AppFrame(props) {
     && state.byId[state.current]?.blank === false)
   const workspaces = props.useWorkspaces(state => state.items)
   const recent = props.useWorkspaces(state => state.recentWorkspaceId)
-  // Right-click session-list menu (harness-rendered sidebar rows), the in-place
-  // rename overlay, and archive/reveal feedback are owned here because the
-  // target rows live in the harness sidebar slot this component renders.
+  // Right-click session-list menu, the in-place rename overlay, and
+  // archive/reveal feedback are owned here because the target rows live in the
+  // harness sidebar slot this component renders.
   const mountedRef = useRef(true)
   useEffect(() => {
     mountedRef.current = true
@@ -196,7 +180,7 @@ export function AppFrame(props) {
 
   /* Same two-stage resolution as workspaceOfSession (membership first, then
      cwd): the explorer mount and the editor-context injection must never land
-     on different workspaces for the same session (U1 audit). */
+     on different workspaces for the same session. */
   const workspace = useMemo(() => currentSession !== undefined
     ? selectWorkspaceForSession(workspaces, currentSession, currentCwd)
     : workspaces.find(item => item.workspaceId === recent),
@@ -209,15 +193,10 @@ export function AppFrame(props) {
     if (currentSession !== undefined) props.activateEditorSession(String(currentSession))
   }, [currentSession, props.activateEditorSession])
   /* Shared dsh-ws-preview persistence: every session of the same mind map
-     (root + all branches) reads and writes ONE snapshot keyed by the map's
-     ROOT session id, so the tab strip follows the user across the whole tree;
-     sessions outside any map keep their own key. The registry index can lag
-     briefly (startup fetch, a fork just made in another tab): a member
-     session then falls back to its own key and switches over once the index
-     lands (same accepted staleness as the 30 s background poll). The
-     explorer's React key uses the SAME id, so switching between member
-     sessions keeps the whole preview area MOUNTED (tabs, docked maps, tree)
-     instead of remounting and reloading every view. */
+     (root + all branches) reads and writes one snapshot keyed by the map's
+     root session id; sessions outside any map keep their own key. The
+     explorer's React key uses the same id, so switching between member
+     sessions keeps the whole preview area mounted. */
   const mindmapRegistryState = useMindmapRegistry()
   const previewSessionId = currentSession === undefined
     ? undefined
@@ -226,20 +205,14 @@ export function AppFrame(props) {
   const previewSessionKey = previewSessionSelection.key
   const storedPreviewSession = previewSessionSelection.value
   // Skip a rewrite when this key-set already holds the same snapshot: each
-  // write serializes and stores the whole previewSessions value, so identical
-  // repeat writes (e.g. a layout effect firing with unchanged state) are pure
-  // cost. Keyed per key-set, since switching sessions legitimately writes the
-  // same snapshot to a different key-set.
+  // write serializes the whole previewSessions value, so identical repeat
+  // writes are pure cost.
   const lastPersistedSnapshotRef = useRef(new Map())
   const persistPreviewSession = useCallback((value) => {
     // Write the snapshot to every key restore may pick: the current session's
-    // persistence key (its mind-map ROOT id when the session is a map member,
-    // so the whole tree shares one snapshot) and the workspace anchor. The
-    // selected key joins them only when it IS one of those two (a session that
-    // already owns a snapshot, or the workspace itself). When restore fell
-    // back to ANOTHER session's snapshot (priority ②), that key is a borrowed
-    // template, not a write target: persisting to it would overwrite (or
-    // delete, on an empty snapshot) that session's saved tabs.
+    // persistence key (its mind-map root id when a map member) and the
+    // workspace anchor. The selected key joins them only when it is one of
+    // those two; a borrowed template key is not a write target.
     const keys = new Set()
     if (previewSessionId !== undefined) keys.add(previewSessionId)
     if (workspaceId !== undefined) keys.add(String(workspaceId))
@@ -252,10 +225,8 @@ export function AppFrame(props) {
     const fingerprint = previewSnapshotFingerprint(value)
     if (lastPersistedSnapshotRef.current.get(keySet) === fingerprint) return
     lastPersistedSnapshotRef.current.set(keySet, fingerprint)
-    /* LRU-style bound: evict the OLDEST single entry instead of clearing the
-       whole table — a full clear would re-serialize and re-write every key on
-       the next change (a synchronous full-store write burst). Map iteration
-       order is insertion order, so the first key is the oldest write. */
+    /* LRU-style bound: evict the oldest single entry instead of clearing the
+       whole table, which would re-serialize every key on the next change. */
     if (lastPersistedSnapshotRef.current.size > 128) {
       const oldest = lastPersistedSnapshotRef.current.keys().next().value
       if (oldest !== undefined) lastPersistedSnapshotRef.current.delete(oldest)
@@ -284,24 +255,18 @@ export function AppFrame(props) {
   }, [])
   // Chat drop mask: track file drags over the chat pane (capture phase,
   // without stopping propagation, so the harness composer still receives the
-  // drop and attaches images as usual). The mask covers only the chat pane;
-  // the harness's full-viewport mask is hidden by CSS. Enter/leave use a depth
-  // counter (Chrome's dragleave has a null relatedTarget, so a contains()
-  // check would hide the mask on the first child transition). Closing the mask
-  // suppresses it for the current drag until it ends or is dropped.
-  // Think card behavior (useThinkCard): every think block (data-variant=
-  // "think") is kept open so the harness renders its body (the body exists
-  // only while the disclosure row is open — the row state is internal React
-  // state, toggled by clicking the disclosure row). The card body viewport
-  // shows only the latest --dsh-ws-think-lines rows and stays scroll-pinned
-  // to the newest text. User interaction owns a block: a row collapsed by
-  // the user is never force-reopened.
+  // drop). The mask covers only the chat pane; the harness's full-viewport
+  // mask is hidden by CSS. Enter/leave use a depth counter because Chrome's
+  // dragleave has a null relatedTarget.
+  // Think card behavior (useThinkCard): every think block is kept open so the
+  // harness renders its body; the body viewport shows only the latest
+  // --dsh-ws-think-lines rows and stays scroll-pinned to the newest text. A
+  // row collapsed by the user is never force-reopened.
   const collapsed = panels.sidebar === 0
   // Mobile mode expands the sidebar so the drawer shows the full browsing
-  // content (the rail has no drawer affordance); the previous collapsed state
-  // is restored when mobile turns off (mirroring mobile-preview's
-  // forceExpanded). Declared after `collapsed` so the dependency array reads
-  // an initialized binding (TDZ-safe).
+  // content; the previous collapsed state is restored when mobile turns off.
+  // Declared after `collapsed` so the dependency array reads an initialized
+  // binding (TDZ-safe).
   const sidebarWasCollapsedRef = useRef(null)
   useEffect(() => {
     if (mobile.on) {
@@ -318,16 +283,14 @@ export function AppFrame(props) {
   const filesMode = view === 'files'
   const filesActive = filesMode && !collapsed
   const sidebar = collapsed ? SIDEBAR_COLLAPSED : clamp(panels.sidebar, SIDEBAR_MIN, sidebarMax)
-  // Measure the viewport, not the grid frame: the conversation column can now shrink without a fixed floor.
+  // Measure the viewport, not the grid frame: the conversation column can shrink without a fixed floor.
   const leftStackMax = viewportWidth > 0
     ? Math.max(sidebar + TREE_MIN + PREVIEW_MIN, Math.floor(viewportWidth * EXPLORER_MAX_RATIO))
     : SIDEBAR_MAX_FALLBACK + TREE_MAX + PREVIEW_MAX
   const explorerMax = Math.max(TREE_MIN + PREVIEW_MIN, leftStackMax - sidebar)
   // The workspace file tree lives only in the sidebar files region, revealed
   // only in the files view; the main frame's tree track stays at zero, so
-  // opening the explorer shows only the file preview next to the chat. The
-  // tree always portals into the sidebar seat (hidden in the sessions view)
-  // and never displaces the preview.
+  // opening the explorer shows only the file preview next to the chat.
   const tree = 0
   const previewMax = settings.previewRight === true
     ? Math.max(PREVIEW_MIN, viewportWidth > 0 ? Math.floor(viewportWidth * EXPLORER_MAX_RATIO) : PREVIEW_MAX)
@@ -343,10 +306,8 @@ export function mountStudio(ctx) {
   const layoutStore = createLayoutStore()
   /* The root store instance is shared between the slot registration and the
      panelInfo root contribution: this plugin's patch disables ui-layout, so
-     the plugin itself must provide the usePanelInfo standard hook the
-     harness's WorkspaceBrowser/SidebarRoot read (the shipped ui-layout is
-     the only other provider). The instance is minted here and handed to the
-     registration through a create() override, mirroring ui-layout's pattern. */
+     the plugin must provide the usePanelInfo hook the harness's
+     WorkspaceBrowser/SidebarRoot read. */
   const layoutInstance = layoutStore.create()
   const store = { ...layoutStore, create: () => layoutInstance }
   const panelInfo = {
@@ -357,13 +318,10 @@ export function mountStudio(ctx) {
   const settingsStore = createExplorerSettingsStore().create()
   const explorerPaneStore = createExplorerPaneStore().create()
   // The explorer footer toggle is gone; keep the panes always on-screen.
-  // Persisted `explorerOpen:false` self-heals here, since nothing else can
-  // reopen it anymore.
+  // Persisted `explorerOpen:false` self-heals here.
   explorerPaneStore.actions.setExplorerOpen(true)
-  /* Publish the user's mind-map highlight colors (hover / selected) as
-     document-wide CSS custom properties: every mind-map highlight rule
-     resolves them live, so changing a setting updates open maps instantly
-     (no React re-render), and unset values keep the theme defaults. */
+  /* Publish the user's mind-map highlight colors as document-wide CSS custom
+     properties so changing a setting updates open maps instantly. */
   ctx.effect(() => {
     if (typeof document === 'undefined') return undefined
     const applyMindmapColors = () => {
@@ -378,8 +336,7 @@ export function mountStudio(ctx) {
     return settingsStore.subscribe(applyMindmapColors)
   }, 'workspace-studio: mind-map highlight colors')
   /* Publish the Think-card viewport height (in lines) as a document-wide CSS
-     custom property: the card CSS resolves it live, so moving the settings
-     slider restyles every open card instantly (no React re-render). */
+     custom property so moving the settings slider restyles open cards. */
   ctx.effect(() => {
     if (typeof document === 'undefined') return undefined
     const applyThinkLines = () => {
@@ -390,7 +347,7 @@ export function mountStudio(ctx) {
     return settingsStore.subscribe(applyThinkLines)
   }, 'workspace-studio: think card lines')
   /* Publish the edit-row viewport height (in lines) as a document-wide CSS
-     custom property — the same mechanism as the Think-card line count, but
+     custom property — the same mechanism as the Think-card count, but
      independent (the 编辑显示行数 slider drives --dsh-ws-edit-lines). */
   ctx.effect(() => {
     if (typeof document === 'undefined') return undefined
@@ -402,13 +359,11 @@ export function mountStudio(ctx) {
     return settingsStore.subscribe(applyEditLines)
   }, 'workspace-studio: edit row lines')
   const editorContexts = new EditorContextController()
-  /* Follow the harness language setting (Settings -> General -> Language) when
-     the locale plugin is present: register this plugin's dictionaries, bind
-     the active-locale translator, and expose the locale face to useLocaleText.
-     Without the service everything stays on the zh dictionary. Registered via a
-     deferred inject (same pattern as the commandUi scope below) so a locale
-     service that activates AFTER this plugin still gets wired up — a one-shot
-     ctx.get('locale') at apply time would silently stay on zh forever. */
+  /* Follow the harness language setting when the locale plugin is present:
+     register this plugin's dictionaries, bind the active-locale translator, and
+     expose the locale face to useLocaleText. Without the service everything
+     stays on the zh dictionary. Registered via a deferred inject so a locale
+     service that activates after this plugin still gets wired up. */
   ctx.inject(['locale'], scope => {
     scope.effect(() => {
       const localeService = scope.get('locale')
@@ -416,12 +371,10 @@ export function mountStudio(ctx) {
       return installLocaleService(localeService)
     }, 'workspace-studio: locale dictionaries')
   })
-  /* Standard workspace-files Remote faces for the renderer views (image
-     bytes, HTML relative assets, paged read-only browse): installed when the
-     harness Remote service is available; the views degrade to a failure line
-     on harness builds without it. The namespace service name in the inject
-     list guarantees the workspaceFiles methods are mounted before the effect
-     runs. */
+  /* Standard workspace-files Remote faces for the renderer views (image bytes,
+     HTML relative assets, paged read-only browse): installed when the harness
+     Remote service is available; the views degrade to a failure line without
+     it. */
   ctx.inject(['remote', 'remote.workspaceFiles'], scope => {
     scope.effect(() => {
       const remote = scope.get('remote')
@@ -446,8 +399,7 @@ export function mountStudio(ctx) {
   ctx.effect(() => {
     if (typeof document === 'undefined') return undefined
     // Mobile mode is transient and the document classes are plugin-owned
-    // global state. Clear stale classes on activation and disposal so hot
-    // reload/uninstall cannot leak layout gates to the shell.
+    // global state; clear stale classes on activation and disposal.
     setMobile(false)
     return () => { setMobile(false) }
   }, 'workspace-studio: mobile class lifecycle')
@@ -469,8 +421,7 @@ export function mountStudio(ctx) {
       name: 'root',
       children: {
         sidebar: { kind: 'single', scope: 'root' },
-        /* The harness's conversation moved into the keyed `main` slot (the
-           ui-conversation entry registers under key 'conversation'); the
+        /* The harness's conversation moved into the keyed `main` slot; the
            chat column renders it through renderSlot('main', …, { entryKey }). */
         main: { kind: 'keyed', scope: 'root' },
         details: { kind: 'single', scope: 'session' },
@@ -505,13 +456,12 @@ export function mountStudio(ctx) {
           },
           // Right-click session-list actions: archive via the harness
           // workspaces service and read sessions/workspaces snapshots
-          // imperatively (the AppFrame listener must not subscribe through
-          // hooks to decide whether to show the menu).
+          // imperatively.
           archiveSession: sessionId => ctx.workspaces.archiveSession(sessionId),
           getSessionList: () => ctx.sessions.list.getSnapshot(),
           getWorkspaceItems: () => ctx.workspaces.list.getSnapshot().items,
           // Mind-map sidebar entries open the root session and dock the mind
-          // map as a preview tab (the chat column stays visible).
+          // map as a preview tab.
           openSession: sessionId => { ctx.sessions.open(sessionId) },
           deleteMindmapDoc: (sessionId, signal) => deleteMindmapDoc(sessionId, signal),
           // The docked mind-map view's document/fork/archive action face.
@@ -533,16 +483,14 @@ export function mountStudio(ctx) {
     )
   })
   /* The /init slash command: a popupSelect contribution that resolves the
-     session's workspace, shows the target root, and hands the model a Claude
-     Code /init-style instruction through the session's send seam. Only direct
-     sessions can run it. Registered when ui-commands is present; otherwise
-     the command does not exist. */
+     session's workspace and hands the model a Claude Code /init-style
+     instruction through the session's send seam. Only direct sessions can run
+     it; registered when ui-commands is present. */
   ctx.inject(['commandUi'], scope => {
     scope.effect(() => {
       const commandUi = scope.get('commandUi')
-      // A deferred inject scope can fire without the service present (same
-      // transition the locale block guards): degrade to "no command" instead
-      // of throwing inside the effect run.
+      // A deferred inject scope can fire without the service present: degrade
+      // to "no command" instead of throwing inside the effect run.
       if (commandUi === undefined) return undefined
       const dispose = commandUi.register({
         name: 'init',
@@ -593,20 +541,17 @@ export function mountStudio(ctx) {
       ensureSession: id => { promptContextBridge.ensure(id) },
     }),
   }, EditorContextPrefix))
-  /* Chat edit/write rows: default-open Studio row with the merged diff view
-     (green-background additions, red-strikethrough deletions in one block),
+  /* Chat edit/write rows: default-open Studio row with the merged diff view,
      shadowing the shipped FileMutationRow for the edit/write keys. */
   registerStudioFileMutationToolview(ctx)
   /* Route the chat's file-open path (ctx.sidebarRight.openResource) into the
-     plugin's own preview tabs: the harness right-Sidebar seat never mounts
-     under this root layout, so every open would otherwise throw "no session
-     surface is mounted". */
+     plugin's own preview tabs, since the harness right-Sidebar seat never
+     mounts under this root layout. */
   installOpenResourceRouter(ctx)
   ctx.effect(() => () => { editorContexts.dispose() }, 'workspace-studio: editor context state')
   /* Mobile mode entries: the sidebar-footer toggle, the session-header whale +
-     file-content-browsing controls (declared by ui-conversation), and the
-     hero-page whale (declared by this plugin's root, rendered into the
-     shell.overlay seat). All contributions install when their slot declares. */
+     file-content-browsing controls, and the hero-page whale. All contributions
+     install when their slot declares. */
   ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
     name: 'sidebar.footer.action', id: 'workspace-mobile-toggle', order: 110,
   }, MobileModeToggle))
@@ -615,20 +560,19 @@ export function mountStudio(ctx) {
   }, MobileHeaderControls))
   // The session-switcher dropdown replaces the harness title crumb (CSS hides
   // it; the trigger renders at -400, leftmost). Switching reuses
-  // ctx.sessions.open — the same call the sidebar list uses — so the whole
-  // layout (workspace, preview, chat) follows the new current.
+  // ctx.sessions.open, so the whole layout follows the new current.
   ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
     name: 'conversation.session.header.actions', id: 'workspace-session-switcher', order: -400,
     inject: () => ({ openSession: sessionId => { ctx.sessions.open(sessionId) } }),
   }, SessionSwitcherDropdown))
   /* The session-header mind-map button: opens the current session's mind map
-     as a preview tab (dsh-ws-preview), keeping the chat column visible. */
+     as a preview tab. */
   ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
     name: 'conversation.session.header.actions', id: 'workspace-mindmap-toggle', order: -350,
   }, MindmapHeaderButton))
   /* Mind-map family sessions (roots + every fork descendant) are hidden from
-     the harness sidebar session list; each mind map is represented by its
-     self-drawn sidebar entry instead. */
+     the harness sidebar session list; each mind map is represented by its own
+     sidebar entry instead. */
   ctx.effect(() => installMindmapBranchHider(
     () => ctx.sessions.list.getSnapshot(),
     () => ctx.workspaces.list.getSnapshot().archivedSessionIds,
@@ -645,8 +589,7 @@ export function mountStudio(ctx) {
   }, MobileHeroControls))
   // The browser Settings page owns every explorer preference in one section,
   // grouped into plugin update, session browsing, mind-map browsing, file
-  // browsing, content browsing, and dialog settings (unset color/preset
-  // groups resolve to their defaults).
+  // browsing, content browsing, and dialog settings.
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section', id: 'workspace-explorer', order: 5, label: () => translate('settings.section.title'),
     inject: () => ({ settingsStore }),

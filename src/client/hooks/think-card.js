@@ -1,43 +1,29 @@
-/** Think-card behavior: every Think block stays open as a card so the harness
- *  renders its body (the expanded content `.thinkBody` only exists while the
- *  disclosure row is open — the component's open state is internal React
- *  state, and CSS cannot force it). The card body viewport is limited to the
- *  latest --dsh-ws-think-lines rows by injected CSS; this hook additionally
- *  keeps the viewport scroll-pinned to the newest text while the block
- *  streams, so the "latest ten lines" stay visible without user action.
- *  User interaction owns a block: a row the user collapsed (click/keyboard)
- *  is never force-reopened, matching the pre-card auto-disclosure contract. */
+/** Think-card behavior: keeps every Think block open as a card so the harness
+ *  renders its body, scroll-pins the viewport to the newest text while the
+ *  block streams, and never force-reopens a row the user collapsed. */
 import { useEffect, useRef } from 'react'
 import { CONVERSATION_SCROLLPORT_SELECTOR, installScrollGate } from '../scroll-gate.js'
 
-/* The body class is a CSS-module name (may be hashed in the bundle), so body
-   detection matches the "thinkBody" substring, not the exact class. */
+/* The body class may be hashed, so match the "thinkBody" substring. */
 const THINK_BODY_SELECTOR = '[class*="thinkBody"]'
 /* Scroll positions within this many px of the bottom count as "at bottom". */
 const THINK_BOTTOM_TOLERANCE_PX = 4
-/* An upward scroll must clear at least this far from the bottom before
-   pin-tracking stops (a hair of scroll must not fight the user). */
+/* An upward scroll must clear this far from the bottom before pin-tracking stops. */
 const THINK_UNPIN_DISTANCE_PX = 8
 
 export function useThinkCard({ chatSectionRef }) {
-  /* Think roots the user has interacted with: those are never force-opened
-     again. Persists across effect re-runs (a re-mount must not forget). */
+  /* Think roots the user has interacted with are never force-opened again. */
   const userInteractedRef = useRef(new WeakSet())
-  /* Per think root, the attached body tracker: { body, observer, resize,
-     onScroll, pinned }. A root has at most one live body at a time (the
-     harness unmounts and remounts it on collapse/reopen). */
+  /* Per think root, the attached body tracker: { body, observer, resize, onScroll, pinned }. */
   const trackersRef = useRef(new Map())
   useEffect(() => {
     const section = chatSectionRef.current
     if (section === null) return undefined
     const userInteracted = userInteractedRef.current
     const trackers = trackersRef.current
-    /* Think roots whose disclosure row had not rendered yet when the root was
-       seen (the row usually lands one frame after the root): retried on every
-       later mutation batch. */
+    /* Think roots whose disclosure row had not rendered yet are retried on every later mutation batch. */
     const pendingRoots = new Set()
-    // Flag programmatic row clicks so the interaction listener below does not
-    // treat this hook's own clicks as user interaction.
+    // Flag programmatic row clicks so the listener below ignores this hook's own clicks.
     let programmatic = false
     const rowOf = root => root.querySelector(':scope [data-disclosure-row]')
     const bodyOf = root => root.querySelector(THINK_BODY_SELECTOR)
@@ -60,8 +46,7 @@ export function useThinkCard({ chatSectionRef }) {
       if (trackers.has(root)) return
       const pinned = { value: true }
       const pinSoon = () => {
-        // Layout is not necessarily flushed inside the mutation callback;
-        // pin on the next frame so scrollHeight is final for this update.
+        // Pin on the next frame so scrollHeight is final for this update.
         requestAnimationFrame(() => {
           if (pinned.value && body.isConnected) body.scrollTop = body.scrollHeight
         })
@@ -71,16 +56,13 @@ export function useThinkCard({ chatSectionRef }) {
         if (atBottom) { pinned.value = true; return }
         if (body.scrollTop < body.scrollHeight - body.clientHeight - THINK_UNPIN_DISTANCE_PX) pinned.value = false
       }
-      /* Streaming appends and long-line wraps change the body's text and
-         height; the ResizeObserver also catches external reflows (column
-         resize, font change) that no text mutation accompanies. */
+      /* The ResizeObserver also catches external reflows (column resize, font change) that no text mutation accompanies. */
       const observer = new MutationObserver(pinSoon)
       observer.observe(body, { childList: true, characterData: true, subtree: true })
       const resize = typeof ResizeObserver === 'function' ? new ResizeObserver(pinSoon) : null
       resize?.observe(body)
       body.addEventListener('scroll', onScroll)
-      /* Scroll gating: hovering alone must not scroll the card body — wheel
-         is forwarded to the conversation until the user clicks inside. */
+      /* Hovering alone must not scroll the card body — wheel is forwarded to the conversation until the user clicks inside. */
       const gate = installScrollGate({
         card: root,
         viewport: body,
@@ -103,8 +85,7 @@ export function useThinkCard({ chatSectionRef }) {
         if (tracker.body === body) { detachTracker(root); return }
       }
     }
-    // Any user interaction with a Think block takes ownership of it: it is
-    // never force-opened again by this behavior.
+    // Any user interaction with a Think block takes ownership: it is never force-opened again.
     const onSectionClick = event => {
       if (programmatic) return
       const target = event.target
@@ -153,17 +134,13 @@ export function useThinkCard({ chatSectionRef }) {
         if (!root.isConnected) { pendingRoots.delete(root); continue }
         openRow(root)
       }
-      /* Drop trackers whose body is gone (collapse unmounts the body while
-         the root stays) or whose root left the DOM entirely (session switch
-         or conversation reset — no mutation lands inside the old subtree). */
+      /* Drop trackers whose body or root left the DOM. */
       for (const [root, tracker] of [...trackers]) {
         if (!tracker.body.isConnected || !root.isConnected) detachTracker(root)
       }
     })
     observer.observe(section, { childList: true, subtree: true })
-    /* Catch the blocks already present when the observer attached: every
-       Think block becomes a card (running or finished alike), and expanded
-       blocks get their body tracker attached. */
+    /* Catch blocks already present when the observer attached. */
     for (const root of section.querySelectorAll('[data-variant="think"]')) {
       openRow(root)
       const body = bodyOf(root)

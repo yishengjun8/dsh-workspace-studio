@@ -8,10 +8,7 @@ const JSON_HEADERS = {
   'cross-origin-resource-policy': 'same-origin',
   'x-content-type-options': 'nosniff',
 }
-/* Body-receive watchdog: a client that sends headers and then stalls (or
-   drips bytes) must not hold the handler and connection open forever — the
-   browser-side request timeout is 30 s, so a slightly longer bound here means
-   a hung client surfaces as an explicit 408 instead of an invisible hang. */
+/* Body-receive watchdog: a client that sends headers and then stalls must not hold the handler and connection open forever — the browser-side request timeout is 30 s, so a slightly longer bound here means a hung client surfaces as an explicit 408 instead of an invisible hang. */
 const BODY_READ_TIMEOUT_MS = 35_000
 export function header(headers, name) {
   const value = headers[name]
@@ -79,9 +76,7 @@ export function sendJson(req, res, status, value, extraHeaders = {}) {
 export function sendError(req, res, status, code, message, extraHeaders, data) {
   sendJson(req, res, status, { error: { code, message, ...(data === undefined ? {} : { data }) } }, extraHeaders)
 }
-/* Raw byte response (the /raw endpoint): the body is served verbatim with the
-   caller's Content-Type; errors surface as plain text so a browser tab opened
-   directly at the URL reads them instead of a JSON blob. */
+/* Raw byte response (the /raw endpoint): the body is served verbatim with the caller's Content-Type; errors surface as plain text so a browser tab opened directly at the URL reads them instead of a JSON blob. */
 export function sendRaw(req, res, status, bytes, contentType, extraHeaders = {}) {
   res.writeHead(status, {
     'content-type': contentType,
@@ -109,8 +104,7 @@ export function readBody(
     const chunks = []
     let size = 0
     let settled = false
-    /* Slow-loris guard: a client that never finishes the body must not hold
-       the handler forever. The timer is cleared on every settle. */
+    /* Slow-loris guard: a client that never finishes the body must not hold the handler forever. The timer is cleared on every settle. */
     const timer = setTimeout(() => {
       if (settled) return
       settled = true
@@ -142,10 +136,7 @@ export function readBody(
     req.on('error', (error) => {
       settle(reject, error)
     })
-    /* Some Node versions / connection teardown paths fire only 'close'
-       (destroy() mid-body, keep-alive reuse) without 'aborted': without this
-       the promise would never settle and the request handler would hang. The
-       settled guard makes the normal end-then-close sequence a no-op. */
+    /* Some Node versions / connection teardown paths fire only 'close' (destroy() mid-body, keep-alive reuse) without 'aborted': without this the promise would never settle and the request handler would hang. The settled guard makes the normal end-then-close sequence a no-op. */
     req.on('close', () => {
       settle(reject, new HttpError(400, 'request-aborted', abortedMessage))
     })
@@ -191,26 +182,18 @@ export function normalizeFailure(error) {
   if (error instanceof HttpError) return error
   if (error?.code === 'EACCES' || error?.code === 'EPERM') return new HttpError(403, 'path-denied', '没有权限访问该路径')
   if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return new HttpError(404, 'path-not-found', '文件或目录不存在')
-  /* Plain-file expectations meeting a directory, a symlink loop, or a
-     read-only filesystem are NOT server faults: classify them instead of
-     surfacing a black-box 500. */
+  /* Plain-file expectations meeting a directory, a symlink loop, or a read-only filesystem are NOT server faults: classify them instead of surfacing a black-box 500. */
   if (error?.code === 'EISDIR') return new HttpError(400, 'not-a-file', '所选路径不是普通文件')
   if (error?.code === 'ELOOP') return new HttpError(400, 'invalid-path', '路径包含符号链接循环')
   if (error?.code === 'EROFS') return new HttpError(403, 'path-denied', '文件系统为只读')
-  /* Name/state races and platform edge cases that can slip past the
-     pre-checks (Windows reserved-name EINVAL, over-long names, non-empty
-     directories, a target that appeared mid-operation, locked files) must
-     not surface as 500s. */
+  /* Name/state races and platform edge cases that can slip past the pre-checks (Windows reserved-name EINVAL, over-long names, non-empty directories, a target that appeared mid-operation, locked files) must not surface as 500s. */
   if (error?.code === 'EINVAL' || error?.code === 'ENAMETOOLONG') {
     return new HttpError(400, 'invalid-path', '路径无效或名称过长')
   }
   if (error?.code === 'EEXIST') return new HttpError(409, 'entry-exists', '同名文件或文件夹已存在')
   if (error?.code === 'ENOTEMPTY') return new HttpError(409, 'entry-exists', '目录非空，无法完成该操作')
   if (error?.code === 'EBUSY') return new HttpError(409, 'file-conflict', '文件或目录正被占用，请稍后重试')
-  /* Resource exhaustion and POSIX-specific collisions are retryable/user-
-     actionable conditions — surface them as such instead of a black-box 500:
-     disk full (ENOSPC/EDQUOT), open-handle exhaustion (EMFILE/ENFILE), and
-     renaming over a running executable (ETXTBSY). */
+  /* Resource exhaustion and POSIX-specific collisions are retryable/user-actionable conditions — surface them as such instead of a black-box 500: disk full (ENOSPC/EDQUOT), open-handle exhaustion (EMFILE/ENFILE), and renaming over a running executable (ETXTBSY). */
   if (error?.code === 'ENOSPC' || error?.code === 'EDQUOT') {
     return new HttpError(507, 'disk-full', '磁盘空间不足，无法完成写入')
   }

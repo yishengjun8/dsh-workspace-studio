@@ -6,14 +6,9 @@ export const EXPLORER_LOCALE_NS = 'workspace.studio'
 
 /* LocaleRuntime face (subscribe/getSnapshot pair) once the harness locale plugin is present; undefined keeps the zh dictionary. */
 let localeFace = undefined
-/* Active-locale translator; bound to the harness locale registry in apply() when available, else falls back to the zh dictionary. */
+/* Active-locale translator; bound to the harness locale registry when available, else falls back to the zh dictionary. */
 let boundTranslate = zhFallbackTranslate
-/* Locale subscription bridge: useLocaleText registers on THIS set (never a
-   no-op), and the locale-activation effect bumps the epoch + forwards the
-   locale service's own notifications through it. Without the bridge, a
-   component mounted while localeFace was still undefined would hold a no-op
-   subscription forever — the first language switch would never reach it
-   (the deferred inject wires translate, but nothing re-renders). */
+/* Locale subscription bridge: useLocaleText registers on this set, and the locale-activation effect bumps the epoch and forwards the service's notifications through it. */
 const localeListeners = new Set()
 let localeEpoch = 0
 
@@ -48,10 +43,7 @@ export function translate(key, params) {
   return boundTranslate(key, params)
 }
 
-/* Wire the harness locale service: register this plugin's dictionaries, bind
-   the active-locale translator, and forward the service's notifications into
-   the module-level listener set (bumping the epoch so components mounted
-   before the service existed re-render). Returns the dispose function. */
+/* Wire the harness locale service: register this plugin's dictionaries, bind the active-locale translator, and forward the service's notifications into the module-level listener set. Returns the dispose function. */
 export function installLocaleService(service) {
   const disposeDicts = service.register(EXPLORER_LOCALE_NS, { zh, en })
   boundTranslate = service.bind(EXPLORER_LOCALE_NS)

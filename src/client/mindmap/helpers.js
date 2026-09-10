@@ -62,11 +62,11 @@ export const mindmapDocKey = (sessionId, seq) => `${sessionId}:${seq}`
 export const MINDMAP_ROOT_KEY = '__mindmap_root__'
 
 /* Key of a session's HEAD node (the identity card at the left of its question chain); shared
-   by the layout and the current-card highlight so "当前" can light the session's head. */
+   by the layout and the current-card highlight so the current badge can light the head. */
 export const mindmapHeadKey = (sessionId) => mindmapDocKey(String(sessionId), `head:${String(sessionId)}`)
 
 /* Key of a session's placeholder card (a session with no turns yet); shared by the layout and
-   the current-card highlight so "当前" can light the "等待新问题" card. */
+   the current-card highlight so the current badge can light the pending card. */
 export const mindmapEmptyKey = (sessionId) => mindmapDocKey(String(sessionId), `empty:${String(sessionId)}`)
 
 /* The maximal folded run containing the turn at `seq` (walking back and
@@ -85,14 +85,12 @@ export function mindmapFoldedRunOf(doc, sessionId, seq) {
   return { firstSeq: Number(turns[start].seq), lastSeq: Number(turns[end].seq), count: end - start + 1 }
 }
 
-/* Plan of a card deletion (right-click → 删除卡片): the card and every later card in its
-   session chain are cut, the session is re-created from the previous card via a fork, and the
-   old session — plus every session hanging off a removed card — is archived. An empty
-   placeholder or a session's FIRST card removes the whole session instead; removing the LAST
-   remaining session is blocked (the root node is virtual). Removed turns leave no trace in
-   the doc; they only resurface through a failed archive of their old session (ACCEPTED — pure
-   fork + archive + replace; see docs/mindmap-notes.md). Returns null when the target card is
-   not in the doc, or a plan { archiveIds, sessions, replaced, wholeBranch, lastSession, next }. */
+/* Plan of a card deletion: the card and every later card in its session chain are cut, the
+   session is re-created from the previous card via a fork, and the old session (plus every
+   session hanging off a removed card) is archived. An empty placeholder or a session's first
+   card removes the whole session instead; removing the last remaining session is blocked.
+   Returns null when the target card is not in the doc, or a plan
+   { archiveIds, sessions, replaced, wholeBranch, lastSession, next }. */
 export function mindmapDeletePlan(doc, ownerId, turnSeq, emptyCard) {
   const sessions = (doc?.sessions ?? []).filter(s => s !== null && s !== undefined)
   const ownerIdx = sessions.findIndex(s => String(s?.sessionId) === String(ownerId))
@@ -174,15 +172,10 @@ export function mindmapDeletePlan(doc, ownerId, turnSeq, emptyCard) {
   }
 }
 
-/* Stable fingerprint of a doc's structure (per-session turn seqs + AI summaries,
-   fork anchors + the map's own title) to skip redundant re-renders after a sync
-   that changed nothing. rootTitle is included so a sidebar rename reaches an open
-   map on the next sync (a seq-only one skipped it); the turn summaries AND the
-   session summaries are included so a background AI summary (or a manual
-   regeneration / 总结当前会话) renders without waiting for a structural change.
-   rootSessionId + workspaceCwd are included too: a root replacement (another
-   tab truncating the anchor card) or a workspace-selection change must NOT be
-   swallowed by fingerprint equality — applySync uses this to re-anchor. */
+/* Stable fingerprint of a doc's structure (turn seqs + AI summaries, fork anchors + the
+   map's own title) to skip redundant re-renders after a sync that changed nothing. rootTitle,
+   rootSessionId and workspaceCwd are included so a rename, root replacement or workspace change
+   is never swallowed by fingerprint equality. */
 export function mindmapDocFingerprint(doc) {
   /* JSON-encoded end to end: separator-joined raw strings could COLLIDE for
      different docs (a user question or AI summary containing a ':'/','/';'
@@ -213,12 +206,9 @@ export function mindmapDocFingerprint(doc) {
   })
 }
 
-/* Structure-ONLY fingerprint for the layout memo: everything mindmapDocLayout
-   reads EXCEPT the AI summaries, so a summary write re-renders only the
-   affected card and the layout stays referentially stable (React.memo on the
-   cards keeps working). The question text IS included (the cards render it), so
-   an in-place edit of a turn's user text (same seq/n) still rebuilds the card.
-   JSON-encoded for the same collision-free reasons as mindmapDocFingerprint. */
+/* Structure-only fingerprint for the layout memo: everything mindmapDocLayout reads except
+   the AI summaries, so a summary write re-renders only the affected card. The question text is
+   included so an in-place edit still rebuilds the card. */
 export function mindmapDocStructureFingerprint(doc) {
   return JSON.stringify({
     rootSessionId: String(doc?.rootSessionId ?? ''),
@@ -288,19 +278,12 @@ export const mindmapStreamPalette = (sessionId) => {
   return out
 }
 
-/* Doc layout (v3): the VIRTUAL root node sits alone at the top (row 0); every session is a
-   horizontal chain of a HEAD node (its identity card) plus its question cards, one session per
-   row in DFS order — top-level sessions first, then each session's nested forks on the rows
-   right after, indented to the card they hang off. A session with no turns renders one
-   placeholder card; an optional `streaming` descriptor ({ sessionId, question }) appends an
-   ephemeral live card to the chain tail (replacing an empty session's placeholder). Consecutive
-   folded turns merge into ONE folded card unless the run is being peeked (`peekedRuns`, a Set
-   of `${sessionId}:${firstSeq}` keys, temporarily expands those runs back into individual
-   cards without touching the folded attribute); children of folded turns re-mount from the
-   folded card. Returns { nodes, edges, width, height, peekBoxes } — nodes carry
-   key/kind/sessionId/turn/empty/streaming/folded/peeked/row/depth/x/y/width/height, edges are
-   { from, to, mount?, d } with the SVG path precomputed, peekBoxes is one amber outline per
-   peeked run (empty array when none). */
+/* Doc layout (v3): the virtual root node sits alone at the top (row 0); every session is a
+   horizontal chain of a HEAD node plus its question cards, one session per row in DFS order.
+   A session with no turns renders one placeholder card; an optional `streaming` descriptor
+   appends an ephemeral live card to the chain tail. Consecutive folded turns merge into one
+   folded card unless the run is being peeked (`peekedRuns` temporarily expands those runs).
+   Returns { nodes, edges, width, height, peekBoxes }. */
 export function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_MOUNT_BULGE_DEFAULT_X, peekedRuns) {
   const nodes = []
   const edges = []
@@ -331,12 +314,9 @@ export function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_M
   for (const s of sessions) {
     if (!s.parentSessionId) visit(s)
   }
-  /* Per-session RENDERED chain structure, computed once before the headCol
-     pass: consecutive folded turns collapse into one slot (a folded card)
-     unless the run is being peeked (each turn renders individually); every
-     turn maps to its rendered node key / rendered index so the headCol pass
-     and the mount edges resolve a child's parent card to the node it actually
-     hangs off (a folded run's turns all resolve to the folded card). */
+  /* Per-session rendered chain structure, computed once before the headCol
+     pass: consecutive folded turns collapse into one slot unless the run is
+     being peeked, and every turn maps to its rendered node key/index. */
   const chainMaps = new Map()
   /* Per-peeked-run node-key groups: one amber outline box per run (a single
      union box would span the whole map when several runs are peeked at once). */
@@ -358,8 +338,8 @@ export function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_M
           && peekedRuns.has(`${sid}:${Number(turns[i].seq)}`)
         if (isPeeked) {
           /* Temporary expand: every turn of the run renders as its own card
-             (peeked flag drives the "已折叠" status row); children re-mount to
-             their ORIGINAL cards (no re-parenting for this run). */
+             (peeked flag drives the folded status row); children re-mount to
+             their original cards. */
           const group = { keys: [] }
           peekedRunBoxes.push(group)
           for (let k = i; k <= j; k += 1) {
@@ -568,13 +548,9 @@ export function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_M
     width: MINDMAP_ROOT_W,
     height: MINDMAP_ROOT_H,
   })
-  /* Precompute each edge's SVG path from the node positions. Non-mount edges (head → card →
-     streaming) are orthogonal; mount edges (root → top-level head, parent card → child head)
-     are cubic S-curves entering the head's LEFT side at mid-height. The bulge factor
-     (user-tunable, default ×5) scales both lobes: the root edge bows up then swings into the
-     head's LEFT margin, entering LEVEL (no downward sag, horizontal tangent); the branch edge
-     leaves the parent horizontally, bows OUTWARD (away from the chain) and hooks into the
-     child head — at ×0 each collapses to the straight chord. */
+  /* Precompute each edge's SVG path from the node positions. Non-mount edges are orthogonal;
+     mount edges are cubic S-curves entering the head's left side at mid-height, scaled by the
+     user-tunable bulge factor (×0 collapses to the straight chord). */
   const byKey = new Map()
   for (const node of nodes) byKey.set(node.key, node)
   const mountBulge = clampMountBulge(mountBulgeParam)
@@ -692,10 +668,9 @@ export const mindmapCardClickAction = (node, doc, runningFamilyIds, lastSeqBySes
   return 'fork'
 }
 
-/* Clamp the view so the scaled world always keeps a MINIMUM fraction on screen: each axis may
-   be dragged out by up to MINDMAP_PAN_OUT_MAX of the world size (e.g. 80%), so the opposite
-   20% stays visible. A map SMALLER than the viewport can also slide (not pinned to the center);
-   还原视图 restores the fitted position when the map is pushed out of reach. */
+/* Clamp the view so the scaled world always keeps a minimum fraction on screen: each axis may
+   be dragged out by up to MINDMAP_PAN_OUT_MAX of the world size, so the opposite fraction stays
+   visible. A map smaller than the viewport can also slide (not pinned to the center). */
 export function mindmapClampView(view, worldW, worldH, vw, vh) {
   const sw = worldW * view.zoom
   const sh = worldH * view.zoom
@@ -710,7 +685,7 @@ export function mindmapClampView(view, worldW, worldH, vw, vh) {
   return { zoom: view.zoom, tx, ty }
 }
 
-/* Initial / "还原视图" view: fit the whole map (capped at 1x, never upscaled);
+/* Initial / restore-view fit: fit the whole map (capped at 1x, never upscaled);
    a map too large to fit even at min zoom aligns to the top-left. */
 export function mindmapFitView(worldW, worldH, vw, vh) {
   if (worldW <= 0 || worldH <= 0 || vw <= 0 || vh <= 0) return null
@@ -722,14 +697,9 @@ export function mindmapFitView(worldW, worldH, vw, vh) {
   return { zoom, tx, ty }
 }
 
-/* Narrowed sessions subscription: the map only reads the doc family's running
-   flags and titles, but `useSessions(state => state)` re-renders every card on
-   any store churn. The selector returns the SAME projection while those fields
-   are unchanged (so idle churn never re-renders), rebuilds when a family field
-   changes or the family grows, and keeps the latest byId so reads stay fresh.
-   The unchanged check compares the family's running bits / titles by VALUE
-   (arrays, no string building) — the selector runs on every store change
-   (streaming churn), so it must stay allocation-free on the hot path. */
+/* Narrowed sessions subscription: the map only reads the doc family's running flags and
+   titles, so the selector returns the same projection while those fields are unchanged (idle
+   churn never re-renders) and stays allocation-free on the hot path. */
 export function useMindmapSessionView(useSessions, familyIdsRef) {
   const cacheRef = useRef(null)
   /* Join-string cache keyed by the family ARRAY identity (the caller memoizes

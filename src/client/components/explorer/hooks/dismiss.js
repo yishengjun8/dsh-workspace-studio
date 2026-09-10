@@ -1,8 +1,7 @@
 /** Dismiss a floating menu on outside press/context, Escape, resize or scroll. */
 import { useEffect } from 'react'
 
-/* Shared by every context menu and the encoding menu — replaces four
-   near-identical effects that used to live inside WorkspaceExplorer. */
+/* Shared by every context menu and the encoding menu. */
 export function useDismissMenu(menuRef, isOpen, onClose) {
   useEffect(() => {
     if (!isOpen) return undefined

@@ -73,8 +73,7 @@ function validatePromptContextPayload(value, config) {
   if (!value.dirty && revision === undefined) {
     throw new HttpError(409, 'context-revision-required', '未修改的选区必须携带文件修订版本')
   }
-  // The encoding the client editor used, whitelisted against supported ones;
-  // absent payloads default to UTF-8; unknown ids throw via encodingById.
+  // The encoding the client editor used, whitelisted against supported ones; absent payloads default to UTF-8; unknown ids throw via encodingById.
   const encoding = value.encoding === undefined || value.encoding === null
     ? 'utf-8'
     : encodingById(String(value.encoding)).id
@@ -142,8 +141,7 @@ async function verifyPromptContextFile(workspace, relativePath) {
 }
 
 async function readCleanPromptContext(file, maximum) {
-  /* openRegularFile: O_NONBLOCK + post-open fstat so a FIFO/device swapped
-     in after verifyPromptContextFile's stat can never hang /context. */
+  /* openRegularFile: O_NONBLOCK + post-open fstat so a FIFO/device swapped in after verifyPromptContextFile's stat can never hang /context. */
   const handle = await openRegularFile(file.target)
   try {
     const opened = await handle.stat()
@@ -200,9 +198,7 @@ async function verifyCleanSelection(file, context, maximum) {
     throw new HttpError(409, 'context-coordinate-mismatch', '选区超出当前文件范围')
   }
   const logicalSlice = logical.slice(selection.from, selection.to)
-  // The client LF-normalizes offsets and selection text before sending (see
-  // publishContextState in src/client/components/explorer/hooks/editor-session.js), so the slice is compared
-  // directly without re-adding the file's original line endings.
+  // The client LF-normalizes offsets and selection text before sending (see publishContextState in src/client/components/explorer/hooks/editor-session.js), so the slice is compared directly without re-adding the file's original line endings.
   if (logicalSlice !== selection.text) {
     throw new HttpError(409, 'context-content-mismatch', '选中文本与当前文件内容不一致')
   }
@@ -228,11 +224,7 @@ export async function renderPromptContext(ctx, config, req) {
         `<opened_file>The user opened the file ${context.path} in the IDE. This may or may not be related to the current task.</opened_file>`,
       ].join('\n')
     : (() => {
-        /* CDATA-wrap the selection: the raw text may legally contain
-           `</selection>` (a string literal in the code the user selected),
-           which would terminate the envelope early and let the trailing
-           instruction text be read as content. The standard CDATA escape
-           (`]]>` → `]]]]><![CDATA[>`) keeps the wrapper unbreakable. */
+        /* CDATA-wrap the selection: the raw text may legally contain `</selection>` (a string literal in the code the user selected), which would terminate the envelope early and let the trailing instruction text be read as content. The standard CDATA escape (`]]>` → `]]]]><![CDATA[>`) keeps the wrapper unbreakable. */
         const escaped = context.selection.text.replace(/]]>/g, ']]]]><![CDATA[>')
         return [
           `<selection>The user selected the lines ${context.selection.startLine} to ${context.selection.endLine} from ${context.path}:`,

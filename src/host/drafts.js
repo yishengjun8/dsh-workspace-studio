@@ -9,7 +9,6 @@ import { normalizeRelativePath } from './paths.js'
 import { encodingById } from './encodings.js'
 import { serializeWrite } from './write.js'
 /* ---- Draft (staging) file persistence ----
- *
  * Edits to a workspace file are staged in a draft OUTSIDE the workspace
  * (~/.dsh-plugin/dsh-workspace-studio/drafts/<workspaceId>/); the source file
  * stays untouched until an explicit save, and refreshing re-reads the draft.
@@ -20,28 +19,21 @@ import { serializeWrite } from './write.js'
 
 export const DRAFT_DIR_NAME = 'dsh-workspace-studio'
 const DRAFT_SUB_DIR = 'drafts'
-/* Live-draft count cap per owner: each file is already bounded by
-   maxEditableBytes, but the COUNT has no other bound — a runaway client could
-   otherwise fill the user's disk with draft files (see saveDraftFile). */
+/* Live-draft count cap per owner: each file is bounded by maxEditableBytes, but the COUNT has no other bound — a runaway client could otherwise fill the user's disk with draft files. */
 const DRAFT_FILES_PER_OWNER_MAX = 200
 
 function draftRoot() {
   return join(homedir(), '.dsh-plugin', DRAFT_DIR_NAME, DRAFT_SUB_DIR)
 }
 
-/** Stable file name for a workspace-relative path, path-hash based so no
- * traversal or illegal characters leak into the filesystem. */
+/** Stable file name for a workspace-relative path, path-hash based so no traversal or illegal characters leak into the filesystem. */
 function draftFileName(relativePath) {
   return `${createHash('sha256').update(relativePath).digest('hex')}.json`
 }
 
 export function draftWorkspacePart(workspaceId) {
   const value = String(workspaceId)
-  // Existing ids are UUIDs; hash unusual ones so a future registry cannot turn
-  // the draft root into a path join (`.`/`..` pass the allowlist but escape).
-  // Windows reserved names and trailing dot/space must ALSO hash: `CON` would
-  // make the drafts directory creation fail with EINVAL, and `foo.` aliases
-  // `foo` on NTFS — silently merging two workspaces' draft trees.
+  // Existing ids are UUIDs; hash unusual ones so a future registry cannot turn the draft root into a path join. Windows reserved names and trailing dot/space must ALSO hash: `CON` would make the drafts directory creation fail with EINVAL, and `foo.` aliases `foo` on NTFS — silently merging two workspaces' draft trees.
   return /^[A-Za-z0-9._-]+$/u.test(value) && value !== '.' && value !== '..'
     && !/[. ]$/.test(value)
     && !/^(CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|COM[1-9]|LPT[1-9])$/i.test(value.split('.')[0])
@@ -125,10 +117,7 @@ export async function readDraftFile(workspaceId, relativePath, owner) {
   return { exists: false, owner, generation: ownerGeneration, ownerGeneration }
 }
 
-/* Generations are monotonic per owner; a sane client advances by 1 per
-   operation. A huge jump (2^53-1) would permanently lock the owner fence with
-   no recovery API, so cap the absolute value and reject absurd jumps at the
-   write sites. */
+/* Generations are monotonic per owner; a sane client advances by 1 per operation. A huge jump would permanently lock the owner fence with no recovery API, so cap the absolute value and reject absurd jumps at the write sites. */
 const DRAFT_GENERATION_MAX = 2 ** 31
 const DRAFT_GENERATION_JUMP_MAX = 10000
 
@@ -210,9 +199,7 @@ export async function writeJsonAtomic(target, value) {
   try {
     handle = await open(temp, 'w')
     await handle.writeFile(`${JSON.stringify(value)}\n`, 'utf8')
-    /* fsync before the rename: an OS crash between rename and the next write
-       must not leave a zero-length / truncated target (the source save path
-       already syncs; the draft/generation/mindmap writers should too). */
+    /* fsync before the rename: an OS crash between rename and the next write must not leave a zero-length / truncated target (the source save path already syncs; the draft/generation/mindmap writers should too). */
     await handle.sync()
     await handle.close()
     handle = undefined
@@ -234,10 +221,7 @@ async function writeOwnerGeneration(workspaceId, owner, generation, operation) {
 }
 
 function draftOperationToken(action, value) {
-  /* Canonicalize with SORTED keys so the token is independent of the payload's
-     key insertion order: a retry that re-serializes the same logical payload
-     with a different key order must produce the SAME token (the idempotency
-     fence compares tokens), or it would be rejected as a foreign operation. */
+  /* Canonicalize with SORTED keys so the token is independent of the payload's key insertion order: a retry that re-serializes the same logical payload with a different key order must produce the SAME token, or it would be rejected as a foreign operation. */
   const canonical = (input) => {
     if (input === null || typeof input !== 'object') return JSON.stringify(input)
     if (Array.isArray(input)) return `[${input.map(canonical).join(',')}]`
@@ -276,9 +260,7 @@ export async function saveDraftFile(workspaceId, payload, config, queues) {
     const current = snapshot.current
     const existing = snapshot.existing
     const state = snapshot.ownerState
-    /* A generation far above the owner's current value is a corrupt/malicious
-       client, not a legitimate advance: reject it so the fence cannot be
-       jumped to a value that locks the owner forever. */
+    /* A generation far above the owner's current value is a corrupt/malicious client, not a legitimate advance: reject it so the fence cannot be jumped to a value that locks the owner forever. */
     if (generation > current + DRAFT_GENERATION_JUMP_MAX) {
       throw new HttpError(400, 'invalid-draft', 'generation 跳变过大', { currentGeneration: current })
     }
@@ -292,11 +274,7 @@ export async function saveDraftFile(workspaceId, payload, config, queues) {
       }
       throw new HttpError(409, 'draft-generation-conflict', '暂存 generation 已被其他操作占用', { currentGeneration: current })
     }
-    /* Live-record cap (checked only on GROWTH paths — an overwrite of an
-       existing live draft or a same-generation idempotent replay never scans):
-       a runaway/malicious client must not be able to fill the user's disk with
-       draft files (each file is bounded by maxEditableBytes, the COUNT is the
-       unbounded dimension). */
+    /* Live-record cap (checked only on GROWTH paths — an overwrite of an existing live draft or a same-generation idempotent replay never scans): a runaway/malicious client must not be able to fill the user's disk with draft files. */
     if (existing === null || existing?.deleted === true) {
       const records = await listDraftRecords(workspaceId, owner)
       const live = records.filter(record => record.value?.deleted !== true).length
@@ -310,8 +288,7 @@ export async function saveDraftFile(workspaceId, payload, config, queues) {
   })
 }
 
-/** Delete one draft via a tombstone rather than unlink, so a late PUT for a
- * path without a draft is still rejected by the owner generation fence. */
+/** Delete one draft via a tombstone rather than unlink, so a late PUT for a path without a draft is still rejected by the owner generation fence. */
 export async function deleteDraftFile(workspaceId, relativePath, config, queues, owner, generation) {
   if (!config.enableEditing) throw new HttpError(403, 'editing-disabled', '当前未启用文件编辑')
   return serializeWrite(queues, draftQueueKey(workspaceId, owner), async () => {
@@ -333,9 +310,7 @@ export async function deleteDraftFile(workspaceId, relativePath, config, queues,
     }
     if (generation > state.current) await writeOwnerGeneration(workspaceId, owner, generation, operation)
     await writeJsonAtomic(draftFilePath(workspaceId, relativePath, owner), { version: 2, owner, path: relativePath, generation, deleted: true })
-    /* Single-file deletes only write tombstones; reclaim expired ones here so
-       an owner that only ever deletes single drafts still stays bounded (the
-       tree-op path already prunes). */
+    /* Single-file deletes only write tombstones; reclaim expired ones here so an owner that only ever deletes single drafts still stays bounded (the tree-op path already prunes). */
     const records = await listDraftRecords(workspaceId, owner)
     await pruneDraftTombstones(records, owner)
     return { workspaceId: String(workspaceId), path: relativePath, owner, generation, deleted: true }
@@ -377,12 +352,7 @@ async function listDraftRecords(workspaceId, owner) {
   return records
 }
 
-/* Deletes write a tombstone instead of unlinking. The durable generation fence
- * lives in .generation.json (every write/delete/tree op advances it), so a
- * tombstone's only jobs are suppressing restore of a discarded draft and
- * idempotent duplicate deletes. Reclaim tombstones older than the retention
- * window whenever a tree op already holds the full record list, keeping the
- * directory bounded without touching the fence. */
+/* Deletes write a tombstone instead of unlinking. The durable generation fence lives in .generation.json, so a tombstone's only jobs are suppressing restore of a discarded draft and idempotent duplicate deletes. Reclaim tombstones older than the retention window whenever a tree op already holds the full record list, keeping the directory bounded without touching the fence. */
 const DRAFT_TOMBSTONE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 async function pruneDraftTombstones(records, owner) {
   const now = Date.now()
@@ -398,12 +368,7 @@ async function pruneDraftTombstones(records, owner) {
   }
 }
 
-/* Undo a partial draft tree operation: restore (or remove) every file this
-   call wrote, newest first. Each write entry tracks its target's PRIOR content
-   (null = the path did not exist), so a rollback restores exactly what was
-   there before — a pre-existing tombstone is written back, a freshly written
-   file is unlinked. Best-effort: a failed rollback entry is collected, never
-   silently thrown away by the caller. */
+/* Undo a partial draft tree operation: restore (or remove) every file this call wrote, newest first. Each write entry tracks its target's PRIOR content (null = the path did not exist), so a rollback restores exactly what was there before. Best-effort: a failed rollback entry is collected, never silently thrown away by the caller. */
 async function rollbackDraftWrites(writes) {
   const failures = []
   for (let index = writes.length - 1; index >= 0; index -= 1) {
@@ -427,13 +392,7 @@ function draftTombstone(owner, path, generation) {
   return { version: 2, owner, path, generation, deleted: true }
 }
 
-/** Move or delete every staged draft below a path, serialized per owner with a
- * generation (tombstones make a late autosave fail even when the path had no
- * draft at the tree op). Both actions are two-phase: every write target is
- * created first (move: all destinations, then all source tombstones; delete:
- * all tombstones), and any mid-flight failure rolls back everything this call
- * wrote — a partial migration can never leave the user's edits split across
- * paths or half-tombstoned. */
+/** Move or delete every staged draft below a path, serialized per owner with a generation (tombstones make a late autosave fail even when the path had no draft at the tree op). Both actions are two-phase: every write target is created first, and any mid-flight failure rolls back everything this call wrote — a partial migration can never leave the user's edits split across paths or half-tombstoned. */
 export async function draftTreeOperation(workspaceId, payload, config, queues) {
   if (!config.enableEditing) throw new HttpError(403, 'editing-disabled', '当前未启用文件编辑')
   if (!isPlainObject(payload)) throw new HttpError(400, 'invalid-draft', '暂存树请求必须是 JSON 对象')
@@ -500,9 +459,7 @@ export async function draftTreeOperation(workspaceId, payload, config, queues) {
       }
       throw new HttpError(409, 'entry-exists', `目标暂存已存在：${destination.path}`)
     }
-    /* Phase 1: write EVERY destination before any source is touched. A failure
-       here rolls the written destinations back (the sources are still live, so
-       nothing is lost). */
+    /* Phase 1: write EVERY destination before any source is touched. A failure here rolls the written destinations back (the sources are still live, so nothing is lost). */
     const destinationWrites = []
     try {
       for (const destination of destinations) {
@@ -516,9 +473,7 @@ export async function draftTreeOperation(workspaceId, payload, config, queues) {
       if (failures.length > 0) throw new AggregateError([error, ...failures], 'draft tree rollback incomplete')
       throw error
     }
-    /* Phase 2: tombstone every source. A failure here restores the already
-       tombstoned sources AND removes the phase-1 destinations, returning the
-       tree to its pre-operation state. */
+    /* Phase 2: tombstone every source. A failure here restores the already tombstoned sources AND removes the phase-1 destinations, returning the tree to its pre-operation state. */
     const sourceWrites = []
     try {
       for (const record of selected) {

@@ -1,9 +1,4 @@
-/* HTML preview packing: collect statically declared classic scripts and
-   stylesheets referenced by relative URLs, read them through the standard
-   workspaceFiles.readRelated Remote, and build a bootstrap srcDoc that
-   rewrites the references to blob URLs created INSIDE the sandboxed iframe
-   (an opaque origin cannot load blob URLs created by the parent). Ported from
-   the harness ui-sidebar-documentpreview html packer (MIT). */
+/* HTML preview packing: collect statically declared relative scripts/stylesheets, read them via the readRelated Remote, and build a bootstrap srcDoc rewriting references to blob URLs created inside the sandboxed iframe. Ported from the harness html packer (MIT). */
 const MAX_ASSET_BYTES = 4 * 1024 * 1024
 const MAX_TOTAL_BYTES = 32 * 1024 * 1024
 const MAX_ASSETS = 64
@@ -24,9 +19,7 @@ function bytesToBase64(bytes) {
 }
 
 /* Collect static dependencies without executing or mounting document elements
-   in the parent page. A base element leaves URL resolution to the browser.
-   Only direct .js classic scripts and .css links are packed; local CSS
-   url/import, modules and dynamically constructed URLs are unsupported.
+   in the parent page; only direct .js classic scripts and .css links are packed.
    @param html - the complete HTML source (the editor draft).
    @param readRelative - original-document-scoped read; rejects on failure.
    @param signal - stops reads and prevents publication after cancellation.
@@ -68,9 +61,7 @@ export async function packHtml(html, readRelative, signal) {
   return { html, assets }
 }
 
-/* Build the outer iframe document. Its resource URLs are created inside the
-   sandbox, because that opaque origin cannot load resource URLs created by
-   the parent. Invalid UTF-8 in an asset throws before navigation. */
+/* Build the outer iframe document; resource URLs are created inside the sandbox, since the opaque origin cannot load parent-created URLs. */
 export function createHtmlDocument(bundle) {
   const payload = bytesToBase64(new TextEncoder().encode(JSON.stringify({
     html: bundle.html,

@@ -1,7 +1,4 @@
-/* Standard workspace-files Remote faces (ctx.remote.workspaceFiles) installed
-   by mountStudio when the harness Remote service is available; the renderer
-   views degrade to a failure line on harness builds without it. Module-level
-   holder + subscription, the same pattern as the locale service bridge. */
+/* Standard workspace-files Remote faces installed by mountStudio when the harness Remote service is available; renderer views degrade to a failure line without it. */
 import { useSyncExternalStore } from 'react'
 
 let faces = undefined

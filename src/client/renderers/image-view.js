@@ -1,7 +1,4 @@
-/* Standalone image preview: complete bytes via the standard
-   workspaceFiles.readAll Remote, rendered as a blob URL. Re-fetches when the
-   read epoch bumps (refresh / external-change reload). The text read path
-   never runs for images (the Host rejects binary content). */
+/* Standalone image preview: complete bytes via the readAll Remote, rendered as a blob URL; re-fetches when the read epoch bumps. */
 import { createElement as h } from 'react'
 import { useEffect, useState } from 'react'
 import { translate } from '../locale/index.js'
@@ -20,8 +17,7 @@ function mimeOf(name) {
 
 export function ImageView({ sessionId, path, name, readEpoch }) {
   const [state, setState] = useState({ url: undefined, failure: undefined })
-  /* Re-fetch when the Remote faces install (a view mounted before the harness
-     Remote was ready) or the read epoch bumps (refresh / reload). */
+  /* Re-fetch when the Remote faces install or the read epoch bumps. */
   const faces = useRemoteFaces()
   useEffect(() => {
     if (faces === undefined || sessionId === undefined || sessionId === null) {

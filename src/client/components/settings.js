@@ -11,10 +11,7 @@ export function EmptyWorkspaceExplorer({ treePortalTarget, sessionTitle }) {
   return h(Fragment, null,
     treePortalTarget ? createPortal(treeSection, treePortalTarget) : null,
     h('section', { className: 'dsh-ws-preview' }, h(PanelHeader, { title: translate('panel.filePreview'), subtitle: translate('panel.noWorkspace') }), h('div', { className: 'dsh-ws-empty' }, translate('panel.chooseWorkspaceToBrowse'))))
-}/* Configured models for the AI-summary picker and the effective summary
-   config, shared by the settings panel and the map view (the 60 s module
-   cache makes the second consumer free); degraded to an empty list on failure
-   so neither consumer blocks. */
+}/* Configured models for the AI-summary picker, shared by the settings panel and map view; degrades to an empty list on failure. */
 export function useMindmapSummaryModels() {
   const [summaryModels, setSummaryModels] = useState(null) // null = loading; { available, models } after
   useEffect(() => {
@@ -26,15 +23,7 @@ export function useMindmapSummaryModels() {
   }, [])
   return summaryModels
 }
-/* Plugin self-update group — the first group of the workspace settings
-   section. Checking is an explicit user action (README contract: no automatic
-   checks — an auto-check on every settings open would re-download the
-   main-branch tarball whenever the Host's check cache is cold); the version
-   signal is the main-branch package.json (the repo publishes no
-   tags/releases). Walks the check → download → install → restart state
-   machine; the "restart dsh" outcome is a persistent inline notice (not a
-   transient toast) so it cannot be missed. Returns null when the feature is
-   disabled by host config. */
+/* Plugin self-update group: checking is an explicit user action (no auto-checks), walking the check → download → install → restart state machine; returns null when disabled by host config. */
 function UpdateSettingsGroup() {
   const [state, setState] = useState({ phase: 'idle' })
   const mountedRef = useRef(false)
@@ -63,12 +52,7 @@ function UpdateSettingsGroup() {
       }
       setPhase('up-to-date', { current: payload.current })
     } catch (error) {
-      /* A timeout is a real failure, not a cancellation (the AbortError name
-         is shared by both — distinguish by reason, the same rule as the
-         save/search paths): silently returning would leave the phase stuck on
-         'checking' with no retry button. A plain AbortError without a
-         TimeoutError reason can only be an environment quirk — surface it too
-         rather than hang. */
+      /* A timeout is a real failure, not a cancellation (AbortError is shared by both — distinguish by reason); surface it rather than hang on 'checking'. */
       if (error?.name === 'AbortError' && error?.reason?.name !== 'TimeoutError') return
       setPhase('error', { message: error instanceof Error ? error.message : String(error) })
     }
@@ -134,10 +118,7 @@ export function ExplorerSettingsSection({ settingsStore }) {
   const summaryModelsAvailable = summaryModels !== null && summaryModels?.available === true
     && Array.isArray(summaryModels?.models) && summaryModels.models.length > 0
   const summaryModelList = summaryModelsAvailable ? summaryModels.models : []
-  /* Render-side normalization for the summary-length sliders: a
-     legacy/out-of-range persisted value (e.g. 47) would show off-grid while
-     the thumb sits between ticks — snap to the configured step (4) like the
-     store action. */
+  /* Snap legacy/out-of-range persisted values to the configured step so the slider thumb stays on-grid. */
   const stepAligned = (value, min, max, step) => {
     const number = Number(value)
     if (!Number.isFinite(number)) return min
@@ -156,10 +137,7 @@ export function ExplorerSettingsSection({ settingsStore }) {
     MINDMAP_SUMMARY_SESSION_MAX_LENGTH,
     MINDMAP_SUMMARY_SESSION_LENGTH_STEP,
   )
-  /* Render-side normalization of the think-card line count: a
-     legacy/out-of-range persisted value would show e.g. "47 行" next to a
-     slider visually pinned at 30 (and keep the reset button enabled). Same
-     min/max clamp as setThinkLines. */
+  /* Clamp the think-card line count to the same min/max as setThinkLines so out-of-range values don't mislead the slider. */
   const thinkLinesValue = clamp(settings.thinkLines ?? THINK_LINES_DEFAULT, THINK_LINES_MIN, THINK_LINES_MAX)
   /* Same render-side normalization for the edit-row line count (out-of-range values must not mislead the slider/reset). */
   const editLinesValue = clamp(settings.editLines ?? EDIT_LINES_DEFAULT, EDIT_LINES_MIN, EDIT_LINES_MAX)
@@ -169,9 +147,7 @@ export function ExplorerSettingsSection({ settingsStore }) {
   /* Effective mind-map highlight colors: user hex or theme default resolved to a concrete hex (color input), plus whether customized (drives each reset button's disabled state). */
   const mindmapHoverColorHex = mindmapEffectiveColor(settings.mindmapHoverColor, MINDMAP_HOVER_THEME_VAR, MINDMAP_HOVER_COLOR_FALLBACK)
   const mindmapSelectedColorHex = mindmapEffectiveColor(settings.mindmapSelectedColor, MINDMAP_SELECTED_THEME_VAR, MINDMAP_SELECTED_COLOR_FALLBACK)
-  /* "Customized" = the user stored a non-default hex (the store deletes the entry when the
-     picked color equals the theme default); comparing against the effective hex was always
-     true, which left both reset buttons permanently disabled. */
+  /* "Customized" means the user stored a non-default hex; comparing against the effective hex was always true and left the reset buttons disabled. */
   const mindmapHoverColorCustom = settings.mindmapHoverColor !== undefined
   const mindmapSelectedColorCustom = settings.mindmapSelectedColor !== undefined
   /* Session-head accent: default is the fixed violet (not theme adaptive), so the effective hex is the stored override or the default constant. */
@@ -314,7 +290,7 @@ export function ExplorerSettingsSection({ settingsStore }) {
         h('button', {
           className: 'dsh-ws-text-button',
           disabled: settings.mindmapSummaryEnabled !== true || undefined,
-          /* 恢复默认 here only turns the feature off: the chosen model and length stay, so re-enabling is a single click. */
+          /* Reset here only turns the feature off: the chosen model and length stay, so re-enabling is a single click. */
           onClick: () => settingsStore.actions.setMindmapSummaryEnabled(false),
           title: translate('settings.mindmapSummary.reset.title'),
           type: 'button',
@@ -587,9 +563,4 @@ export function ExplorerSettingsSection({ settingsStore }) {
     h('div', { className: 'dsh-ws-settings-hint' }, translate('settings.hint')),
   )
 }
-/* Session-switcher dropdown: rendered in the conversation header's action row (order -400,
-   leftmost) as the visible session title (the harness's current-title crumb is hidden by CSS).
-   The trigger opens a portalled panel listing every session (most recently updated first, the
-   current one highlighted, rows showing title + workspace name as suffix); clicking a row
-   switches session via the same ctx.sessions.open the sidebar uses. The panel is portalled to
-   document.body and fixed-positioned from the trigger rect so the chat column can't clip it. */
+/* Session-switcher dropdown: the trigger opens a portalled panel listing every session (most recently updated first, current highlighted); clicking a row switches session via ctx.sessions.open. */

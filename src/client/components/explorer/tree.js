@@ -14,9 +14,7 @@ export function ExplorerTree({ directories, expanded, entryDialog, entryBusy, en
       return h(Fragment, { key: entry.path },
         renaming
           ? h(TreeRenameRow, { busy: entryBusy, depth, entry, error: entryDraft.trim() === entry.name ? undefined : entryDialogError, expanded: open, onCancel: onCloseEntryDialog, onConfirm: onConfirmEntryDialog, onDraft: onDraftEntry, value: entryDraft })
-          /* Focus follows selection (and vice versa): a row reached by Tab must
-             become the keyboard target (Delete/Copy/Cut/Paste operate on
-             `selected`, so a focus-only row would delete the WRONG entry). */
+          /* Focus follows selection so a Tab-reached row becomes the keyboard target (Delete/Copy/Cut/Paste act on `selected`). */
           : h(TreeRow, { cut: clipboard?.cut && clipboard?.path === entry.path, depth, entry, expanded: open, onContextMenu: onContextMenu, onDirectory: onDirectory, onFile: onFile, onFocus: onSelect === undefined ? undefined : () => onSelect(entry), onRename: onRename, selected: selected?.path === entry.path }),
         entry.kind === 'directory' && open ? renderDirectory(entry.path, depth + 1) : null)
     })

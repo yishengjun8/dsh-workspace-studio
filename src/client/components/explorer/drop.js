@@ -1,9 +1,7 @@
 import { createElement as h } from 'react'
 import { translate } from '../../locale/index.js'
 
-/* Full-pane drop overlay shown while external files are dragged over the
-   preview column: closing it suppresses the drop for this drag (the ref is
-   read by the window-level drop handler). */
+/* Full-pane drop overlay shown while external files are dragged over the preview column; closing it suppresses the drop for this drag. */
 export function DropOverlay({ active, suppressedRef, onClose }) {
   if (!active) return null
   return h('div', { className: 'dsh-ws-drop-overlay', role: 'presentation' },

@@ -34,14 +34,10 @@ async function translateToWindowsPath(path) {
   return translated
 }
 
-/** Resolve the native "reveal in file manager" command: dirs open in place,
- * files reveal in their containing folder; undefined on platforms with no
- * desktop file manager. */
+/** Resolve the native "reveal in file manager" command: dirs open in place, files reveal in their containing folder; undefined on platforms with no desktop file manager. */
 async function revealCommandFor(target, directory, platform = process.platform) {
   if (platform === 'win32') {
-    /* explorer.exe parses `/select,<path>` by splitting on the FIRST comma, so
-       a path containing a comma would be truncated. Fall back to opening the
-       containing folder (no selection) for such paths. */
+    /* explorer.exe parses `/select,<path>` by splitting on the FIRST comma, so a path containing a comma would be truncated; fall back to opening the containing folder for such paths. */
     const selectable = !target.includes(',')
     return {
       file: 'explorer.exe',
@@ -169,8 +165,7 @@ function findMatches(content, query, caseSensitive, cap) {
         line: lineIndex + 1,
         text: `${from > 0 ? '…' : ''}${text.slice(from, to)}${to < text.length ? '…' : ''}`,
         // Columns relative to the displayed snippet window (hit highlighting);
-        // …absolute 1-based columns within the full line so the client can
-        // select the true match even when the snippet is truncated.
+        // …absolute 1-based columns within the full line so the client can select the true match even when the snippet is truncated.
         startColumn: start - from + 1,
         endColumn: start - from + length + 1,
         startLineColumn: start + 1,
@@ -183,11 +178,7 @@ function findMatches(content, query, caseSensitive, cap) {
 }
 
 async function searchFile(root, relativePath, query, caseSensitive, config) {
-  /* Same realpath + isInside fence as every other read path (preview, reveal,
-     context): the walk's lexical resolution can be raced by a directory being
-     swapped for a symlink pointing OUTSIDE the workspace between readdir and
-     open, which would leak outside content into the search response. A
-     missing/broken/escaping path is simply not a match. */
+  /* Same realpath + isInside fence as every other read path: the walk's lexical resolution can be raced by a directory swapped for a symlink pointing OUTSIDE the workspace, which would leak outside content into the search response. A missing/broken/escaping path is simply not a match. */
   let target
   try {
     target = await resolveWorkspacePath(root, relativePath)
@@ -206,8 +197,7 @@ async function searchFile(root, relativePath, query, caseSensitive, config) {
   try {
     searchBytes = await readPrefix(target, Math.min(targetStat.size, config.maxSearchFileBytes))
   } catch {
-    /* The file vanished (or became unreadable) between stat and open: skip it
-       instead of failing the whole workspace search. */
+    /* The file vanished (or became unreadable) between stat and open: skip it instead of failing the whole workspace search. */
     return null
   }
   if (containsNul(searchBytes)) return null
@@ -223,17 +213,10 @@ async function searchFile(root, relativePath, query, caseSensitive, config) {
   }
 }
 
-/** Walk the workspace (skipping symlinks and configured dirs), search the same
- * per-file preview window the browser displays; matches grouped by file with
- * 1-based line numbers and match columns. */
+/** Walk the workspace (skipping symlinks and configured dirs), search the same per-file preview window the browser displays; matches grouped by file with 1-based line numbers and match columns. */
 export async function searchWorkspace(workspace, query, caseSensitive, nameOnly, config) {
   const root = await realpath(workspace.path)
-  /* The walk must STOP collecting once the result caps are reached: the old
-     implementation collected and sorted EVERY path in the workspace before
-     truncating, so a very large repo (hundreds of thousands of files) could
-     spike host memory and O(n log n) sort. The truncation is approximate —
-     the exact pre-cap subset is walk-order dependent — which is fine: the
-     response already flags `truncated` and the cap exists to bound the scan. */
+  /* The walk must STOP collecting once the result caps are reached: the old implementation collected and sorted EVERY path before truncating, so a very large repo could spike host memory. The truncation is approximate (walk-order dependent), which is fine: the response flags `truncated` and the cap bounds the scan. */
   const files = []
   const directories = []
   const excluded = new Set(config.searchExcludeDirs.map(name => name.toLowerCase()))
@@ -268,8 +251,7 @@ export async function searchWorkspace(workspace, query, caseSensitive, nameOnly,
   await walk(root, '')
   files.sort()
   directories.sort()
-  /* Name-only mode matches each entry's own name (file or directory) and reads
-     no content; content mode keeps the per-file read below. */
+  /* Name-only mode matches each entry's own name and reads no content; content mode keeps the per-file read below. */
   const candidates = nameOnly
     ? [...directories.map(relativePath => ({ kind: 'directory', relativePath })), ...files.map(relativePath => ({ kind: 'file', relativePath }))]
     : null
@@ -300,9 +282,7 @@ export async function searchWorkspace(workspace, query, caseSensitive, nameOnly,
         truncated = true
         break
       }
-      /* Re-check the match cap synchronously right before the push: the while
-         condition is evaluated across an await, so several workers can pass it
-         together and overshoot maxSearchMatches by up to (concurrency-1) files. */
+      /* Re-check the match cap synchronously right before the push: the while condition is evaluated across an await, so several workers can pass it together and overshoot maxSearchMatches by up to (concurrency-1) files. */
       if (matchCount >= config.maxSearchMatches) {
         truncated = true
         break
@@ -314,15 +294,9 @@ export async function searchWorkspace(workspace, query, caseSensitive, nameOnly,
   const workers = []
   for (let i = 0; i < Math.min(config.searchConcurrency, fileCap); i += 1) workers.push(worker())
   await Promise.all(workers)
-  /* Incomplete only when the scan stopped before visiting every file (a cap
-     interruption while files remained); the old matchCount term falsely marked
-     a search truncated when the cap was hit exactly after the last file.
-     Worker check-then-push is synchronous, so `results` never overshoots
-     maxSearchFiles. */
+  /* Incomplete only when the scan stopped before visiting every file; the old matchCount term falsely marked a search truncated when the cap was hit exactly after the last file. Worker check-then-push is synchronous, so `results` never overshoots maxSearchFiles. */
   if (index < total) truncated = true
-  /* The walk itself may have stopped early at the collection cap (see the
-     bounded walk above) — that is a truncation too, even when the workers
-     happened to consume every collected entry. */
+  /* The walk itself may have stopped early at the collection cap — that is a truncation too, even when the workers consumed every collected entry. */
   if (walkTruncated) truncated = true
   results.sort((left, right) => left.path.localeCompare(right.path, 'en', { numeric: true, sensitivity: 'base' }))
   return {
@@ -336,17 +310,9 @@ export async function searchWorkspace(workspace, query, caseSensitive, nameOnly,
     truncated,
   }
 }
-/* Open a REGULAR file for reading without ever blocking on a special file:
-   the stat-then-open window can be raced by replacing the path with a FIFO
-   or device node, and a plain blocking open() on a writer-less FIFO hangs
-   forever — hanging readPreview, the change poll, /context and saveFile
-   (saveFile holds the whole workspace write queue while hung). O_NONBLOCK
-   makes the open return immediately for a FIFO, and the post-open stat
-   rejects anything that is not a plain file. O_NONBLOCK is ignored by libuv
-   on Windows (no FIFOs there) and harmless. */
+/* Open a REGULAR file for reading without ever blocking on a special file: the stat-then-open window can be raced by replacing the path with a FIFO or device node, and a plain blocking open() on a writer-less FIFO hangs forever (saveFile holds the whole workspace write queue while hung). O_NONBLOCK makes the open return immediately for a FIFO, and the post-open stat rejects anything that is not a plain file. */
 export async function openRegularFile(target) {
-  /* O_NONBLOCK is undefined on Windows (no FIFOs there) — fall back to 0 so
-     the flag expression stays an explicit read-only open everywhere. */
+  /* O_NONBLOCK is undefined on Windows (no FIFOs there) — fall back to 0 so the flag expression stays an explicit read-only open everywhere. */
   const flags = fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0)
   const handle = await open(target, flags)
   try {
@@ -376,12 +342,7 @@ async function readPrefix(target, length) {
   }
   return buffer.subarray(0, offset)
 }
-/* Read a whole open file handle with a hard size cap: the caller's earlier
-   stat may be stale (an external writer can grow the file between the check
-   and the read), and an unbounded readFile would then buffer an arbitrarily
-   large file. The cap is enforced against the handle's OWN stat, and a
-   mid-read size change fails the save instead of silently hashing a partial
-   file. */
+/* Read a whole open file handle with a hard size cap: the caller's earlier stat may be stale (an external writer can grow the file), and an unbounded readFile would buffer an arbitrarily large file. The cap is enforced against the handle's OWN stat, and a mid-read size change fails the save instead of silently hashing a partial file. */
 export async function readFileHandleBounded(handle, maximum) {
   const opened = await handle.stat()
   if (opened.size > maximum) throw new HttpError(413, 'file-too-large', '现有文件超过可编辑大小限制')
@@ -426,24 +387,16 @@ export async function readPreview(workspace, relativePath, config, encodingId = 
   if (!truncated) result.revision = revisionFor(previewBytes)
   return result
 }
-/* Charset label for a raw response: the encoding id is already a valid
-   charset name except for the BOM/ascii spellings. */
+/* Charset label for a raw response: the encoding id is already a valid charset name except for the BOM/ascii spellings. */
 const CHARSET_BY_ENCODING = Object.freeze({ 'utf-8-bom': 'utf-8', ascii: 'us-ascii' })
-/* Detect the encoding of a raw file the way the preview's default read does:
-   BOM first (UTF-16 LE/BE, UTF-8), else UTF-8. */
+/* Detect the encoding of a raw file the way the preview's default read does: BOM first (UTF-16 LE/BE, UTF-8), else UTF-8. */
 function detectRawEncoding(bytes) {
   if (hasBom(bytes, 'utf-16le')) return 'utf-16le'
   if (hasBom(bytes, 'utf-16be')) return 'utf-16be'
   if (hasBom(bytes, 'utf-8')) return 'utf-8-bom'
   return 'utf-8'
 }
-/* Read a workspace file's ORIGINAL bytes for the "open in new window" tab
-   action: bounded by maxPreviewBytes, binary/NUL rejected, encoding detected
-   from the BOM (else UTF-8) for the Content-Type charset. The route serves
-   the response with a sandbox CSP, so the opened document is a unique origin
-   and cannot touch the GUI's storage or API. Markdown files are flagged so
-   the route can serve a server-rendered document instead of the raw bytes
-   (the extension table matches the client's markdown color group). */
+/* Read a workspace file's ORIGINAL bytes for the "open in new window" tab action: bounded by maxPreviewBytes, binary/NUL rejected, encoding detected from the BOM (else UTF-8) for the Content-Type charset. The route serves the response with a sandbox CSP, so the opened document is a unique origin and cannot touch the GUI's storage or API. Markdown files are flagged so the route can serve a server-rendered document instead of the raw bytes. */
 export async function readRawFile(workspace, relativePath, config) {
   if (relativePath === '') throw new HttpError(400, 'not-a-file', '请选择要预览的文件')
   const root = await realpath(workspace.path)
@@ -467,21 +420,14 @@ export async function readRawFile(workspace, relativePath, config) {
 /* ------------------------------------------------------------------------
  * External file-change checking for clean preview tabs.
  *
- * The browsing pane is snapshot-based (the client re-reads only when the
- * active path or reload token changes). To surface edits by other tools, the
- * client polls a cheap change-check endpoint on a fixed cadence; this helper
- * compares stat fields first and hashes only when they moved. A legacy Host
- * fs.watch push path was removed: it never registered its watcher with a
- * client and the client never subscribed to pushes, so it was dead code that
- * only leaked fs.watch handles. Read-only and scoped to paths already opened
- * in the preview; no directory tree is watched.
+ * The browsing pane is snapshot-based, so the client polls a cheap change-check
+ * endpoint on a fixed cadence; this helper compares stat fields first and hashes
+ * only when they moved. A legacy fs.watch push path was removed as dead code
+ * that only leaked handles. Read-only and scoped to paths already opened in the
+ * preview; no directory tree is watched.
  * ---------------------------------------------------------------------- */
 
-/** sha256 of the first maxPreviewBytes bytes PLUS a same-sized tail sample
- * when the file is larger: a change beyond the preview window (the tail of a
- * big file) would otherwise never be detected. For files at or under the
- * window this is exactly the preview prefix, matching readPreview's revision
- * basis so "no change" is authoritative. */
+/** sha256 of the first maxPreviewBytes bytes PLUS a same-sized tail sample when the file is larger, so a change beyond the preview window is still detected. For files at or under the window this is exactly the preview prefix, matching readPreview's revision basis. */
 async function previewHash(target, maxPreviewBytes) {
   try {
     const size = (await stat(target)).size
@@ -509,14 +455,10 @@ async function previewHash(target, maxPreviewBytes) {
   }
 }
 
-/* The mtime+size fast path is bounded by a TTL: an external tool that
-   rewrites content while preserving mtime/size (rsync -t, touch -r) would
-   otherwise be missed forever. After the TTL the hash runs and the snapshot
-   is refreshed, so a same-size rewrite surfaces within one extra poll. */
+/* The mtime+size fast path is bounded by a TTL: an external tool that rewrites content while preserving mtime/size (rsync -t, touch -r) would otherwise be missed forever. After the TTL the hash runs, so a same-size rewrite surfaces within one extra poll. */
 const CHANGE_CHECK_FAST_PATH_TTL_MS = 3000
 
-/** Cheap change check: stat fields first, hash only when they moved. Returns
- * the new snapshot (null when the file is gone). */
+/** Cheap change check: stat fields first, hash only when they moved. Returns the new snapshot (null when the file is gone). */
 async function fileChangeSnapshot(target, previous, maxPreviewBytes) {
   let current
   try {
@@ -531,20 +473,10 @@ async function fileChangeSnapshot(target, previous, maxPreviewBytes) {
     return previous
   }
   const hash = await previewHash(target, maxPreviewBytes)
-  /* A baseline WITHOUT a string hash (open of a file larger than the preview
-     window, which carries no revision; or an old client) has nothing to
-     compare: mtime/size stay the only change signal, and a same-mtime/size
-     file is reported unchanged instead of "changed on every poll" (the
-     previous.hash !== snapshot.hash comparison would otherwise fire forever
-     against the sampled hash — the >maxPreviewBytes auto-reload loop). */
+  /* A baseline WITHOUT a string hash (a file larger than the preview window, or an old client) has nothing to compare: mtime/size stay the only change signal, and a same-mtime/size file is reported unchanged instead of "changed on every poll". */
   if (sameMtime && typeof previous?.hash !== 'string') return { ...previous, checkedAt: Date.now() }
   if (hash !== null && previous?.hash === hash) {
-    /* Same CONTENT but new mtime/size (touch -r, rsync -t): carry the CURRENT
-       stat fields in the snapshot so the next poll's mtime+size fast path
-       engages again. Echoing the old mtime would force a full re-hash on
-       every poll forever; the check handler compares hash first when the
-       baseline carries a string hash, so a mere touch still reports
-       unchanged. */
+    /* Same CONTENT but new mtime/size (touch -r, rsync -t): carry the CURRENT stat fields so the next poll's mtime+size fast path engages again; echoing the old mtime would force a full re-hash on every poll. */
     return { mtimeMs: current.mtimeMs, size: current.size, hash, checkedAt: Date.now() }
   }
   return { mtimeMs: current.mtimeMs, size: current.size, hash, checkedAt: Date.now() }
@@ -552,16 +484,11 @@ async function fileChangeSnapshot(target, previous, maxPreviewBytes) {
 
 
 
-/** Read only the head of a file: stat fields plus a hash of the preview-sized
- * prefix, for cheap change detection. */
+/** Read only the head of a file: stat fields plus a hash of the preview-sized prefix, for cheap change detection. */
 export async function readPreviewHead(workspace, relativePath, maxPreviewBytes, previousSnapshot) {
   if (relativePath === '') throw new HttpError(400, 'not-a-file', '请选择要预览的文件')
   const root = await realpath(workspace.path)
-  /* The change-check contract (client api.js checkFileChange) expects 200
-     { exists: false } for a deleted/missing file — NOT a 404 — so the poll
-     can keep running and the client can surface the "file removed" state.
-     resolveWorkspacePath throws 404 path-not-found on ENOENT/ENOTDIR; treat
-     exactly that as "gone" here. */
+  /* The change-check contract expects 200 { exists: false } for a deleted/missing file — NOT a 404 — so the poll can keep running and the client can surface the "file removed" state. resolveWorkspacePath throws 404 path-not-found on ENOENT/ENOTDIR; treat exactly that as "gone" here. */
   let target
   try {
     target = await resolveWorkspacePath(root, relativePath)
@@ -571,10 +498,7 @@ export async function readPreviewHead(workspace, relativePath, maxPreviewBytes, 
   }
   return fileChangeSnapshot(target, previousSnapshot, maxPreviewBytes)
 }
-/** Preview a drag-and-dropped non-workspace file. Browsers never expose a
- * dropped file's absolute path, so the client uploads the raw bytes and this
- * route decodes them like readPreview. Always read-only: no disk location to
- * write back to. */
+/** Preview a drag-and-dropped non-workspace file. Browsers never expose a dropped file's absolute path, so the client uploads the raw bytes and this route decodes them like readPreview. Always read-only: no disk location to write back to. */
 export async function readExternalPreview(url, config, req) {
   const contentType = header(req.headers, 'content-type')?.toLowerCase().replace(/\s/g, '')
   if (contentType !== 'application/octet-stream' && contentType !== 'text/plain' && contentType !== 'text/plain;charset=utf-8') {

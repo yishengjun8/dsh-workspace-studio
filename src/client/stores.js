@@ -4,9 +4,8 @@ import { clamp, fileColorDefault, highlightPresetDefaultFor } from './format.js'
 import { normalizePreviewSession, prunePreviewSessions } from './preview-tabs.js'
 
 // The persisted sidebar width lives with the explorer pane geometry
-// (EXPLORER_LAYOUT_STORE_KEY): the root layout store can't persist its whole
-// value, so the explorer store mirrors it and this rehydrates it on load.
-// 0 means collapsed; missing/invalid data falls back to the default width.
+// (EXPLORER_LAYOUT_STORE_KEY), so this rehydrates it on load; 0 means
+// collapsed, and missing/invalid data falls back to the default width.
 export function readPersistedSidebarWidth() {
   if (typeof localStorage === 'undefined') return SIDEBAR_DEFAULT
   try {
@@ -27,11 +26,7 @@ export function createLayoutStore() {
       detailsOpen: false,
       // Sidebar browsing region: 'sessions' = workspace/session browser; 'files' swaps the same region for the file tree.
       view: 'sessions',
-      /* Selected global main panel (the harness's PanelInfo contract). This
-         plugin's root layout replaces ui-layout, so it owns the panelInfo
-         root standard source itself; the conversation is the only main entry
-         in the shipped composition, and the chat column renders it whenever
-         no panel is selected. */
+      /* Selected global main panel (the harness's PanelInfo contract); the chat column renders the conversation whenever no panel is selected. */
       panelInfo: { activePanelId: null },
     }),
     actions: {
@@ -46,9 +41,7 @@ export function createLayoutStore() {
     },
   })
 }
-/* Explorer pane geometry shared by every session: file-tree width, preview
-   width, sidebar width (0 = collapsed), and explorer open state. Persisted in
-   localStorage so switches and reloads keep one shared set. */
+/* Explorer pane geometry shared by every session: file-tree width, preview width, sidebar width (0 = collapsed), and explorer open state. */
 export function createExplorerPaneStore() {
   return defineStore({
     init: () => ({
@@ -79,7 +72,7 @@ export function createPreviewSessionStore() {
         const normalized = normalizePreviewSession(value)
         if (normalized.tabs.length === 0 && (normalized.expanded ?? []).length === 0) delete draft.previewSessions[String(key)]
         else {
-          // Timestamp every write so stale sessions can be pruned below; the stored copy is slim, the in-memory editor keeps full content.
+          // Timestamp every write so stale sessions can be pruned below.
           draft.previewSessions[String(key)] = { ...normalized, updatedAt: Date.now() }
           prunePreviewSessions(draft)
         }
@@ -147,7 +140,7 @@ export function createExplorerSettingsStore() {
       setMindmapHeadColor: (draft, value) => {
         const hex = cssColorToHex(value)
         if (hex === null) return
-        /* The default head color is the fixed violet (not a theme var): picking it back means "use the default" — drop the stored override. */
+        /* The default head color is the fixed violet (not a theme var): picking it back means "use the default". */
         if (hex === MINDMAP_HEAD_COLOR_DEFAULT) delete draft.mindmapHeadColor
         else draft.mindmapHeadColor = hex
       },
@@ -155,7 +148,7 @@ export function createExplorerSettingsStore() {
       setMindmapEndColor: (draft, value) => {
         const hex = cssColorToHex(value)
         if (hex === null) return
-        /* The default end-card color is the fixed success green (not a theme var): picking it back means "use the default" — drop the override. */
+        /* The default end-card color is the fixed success green (not a theme var): picking it back means "use the default". */
         if (hex === MINDMAP_END_COLOR_DEFAULT) delete draft.mindmapEndColor
         else draft.mindmapEndColor = hex
       },
@@ -203,4 +196,4 @@ export function createExplorerSettingsStore() {
     },
   })
 }
-export class LayoutController { attach(actions){this.actions=actions} requireActions(){if(!this.actions)throw new Error('workspace-studio: root store actions are not attached');return this.actions} toggleSidebar(){this.requireActions().toggleSidebar()} openDetails(){this.requireActions().openDetails()} closeDetails(){this.requireActions().closeDetails()} /* The harness ILayout face this plugin's root layout must satisfy (ui-layout is disabled by the plugin patch): selectPanel drives the main slot's entryKey; the right-panel verbs are no-ops because this layout has no rightbar track. */ selectPanel(panelId){this.requireActions().selectPanel(panelId)} beginNavigation(){return new AbortController().signal} openRightbar(){} closeRightbar(){} }
+export class LayoutController { attach(actions){this.actions=actions} requireActions(){if(!this.actions)throw new Error('workspace-studio: root store actions are not attached');return this.actions} toggleSidebar(){this.requireActions().toggleSidebar()} openDetails(){this.requireActions().openDetails()} closeDetails(){this.requireActions().closeDetails()} /* The harness ILayout face this plugin's root layout must satisfy: selectPanel drives the main slot's entryKey; the right-panel verbs are no-ops because this layout has no rightbar track. */ selectPanel(panelId){this.requireActions().selectPanel(panelId)} beginNavigation(){return new AbortController().signal} openRightbar(){} closeRightbar(){} }

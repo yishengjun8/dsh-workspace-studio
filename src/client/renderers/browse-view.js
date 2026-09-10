@@ -1,7 +1,4 @@
-/* Read-only browse view: pages the FULL file through the standard
-   workspaceFiles.read Remote (the editor is capped at maxPreviewBytes) and
-   renders it as MarkdownText / CodeBlock / plain text. Scroll-to-bottom
-   appends the next page; a load-more button covers the no-scrollport case. */
+/* Read-only browse view: pages the full file via the read Remote (the editor is capped at maxPreviewBytes) and renders it as MarkdownText / CodeBlock / plain text. */
 import { createElement as h } from 'react'
 import { useCallback } from 'react'
 import { CodeBlock, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'

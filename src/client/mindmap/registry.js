@@ -95,14 +95,9 @@ export const mindmapRegistry = {
     this._inflight = pending
     return pending
   },
-  /* Background polling cadence: MINDMAP_INDEX_REFRESH_MS while at least one doc
-     exists. The timer PAUSES while the index is empty — with no docs on disk
-     there is nothing to render and no staleness worth defending against (local
-     mutations refresh immediately via markDirty). Any refresh that finds docs
-     re-arms it, and markDirty / start() after a pause wake it again. Cross-tab
-     caveat: the FIRST doc created in another tab is only noticed here on the
-     next local refresh/action (accepted — the overlay-open load path refreshes
-     the registry and re-arms the poll). */
+  /* Background polling cadence: MINDMAP_INDEX_REFRESH_MS while at least one
+     doc exists, pausing when the index is empty. A doc created in another tab
+     is only noticed on the next local refresh (accepted). */
   _armTimer() {
     if (this._timer !== 0) return
     this._timer = window.setInterval(() => { void this.refresh() }, MINDMAP_INDEX_REFRESH_MS)
@@ -143,14 +138,10 @@ export function useMindmapRegistry() {
 }
 
 /* Module-wide dock-request bridge: the sidebar mind-map entries and the
-   session-header 导图 button ask the explorer to open the map as a preview
-   tab (dsh-ws-preview). The explorer consumes the request ONLY when its
-   previewSessionId matches the request's expectFamily — add/update the
-   mind-map tab, activate it — and clears it, so a later explorer mount
-   (session switch) never re-applies a stale request and an unrelated
-   session's explorer never adopts one. A request whose family has no
-   mounted explorer stays pending and docks on the next matching mount,
-   which is the closest the request can get to its intent. */
+   session-header mind-map button ask the explorer to open the map as a preview
+   tab. The explorer consumes the request only when its previewSessionId matches
+   the request's expectFamily, so a later mount never re-applies a stale request
+   and an unrelated session's explorer never adopts one. */
 export const mindmapDockStore = {
   _snapshot: { seq: 0, request: null },
   _listeners: new Set(),
@@ -166,12 +157,8 @@ export const mindmapDockStore = {
         rootId: String(rootId),
         name: typeof name === 'string' ? name : '',
         /* Only the explorer whose previewSessionId equals expectFamily may
-           consume the request. Without this gate the CURRENT session's
-           explorer (the one mounted at click time) consumes it first,
-           stamping the map's tab onto a session the click is about to leave
-           — and the tab then follows that session's snapshot forever. A
-           request awaiting its family stays pending until the matching
-           explorer mounts (after the session switch the opener performs). */
+           consume the request; otherwise the current session's explorer would
+           stamp the tab onto a session the click is about to leave. */
         expectFamily: String(expectFamily ?? rootId),
       },
     }
@@ -230,12 +217,9 @@ export function updateMindmapOrder(groupKey, ids) {
 }
 
 /* Per-root last-selected session of a mind map in localStorage (root session id
-   → last selected session id, one small string pair per map). Written whenever
-   a card click lands the selection on a session; restored on the next open of
-   that map so the "当前" highlight (and the right-side chat) return to the last
-   clicked card instead of defaulting to the first branch. A stale entry whose
-   session was archived / re-anchored is harmless: the restore guard falls back
-   to the default first branch. */
+   → last selected session id). Restored on the next open so the current
+   highlight (and the right-side chat) return to the last clicked card; a stale
+   entry falls back to the default first branch. */
 const MINDMAP_LAST_SESSION_STORE_KEY = 'dsh.workspace.studio.mindmap-last-session.v1'
 function readMindmapLastSessionMap() {
   try {

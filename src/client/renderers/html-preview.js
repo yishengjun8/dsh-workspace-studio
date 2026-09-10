@@ -1,8 +1,4 @@
-/* Rendered HTML preview: the draft stays the iframe's source (live edits),
-   with statically declared relative scripts/stylesheets packed in through the
-   standard readRelated Remote. Packing is debounced so typing does not fire a
-   read per keystroke; until a pack settles the raw draft renders, and a pack
-   failure falls back to it with a notice. */
+/* Rendered HTML preview: the draft stays the iframe's source, with relative scripts/stylesheets packed in via the readRelated Remote; packing is debounced, and a pack failure falls back to the raw draft with a notice. */
 import { createElement as h } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { translate } from '../locale/index.js'
@@ -25,9 +21,7 @@ export function HtmlPreview({ sessionId, path, draft }) {
     const seq = ++packSeqRef.current
     const controller = new AbortController()
     const timer = window.setTimeout(() => {
-      /* Bind a package reader to the original HTML file's session and
-         directory: strip URL query/fragment, decode one path, preserve Host
-         failures as rejections. */
+      /* Bind a package reader to the original HTML file's session and directory, preserving Host failures as rejections. */
       const readRelative = (reference, signal) => {
         const suffix = reference.search(/[?#]/u)
         const relativePath = decodeURIComponent(suffix === -1 ? reference : reference.slice(0, suffix))

@@ -2,21 +2,12 @@ import { deleteMindmapDoc, fetchMindmapDoc, renameMindmapDoc, syncMindmapDoc, wr
 import { mindmapRootTitleOf, normalizeMindmapWorkspacePath } from './mindmap/helpers.js'
 import { mindmapBlankSessions } from './mindmap/hider.js'
 
-  /* The mind-map action face shared by the docked mind-map view (formerly the
-     conversation.view inject): document IO, fork, rename and archive. forkAt
-     does NOT open the child — the view opens it only after the doc write
-     completes, so the branch is part of the document when it becomes visible.
-     No increaseTitle: the host derives the title from the fork boundary; the
-     child is renamed to the family-root title plus " ›" so its header never
-     collides with the root (a root-replacement fork — card-deletion
-     truncation of the root session — keeps the plain family title instead, asRoot). */
+  /* The mind-map action face shared by the docked mind-map view: document IO,
+     fork, rename and archive. forkAt does not open the child — the view opens
+     it only after the doc write completes. The child is renamed to the
+     family-root title plus " ›" so its header never collides with the root. */
 export function buildMindmapActions(ctx) {
-    /* Resolve the workspace whose canonical path matches a cwd string (case /
-       trailing-separator normalized), so a root-node-created session can be
-       created WITH its workspaceId. The harness host attaches a session to a
-       workspace only when session.create carries a workspaceId; a cwd-only
-       create leaves the session ungrouped, and a blank ungrouped session is
-       then hidden from the sidebar as soon as it is not the current session. */
+    /* Resolve the workspace whose canonical path matches a cwd string, so a root-node-created session can be created with its workspaceId. */
     const mindmapWorkspaceIdForCwd = (cwd) => {
       if (typeof cwd !== 'string' || cwd === '') return undefined
       let items = []
@@ -39,13 +30,9 @@ export function buildMindmapActions(ctx) {
       archiveSession: async id => { await ctx.workspaces.archiveSession(String(id)) },
     createSession: async (recordedCwd, anchorId) => {
       /* A top-level session (created by clicking the mind-map root node) is a
-         brand-new BLANK harness session — no inherited turns. It is created in
-         the workspace the map was CREATED in (recordedCwd, from the doc); when
-         the doc has none recorded (pre-upgrade / no workspace), fall back to
-         the anchor session's current cwd so it still lands in a sidebar group
-         instead of the ungrouped bucket. Created via workspaceId (not cwd) so
-         the host attaches the session to that workspace; a cwd-only create
-         stays ungrouped and the blank session disappears from the sidebar. */
+         brand-new blank harness session, created in the map's recorded
+         workspace (or the anchor session's cwd) via workspaceId so the host
+         attaches it to that workspace. */
       const snapshot = ctx.sessions.list.getSnapshot()
       const cwd = (typeof recordedCwd === 'string' && recordedCwd !== '')
         ? recordedCwd
@@ -54,15 +41,12 @@ export function buildMindmapActions(ctx) {
       const childId = workspaceId !== undefined
         ? await ctx.sessions.create({ workspaceId })
         : await ctx.sessions.create(cwd === undefined ? {} : { cwd })
-      /* Mark the fresh BLANK session as mind-map family for the sidebar hider:
-         the doc write + registry refresh lag the creation RPC, and the harness
-         renders the current blank session immediately. Plus-button sessions
-         (harness-internal) never enter the set and stay visible. */
+      /* Mark the fresh blank session as mind-map family for the sidebar hider, since the doc write lags the creation RPC. */
       mindmapBlankSessions.add(String(childId))
       return childId
     },
     deleteDoc: (id, signal) => deleteMindmapDoc(String(id), signal),
-    /* All workspaces, for the root node's "选择工作区" menu. */
+    /* All workspaces, for the root node's workspace menu. */
     listWorkspaces: () => {
       try {
         const items = ctx.workspaces.list.getSnapshot().items
@@ -75,9 +59,7 @@ export function buildMindmapActions(ctx) {
       const childId = await ctx.sessions.fork({ sessionId: String(id), atSeq: seq })
       const rootTitle = mindmapRootTitleOf(ctx.sessions.list.getSnapshot(), String(id))
       if (rootTitle !== undefined && rootTitle !== '') {
-        /* Branch children get the family-root title plus " ›" so they never
-           collide with the root. A root-replacement fork becomes the NEW root
-           itself, so it keeps the plain family title instead. */
+        /* Branch children get the family-root title plus " ›" so they never collide with the root. */
         const title = asRoot === true ? rootTitle : (rootTitle.endsWith(' ›') ? rootTitle : `${rootTitle} ›`)
         ctx.sessions.binding(String(childId))?.session.rename(title).catch(() => {})
       }
@@ -91,9 +73,7 @@ export function buildMindmapActions(ctx) {
       const result = await session.rename(title)
       if (!result.ok) throw new Error(result.error.message)
     },
-    /* Rename only the map's OWN title (doc.rootTitle), independent of the root
-       session's title (the sidebar panel and the in-map root-head rename both
-       use this so the map title stays in sync with what the user sees). */
+    /* Rename only the map's own title (doc.rootTitle), independent of the root session's title. */
     renameDoc: (id, title, signal) => renameMindmapDoc(String(id), title, signal),
     saveDoc: (id, doc, signal, prevSessionId) => writeMindmapDoc(String(id), doc, signal, prevSessionId),
     syncDoc: (id, liveSessionIds, signal, summaryConfig) => syncMindmapDoc(String(id), liveSessionIds, signal, summaryConfig),

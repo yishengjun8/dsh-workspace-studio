@@ -1,21 +1,15 @@
 /* Route the chat's file-open path into the plugin's own preview tabs.
  *
  * The shipped chat opens files through ctx.sidebarRight.openResource, which
- * requires the harness right-Sidebar seat. This plugin's root layout does not
- * declare the `rightbar` slot, so the seat never mounts and every open throws
- * "sidebarRight: no session surface is mounted". Instead of reviving the right
- * column, this module patches the controller's openResource to resolve the
- * address against the session's workspace and publish an open request to the
- * mounted explorer (fileOpenRequestStore), which opens the file as a preview
- * tab — the same surface the file tree and search results use.
+ * requires the harness right-Sidebar seat this root layout never mounts. This
+ * module patches openResource to resolve the address against the session's
+ * workspace and publish an open request to the mounted explorer
+ * (fileOpenRequestStore), opening the file as a preview tab.
  *
- * The patch follows the sendSession bridge convention (PromptContextBridge):
- * a marker + recorded original let an overlapping re-install unwrap a stale
- * wrapper instead of recursing through it, and cleanup restores only when the
- * current value is still our wrapper. The traceable proxy cordis returns for
- * a service value forwards property sets to the underlying object, so
- * assigning openResource works exactly like the conversation.sendSession
- * assignment.
+ * The patch follows the sendSession bridge convention: a marker + recorded
+ * original let an overlapping re-install unwrap a stale wrapper instead of
+ * recursing, and cleanup restores only when the current value is still our
+ * wrapper.
  */
 import { OPEN_RESOURCE_BRIDGE_MARKER, OPEN_RESOURCE_BRIDGE_ORIGINAL } from './constants.js'
 import { translate } from './locale/index.js'
@@ -24,8 +18,7 @@ import { fileOpenRequestStore } from './open-request.js'
 
 /* The dsh-resource://file/… address grammar, mirrored locally from
    @deepseek-ai/dsh-util-workspace-path's file-address.ts so the bundle needs
-   no new harness dependency: every id and path segment is component-encoded
-   with `:` kept literal for drive letters. */
+   no new harness dependency. */
 const FILE_ADDRESS_PREFIX = 'dsh-resource://file/'
 
 /* Parse a file address into its parts; undefined when not a file address.
@@ -88,9 +81,7 @@ function relativizeToRoot(root, path) {
 }
 
 /* Resolve a file address to a workspace-relative path and publish the open
-   request. Throws a user-facing error when the file cannot be opened in the
-   plugin's preview (no workspace, or an absolute path outside it) — the chat
-   surfaces it in its file-open dialog. */
+   request; throws a user-facing error when the file cannot be opened. */
 function routeFileOpen(ctx, address, options) {
   const parsed = parseFileAddress(address)
   if (parsed === undefined) {
@@ -123,16 +114,14 @@ function routeFileOpen(ctx, address, options) {
   )
 }
 
-/* Install the openResource patch for the lifetime of the plugin: a deferred
-   inject on the sidebarRight service (present whenever the harness
-   ui-sidebar-right plugin is active, which this plugin does not disable). */
+/* Install the openResource patch for the lifetime of the plugin via a
+   deferred inject on the sidebarRight service. */
 export function installOpenResourceRouter(ctx) {
   ctx.inject(['sidebarRight'], scope => {
     scope.effect(() => {
       const controller = scope.get('sidebarRight')
       if (controller === undefined) return undefined
-      /* Unwrap a previous install's wrapper (overlap window) instead of
-         recursing through it; cleanup-only installs never leave one behind. */
+      /* Unwrap a previous install's wrapper (overlap window) instead of recursing. */
       let original = controller.openResource
       if (typeof original === 'function' && original[OPEN_RESOURCE_BRIDGE_MARKER] === true) {
         original = original[OPEN_RESOURCE_BRIDGE_ORIGINAL] ?? original
@@ -144,10 +133,8 @@ export function installOpenResourceRouter(ctx) {
       Object.defineProperty(patched, OPEN_RESOURCE_BRIDGE_ORIGINAL, { value: original })
       controller.openResource = patched
       return () => {
-        /* The traceable proxy returns a fresh shadow wrapper per read, so
-           identity cannot detect our patch: the marker on the underlying
-           function is the reliable check (a newer install's wrapper carries
-           its own marker and must not be clobbered). */
+        /* The traceable proxy returns a fresh shadow wrapper per read, so the
+           marker on the underlying function is the reliable check. */
         const current = controller.openResource
         if (current?.[OPEN_RESOURCE_BRIDGE_MARKER] === true) controller.openResource = original
       }

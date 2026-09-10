@@ -28,46 +28,40 @@ export const tokenHighlight = HighlightStyle.define([
   { tag: [tags.string, tags.special(tags.string), tags.regexp], color: 'var(--shiki-token-string)' },
   { tag: [tags.number, tags.bool, tags.null], color: 'var(--shiki-token-constant)' },
   { tag: [tags.function(tags.variableName), tags.function(tags.propertyName), tags.typeName, tags.className, tags.namespace], color: 'var(--shiki-token-function)' },
-  // Name-definition tokens (declaration position) ride the type color; StreamLanguage emits them as `variableName.definition`, which the bare variableName rule above misses.
+  // Name-definition tokens (declaration position) ride the type color; StreamLanguage emits them as `variableName.definition`, which the bare rule misses.
   { tag: [tags.definition(tags.variableName), tags.definition(tags.typeName), tags.definition(tags.propertyName)], color: 'var(--shiki-token-function)' },
   { tag: [tags.variableName, tags.propertyName, tags.attributeName], color: 'var(--shiki-token-parameter)' },
   { tag: [tags.heading, tags.link, tags.url], color: 'var(--shiki-token-link)' },
-  // Preprocessor directives: purple via the directive variable. NOTE: tags.meta must not reappear in any LATER rule — a later rule wins per tag and would strip the directive color from C# #region/#if and C preprocessor lines.
+  // Preprocessor directives: purple via the directive variable. NOTE: tags.meta must not reappear in any later rule, which would win per tag and strip the directive color.
   { tag: tags.meta, color: 'var(--dsh-ws-token-directive, #8e44ad)' },
   { tag: tags.inserted, color: 'var(--shiki-token-string-expression)' },
   { tag: tags.punctuation, color: 'var(--shiki-token-punctuation)' },
-  // Markup tokens: angleBracket was unstyled, character already rides the string color; fallbacks preserve that unless a markup preset (e.g. VS Code XML) sets the override variables.
+  // Markup tokens: angleBracket was unstyled and character already rides the string color; fallbacks preserve that unless a markup preset sets the override variables.
   { tag: tags.angleBracket, color: 'var(--dsh-ws-token-xml-punctuation, inherit)' },
   { tag: tags.character, color: 'var(--dsh-ws-token-xml-entity, var(--shiki-token-string))' },
   { tag: [tags.invalid, tags.deleted], color: 'var(--dsw-alias-state-error-primary)' },
 ])
 
-/* Python import-module highlighting: the module-path names inside import
-   statements AND later usages of plain-import bindings (`import os` makes
-   every `os` that resolves to that binding a module). lezer-python trees
-   are flat inside ImportStatement (dottedName/importedNames elided at
-   grammar compile time), so styleTags selectors cannot tell modules from
-   variables. A ViewPlugin walks the tree with a scope stack modelled from
+/* Python import-module highlighting: module-path names inside import
+   statements and later usages of plain-import bindings (`import os` makes
+   every resolving `os` a module). lezer-python trees are flat inside
+   ImportStatement, so styleTags selectors cannot tell modules from
+   variables; a ViewPlugin walks the tree with a scope stack modelled from
    the syntax nodes:
-   - binding scope: `import X`, `import a.b.c` → X/a; alias `import X as Y`
-     → Y. `from X import Y` names are NOT tracked (unresolvable without
+   - binding scope: `import X` / `import a.b.c` → X/a; alias `import X as Y`
+     → Y. `from X import Y` names are not tracked (unresolvable without
      semantics) — only the from-module path is coloured in-statement;
-   - shadowing: params, assignment/for/with/except targets, def/class
-     names, lambda params, comprehension targets, walrus targets and match
-     captures define a name in their scope; a usage resolves to the NEAREST
-     binding on the scope chain, so a local definition hides every outer
-     binding (Python compile-time scoping);
-   - class scopes are skipped by lookups from nested functions (LEGB: a
-     method does not see class attributes).
+   - shadowing: params, assignment/for/with/except targets, def/class names,
+     lambda params, comprehension targets, walrus targets and match captures
+     define a name in their scope; a usage resolves to the NEAREST binding on
+     the scope chain (Python compile-time scoping);
+   - class scopes are skipped by lookups from nested functions (LEGB).
    Correctness requirements (mirroring the official TreeHighlighter):
-   1. Prec.highest — mark decorations nest by facet precedence and the text
-      renders inside the INNERMOST span. The syntax-highlight plugin is
-      Prec.high, so without an even higher precedence my mark wraps the
-      highlight span and its color is overridden — the decoration exists
-      but is invisible.
+   1. Prec.highest — mark decorations nest by facet precedence and render
+      inside the innermost span; the syntax-highlight plugin is Prec.high, so
+      without a higher precedence the mark's color is overridden.
    2. Rebuild on tree identity change, not just docChanged: the Lezer parse
-      advances in background chunks (Language.setState transactions with
-      stateChanged but no docChanged), so a docChanged-only rebuild misses
+      advances in background chunks, so a docChanged-only rebuild misses
       imports beyond the synchronously parsed prefix. */
 export const pythonModuleMark = Decoration.mark({ class: 'dsh-ws-token-module' })
 export const pythonImportModules = Prec.highest(ViewPlugin.fromClass(class {
@@ -76,7 +70,7 @@ export const pythonImportModules = Prec.highest(ViewPlugin.fromClass(class {
     const tree = syntaxTree(update.state)
     if (tree !== this.tree) {
       this.tree = tree
-      /* Background chunk parsing swaps the tree identity repeatedly while typing/loading a large file; rebuilding the whole decoration set per chunk is O(tree). Coalesce rebuilds to the next frame so a burst of chunk transactions builds once. */
+      /* Background chunk parsing swaps the tree identity repeatedly; coalesce rebuilds to the next frame so a burst of chunk transactions builds once. */
       if (this.pending) return
       this.pending = true
       this.raf = requestAnimationFrame(() => {
@@ -97,12 +91,12 @@ export const pythonImportModules = Prec.highest(ViewPlugin.fromClass(class {
     const ranges = []
     const mark = (from, to) => ranges.push(pythonModuleMark.range(from, to))
     const text = (node) => state.sliceDoc(node.from, node.to)
-    // Scope stack; index 0 is the module scope. isClass scopes are skipped by lookups from nested functions (LEGB).
+    // Scope stack; index 0 is the module scope. Class scopes are skipped by lookups from nested functions (LEGB).
     const scopes = [{ isClass: false, defined: new Set(), imports: new Map() }]
     const cur = () => scopes[scopes.length - 1]
     const def = (name) => cur().defined.add(name)
     const bind = (name, kind) => cur().imports.set(name, kind)
-    // A name usage resolves to the nearest binding on the scope chain; a local definition of the name shadows every outer binding.
+    // A usage resolves to the nearest binding on the scope chain; a local definition shadows every outer binding.
     const usage = (node) => {
       const name = text(node)
       for (let i = scopes.length - 1; i >= 0; i--) {
@@ -114,7 +108,7 @@ export const pythonImportModules = Prec.highest(ViewPlugin.fromClass(class {
         if (kind !== undefined) return
       }
     }
-    // Register every direct VariableName target of an assignment-like node; MemberExpression roots stay usages (`obj.attr = 1`).
+    // Register every direct VariableName target of an assignment-like node; MemberExpression roots stay usages.
     const defTargets = (node) => {
       for (let ch = node.firstChild; ch; ch = ch.nextSibling) {
         if (ch.name === 'VariableName') def(text(ch))
@@ -207,13 +201,13 @@ export const pythonImportModules = Prec.highest(ViewPlugin.fromClass(class {
         else if (ch.name === 'from') fromKw = ch
       }
       if (fromKw !== null) {
-        // from-imports: only the module path (before `import`) is coloured; imported names stay ordinary variables (unresolvable statically).
+        // from-imports: only the module path (before `import`) is coloured; imported names stay ordinary variables.
         for (let ch = node.firstChild; ch; ch = ch.nextSibling) {
           if (ch.name === 'VariableName' && importKw !== null && ch.from < importKw.from) mark(ch.from, ch.to)
         }
         return
       }
-      // Plain imports: module-path parts AND aliases are coloured. The binding of each comma group is its root (`import X` / `import a.b.c` → X/a), unless the group has an alias (`import X as Y` → Y).
+      // Plain imports: module-path parts and aliases are coloured. The binding of each comma group is its root (`import X` / `import a.b.c` → X/a), unless the group has an alias (`import X as Y` → Y).
       let root = null
       for (let ch = node.firstChild; ch; ch = ch.nextSibling) {
         if (ch.name === 'VariableName') {
@@ -302,7 +296,7 @@ export const pythonImportModules = Prec.highest(ViewPlugin.fromClass(class {
     }
     const comprehension = (node) => {
       scopes.push({ isClass: false, defined: new Set(), imports: new Map() })
-      // Register the `for` targets first so body usages before the `for` keyword already see them (Python compile-time scoping).
+      // Register the `for` targets first so body usages before the `for` keyword already see them.
       let targeting = false
       for (let ch = node.firstChild; ch; ch = ch.nextSibling) {
         if (ch.name === 'for') targeting = true
@@ -338,7 +332,7 @@ export const PYTHON_LANGUAGE = language('py', [python(), pythonImportModules])
 export const SQL_LANGUAGE = language('sql', sql())
 export const XML_LANGUAGE = language('xml', xml())
 export const YAML_LANGUAGE = language('yaml', yaml())
-/* C uses the legacy clike C mode (not the C++ Lezer parser): C++-only constructs (class, templates, namespaces) would otherwise be highlighted with C++ semantics in .c/.h files. */
+/* C uses the legacy clike C mode (not the C++ Lezer parser) so C++-only constructs are not highlighted with C++ semantics in .c/.h files. */
 export const C_LANGUAGE = language('c', StreamLanguage.define(clikeC))
 export const CPP_LANGUAGE = language('c++', cpp())
 export const JAVA_LANGUAGE = language('java', java())
@@ -356,7 +350,7 @@ export const SCSS_LANGUAGE = language('scss', CSS_LANGUAGE.extension)
 export const LESS_LANGUAGE = language('less', CSS_LANGUAGE.extension)
 export const MDX_LANGUAGE = language('mdx', MARKDOWN_LANGUAGE.extension)
 export const INI_LANGUAGE = language('ini', [])
-/* C# legacy mode: replicates the clike `csharp` export (keywords, types, @"..." verbatim-string hook) plus a C/C++-style '#' preprocessor hook so #if/#define/#region render as directives (the shipped csharp export has no '#' hook). */
+/* C# legacy mode: replicates the clike `csharp` export plus a C/C++-style '#' preprocessor hook so #if/#define/#region render as directives. */
 const csharpWords = (str) => {
   const obj = {}
   for (const word of str.split(' ')) obj[word] = true

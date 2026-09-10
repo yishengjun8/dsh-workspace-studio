@@ -1,13 +1,13 @@
 import { translate } from './locale/index.js'
 import { languageFor } from './languages.js'
 
-/* Localized label of one file-color group; language-neutral names (TypeScript, JSON, ...) fall back to the constant label. */
+/* Localized label of one file-color group; language-neutral names fall back to the constant label. */
 export function fileColorGroupLabel(group) {
   const localized = translate(`fileColor.${group}`)
   if (localized !== `fileColor.${group}`) return localized
   return FILE_COLOR_GROUPS.find(item => item.group === group)?.label ?? group
 }
-/* Localized label of one highlight preset; language-neutral names (Python (VS Code), ...) fall back to the constant label. */
+/* Localized label of one highlight preset; language-neutral names fall back to the constant label. */
 export function highlightPresetLabel(id) {
   const localized = translate(`preset.${id}`)
   if (localized !== `preset.${id}`) return localized
@@ -15,9 +15,7 @@ export function highlightPresetLabel(id) {
 }
 
 
-/* File-tree badge color groups: each owns one accent color for the leading
-   type badge, user-recolorable in settings with unset groups falling back to
-   their default. Directory and blocked entries are groups like any file type. */
+/* File-tree badge color groups: each owns one accent color for the leading type badge, user-recolorable in settings. */
 export const FILE_COLOR_GROUPS = Object.freeze([
   { group: 'directory', label: '目录', color: '#3b82f6' },
   { group: 'typescript', label: 'TypeScript', color: '#3178c6' },
@@ -46,8 +44,7 @@ export function fileColorOf(settings, group) {
   return settings?.fileColors?.[group] ?? fileColorDefault(group)
 }
 
-/* Extension -> color group; mirrors EXTENSION_LANGUAGES so badge and editor
-   highlighting agree. Unknown suffixes land in 'other'. */
+/* Extension -> color group; mirrors EXTENSION_LANGUAGES so badge and editor highlighting agree. */
 export const FILE_GROUP_BY_EXTENSION = Object.freeze({
   ts: 'typescript', tsx: 'typescript', mts: 'typescript', cts: 'typescript',
   js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript',
@@ -81,10 +78,7 @@ export function colorGroupOf(entry) {
   return FILE_GROUP_BY_EXTENSION[extension] ?? DEFAULT_FILE_GROUP
 }
 
-/* Editor syntax-highlight presets: each non-default preset overrides the
-   --shiki-token-* variables on the editor host (light/dark variants via the
-   body attribute), so the HighlightStyle keeps its single var() mapping.
-   'default' leaves the app theme's palette untouched. */
+/* Editor syntax-highlight presets: each non-default preset overrides the --shiki-token-* variables on the editor host; 'default' leaves the app theme's palette untouched. */
 export const HIGHLIGHT_PRESETS = Object.freeze([
   { id: 'default', label: '默认' },
   { id: 'classic', label: '经典' },
@@ -105,7 +99,7 @@ export const HIGHLIGHT_PRESETS = Object.freeze([
   { id: 'vs2022', label: 'Visual Studio 2022' },
 ])
 export const HIGHLIGHT_PRESET_DEFAULT = 'default'
-/* Per-group default highlight presets; a group with no entry here and no user pick follows the app theme's palette ('default'). */
+/* Per-group default highlight presets; a group with no entry here follows the app theme's palette ('default'). */
 export const HIGHLIGHT_PRESET_DEFAULT_BY_GROUP = Object.freeze({
   markup: 'vscode-xml',
   python: 'vscode-python',

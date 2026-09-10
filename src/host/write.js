@@ -9,25 +9,14 @@ import { entryPath, hasSymlinkComponent, isInside, normalizeEntryName, normalize
 import { containsNul, decodeUtf8, encodeText, hasBom, revisionFor } from './encodings.js'
 import { header, readBody, readJsonObject } from './http.js'
 import { describeCreatedEntry, openRegularFile, readFileHandleBounded } from './fs.js'
-/* Per-key promise-chain queue primitive shared by workspace mutations, draft
-   writes and mind-map doc operations. Operations under a key run strictly one
-   at a time (later calls chain onto the tail); nested re-acquisition of the
-   same key is never needed (the mind-map re-anchor paths release-and-retry
-   instead). */
+/* Per-key promise-chain queue primitive shared by workspace mutations, draft writes and mind-map doc operations. Operations under a key run strictly one at a time; nested re-acquisition of the same key is never needed (the mind-map re-anchor paths release-and-retry instead). */
 const WRITE_QUEUE_STALL_MS = 45_000
 /* When the current tail of a queue key started pending (undefined = idle). */
 const queuePendingSince = new Map()
 
 export async function serializeWrite(queues, key, operation) {
   const previous = queues.get(key) ?? Promise.resolve()
-  /* Stall watchdog: a tail pending past WRITE_QUEUE_STALL_MS means the head
-     operation is hung (network drive, wedged fs, dead lock holder) — fail
-     NEW work fast with an explicit 503 instead of piling up silently behind a
-     queue that will never drain. The stuck operation keeps its slot (nothing
-     else runs under this key, so no ordering/overwrite hazard) and the
-     client's own request timeouts surface it to the user. 45 s > the client's
-     30 s request timeout and > the longest legitimate lock hold (a 25 s
-     synchronous LLM regeneration), so healthy queues never trip it. */
+  /* Stall watchdog: a tail pending past WRITE_QUEUE_STALL_MS means the head operation is hung — fail NEW work fast with an explicit 503 instead of piling up behind a queue that will never drain. The stuck operation keeps its slot (no ordering/overwrite hazard) and the client's own request timeouts surface it. 45 s exceeds the client's 30 s request timeout and the longest legitimate lock hold, so healthy queues never trip it. */
   const pendingSince = queuePendingSince.get(key)
   if (pendingSince !== undefined && Date.now() - pendingSince > WRITE_QUEUE_STALL_MS) {
     throw new HttpError(503, 'write-queue-stalled', '写入队列阻塞，请稍后重试')
@@ -45,9 +34,7 @@ export async function serializeWrite(queues, key, operation) {
   }
 }
 
-/** Serialize all workspace mutations through one queue: the coarse
- * workspace-wide lock covers overlapping paths/names unknown until canonical
- * checks run, keeping mutations deterministic and allocation race-free. */
+/** Serialize all workspace mutations through one queue: the coarse workspace-wide lock covers overlapping paths/names unknown until canonical checks run, keeping mutations deterministic and allocation race-free. */
 function serializeWorkspaceMutation(queues, workspace, operation) {
   return serializeWrite(queues, `workspace:${String(workspace.id)}`, operation)
 }
@@ -87,8 +74,7 @@ export async function saveFile(workspace, relativePath, config, queues, req, enc
     throw new HttpError(415, 'invalid-text', '保存内容必须是无二进制数据的有效 UTF-8 文本')
   }
 
-  // In-process route: canonical checks run inside the workspace mutation queue
-  // so every rename/delete/save observes one serial history.
+  // In-process route: canonical checks run inside the workspace mutation queue so every rename/delete/save observes one serial history.
   return serializeWorkspaceMutation(queues, workspace, async () => {
     const root = await realpath(workspace.path)
     const candidate = resolve(root, ...relativePath.split('/'))
@@ -96,14 +82,11 @@ export async function saveFile(workspace, relativePath, config, queues, req, enc
     const target = await realpath(candidate)
     if (!isInside(root, target)) throw new HttpError(403, 'path-outside-workspace', '拒绝写入工作区之外的路径')
     const targetStat = await lstat(candidate)
-    /* A symlink at the final component resolves inside the workspace but is
-       still a symlink path: report the same 403 the later symlink fence uses,
-       not a misleading 400 (the file exists — it is just not a plain file). */
+    /* A symlink at the final component resolves inside the workspace but is still a symlink path: report the same 403 the later symlink fence uses, not a misleading 400. */
     if (targetStat.isSymbolicLink()) throw new HttpError(403, 'symlink-write-denied', '拒绝通过符号链接写入文件')
     if (!targetStat.isFile()) throw new HttpError(400, 'not-a-file', '只能保存已存在的普通文件')
     if (targetStat.size > config.maxEditableBytes) throw new HttpError(413, 'file-too-large', '现有文件超过可编辑大小限制')
-    /* openRegularFile: O_NONBLOCK + post-open fstat so a FIFO/device swapped
-       in after the lstat above can never hang the workspace write queue. */
+    /* openRegularFile: O_NONBLOCK + post-open fstat so a FIFO/device swapped in after the lstat above can never hang the workspace write queue. */
     const current = await openRegularFile(candidate)
     let currentBytes
     try {
@@ -119,8 +102,7 @@ export async function saveFile(workspace, relativePath, config, queues, req, enc
       throw new HttpError(415, 'binary-file', '现有文件不是可编辑的 UTF-8 文本')
     }
     if (revisionFor(currentBytes) !== ifMatch) throw new HttpError(409, 'file-conflict', '文件已被修改，请重新加载后再保存')
-    /* Encode AFTER reading the current file so a BOM-less UTF-16 file stays
-       BOM-less on save (encodeText's withBom follows the original). */
+    /* Encode AFTER reading the current file so a BOM-less UTF-16 file stays BOM-less on save (encodeText's withBom follows the original). */
     const outBytes = encodeText(text, encodingId, hasBom(currentBytes, encodingId))
 
     const parent = dirname(candidate)
@@ -149,19 +131,13 @@ export async function saveFile(workspace, relativePath, config, queues, req, enc
         await latest.close()
       }
       if (revisionFor(latestBytes) !== ifMatch) throw new HttpError(409, 'file-conflict', '文件已被修改，请重新加载后再保存')
-      // Recheck the directory just before the rename: narrows the symlink-swap
-      // window and rejects a parent changed after the temp was created. A
-      // directory-handle rename is unavailable in Node's cross-platform API,
-      // so this is the final best-effort fence for hostile local writers.
+      // Recheck the directory just before the rename: narrows the symlink-swap window and rejects a parent changed after the temp was created. A directory-handle rename is unavailable in Node's cross-platform API, so this is the final best-effort fence for hostile local writers.
       const finalParent = await realpath(parent)
       if (finalParent !== realParent || !isInside(root, finalParent) || await hasSymlinkComponent(root, relativePath)) {
         throw new HttpError(403, 'symlink-write-denied', '拒绝通过符号链接写入文件')
       }
       await rename(temp, candidate)
-      /* The PUT response carries the written file's stat so the client's
-         change-poll baseline can use the REAL mtime: a fabricated 0 baseline
-         defeats the Host's sameMtime fast path and forces a full hash on
-         every 2 s tick until the next re-read. */
+      /* The PUT response carries the written file's stat so the client's change-poll baseline can use the REAL mtime: a fabricated 0 baseline defeats the Host's sameMtime fast path and forces a full hash on every 2 s tick. */
       try {
         savedMtimeMs = (await stat(candidate)).mtimeMs
       } catch {
@@ -170,9 +146,7 @@ export async function saveFile(workspace, relativePath, config, queues, req, enc
     } finally {
       if (tempHandle !== undefined) await tempHandle.close().catch(() => {})
       if (tempCreated) {
-        /* A temp-unlink failure (AV lock, transient permission) must never
-           mask the already-committed save: the rename succeeded, so the
-           response is success; the leftover temp is logged, not thrown. */
+        /* A temp-unlink failure must never mask the already-committed save: the rename succeeded, so the response is success; the leftover temp is logged, not thrown. */
         await unlink(temp).catch((error) => {
           if (error?.code !== 'ENOENT') console.warn(`[workspace-studio] temp cleanup failed for ${temp}: ${String(error)}`)
         })
@@ -196,10 +170,7 @@ export async function createEntry(workspace, relativePath, config, queues, req) 
     const targetPath = entryPath(relativePath, name)
     const target = resolve(directory, name)
     if (!isInside(root, target)) throw new HttpError(403, 'path-outside-workspace', '拒绝写入工作区之外的路径')
-    /* Re-verify the parent right before the create (same fence saveFile runs
-       before its rename): a parent swapped to an out-of-workspace symlink in
-       the window since the first check would otherwise let mkdir/open land
-       outside the workspace. */
+    /* Re-verify the parent right before the create (same fence saveFile runs before its rename): a parent swapped to an out-of-workspace symlink would otherwise let mkdir/open land outside the workspace. */
     const realParent = await realpath(directory)
     if (!isInside(root, realParent) || await hasSymlinkComponent(root, relativePath)) {
       throw new HttpError(403, 'symlink-write-denied', '拒绝通过符号链接修改目录')
@@ -252,10 +223,7 @@ export async function renameEntry(workspace, relativePath, config, queues, req) 
       if (error?.code !== 'ENOENT') throw error
     }
     if (targetCollision !== undefined) {
-      /* A target that is the SAME entry as the source (case-only rename on a
-         case-insensitive FS like NTFS/APFS) is not a collision: rename in
-         place, falling back to a unique-temp-name hop if the FS refuses.
-         A genuinely different entry keeps 409. */
+      /* A target that is the SAME entry as the source (case-only rename on a case-insensitive FS like NTFS/APFS) is not a collision: rename in place, falling back to a unique-temp-name hop if the FS refuses. A genuinely different entry keeps 409. */
       if (sameEntryIdentity(sourceStat, targetCollision)) {
         try {
           await rename(source, target)
@@ -265,9 +233,7 @@ export async function renameEntry(workspace, relativePath, config, queues, req) 
             await rename(source, temp)
             await rename(temp, target)
           } catch (renameError) {
-            /* Best-effort restore of the temp name; a failure here leaves the
-               entry under a `.dsh-case.tmp` name — log it instead of burying
-               the evidence. */
+            /* Best-effort restore of the temp name; a failure here leaves the entry under a `.dsh-case.tmp` name — log it instead of burying the evidence. */
             await rename(temp, source).catch((rollbackError) => {
               console.warn(`[workspace-studio] case-rename rollback failed for ${source}: ${String(rollbackError)}`)
             })
@@ -285,14 +251,7 @@ export async function renameEntry(workspace, relativePath, config, queues, req) 
       }
       throw new HttpError(409, 'entry-exists', '同名文件或文件夹已存在')
     }
-    /* Fast path: the target is verified absent, so a plain rename() is atomic,
-       preserves inode/hardlinks, and — unlike the copy fallback — works for
-       directories containing symlinks. Re-verify the target RIGHT before the
-       rename (the same final fence saveFile runs before its rename): a file
-       created in the window since the lstat above would otherwise be silently
-       REPLACED by rename on POSIX (data loss) or fail with an unclassified
-       error on Windows. Fall back to copy+delete only when the rename crosses
-       devices (EXDEV); any other failure is a real error. */
+    /* Fast path: the target is verified absent, so a plain rename() is atomic, preserves inode/hardlinks, and — unlike the copy fallback — works for directories containing symlinks. Re-verify the target RIGHT before the rename: a file created in the window would otherwise be silently REPLACED on POSIX (data loss) or fail with an unclassified error on Windows. Fall back to copy+delete only when the rename crosses devices (EXDEV). */
     try {
       const finalCollision = await lstat(target).catch(error => {
         if (error?.code === 'ENOENT') return undefined
@@ -337,12 +296,7 @@ export async function renameEntry(workspace, relativePath, config, queues, req) 
     }
   })
 }
-/** Stable-enough identity: dev/ino on Unix; Windows may report ino=0, where
- * birth time is the best signal without native openat handles. The fallback
- * also requires size + mtimeMs: two DIFFERENT files created in the same
- * millisecond with the same mode (bulk extraction/copy) would otherwise be
- * mistaken for one entry, and a case-only rename would silently overwrite the
- * unrelated target (MoveFileExW replaces existing targets). */
+/** Stable-enough identity: dev/ino on Unix; Windows may report ino=0, where birth time is the best signal without native openat handles. The fallback also requires size + mtimeMs so two DIFFERENT files created in the same millisecond with the same mode are not mistaken for one entry. */
 function sameEntryIdentity(expected, current) {
   if (expected.isDirectory() !== current.isDirectory() || expected.isFile() !== current.isFile()) return false
   if (expected.ino !== 0 || current.ino !== 0) return expected.dev === current.dev && expected.ino === current.ino
@@ -355,10 +309,7 @@ function sameEntrySnapshot(expected, current) {
   return sameEntryIdentity(expected, current)
     && expected.size === current.size
     && expected.mtimeMs === current.mtimeMs
-    /* libuv reports stat.ctime as the CREATION time on Windows (no POSIX
-       change-time semantics), so a ctimeMs comparison there is always true
-       and adds nothing; birthtime is the closest stable identity signal on
-       that platform (sameEntryIdentity's ino=0 fallback already uses it). */
+    /* libuv reports stat.ctime as the CREATION time on Windows, so a ctimeMs comparison there is always true and adds nothing; birthtime is the closest stable identity signal on that platform. */
     && (process.platform === 'win32'
       ? expected.birthtimeMs === current.birthtimeMs
       : expected.ctimeMs === current.ctimeMs)
@@ -398,12 +349,7 @@ async function cleanupCreatedTargets(createdTargets, primaryError) {
   throw primaryError
 }
 /**
- * Copy a file or directory tree into a path that must not exist. Files use
- * COPYFILE_EXCL and dirs exclusive mkdir, so an external creator can't be
- * overwritten between probe and commit. Symlinks are omitted only for copy;
- * move/rename reject a tree containing one (deleting the source would lose
- * entries). The root call returns a full source snapshot for the destructive
- * removal; cleanup removes only identities this call made, in reverse order.
+ * Copy a file or directory tree into a path that must not exist. Files use COPYFILE_EXCL and dirs exclusive mkdir, so an external creator can't be overwritten between probe and commit. Symlinks are omitted only for copy; move/rename reject a tree containing one. The root call returns a full source snapshot for the destructive removal; cleanup removes only identities this call made, in reverse order.
  */
 async function copyTreeExclusive(
   source,
@@ -429,14 +375,7 @@ async function copyTreeExclusive(
       } catch (error) {
         if (error?.code === 'EEXIST' && allowCollision) return false
         if (error?.code === 'EEXIST') throw new HttpError(409, 'entry-exists', '同名文件或文件夹已存在')
-        /* A non-EEXIST failure (EISDIR/EPERM on a pre-existing DIRECTORY, or a
-           mid-copy error) must never enqueue a pre-existing directory for
-           cleanup: cleanupCreatedTargets would then rmdir a user-owned folder
-           (data loss). copyFile never creates directories, so a directory at
-           the target pre-existed and is a collision — dedupe when allowed,
-           otherwise a 409. Only a REGULAR file at the target can be a partial
-           this call created (COPYFILE_EXCL guarantees any pre-existing file
-           would have thrown EEXIST), so that is the only case to track. */
+        /* A non-EEXIST failure must never enqueue a pre-existing directory for cleanup: cleanupCreatedTargets would then rmdir a user-owned folder (data loss). copyFile never creates directories, so a directory at the target pre-existed and is a collision — dedupe when allowed, otherwise a 409. Only a REGULAR file at the target can be a partial this call created, so that is the only case to track. */
         let partial
         try {
           partial = await lstat(target)
@@ -470,11 +409,7 @@ async function copyTreeExclusive(
     }
     const targetStat = await lstat(target)
     createdTargets.push({ path: target, stat: targetStat, directory: true })
-    /* Best-effort fence before recursing: an external writer may replace the
-       just-created target directory with a symlink pointing outside the
-       workspace; child copyFile/mkdir would then follow it and land outside.
-       Re-verify the target's identity before the children (cleanup later
-       refuses to remove targets that no longer match its recorded identity). */
+    /* Best-effort fence before recursing: an external writer may replace the just-created target directory with a symlink pointing outside the workspace, so re-verify the target's identity before the children (cleanup later refuses to remove targets that no longer match its recorded identity). */
     const preRecurseStat = await lstat(target)
     if (!sameEntryIdentity(targetStat, preRecurseStat)) {
       throw new HttpError(409, 'file-conflict', '复制目标在复制期间被替换，已中止')
@@ -536,18 +471,14 @@ async function removeEntryTreeChecked(target, expectedStat, sourceSnapshot) {
   if (current.isDirectory()) await rm(target, { recursive: true })
   else await unlink(target)
 }
-/** Append a numeric suffix before the extension (a.txt -> a-1.txt); dotfiles
- * and extension-less names get it at the end (.gitignore-1, dir-1). */
+/** Append a numeric suffix before the extension (a.txt -> a-1.txt); dotfiles and extension-less names get it at the end (.gitignore-1, dir-1). */
 function dedupeName(name, index) {
   const dot = name.lastIndexOf('.')
   if (dot > 0) return `${name.slice(0, dot)}-${index}${name.slice(dot)}`
   return `${name}-${index}`
 }
 
-/** Copy or move (cut+paste) one workspace-confined entry. Both use exclusive
- * copy primitives; move is copy-then-delete rather than rename because POSIX
- * rename replaces an existing target. Destination allocation and canonical
- * checks run under the workspace lock. */
+/** Copy or move (cut+paste) one workspace-confined entry. Both use exclusive copy primitives; move is copy-then-delete rather than rename because POSIX rename replaces an existing target. Destination allocation and canonical checks run under the workspace lock. */
 async function copyEntry(workspace, sourcePath, targetPath, config, queues, cut) {
   if (!config.enableEditing) throw new HttpError(403, 'editing-disabled', '当前未启用文件编辑')
   if (sourcePath === '') throw new HttpError(400, 'invalid-path', '不能复制工作区根目录')
@@ -596,10 +527,7 @@ async function copyEntry(workspace, sourcePath, targetPath, config, queues, cut)
           throw new HttpError(403, 'symlink-write-denied', '目标路径在复制期间发生变化，源条目未删除')
         }
       } catch (error) {
-        /* The copy (or its verification) failed: the created targets were
-           cleaned up, so this candidate must NOT be reported as a success —
-           rethrow instead of falling through (a move would otherwise delete
-           the source while the "destination" no longer exists). */
+        /* The copy (or its verification) failed: the created targets were cleaned up, so this candidate must NOT be reported as a success — rethrow instead of falling through (a move would otherwise delete the source while the "destination" no longer exists). */
         await cleanupCreatedTargets(copied.createdTargets, error)
         throw error
       }
@@ -617,9 +545,7 @@ async function copyEntry(workspace, sourcePath, targetPath, config, queues, cut)
         throw new HttpError(403, 'symlink-write-denied', '目标路径在复制期间发生变化，源条目未删除')
       }
     } catch (error) {
-      /* Final target verification failed (e.g. the copy was swapped for an
-         out-of-workspace symlink): the created targets were cleaned up, so the
-         source must NOT be deleted — rethrow and abort the whole operation. */
+      /* Final target verification failed (e.g. the copy was swapped for an out-of-workspace symlink): the created targets were cleaned up, so the source must NOT be deleted — rethrow and abort the whole operation. */
       await cleanupCreatedTargets(chosenCreatedTargets, error)
       throw error
     }
@@ -628,8 +554,7 @@ async function copyEntry(workspace, sourcePath, targetPath, config, queues, cut)
       try {
         await removeEntryTreeChecked(source, sourceStat, chosenSnapshot)
       } catch (error) {
-        // Keep the completed destination as a recoverable copy: deleting it
-        // here could destroy the only intact copy on partial source deletion.
+        // Keep the completed destination as a recoverable copy: deleting it here could destroy the only intact copy on partial source deletion.
         throw new HttpError(409, 'file-conflict', '源条目删除失败，完整目标副本已保留，请人工确认源和目标')
       }
     }
@@ -656,9 +581,7 @@ async function deleteEntry(workspace, relativePath, config, queues) {
     if (!sourceStat.isDirectory() && !sourceStat.isFile()) throw new HttpError(400, 'invalid-entry-kind', '只能删除文件或文件夹')
     const current = await realpath(source)
     if (!isInside(root, current)) throw new HttpError(403, 'path-outside-workspace', '拒绝删除工作区之外的路径')
-    /* Re-verify path components right before the destructive commit (as
-       saveFile/copyEntry do): a parent swapped to an out-of-workspace symlink
-       since the first check would otherwise let rm delete outside the workspace. */
+    /* Re-verify path components right before the destructive commit (as saveFile/copyEntry do): a parent swapped to an out-of-workspace symlink would otherwise let rm delete outside the workspace. */
     if (await hasSymlinkComponent(root, relativePath)) throw new HttpError(403, 'symlink-write-denied', '拒绝删除符号链接路径')
     await removeEntryTreeChecked(source, sourceStat)
     return { workspaceId: String(workspace.id), path: relativePath, kind: sourceStat.isDirectory() ? 'directory' : 'file' }

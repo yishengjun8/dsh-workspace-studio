@@ -13,10 +13,8 @@ export function MindMapDialogs({
   regenerateAllTarget, regenerateAllBusy, regenerateAllError, onRegenerateAllCancel, onRegenerateAllConfirm,
 }) {
   const composingRef = useRef(false)
-  /* This component is always mounted; each dialog subtree mounts
-     conditionally. The shared focus trap takes an `open` flag so a trap is
-     armed (and focus restored on close) only while its dialog is visible —
-     same Tab-ring behavior as the five workspace dialogs. */
+  /* Always mounted; each dialog subtree mounts conditionally, so the shared
+     focus trap is armed only while its dialog is visible. */
   const archiveRef = useDialogFocusTrap(archiveTarget !== null)
   const deleteRef = useDialogFocusTrap(deleteTarget !== null)
   const archiveBranchRef = useDialogFocusTrap(archiveBranchTarget !== null)

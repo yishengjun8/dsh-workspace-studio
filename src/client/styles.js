@@ -4,7 +4,7 @@ export const styles = `
 .dsh-ws-frame[data-resizing]{transition:none;user-select:none}.dsh-ws-sidebar,.dsh-ws-tree,.dsh-ws-preview,.dsh-ws-chat{min-width:0;height:100%;overflow:hidden}.dsh-ws-sidebar{background:var(--dsw-specific-sidebar-fill);border-right:1px solid var(--dsw-alias-border-l1)}html:not(.dsh-ws-mobile-on) .dsh-ws-frame[data-preview-right]{grid-template-columns:var(--dsh-ws-sidebar) minmax(0,1fr) var(--dsh-ws-preview)}html:not(.dsh-ws-mobile-on) .dsh-ws-frame[data-preview-right] .dsh-ws-sidebar{grid-column:1;grid-row:1}html:not(.dsh-ws-mobile-on) .dsh-ws-frame[data-preview-right] .dsh-ws-chat{grid-column:2;grid-row:1}html:not(.dsh-ws-mobile-on) .dsh-ws-frame[data-preview-right] .dsh-ws-preview{grid-column:3;grid-row:1;border-right:0;border-left:1px solid var(--dsw-alias-border-l2)}
 .dsh-ws-tree,.dsh-ws-preview{display:flex;flex-direction:column;position:relative;background:var(--dsw-alias-bg-layer-1);border-right:1px solid var(--dsw-alias-border-l2)}.dsh-ws-frame[data-explorer-closed] .dsh-ws-tree,.dsh-ws-frame[data-explorer-closed] .dsh-ws-preview{visibility:hidden;pointer-events:none;border-right:0}.dsh-ws-chat{display:flex;flex-direction:column;position:relative;background:var(--dsw-alias-bg-base)}
 .dsh-ws-panel-header{display:flex;align-items:center;gap:8px;min-height:52px;padding:0 12px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);box-sizing:border-box}.dsh-ws-panel-title{min-width:0;display:flex;flex:1;flex-direction:column;gap:2px}.dsh-ws-panel-title strong{overflow:hidden;color:var(--dsw-alias-label-primary);font-size:13px;line-height:18px;text-overflow:ellipsis;white-space:nowrap}.dsh-ws-panel-title>span{overflow:hidden;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:15px;text-overflow:ellipsis;white-space:nowrap}
-/* Preview page top rows (file tabs + active-file name) share the sidebar fill so the file browsing page reads as one band with the sidebar. */
+/* Preview page top rows share the sidebar fill so the file browsing page reads as one band with the sidebar. */
 .dsh-ws-preview .dsh-ws-panel-header{background:var(--dsw-specific-sidebar-fill)}.dsh-ws-preview .dsh-ws-preview-file-header{min-height:26px;gap:4px;padding:0 8px}.dsh-ws-preview-file-path{flex:1;min-width:0;overflow:hidden;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:15px;text-overflow:ellipsis;white-space:nowrap}.dsh-ws-preview-file-header .dsh-ws-icon-button{width:22px;height:22px}.dsh-ws-preview-file-header .dsh-ws-icon-button svg{width:14px;height:14px}.dsh-ws-preview-file-header .dsh-ws-text-button{height:22px;padding:0 6px;font-size:11px}
 .dsh-ws-panel-actions{display:flex;flex:none;align-items:center;gap:2px}.dsh-ws-icon-button,.dsh-ws-text-button{display:inline-flex;align-items:center;justify-content:center;height:30px;padding:0 8px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}.dsh-ws-icon-button{width:30px;padding:0;font-size:18px}.dsh-ws-icon-button svg{display:block;width:16px;height:16px}.dsh-ws-icon-button:hover,.dsh-ws-text-button:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.dsh-ws-icon-button:disabled,.dsh-ws-text-button:disabled{cursor:not-allowed;opacity:.55}
 .dsh-ws-icon-button:focus-visible,.dsh-ws-text-button:focus-visible,.dsh-ws-tree-row:focus-visible,.dsh-ws-preview-tab-button:focus-visible,.dsh-ws-preview-tab-close:focus-visible,.dsh-ws-splitter:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}.dsh-ws-tree-scroll{flex:1;min-height:0;overflow:auto;padding:8px 6px 16px}.dsh-ws-tree-row{display:flex;align-items:center;gap:5px;width:100%;height:var(--dsh-ws-row-height,28px);padding:0 7px 0 calc(7px + var(--dsh-ws-depth,0) * 15px);border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:18px;text-align:left;cursor:pointer;box-sizing:border-box}.dsh-ws-tree-row:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.dsh-ws-tree-row[data-selected]{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary)}.dsh-ws-tree-row:disabled{cursor:not-allowed;opacity:.55}.dsh-ws-tree-row[data-cut]{opacity:.55}
@@ -49,7 +49,7 @@ body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='warm']{--shi
 body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='cool']{--shiki-token-constant:#4dabf7;--shiki-token-string:#38d9a9;--shiki-token-comment:#8fa3c2;--shiki-token-keyword:#91a7ff;--shiki-token-parameter:#22b8cf;--shiki-token-function:#b197fc;--shiki-token-string-expression:#63e6be;--shiki-token-punctuation:#b6c2d6;--shiki-token-link:#74c0fc;--shiki-token-module:#ffa94d}
 .dsh-ws-editor-host[data-highlight-preset='mono']{--shiki-token-constant:#3f3f3f;--shiki-token-string:#2e2e2e;--shiki-token-comment:#9d9d9d;--shiki-token-keyword:#e8590c;--shiki-token-parameter:#565656;--shiki-token-function:#7a7a7a;--shiki-token-string-expression:#4a4a4a;--shiki-token-punctuation:#8a8a8a;--shiki-token-link:#a0a0a0;--shiki-token-module:#6e6e6e}
 body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='mono']{--shiki-token-constant:#d0d0d0;--shiki-token-string:#e2e2e2;--shiki-token-comment:#6e6e6e;--shiki-token-keyword:#ffa94d;--shiki-token-parameter:#a8a8a8;--shiki-token-function:#bfbfbf;--shiki-token-string-expression:#cfcfcf;--shiki-token-punctuation:#8f8f8f;--shiki-token-link:#7d7d7d;--shiki-token-module:#c0c0c0}
-/* VS Code default theme (Light+/Dark+) XML palette: tag names ride the function token, attribute names the parameter token, values/entities the string token; two extra vars cover angle brackets and entity characters. */
+/* VS Code default theme (Light+/Dark+) XML palette: tag names ride the function token, attribute names the parameter token, values/entities the string token. */
 .dsh-ws-editor-host[data-highlight-preset='vscode-xml']{--shiki-token-comment:#008000;--shiki-token-function:#800000;--shiki-token-parameter:#e50000;--shiki-token-string:#a31515;--shiki-token-string-expression:#0000ff;--dsh-ws-token-xml-punctuation:#800000;--dsh-ws-token-xml-entity:#0000ff}
 body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-xml']{--shiki-token-comment:#6A9955;--shiki-token-function:#569cd6;--shiki-token-parameter:#9cdcfe;--shiki-token-string:#ce9178;--shiki-token-string-expression:#569cd6;--dsh-ws-token-xml-punctuation:#808080;--dsh-ws-token-xml-entity:#569cd6}
 /* VS Code default theme (Light+/Dark+) shared token palette: one rule serves every non-XML vscode-* preset. */
@@ -57,14 +57,14 @@ body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-xml']
 body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-python'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-json'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-typescript'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-javascript'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-css'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-markdown'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-shell'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-config'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-cpp'],body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vscode-csharp']{--shiki-token-constant:#b5cea8;--shiki-token-string:#ce9178;--shiki-token-comment:#6a9955;--shiki-token-keyword:#569cd6;--shiki-token-parameter:#9cdcfe;--shiki-token-function:#dcdcaa;--shiki-token-string-expression:#dcdcaa;--shiki-token-punctuation:#d4d4d4;--shiki-token-link:#569cd6;--shiki-token-module:#4ec9b0}
 .dsh-ws-editor-host[data-highlight-preset='vs2022']{--shiki-token-constant:#098658;--shiki-token-string:#a31515;--shiki-token-comment:#008000;--shiki-token-keyword:#0000ff;--shiki-token-parameter:#000000;--shiki-token-function:#2b91af;--shiki-token-string-expression:#a31515;--shiki-token-punctuation:#000000;--shiki-token-link:#0000ff;--shiki-token-module:#267f99}
 body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vs2022']{--shiki-token-constant:#b5cea8;--shiki-token-string:#d69d85;--shiki-token-comment:#57a64a;--shiki-token-keyword:#569cd6;--shiki-token-parameter:#dcdcdc;--shiki-token-function:#4ec9b0;--shiki-token-string-expression:#d69d85;--shiki-token-punctuation:#b4b4b4;--shiki-token-link:#569cd6;--shiki-token-module:#4ec9b0}
-/* Python import-module names (dsh-ws-token-module decoration): per-preset --shiki-token-module, falling back to the function color. The 3-class selector outranks any single-class HighlightStyle rule on the same span. */
+/* Python import-module names (dsh-ws-token-module decoration): per-preset --shiki-token-module, falling back to the function color. */
 .dsh-ws-editor-host .cm-line .dsh-ws-token-module{color:var(--shiki-token-module,var(--shiki-token-function))}
-/* Preprocessor directive color (C# #if/#region, ...): purple, lighter in dark for contrast; overridable per preset. */
+/* Preprocessor directive color (C# #if/#region, ...): purple, lighter in dark for contrast. */
 .dsh-ws-editor-host{--dsh-ws-token-directive:#8e44ad}
 body[data-ds-dark-theme] .dsh-ws-editor-host{--dsh-ws-token-directive:#c586c0}
-/* Sidebar top actions: hide the harness New Session button (the root div's only direct button); the plugin draws its own two-button row — New Session / workspace files — in the same flow position. */
+/* Sidebar top actions: hide the harness New Session button; the plugin draws its own two-button row in the same flow position. */
 .dsh-ws-frame [data-slot="sidebar"] > div > button{display:none}
-/* The harness right-sidebar expand button (conversation header corner, "打开侧边栏") is dead under this root layout — the layout has no rightbar track, so openRightbar is a no-op — and its document-preview purpose is served by the plugin's own preview column; hide it. */
+/* The harness right-sidebar expand button is dead under this root layout (no rightbar track), and its document-preview purpose is served by the plugin's own preview column; hide it. */
 .dsh-ws-frame [data-sidebar-right-expand]{display:none}
 .dsh-ws-sidebar-top-actions{flex:none;min-width:0;display:flex;align-items:stretch;gap:6px;height:38px;margin:0 2px 8px;box-sizing:border-box}
 .dsh-ws-sidebar-top-action{flex:1;min-width:0;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:38px;padding:0 10px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-button-elevated-fill);color:var(--dsw-alias-label-primary);font:inherit;font-size:14px;font-weight:500;line-height:22px;cursor:pointer;overflow:hidden;white-space:nowrap}
@@ -80,15 +80,15 @@ body[data-ds-dark-theme] .dsh-ws-editor-host{--dsh-ws-token-directive:#c586c0}
 .dsh-ws-sidebar-top-actions[data-rail] .dsh-ws-sidebar-top-action:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .dsh-ws-sidebar-top-actions[data-rail] .dsh-ws-sidebar-top-icon{width:18px;height:18px}
 .dsh-ws-sidebar-top-actions[data-rail] .dsh-ws-sidebar-top-label{display:none}
-/* Collapsed rail: hide the harness workspace browser's rail controls (search + add); the plugin's two nav tabs are the only region icons. */
+/* Collapsed rail: hide the harness workspace browser's rail controls; the plugin's two nav tabs are the only region icons. */
 .dsh-ws-frame[data-sidebar-collapsed] [data-slot="sidebar.workspaces"] > *{display:none}
-/* Files region: the harness workspace browser is hidden while the plugin's file tree fills the region seat (fused into the sidebar). */
+/* Files region: the harness workspace browser is hidden while the plugin's file tree fills the region seat. */
 .dsh-ws-sidebar-files{display:none}
 .dsh-ws-frame[data-sidebar-files] [data-slot="sidebar.workspaces"] > :not(.dsh-ws-sidebar-files){display:none}
-/* The sidebar shell hides nested scrollbars until hover (quietBars); the file list is scroll-heavy, so its scrollbar stays visible. The files panel is inset 12px both sides so it reads as a symmetric card. */
+/* The sidebar shell hides nested scrollbars until hover; the file list is scroll-heavy, so its scrollbar stays visible. The files panel is inset 12px both sides. */
 .dsh-ws-frame[data-sidebar-files] .dsh-ws-sidebar-files{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;margin-right:12px;--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2)}
 .dsh-ws-frame[data-sidebar-files] .dsh-ws-sidebar-files .dsh-ws-tree{flex:1;min-height:0;height:auto;border-right:0}
-/* CodeMirror search panel (Ctrl+F) renders into .dsh-ws-preview-search (between the status bar and the preview body), so the panel rules stay scoped to that container; !important keeps the controls legible under the harness's global control styles. Match marks live in the editor content, so they stay scoped to the editor host. */
+/* CodeMirror search panel (Ctrl+F) renders into .dsh-ws-preview-search, so the panel rules stay scoped to that container; !important keeps the controls legible under the harness's global styles. */
 .dsh-ws-preview-search{flex:none;min-width:0;background:var(--dsw-alias-bg-layer-1);user-select:none}
 .dsh-ws-preview-search .cm-panels.cm-panels-top{background:var(--dsw-alias-bg-layer-1)!important;color:var(--dsw-alias-label-primary)!important;border-bottom:1px solid var(--dsw-alias-border-l2)!important}
 .dsh-ws-preview-search .cm-panel.cm-search{padding:5px 36px 5px 6px}
@@ -100,7 +100,7 @@ body[data-ds-dark-theme] .dsh-ws-editor-host{--dsh-ws-token-directive:#c586c0}
 .dsh-ws-preview-search .cm-panel.cm-search input[type=checkbox]{margin:2px 0 0;vertical-align:middle;accent-color:var(--dsw-alias-state-business-primary)}
 .dsh-ws-preview-search .cm-panel.cm-search [name=close]{display:inline-flex!important;align-items:center!important;justify-content:center!important;position:absolute!important;top:50%!important;right:4px!important;transform:translateY(-50%)!important;width:30px!important;height:30px!important;padding:0 0 2px!important;margin:0!important;border:0!important;border-radius:8px!important;background:transparent!important;color:var(--dsw-alias-label-secondary)!important;font-size:18px!important;line-height:1!important;cursor:pointer!important;box-sizing:border-box!important}
 .dsh-ws-preview-search .cm-panel.cm-search [name=close]:hover{background:var(--dsw-alias-interactive-bg-hover)!important;color:var(--dsw-alias-label-primary)!important}
-/* The search field is wrapped (see CodeEditor) with a col-resize grip on its right edge so the user can drag it wider/narrower. */
+/* The search field is wrapped (see CodeEditor) with a col-resize grip on its right edge. */
 .dsh-ws-preview-search .dsh-ws-search-field-wrap{display:inline-flex;align-items:center;vertical-align:middle}
 .dsh-ws-preview-search .dsh-ws-search-field-wrap .cm-textfield{flex:none;min-width:60px}
 .dsh-ws-preview-search .dsh-ws-search-resize{flex:none;width:6px;height:16px;margin:0 2px 0 4px;border-radius:3px;background:var(--dsw-alias-border-l2);cursor:col-resize;opacity:.65}
@@ -113,7 +113,7 @@ body[data-ds-dark-theme] .dsh-ws-editor-host{--dsh-ws-token-directive:#c586c0}
 .dsh-ws-drop-overlay{position:absolute;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent);pointer-events:none}
 .dsh-ws-drop-hint{display:inline-flex;align-items:center;padding:8px 14px;border:1px dashed var(--dsw-alias-state-business-primary);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-state-business-primary);font-size:12px;box-shadow:var(--dsw-shadow-elevated,0 8px 24px rgba(0,0,0,.18))}
 .dsh-ws-preview[data-drop-active] .dsh-ws-preview-tabs,.dsh-ws-preview[data-drop-active] .dsh-ws-panel-header,.dsh-ws-preview[data-drop-active] .dsh-ws-editor-host{pointer-events:none}
-/* Hide the harness's full-viewport chat drop mask (a body-portaled role="status" whose wrap contains the upload illustration svg); the layout draws its own chat-confined mask so it covers the chat pane instead of the whole page. Scoped with :has(svg) so a future body-level role="status" toast or live region is NOT hidden. */
+/* Hide the harness's full-viewport chat drop mask; the layout draws its own chat-confined mask. Scoped with :has(svg) so a future body-level role="status" toast is not hidden. */
 body > [role="status"]:has(svg){display:none!important}
 .dsh-ws-chat-drop-mask{position:absolute;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;background:var(--dsw-alias-bg-mask-drop,rgba(0,0,0,.32));backdrop-filter:blur(6px);pointer-events:none}
 .dsh-ws-chat-drop-card{display:flex;align-items:center;gap:10px;padding:12px 16px;border:1px dashed var(--dsw-alias-state-business-primary);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:13px;box-shadow:var(--dsw-shadow-elevated,0 10px 28px rgba(0,0,0,.2))}
@@ -122,7 +122,7 @@ body > [role="status"]:has(svg){display:none!important}
 /* Close button on the preview drop hint, matching the chat drop mask. */
 .dsh-ws-drop-close{position:absolute;top:12px;right:12px;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0 0 2px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:16px;line-height:1;cursor:pointer;box-sizing:border-box;pointer-events:auto}
 .dsh-ws-drop-close:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
-/* Transient toast matching the harness conversation Toast look (contrast fill, slide-in, hold-and-fade) for failed external-file opens; positioned inside the preview pane so the notice stays panel-scoped. */
+/* Transient toast matching the harness conversation Toast look for failed external-file opens; positioned inside the preview pane. */
 .dsh-ws-toast{position:absolute;top:12px;left:50%;z-index:60;pointer-events:none;display:flex;align-items:center;gap:10px;max-width:min(560px,calc(100% - 48px));padding:12px 16px;border-radius:14px;background:var(--dsw-alias-button-contrast-fill);color:var(--dsw-alias-label-primary-inverted);font-size:14px;line-height:22px;box-shadow:var(--dsw-shadow-lv3,0 8px 24px rgba(0,0,0,.28));transform:translateX(-50%);animation:dsh-ws-toast-in 160ms ease-out,dsh-ws-toast-fade 1000ms ease 3000ms forwards}
 .dsh-ws-toast-icon{display:grid;place-items:center;flex:none;color:var(--dsw-alias-state-warn-label)}
 .dsh-ws-toast-text{min-width:0}
@@ -131,16 +131,14 @@ body > [role="status"]:has(svg){display:none!important}
 @media (prefers-reduced-motion: reduce){.dsh-ws-toast{animation:dsh-ws-toast-fade 1000ms ease 3000ms forwards}}
 /* ── Session switcher (header title → quick-switch dropdown) ────────────
    The conversation header's current-title crumb is hidden so the switcher
-   trigger (rendered in conversation.session.header.actions at order -400)
-   becomes the visible session title; subagent parent breadcrumbs stay. When
-   the crumb is the nav's ONLY segment the whole nav is hidden too — a
-   display:none crumb still occupies its flex slot, leaving a phantom gap
-   before the trigger. The panel is portalled to body with fixed positioning,
-   so the chat column's overflow never clips it. */
-/* KNOWN FRAGILITY: these four-plus-level structural selectors couple to the
-   harness conversation-header DOM; a restructure silently breaks them (the
-   crumb reappears and overlaps the trigger) — there is no stable data
-   attribute to anchor on. Re-check on every harness upgrade. */
+   trigger becomes the visible session title; subagent parent breadcrumbs
+   stay. When the crumb is the nav's only segment the whole nav is hidden
+   too, since a display:none crumb still occupies its flex slot. The panel is
+   portalled to body with fixed positioning, so the chat column's overflow
+   never clips it. */
+/* KNOWN FRAGILITY: these structural selectors couple to the harness
+   conversation-header DOM; a restructure silently breaks them. Re-check on
+   every harness upgrade. */
 [data-slot="conversation.session.header"] > header > div:first-child > div:first-child > nav > span:last-child{display:none}
 [data-slot="conversation.session.header"] > header > div:first-child > div:first-child > nav:has(> span:last-child:only-child){display:none}
 .dsh-ws-session-switcher{display:inline-flex;align-items:center;min-width:0;flex:0 0 auto}
@@ -160,9 +158,8 @@ body > [role="status"]:has(svg){display:none!important}
 /* ── Mobile (phone-column) mode ─────────────────────────────────────────
    Mirror of dsh-mobile-preview: the document-class gate (dsh-ws-mobile-on)
    drives every override; the floating sidebar drawer and the file-fullscreen
-   view ride sibling classes. In-flow frame order is aside(1) preview(2)
-   chat(3); the aside becomes an absolute drawer, so explicit grid-column
-   keeps each section in the phone track. */
+   view ride sibling classes. The aside becomes an absolute drawer, so
+   explicit grid-column keeps each section in the phone track. */
 .dsh-ws-mobile-toggle{flex:none;display:flex;align-items:center;gap:8px;width:calc(100% + 8px);height:34px;margin:4px -4px 4px;padding:6px 2px 6px 10px;box-sizing:border-box;border:0;border-radius:12px;background:transparent;cursor:pointer;overflow:hidden;color:var(--dsw-alias-label-primary);font-family:inherit;font-size:14px;line-height:22px;text-align:left}.dsh-ws-mobile-toggle:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.dsh-ws-mobile-toggle[data-open]{color:var(--dsw-alias-brand-primary)}.dsh-ws-mobile-toggle[data-rail]{width:36px;height:36px;margin:8px 0 10px;justify-content:center;gap:0;padding:0;border-radius:50%}.dsh-ws-mobile-toggle:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}.dsh-ws-mobile-toggle-icon{flex:none;width:16px;height:16px}.dsh-ws-mobile-toggle[data-rail] .dsh-ws-mobile-toggle-icon{width:18px;height:18px}.dsh-ws-mobile-toggle-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 html.dsh-ws-mobile-on .dsh-ws-frame{grid-template-columns:0 minmax(0,430px) 0!important;justify-content:center}
 html.dsh-ws-mobile-on .dsh-ws-chat{grid-column:2}
@@ -174,14 +171,14 @@ html.dsh-ws-mobile-on .dsh-ws-splitter{display:none}
 html.dsh-ws-mobile-on .dsh-ws-details{display:none}
 html.dsh-ws-mobile-on [data-slot="sidebar"] > div > div:first-child > button:last-child{display:none}
 .dsh-ws-mobile-scrim{position:absolute;inset:0;z-index:25;background:#00000047}
-/* File browsing fills the phone column below the pinned conversation header (height measured into --dsh-ws-mobile-header-h); the chat's scroll area (messages + composer) is hidden so only the header stays reachable. */
+/* File browsing fills the phone column below the pinned conversation header (height measured into --dsh-ws-mobile-header-h); the chat's scroll area is hidden so only the header stays reachable. */
 html.dsh-ws-mobile-on.dsh-ws-mobile-files-on .dsh-ws-frame{grid-template-columns:0 minmax(0,430px) 0!important}
 html.dsh-ws-mobile-on.dsh-ws-mobile-files-on .dsh-ws-preview{display:flex;grid-column:2;visibility:visible;pointer-events:auto;box-sizing:border-box;padding-top:var(--dsh-ws-mobile-header-h,52px)}
 html.dsh-ws-mobile-on.dsh-ws-mobile-files-on .dsh-ws-chat{position:fixed;top:0;left:50%;width:min(430px,100%);margin-left:calc(min(430px,100%) / -2);z-index:3;height:var(--dsh-ws-mobile-header-h,52px);overflow:hidden}
 html.dsh-ws-mobile-on.dsh-ws-mobile-files-on .dsh-ws-chat [data-slot="main"] [data-conversation-scroll]{display:none}
-/* In file-fullscreen the conversation's view tabs (chat/trajectory) are pinned with the title row; hiding them lets the file content start flush under the title row (what --dsh-ws-mobile-header-h measures after this rule applies). */
+/* In file-fullscreen the conversation's view tabs are pinned with the title row; hiding them lets the file content start flush under the title row. */
 html.dsh-ws-mobile-on.dsh-ws-mobile-files-on [data-slot="conversation.session.header"] > header > div[role="tablist"]{display:none}
-/* Session-header controls: hidden outside mobile, inline at the phone column's top-left in mobile (whale first, file button right after it). */
+/* Session-header controls: hidden outside mobile, inline at the phone column's top-left in mobile. */
 .dsh-ws-mobile-controls{display:none;align-items:center;gap:2px}
 html.dsh-ws-mobile-on .dsh-ws-mobile-controls{display:flex;order:-1}
 .dsh-ws-mobile-whale,.dsh-ws-mobile-files{display:grid;place-items:center;width:32px;height:32px;padding:0;border:0;border-radius:10px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer}
@@ -191,15 +188,14 @@ html.dsh-ws-mobile-on .dsh-ws-mobile-controls{display:flex;order:-1}
 html.dsh-ws-mobile-on [data-slot="conversation.session.header"] > header > div:first-child > div:first-child,html.dsh-ws-mobile-on [data-slot="conversation.session.header"] > header > div:first-child > div:first-child > div:nth-child(2){display:contents}
 html.dsh-ws-mobile-on [data-slot="conversation.session.header"] > header > div:first-child > nav{flex:1}
 html.dsh-ws-mobile-on [data-slot="conversation.session.header.utilities"]{display:none!important}
-/* Hero whale + file button: a frame-level overlay visible only on the blank-session hero (the :has gate mirrors ConversationRoot's own hero decision). */
+/* Hero whale + file button: a frame-level overlay visible only on the blank-session hero. */
 .dsh-ws-mobile-hero{display:none;position:absolute;top:10px;left:calc(max(0px,50% - 215px) + 8px)}
 html.dsh-ws-mobile-on:has([data-slot="main"] [data-phase="hero"]) .dsh-ws-mobile-hero{display:flex;align-items:center;gap:2px}
-/* Settings dialog (the harness Settings panel from the sidebar.settings seat):
-   in mobile the centered 800px modal becomes a fullscreen phone panel with the
-   section nav as a horizontal bottom bar. The drawer keeps a transform even
-   when open (translateX(0)), which would make the dialog's position:fixed
-   overlay resolve against the 280px drawer instead of the viewport; dropping
-   the transform frees the modal to cover the phone column. */
+/* Settings dialog: in mobile the centered 800px modal becomes a fullscreen
+   phone panel with the section nav as a horizontal bottom bar. The drawer
+   keeps a transform even when open, which would make the dialog's
+   position:fixed overlay resolve against the drawer instead of the viewport;
+   dropping the transform frees the modal to cover the phone column. */
 html.dsh-ws-mobile-on .dsh-ws-sidebar:has([data-slot="sidebar.settings"] [role="dialog"][aria-modal="true"]){transform:none;transition:none}
 html.dsh-ws-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal="true"]:has(> nav){width:100vw;height:100vh;height:100dvh;max-width:none;max-height:none;border-radius:0;flex-direction:column;overflow:hidden}
 html.dsh-ws-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal="true"]:has(> nav) > nav{order:2;flex:none;display:flex;flex-direction:row;align-items:center;gap:8px;width:100%;padding:8px 12px 10px;box-sizing:border-box;overflow-x:auto;scrollbar-width:thin}
@@ -219,31 +215,30 @@ html.dsh-ws-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal=
 .dsh-ws-session-rename-error{position:fixed;z-index:45;max-width:280px;padding:2px 6px;border:1px solid var(--dsw-alias-border-l2);border-radius:4px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-state-error-primary);font-size:11px;line-height:16px;box-shadow:var(--dsw-shadow-elevated,0 4px 12px rgba(0,0,0,.18))}
 .dsh-ws-copy-notice[data-error]{color:var(--dsw-alias-state-error-primary)}
 /* Plugin-self-update group state text (settings → 插件更新): tinted by the
-   outcome so a restart notice or a failed check cannot be scrolled past.
-   The row wraps (flex-wrap) and the state uses flex-basis auto so a long
-   notice drops to its own full-width line instead of a squeezed
-   one-character-per-line column. */
+   outcome so a restart notice or a failed check cannot be scrolled past. The
+   row wraps and the state uses flex-basis auto so a long notice drops to its
+   own full-width line. */
 .dsh-ws-settings-row:has(.dsh-ws-update-state){flex-wrap:wrap}
 .dsh-ws-update-state{flex:1 1 auto;min-width:0;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:20px;text-align:left;overflow-wrap:anywhere}
 .dsh-ws-update-state[data-ok]{color:var(--dsw-alias-state-success-primary)}
 .dsh-ws-update-state[data-error]{color:var(--dsw-alias-state-error-primary)}
 .dsh-ws-update-state[data-new]{color:var(--dsw-alias-state-business-primary)}
-/* Mind-map conversation branching view ("导图") and the sidebar branch-row hider (fork children are hidden from the harness session list; branches live in the mind map). */
+/* Mind-map conversation branching view ("导图") and the sidebar branch-row hider. */
 .dsh-ws-mindmap{height:100%;position:relative;box-sizing:border-box;padding:14px 16px;display:flex;flex-direction:column;overflow:hidden}
 .dsh-ws-mindmap-toolbar{flex:none;display:flex;align-items:center;gap:8px;margin-bottom:8px}
 .dsh-ws-mindmap-toolbar-button{flex:none;display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:16px;cursor:pointer;transition:background .12s ease,border-color .12s ease,color .12s ease}
 .dsh-ws-mindmap-toolbar-button:hover{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary)}
-/* Danger variant for the "archive entire mind map" button: red border + red text (warning), hover gets a faint red fill. Rules sit AFTER the base hover rule so the red wins at equal specificity. */
+/* Danger variant for the "archive entire mind map" button: red border + red text, hover gets a faint red fill. Rules sit after the base hover rule so the red wins. */
 .dsh-ws-mindmap-toolbar-button-danger{border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 55%,transparent);color:var(--dsw-alias-state-error-primary)}
 .dsh-ws-mindmap-toolbar-button-danger:hover{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 8%,transparent)}
-/* Highlighted "new session" action: a light-blue pill echoing the virtual root node's style — blue circular plus badge (same symmetric SVG path), blue-tinted gradient fill, blue border and a soft glow. Hover lifts the button 1px, scales the badge and rotates the plus 90°, mirroring the root node's hover animation. */
+/* Highlighted "new session" action: a light-blue pill echoing the virtual root node's style. Hover lifts the button 1px, scales the badge and rotates the plus 90°. */
 .dsh-ws-mindmap-toolbar-button-new{flex:none;display:inline-flex;align-items:center;gap:6px;padding:3px 10px 3px 6px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 55%,transparent);border-radius:999px;background:linear-gradient(180deg,color-mix(in srgb,var(--dsw-alias-state-business-primary) 20%,var(--dsw-alias-bg-layer-1)),color-mix(in srgb,var(--dsw-alias-state-business-primary) 8%,var(--dsw-alias-bg-layer-1)));color:var(--dsw-alias-state-business-primary);font:inherit;font-size:11px;line-height:16px;cursor:pointer;box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent);transition:transform .12s ease,box-shadow .12s ease;white-space:nowrap}
 .dsh-ws-mindmap-toolbar-button-new:hover{transform:translateY(-1px);box-shadow:0 0 0 5px color-mix(in srgb,var(--dsw-alias-state-business-primary) 18%,transparent)}
 .dsh-ws-mindmap-toolbar-button-new-plus{flex:none;width:15px;height:15px;border-radius:50%;background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-primary-inverted);display:flex;align-items:center;justify-content:center;transition:transform .15s ease}
 .dsh-ws-mindmap-toolbar-button-new-plus svg{display:block;width:9px;height:9px;transition:transform .15s ease}
 .dsh-ws-mindmap-toolbar-button-new:hover .dsh-ws-mindmap-toolbar-button-new-plus{transform:scale(1.08)}
 .dsh-ws-mindmap-toolbar-button-new:hover .dsh-ws-mindmap-toolbar-button-new-plus svg{transform:rotate(90deg)}
-/* Badge-family icons (approved scheme D): every toolbar button carries a small circular icon badge echoing the new-session plus badge — neutral gray at rest, turning solid blue on hover; the danger (archive) badge stays solid red regardless. These rules sit AFTER the generic hover rules so the red badge wins at equal specificity. */
+/* Badge-family icons: every toolbar button carries a small circular icon badge echoing the new-session plus badge — neutral gray at rest, turning solid blue on hover; the danger badge stays solid red. */
 .dsh-ws-mindmap-toolbar-badge{flex:none;width:15px;height:15px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--dsw-alias-label-secondary) 28%,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-label-secondary);transition:background .15s ease,color .15s ease}
 .dsh-ws-mindmap-toolbar-badge svg{display:block;width:9px;height:9px}
 .dsh-ws-mindmap-toolbar-button:hover .dsh-ws-mindmap-toolbar-badge{background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-primary-inverted)}
@@ -252,12 +247,12 @@ html.dsh-ws-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal=
 .dsh-ws-mindmap-toolbar-archive{margin-left:auto}
 .dsh-ws-mindmap-viewport{position:relative;flex:1;min-height:0;overflow:hidden;cursor:grab;touch-action:none}
 .dsh-ws-mindmap-viewport[data-dragging]{cursor:grabbing;user-select:none}
-/* A mind map docked as a preview tab fills the preview column below the tab strip: the body wrapper becomes a flex column and the map takes the rest. */
+/* A mind map docked as a preview tab fills the preview column below the tab strip. */
 .dsh-ws-preview-body.dsh-ws-mindmap-dock{display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-1)}
 .dsh-ws-preview-body.dsh-ws-mindmap-dock .dsh-ws-mindmap{flex:1;min-height:0;height:auto}
-/* The global host's STABLE per-map container: the explorer parks this element (plain DOM move) into the dsh-ws-mindmap-dock placeholder above, so the portal target never changes and the map body never remounts. It fills the placeholder and is itself a flex column so the map's flex:1 rule keeps working one level deeper. */
+/* The global host's stable per-map container: the explorer parks this element into the dsh-ws-mindmap-dock placeholder, so the portal target never changes and the map body never remounts. */
 .dsh-ws-preview-body.dsh-ws-mindmap-dock>.dsh-ws-mindmap-host-body{flex:1;min-height:0;display:flex;flex-direction:column}
-/* Convert-to-mind-map confirm dialog: a roomier modal than the default (larger width, more padding) with pill buttons — cancel gets a neutral border, confirm a primary-colored border. */
+/* Convert-to-mind-map confirm dialog: a roomier modal than the default with pill buttons. */
 .dsh-ws-mindmap-confirm-dialog{width:min(440px,100%)}
 .dsh-ws-mindmap-confirm-dialog .dsh-ws-dialog-body{padding:18px 20px}
 .dsh-ws-mindmap-confirm-dialog .dsh-ws-dialog-message{font-size:14px;line-height:22px}
@@ -267,7 +262,7 @@ html.dsh-ws-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal=
 .dsh-ws-mindmap-confirm-cancel:hover{border-color:var(--dsw-alias-label-secondary);color:var(--dsw-alias-label-primary)}
 .dsh-ws-mindmap-confirm-ok{border:1px solid var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent)}
 .dsh-ws-mindmap-confirm-ok:hover{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 16%,transparent);border-color:var(--dsw-alias-state-business-primary)}
-/* Archive-entire-mind-map confirm dialog (approved scheme A): an enlarged 480px warning dialog — red border + red glow, a red→amber gradient band across the top, an amber ⚠ badge, the message in a faint-red card, and a solid red-gradient confirm pill. All colors are theme vars (error/warn), so both themes adapt automatically. */
+/* Archive-entire-mind-map confirm dialog: an enlarged 480px warning dialog with a red border + glow, a red→amber gradient band, an amber ⚠ badge, and a solid red-gradient confirm pill. All colors are theme vars, so both themes adapt. */
 .dsh-ws-mindmap-archive-dialog{width:min(480px,100%);border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary) 55%,transparent);border-radius:14px;box-shadow:0 0 0 4px color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,transparent),var(--dsw-shadow-elevated,0 12px 36px rgba(0,0,0,.24));overflow:hidden}
 .dsh-ws-mindmap-archive-dialog .dsh-ws-dialog-header{justify-content:flex-start;gap:10px;padding:16px 18px 0;border-bottom:0}
 .dsh-ws-mindmap-archive-dialog .dsh-ws-dialog-title{flex:1;font-size:16px;font-weight:700;color:var(--dsw-alias-state-error-primary)}
@@ -282,7 +277,7 @@ html.dsh-ws-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal=
 .dsh-ws-mindmap-archive-ok:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 72%,#000 28%);color:#fff;box-shadow:inset 0 2px 6px rgba(0,0,0,.22),0 2px 10px color-mix(in srgb,var(--dsw-alias-state-error-primary) 40%,transparent)}
 .dsh-ws-mindmap-archive-ok:active:not(:disabled){filter:brightness(.85);box-shadow:inset 0 3px 8px rgba(0,0,0,.3)}
 .dsh-ws-mindmap-archive-ok:focus-visible{outline:2px solid var(--dsw-alias-state-error-primary);outline-offset:2px}
-/* Type-"yes" confirm gate for archiving the whole map: centered label + centered input + status capsule (red until "yes" matches, then green). */
+/* Type-"yes" confirm gate for archiving the whole map: centered label + input + status capsule (red until "yes" matches, then green). */
 .dsh-ws-mindmap-archive-confirm{display:flex;flex-direction:column;gap:6px;padding:0 2px}
 .dsh-ws-mindmap-archive-confirm-label{color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px;text-align:center}
 .dsh-ws-mindmap-archive-confirm-input{height:36px;padding:0 12px;border-radius:8px;font-size:14px;text-align:center}
@@ -297,7 +292,7 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-mindmap-canvas{position:absolute;left:0;top:0;transform-origin:0 0}
 .dsh-ws-mindmap-edges{position:absolute;inset:0;pointer-events:none;overflow:visible}
 .dsh-ws-mindmap-edge:not(.dsh-ws-mindmap-edge-flow){fill:none;stroke:var(--dsw-alias-border-l2,#8a8f98);stroke-width:1.5;opacity:.85}
-/* V3 mount edges (root → top-level session head, parent card → nested session head): primary dashed, weaker than the ancestor-trace classes above it. */
+/* V3 mount edges (root → top-level session head, parent card → nested session head): primary dashed, weaker than the ancestor-trace classes above. */
 .dsh-ws-mindmap-edge-mount{stroke:var(--dsw-alias-state-business-primary);stroke-width:1.6;opacity:.55;stroke-dasharray:4 4}
 .dsh-ws-mindmap-edge.dsh-ws-mindmap-edge-flow-under{fill:none;stroke-width:3;stroke-linecap:round;opacity:.9}
 .dsh-ws-mindmap-edge-flow{fill:none;stroke-width:3;stroke-linecap:round;stroke-dasharray:10 8;opacity:1;animation:dsh-ws-mindmap-edge-flow 1.1s linear infinite}
@@ -316,12 +311,12 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-mindmap-branch:hover{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary)}
 .dsh-ws-mindmap-branch:disabled{opacity:.55;cursor:not-allowed}
 .dsh-ws-mindmap-node-current-badge{position:absolute;top:3px;right:8px;padding:1px 7px;border-radius:999px;background:var(--dsh-ws-mindmap-selected,var(--dsw-alias-state-business-primary));color:var(--dsw-alias-label-primary-inverted);font-size:10px;line-height:14px}
-/* Branch cards: fork children that cannot overlap the shared chain window render as their own card (always visible), with a head row (tag + branch title) and, when the branch has visible rounds, a per-round preview list. */
+/* Branch cards: fork children that cannot overlap the shared chain window render as their own card, with a head row and, when the branch has visible rounds, a per-round preview list. */
 .dsh-ws-mindmap-pending{border-style:dashed;cursor:pointer;justify-content:flex-start;align-items:stretch}
 .dsh-ws-mindmap-branchcard{border-style:dashed;cursor:pointer;justify-content:flex-start;align-items:stretch;gap:6px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 88%,var(--dsw-alias-state-business-primary) 6%)}
-/* End-of-branch card ("末端"): the WHOLE card wears the accent tint — border, background wash and the "末端" capsule all resolve the --dsh-ws-mindmap-end custom property (default success green), so a terminal-point card reads green as a card, not just in its chip. The selected / hover ancestor rules (later in source, equal-or-higher specificity) still override the border, so the trace highlight stays visible over the tint. Streaming cards keep only the chip (their flowing ring is already the strong signal). */
+/* End-of-branch card ("末端"): the whole card wears the accent tint — border, background wash and the "末端" capsule all resolve --dsh-ws-mindmap-end (default success green). The selected / hover ancestor rules still override the border, so the trace highlight stays visible. */
 .dsh-ws-mindmap-node.dsh-ws-mindmap-endcard{border-color:var(--dsh-ws-mindmap-end,var(--dsw-alias-state-success-primary));background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 86%,var(--dsh-ws-mindmap-end,var(--dsw-alias-state-success-primary)) 14%)}
-/* V3 nodes: the VIRTUAL root node (the map's top hub — click it to create a new top-level session) and each session's HEAD node (its identity card at the left of the question chain; the "当前" badge sits here). */
+/* V3 nodes: the virtual root node (click it to create a new top-level session) and each session's head node (its identity card at the left of the question chain). */
 .dsh-ws-mindmap-root{position:absolute;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:12px;padding:0 18px;border:2px solid var(--dsw-alias-state-business-primary);border-radius:16px;cursor:pointer;user-select:none;background:linear-gradient(180deg,color-mix(in srgb,var(--dsw-alias-state-business-primary) 18%,var(--dsw-alias-bg-layer-1)),color-mix(in srgb,var(--dsw-alias-state-business-primary) 8%,var(--dsw-alias-bg-layer-1)));box-shadow:0 0 0 4px color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent);transition:transform .12s ease,box-shadow .12s ease;overflow:hidden}
 .dsh-ws-mindmap-root:hover{transform:translateY(-1px);box-shadow:0 0 0 6px color-mix(in srgb,var(--dsw-alias-state-business-primary) 18%,transparent)}
 .dsh-ws-mindmap-root-plus{flex:none;width:26px;height:26px;border-radius:50%;background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-primary-inverted);display:flex;align-items:center;justify-content:center;transition:transform .15s ease}
@@ -342,20 +337,20 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-mindmap-head-summary{flex:1;min-height:0;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;overflow:hidden;font-size:10px;line-height:14px;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}
 .dsh-ws-mindmap-head-summary-empty{color:var(--dsw-alias-label-tertiary,var(--dsw-alias-label-secondary));font-style:italic}
 .dsh-ws-mindmap-head.dsh-ws-mindmap-node-ring{border:2px solid transparent;padding:8px 9px;border-radius:12px;background:linear-gradient(var(--dsw-alias-bg-layer-1),var(--dsw-alias-bg-layer-1)) padding-box,conic-gradient(from var(--dsw-ws-mm-angle),var(--dsw-ws-mm-c1),var(--dsw-ws-mm-c2),var(--dsw-ws-mm-c3),var(--dsw-ws-mm-c1)) border-box;animation:dsh-ws-mindmap-ring-spin 2.4s linear infinite}
-/* Live streaming cards (turns in flight, ephemeral UI — replaced by normal cards once their turns complete): instead of an enclosing frame, each streaming card AND its parent card get a colorful flowing gradient ring (conic gradient clipped to the border box, rotating through the registered --dsw-ws-mm-angle), and the edge between them flows with the same palette. Palette colors arrive as inline --dsw-ws-mm-c1..c3; the 2px transparent border plus compensated padding keep content from shifting when the ring appears. The compound selectors beat the ancestor / branch border rules. */
+/* Live streaming cards: each streaming card and its parent get a colorful flowing gradient ring (conic gradient clipped to the border box, rotating through --dsw-ws-mm-angle), and the edge between them flows with the same palette. The 2px transparent border plus compensated padding keep content from shifting when the ring appears. */
 @property --dsw-ws-mm-angle{syntax:'<angle>';initial-value:0deg;inherits:false}
 .dsh-ws-mindmap-node.dsh-ws-mindmap-node-ring{border:2px solid transparent;padding:7px 9px;border-radius:12px;background:linear-gradient(var(--dsw-alias-bg-layer-1),var(--dsw-alias-bg-layer-1)) padding-box,conic-gradient(from var(--dsw-ws-mm-angle),var(--dsw-ws-mm-c1),var(--dsw-ws-mm-c2),var(--dsw-ws-mm-c3),var(--dsw-ws-mm-c1)) border-box;animation:dsh-ws-mindmap-ring-spin 2.4s linear infinite}
 .dsh-ws-mindmap-node.dsh-ws-mindmap-node-ring.dsh-ws-mindmap-node-streaming{box-shadow:0 0 14px color-mix(in srgb,var(--dsw-ws-mm-c1) 22%,transparent);background:linear-gradient(color-mix(in srgb,var(--dsw-alias-bg-layer-1) 78%,transparent),color-mix(in srgb,var(--dsw-alias-bg-layer-1) 78%,transparent)) padding-box,conic-gradient(from var(--dsw-ws-mm-angle),var(--dsw-ws-mm-c1),var(--dsw-ws-mm-c2),var(--dsw-ws-mm-c3),var(--dsw-ws-mm-c1)) padding-box,conic-gradient(from var(--dsw-ws-mm-angle),var(--dsw-ws-mm-c1),var(--dsw-ws-mm-c2),var(--dsw-ws-mm-c3),var(--dsw-ws-mm-c1)) border-box}
 .dsh-ws-mindmap-node-streaming-status{display:flex;align-items:center;gap:6px;color:var(--dsw-ws-mm-c1,var(--dsw-alias-state-business-primary))}
 .dsh-ws-mindmap-node-streaming-dot{width:7px;height:7px;border-radius:50%;background:var(--dsw-ws-mm-c1,var(--dsw-alias-state-business-primary));animation:dsh-ws-mindmap-dot-pulse 1s ease-in-out infinite}
-/* AI-summary-in-progress status row (方案 B): replaces "已完成" while a summary is being generated; primary blue (no ring var on a normal card), same pulse dot as streaming. */
+/* AI-summary-in-progress status row: replaces "已完成" while a summary is being generated; primary blue, same pulse dot as streaming. */
 .dsh-ws-mindmap-node-summarizing{display:flex;align-items:center;gap:6px;color:var(--dsw-alias-state-business-primary)}
 @keyframes dsh-ws-mindmap-ring-spin{to{--dsw-ws-mm-angle:360deg}}
 @keyframes dsh-ws-mindmap-dot-pulse{0%,100%{opacity:1}50%{opacity:.25}}
 @media (prefers-reduced-motion: reduce){.dsh-ws-mindmap-node.dsh-ws-mindmap-node-ring{animation:none}.dsh-ws-mindmap-edge-flow{animation:none}.dsh-ws-mindmap-node-streaming-dot{animation:none}}
 .dsh-ws-mindmap-pending-head{display:flex;align-items:center;gap:6px;min-width:0}
 .dsh-ws-mindmap-pending-label{flex:none;display:inline-flex;align-items:center;gap:2px;padding:1px 6px 1px 5px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 28%,transparent);border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent);color:var(--dsw-alias-state-business-primary);font-size:10px;line-height:14px}
-/* End-of-branch capsule ("末端"): the same chip shape, but tinted with the success green so the terminal-point chip is instantly distinguishable from a fork point (which stays primary-blue). */
+/* End-of-branch capsule ("末端"): the same chip shape, tinted with the success green so the terminal-point chip is distinguishable from a fork point. */
 .dsh-ws-mindmap-end-label{border-color:color-mix(in srgb,var(--dsh-ws-mindmap-end,var(--dsw-alias-state-success-primary)) 28%,transparent);background:color-mix(in srgb,var(--dsh-ws-mindmap-end,var(--dsw-alias-state-success-primary)) 12%,transparent);color:var(--dsh-ws-mindmap-end,var(--dsw-alias-state-success-primary))}
 .dsh-ws-mindmap-pending-icon{flex:none;display:block}
 .dsh-ws-mindmap-pending-title{flex:1;min-width:0;color:var(--dsw-alias-label-primary);font-weight:600;font-size:12px;line-height:17px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -373,19 +368,19 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-mindmap-notice{margin-bottom:10px;padding:6px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:12px;line-height:17px}
 .dsh-ws-mindmap-notice-error{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}
 .dsh-ws-mindmap-node[data-branch]{border-style:solid}
-/* Folded card: one compact card standing in for a maximal run of consecutive folded turns — dashed border + muted wash (the branchcard tint is overridden), fold icon + count badge in the title row, first-turn text (or its AI summary) in the body. Placed AFTER the [data-branch] solid rule (equal specificity, later wins) and BEFORE the ancestor/hover rules so the selection / hover traces keep their border-color overrides. */
+/* Folded card: one compact card standing in for a maximal run of consecutive folded turns — dashed border + muted wash, fold icon + count badge in the title row, first-turn text in the body. Placed after the [data-branch] solid rule and before the ancestor/hover rules so the traces keep their border-color overrides. */
 .dsh-ws-mindmap-node.dsh-ws-mindmap-folded{border-style:dashed;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 90%,var(--dsw-alias-label-tertiary,var(--dsw-alias-label-secondary)) 10%)}
 .dsh-ws-mindmap-fold-count{flex:none;padding:0 6px;border-radius:999px;background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-primary-inverted);font-size:10px;line-height:15px;font-weight:600}
 .dsh-ws-mindmap-node-q-folded{color:var(--dsw-alias-label-secondary);font-style:italic;font-weight:500}
 .dsh-ws-mindmap-node-folded-status{color:var(--dsw-alias-state-business-primary)}
-/* Peeked card status: a folded-marked turn temporarily expanded (click on the folded card) — the folded attribute is untouched, so the status row says 已折叠 in amber (the run's dashed outline is the grouping cue). */
+/* Peeked card status: a folded-marked turn temporarily expanded (click on the folded card); the folded attribute is untouched, so the status row says 已折叠 in amber. */
 .dsh-ws-mindmap-node-peeked-status{color:var(--dsw-alias-state-warn-primary)}
 /* Temporary-expand (peek) outline around the run: amber dashed box, never intercepts pointer events. */
 .dsh-ws-mindmap-peek-box{position:absolute;border:1.5px dashed var(--dsw-alias-state-warn-primary);border-radius:12px;background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 4%,transparent);pointer-events:none;box-sizing:border-box}
-/* Selected-card ancestor trace: the current card's chain back to the root — edges turn dashed primary-blue, parent nodes get a dashed primary-blue border. The compound selector beats the base rules (equal specificity, later in source), so the trace keeps its stroke. */
+/* Selected-card ancestor trace: the current card's chain back to the root — edges turn dashed primary-blue, parent nodes get a dashed primary-blue border. */
 .dsh-ws-mindmap-edge.dsh-ws-mindmap-edge-active{stroke:var(--dsh-ws-mindmap-selected,var(--dsw-alias-state-business-primary));stroke-dasharray:6 5;stroke-width:2;opacity:1}
 .dsh-ws-mindmap-node.dsh-ws-mindmap-node-ancestor{border-style:dashed;border-color:var(--dsh-ws-mindmap-selected,var(--dsw-alias-state-business-primary));box-shadow:0 0 0 1px color-mix(in srgb,var(--dsh-ws-mindmap-selected,var(--dsw-alias-state-business-primary)) 18%,transparent)}
-/* Hover ancestor trace: the card under the pointer gets a solid amber border + soft glow, its ancestors and path edges go amber dashed — visually distinct from the selected card's primary-blue chain (blue = persistent selection, amber = transient hover preview). Each hover class sits AFTER its blue counterpart (equal specificity, later wins), so when a card or edge is on BOTH paths, the hover (the pointer's current focus) wins. Ring (streaming) cards are excluded: their flowing ring is already the stronger signal and a border-color override would erase it. */
+/* Hover ancestor trace: the card under the pointer gets a solid amber border + soft glow, its ancestors and path edges go amber dashed — visually distinct from the selected card's primary-blue chain. Each hover class sits after its blue counterpart, so the hover wins when a card or edge is on both paths. Ring (streaming) cards are excluded. */
 .dsh-ws-mindmap-edge.dsh-ws-mindmap-edge-hover-active{stroke:var(--dsh-ws-mindmap-hover,var(--dsw-alias-state-warn-primary));stroke-dasharray:6 5;stroke-width:2;opacity:1}
 .dsh-ws-mindmap-node.dsh-ws-mindmap-node-hover-ancestor{border-style:dashed;border-color:var(--dsh-ws-mindmap-hover,var(--dsw-alias-state-warn-primary));box-shadow:0 0 0 1px color-mix(in srgb,var(--dsh-ws-mindmap-hover,var(--dsw-alias-state-warn-primary)) 22%,transparent)}
 .dsh-ws-mindmap-node.dsh-ws-mindmap-node-hover:not(.dsh-ws-mindmap-node-ring){border-style:solid;border-color:var(--dsh-ws-mindmap-hover,var(--dsw-alias-state-warn-primary));box-shadow:0 0 0 1px color-mix(in srgb,var(--dsh-ws-mindmap-hover,var(--dsw-alias-state-warn-primary)) 35%,transparent),0 0 14px color-mix(in srgb,var(--dsh-ws-mindmap-hover,var(--dsw-alias-state-warn-primary)) 22%,transparent)}
@@ -397,7 +392,7 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-settings-color::-moz-color-swatch{border:0;border-radius:3px}
 .dsh-ws-mindmap-hidden-row{display:none!important}
 .dsh-ws-mindmap-no-overflow{display:none!important}
-/* Sidebar mind-map session entries: rendered INSIDE each workspace group's session list (one container per group section); flat / search modes use a region-area fallback seat instead. Draggable to reorder (order persisted per group); right-click menu (rename / reveal). Empty containers collapse. */
+/* Sidebar mind-map session entries: rendered inside each workspace group's session list; flat / search modes use a region-area fallback seat instead. Draggable to reorder; right-click menu (rename / reveal). Empty containers collapse. */
 .dsh-ws-sidebar-mindmaps{min-width:0;display:flex;flex-direction:column;gap:2px;padding:2px 8px 4px;box-sizing:border-box}
 .dsh-ws-sidebar-mindmaps:empty{display:none}
 .dsh-ws-sidebar-mindmaps-fallback{flex:none;padding:2px 2px 6px}
@@ -409,7 +404,7 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-sidebar-mindmaps-item[data-drop="before"]{box-shadow:inset 0 2px 0 var(--dsw-alias-state-business-primary)}
 .dsh-ws-sidebar-mindmaps-item[data-drop="after"]{box-shadow:inset 0 -2px 0 var(--dsw-alias-state-business-primary)}
 .dsh-ws-sidebar-mindmaps-icon{flex:none;width:14px;height:14px;color:var(--dsw-alias-state-business-primary)}
-/* While any session in a mind map family streams (summary.running flips at generation start, no sync wait), spin the left icon to mirror the hidden ordinary rows' live generation. */
+/* While any session in a mind map family streams, spin the left icon to mirror the hidden ordinary rows' live generation. */
 @keyframes dsh-ws-mindmap-spin{to{transform:rotate(360deg)}}
 .dsh-ws-sidebar-mindmaps-item[data-running] .dsh-ws-sidebar-mindmaps-icon{animation:dsh-ws-mindmap-spin var(--dsh-ws-mindmap-spin-duration,1.2s) linear infinite;transform-origin:center}
 @media (prefers-reduced-motion: reduce){.dsh-ws-sidebar-mindmaps-item[data-running] .dsh-ws-sidebar-mindmaps-icon{animation:none}}
@@ -417,11 +412,11 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-sidebar-mindmaps-count{flex:none;color:var(--dsw-alias-label-secondary);font-size:10px;line-height:14px}
 .dsh-ws-frame[data-sidebar-files] .dsh-ws-sidebar-mindmaps{display:none}
 .dsh-ws-frame[data-sidebar-collapsed] .dsh-ws-sidebar-mindmaps{display:none}
-/* A collapsed group renders no rows, but the injected mind-map seat is a foreign node React leaves in place. Harness wraps the group header in a HoverCard span and appends the seat to it, so both share one direct parent (span for real workspaces, section div for the ungrouped bucket); fold the seat with the folder by matching that parent — like the files / rail rules. */
+/* A collapsed group renders no rows, but the injected mind-map seat is a foreign node React leaves in place. Harness wraps the group header in a HoverCard span and appends the seat to it, so both share one direct parent; fold the seat with the folder by matching that parent. */
 [data-slot="sidebar.workspaces"] *:has(> [role="treeitem"][aria-expanded="false"]) > .dsh-ws-sidebar-mindmaps{display:none}
-/* Rendered-Markdown overlay inside the preview body: absolute keeps the mounted CodeMirror alive underneath; scrollable for long documents. */
+/* Rendered-Markdown overlay inside the preview body: absolute keeps the mounted CodeMirror alive underneath. */
 .dsh-ws-md-preview{position:absolute;inset:0;overflow:auto;box-sizing:border-box;padding:16px 20px;background:var(--dsw-alias-bg-base)}
-/* Rendered-page overlay for HTML files: the iframe fills the body; the page itself owns its background and scrolling. */
+/* Rendered-page overlay for HTML files: the iframe fills the body; the page owns its background and scrolling. */
 .dsh-ws-html-preview{position:absolute;inset:0;overflow:hidden;box-sizing:border-box;background:var(--dsw-alias-bg-base)}
 .dsh-ws-html-preview iframe{display:block;width:100%;height:100%;border:0}
 .dsh-ws-html-preview .dsh-ws-banner{position:absolute;top:0;left:0;right:0;z-index:1}
@@ -480,7 +475,7 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-diff-del{color:var(--dsw-alias-state-error-primary);text-decoration:line-through;text-decoration-thickness:1.5px}
 .dsh-ws-diff-ins{background:var(--dsw-alias-state-success-tertiary);color:var(--dsw-alias-state-success-primary);border-radius:3px;padding:0 1px;box-decoration-break:clone;-webkit-box-decoration-break:clone}
 .dsh-ws-diff-ins-line{display:block;margin:0 -14px;padding:0 14px}
-/* ---- Edit/write tool cards share the Think-card pattern: the per-file diff body and the generic input/output sections are fixed-height viewports limited to the --dsh-ws-edit-lines line count (the 编辑显示行数 slider, independent of the Think-card count), with the same slim right-side scrollbar (the diff also keeps horizontal scrolling for long lines). The old per-card "expand rest" cap is gone: scrolling reaches the whole change. ---- */
+/* ---- Edit/write tool cards share the Think-card pattern: the per-file diff body and the generic input/output sections are fixed-height viewports limited to the --dsh-ws-edit-lines line count (the 编辑显示行数 slider, independent of the Think-card count), with the same slim right-side scrollbar. ---- */
 .dsh-ws-diff-body,.dsh-ws-tool-io-section{scrollbar-width:thin;scrollbar-color:var(--dsw-alias-scrollbar-bg-l2,transparent) transparent;overscroll-behavior:contain}
 .dsh-ws-diff-body::-webkit-scrollbar,.dsh-ws-tool-io-section::-webkit-scrollbar{width:6px;height:6px}
 .dsh-ws-diff-body::-webkit-scrollbar-thumb,.dsh-ws-tool-io-section::-webkit-scrollbar-thumb{background:var(--dsw-alias-scrollbar-bg-l2,transparent);border:1px solid transparent;border-radius:6px;background-clip:padding-box}
@@ -488,7 +483,7 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-diff-body::-webkit-scrollbar-track,.dsh-ws-tool-io-section::-webkit-scrollbar-track{background:transparent}
 .dsh-ws-diff-body{max-height:calc(var(--dsh-ws-edit-lines,10) * 22px + 24px);overflow-y:auto}
 .dsh-ws-tool-io-section{max-height:calc(var(--dsh-ws-edit-lines,10) * 20px + 24px)}
-/* ---- Think card (chat thinking blocks): the block stays open as a card (the harness only renders the body while the disclosure row is open — hooks/think-card.js keeps rows open) whose body viewport shows only the latest --dsh-ws-think-lines rows, with the card's own slim scrollbar on the right for reaching earlier rows. The body class is a CSS-module name (may be hashed), so rules match the "thinkBody" substring. ---- */
+/* ---- Think card (chat thinking blocks): the block stays open as a card (hooks/think-card.js keeps rows open) whose body viewport shows only the latest --dsh-ws-think-lines rows, with the card's own slim scrollbar. The body class is a CSS-module name (may be hashed), so rules match the "thinkBody" substring. ---- */
 .dsh-ws-chat [data-variant="think"]{box-sizing:border-box;margin:6px 0;border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-alias-bg-layer-1);overflow:hidden}
 /* Scroll-gate armed cue: the card owns the wheel after a click inside. */
 .dsh-ws-chat [data-variant="think"][data-scroll-armed]{border-color:var(--dsw-alias-state-business-primary);box-shadow:0 0 0 1px var(--dsw-alias-state-business-primary)}
@@ -497,6 +492,6 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-chat [data-variant="think"] [class*="thinkBody"]::-webkit-scrollbar-thumb{background:var(--dsw-alias-scrollbar-bg-l2,transparent);border:1px solid transparent;border-radius:6px;background-clip:padding-box}
 .dsh-ws-chat [data-variant="think"] [class*="thinkBody"]::-webkit-scrollbar-thumb:hover{background:var(--dsw-alias-scrollbar-hover-l2,transparent)}
 .dsh-ws-chat [data-variant="think"] [class*="thinkBody"]::-webkit-scrollbar-track{background:transparent}
-/* Think-card header chevron: nudge the disclosure glyph right off the card's left border edge (the leading box is flush with the card edge). */
+/* Think-card header chevron: nudge the disclosure glyph right off the card's left border edge. */
 .dsh-ws-chat [data-variant="think"] [data-disclosure-row] > span:first-child{margin-left:6px}
 `

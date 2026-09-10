@@ -1,21 +1,15 @@
 /** Mind-map viewport interaction: grab-pan, cursor-anchored wheel zoom and
- *  fit-to-view. The transform is applied straight to the canvas element (NOT
- *  React state): pan/zoom never re-render the map; viewRef is the single source
- *  of truth. layout is read lazily through layoutRef (the component keeps the
- *  memoized layout calculation and re-syncs the ref every render). */
+ *  fit-to-view. The transform is applied straight to the canvas (not React
+ *  state); viewRef is the single source of truth. */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { MINDMAP_WHEEL_STEP, MINDMAP_ZOOM_MAX, MINDMAP_ZOOM_MIN } from '../../constants.js'
 import { mindmapClampView, mindmapFitView } from '../helpers.js'
 
 export function useMindmapViewport({ layoutRef }) {
   const [dragging, setDragging] = useState(false)
-  /* The viewport element only mounts once the map is ready (the component
-     renders a status placeholder while loading/empty), so the wheel listener
-     must attach when the element APPEARS, not just on hook mount. A layout
-     effect mirrors the element's presence into state; the wheel effect depends
-     on it and re-runs when the element shows up. A plain mount-only effect
-     would see null on its first run and never re-run, so the listener would
-     never attach. */
+  /* The viewport element mounts only once the map is ready, so the wheel
+     listener must attach when it appears; a layout effect mirrors its presence
+     into state. */
   const [viewportMounted, setViewportMounted] = useState(false)
   const viewportRef = useRef(null)
   const canvasRef = useRef(null)
@@ -24,10 +18,9 @@ export function useMindmapViewport({ layoutRef }) {
   const pendingViewRef = useRef(null)
   const rafRef = useRef(0)
   const fittedRef = useRef(false)
-  /* Viewport interaction: grab-pan on blank area + cursor-anchored wheel zoom.
-     The transform is applied straight to the canvas element (NOT React state):
-     a direct style write keeps interaction at frame rate while React only
-     re-renders when the DOC changes; viewRef is the single source of truth. */
+  /* Grab-pan on blank area + cursor-anchored wheel zoom; the transform is
+     applied straight to the canvas (not React state) so interaction stays at
+     frame rate. */
   const applyViewTransform = useCallback(() => {
     const el = canvasRef.current
     if (el === null) return
@@ -56,15 +49,13 @@ export function useMindmapViewport({ layoutRef }) {
     const { vw, vh } = viewportSize()
     const fit = mindmapFitView(layoutRef.current.width, layoutRef.current.height, vw, vh)
     if (fit !== null) updateView(fit)
-  }, [updateView, viewportSize])  /* Replay the transform after every render: owned by the DOM, not React state,
-     so a doc-driven re-render re-applies the current view instead of leaving
-     the canvas stale. */
+  }, [updateView, viewportSize])  /* Replay the transform after every render so a doc-driven re-render
+     re-applies the current view. */
   useLayoutEffect(() => {
     applyViewTransform()
   })
-  /* Mirror the viewport element's presence into state after every render
-     (setState bails out when unchanged): the wheel effect below re-runs the
-     moment the element appears, attaching the native listener. */
+  /* Mirror the viewport element's presence into state so the wheel effect
+     re-runs the moment it appears. */
   useLayoutEffect(() => {
     setViewportMounted(viewportRef.current !== null)
   })
@@ -131,11 +122,8 @@ export function useMindmapViewport({ layoutRef }) {
     }
   }, [])
 
-  /* Reset on family switch: drop the fitted flag and zero the transform so the
-     new map fits on load instead of inheriting the old pan/zoom. Also cancel
-     any queued rAF frame: a pan/zoom scheduled just before the switch would
-     otherwise apply the OLD map's transform to the new canvas on the next
-     frame (visible when both maps happen to share the same size). */
+  /* Reset on family switch: drop the fitted flag, zero the transform, and
+     cancel any queued rAF frame so the new map fits on load. */
   const resetView = useCallback(() => {
     fittedRef.current = false
     viewRef.current = { tx: 0, ty: 0, zoom: 1 }
@@ -146,21 +134,16 @@ export function useMindmapViewport({ layoutRef }) {
     }
   }, [])
   /* Fit once when the map first becomes visible; later layout growth keeps the
-     user's view (还原视图 restores the fit at any time). The component re-arms
-     this on layout size changes (useLayoutEffect over [layout.height, width]). */
+     user's view (restore-view refits at any time). */
   const refitIfUnfitted = useCallback(() => {
     if (fittedRef.current) return
     const { vw, vh } = viewportSize()
     const fit = mindmapFitView(layoutRef.current.width, layoutRef.current.height, vw, vh)
     if (fit !== null) { fittedRef.current = true; updateView(fit) }
   }, [layoutRef, updateView, viewportSize])
-  /* Visibility-aware fit: while the body is parked in a hidden container
-     (tab inactive / user on another session) the viewport measures 0 and the
-     initial fit can never land (mindmapFitView returns null on a zero-size
-     viewport). A ResizeObserver refits the moment the element gains a real
-     size — parking the stable container into a visible strip placeholder
-     triggers exactly that transition. One-shot semantics via fittedRef: once
-     fitted, later resizes keep the user's view. */
+  /* Visibility-aware fit: a ResizeObserver refits once the element gains a
+     real size, since a hidden container measures 0 and the initial fit can
+     never land. */
   useEffect(() => {
     const el = viewportRef.current
     if (el === null || typeof ResizeObserver !== 'function') return undefined

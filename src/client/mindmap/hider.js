@@ -3,45 +3,20 @@ import { isMindmapFamilySession } from './panel.js'
 import { mindmapRegistry } from './registry.js'
 
 /* Hides mind-map family sessions (root + every fork descendant) from the
-   sidebar list; each mind map is shown by its self-drawn entry instead.
-   Rows are matched by title and rescanned on DOM mutations / index changes.
-   A title hides a row only when every session with that title is hidden (a
-   visible non-mindmap sharing it keeps it visible); archived sessions add no
-   titles and the clearing pass self-heals bad rows.
-   The current BLANK session renders as a provisional New Session row with a
-   localized placeholder title (never the stored, empty title), so it is
-   matched structurally instead (selected row without a time cell) and only
-   when it belongs to a mind-map family — via the registry, the parent chain,
-   or mindmapBlankSessions (created by mindmapActions.createSession, in flight
-   until the doc adoption). Plus-button blank sessions never match and stay
-   visible.
+   sidebar list; each mind map is shown by its self-drawn entry instead. Rows
+   are matched by title and rescanned on DOM mutations / index changes. A title
+   hides a row only when every session with that title is hidden; the current
+   blank session is matched structurally (selected row without a time cell) and
+   only when it belongs to a mind-map family.
 
-   Scan cost is bounded by three layers (2026 fix):
-   1. Mutation records are FILTERED before a scan is scheduled: only a session
-      row ('[role="treeitem"]') or an overflow button ('button[aria-expanded]')
-      being added / removed / rewritten can change hiding or counts. The
-      mind-map panel's own React renders (its entries are plain buttons — not
-      overflow buttons), seat re-anchors, decorative nodes AND this hider's own
-      count-patch writes (their targets are patchedButtons members) all drop
-      out — the observer no longer turns every container churn into a scan, and
-      our own writes never schedule the next one (de-self-trigger). Batches
-      that ADD such nodes (group expand / collapse) skip the throttle and scan
-      synchronously in the observer callback — before paint, so newly rendered
-      family rows never flash; only rewrites of existing rows stay throttled.
-   2. apply() computes a scan RESULT signature (session inputs + row titles /
-      desired & actual hidden classes + current overflow-button texts) and
-      skips every DOM write plus the per-group count pass when it matches the
-      last scan — reorders and identical row rebuilds cost the walk only.
-   3. The body guard re-anchors only when the observed target was actually
-      REPLACED (disconnected): plain body churn (portals, toasts, dialogs)
-      does zero work.
-   Additionally the observer watches CLASS attributes on the slot: the
-   harness renders session rows through React, and React owns each row's
-   className — when a hidden family row becomes (or stops being) the CURRENT
-   session, the selected-class toggle rewrites the whole class list and
-   WIPES our dsh-ws-mindmap-hidden-row without any childList record. Such
-   rewrites are re-hidden within the same animation frame (before paint), so
-   the row never flashes visible. */
+   Scan cost is bounded: mutation records are filtered before a scan is
+   scheduled (only session rows / overflow buttons can change hiding or counts),
+   apply() skips DOM writes when the scan result signature is unchanged, and
+   the body guard re-anchors only when the observed target was actually
+   replaced. The observer also watches class attributes, since React rewrites a
+   row's className when it becomes the current session and would wipe the hidden
+   class without a childList record; such rewrites are re-hidden within the same
+   animation frame so the row never flashes visible. */
 
 export function installMindmapBranchHider(getSessionList, getArchivedSessionIds, getWorkspaces) {
   if (typeof document === 'undefined') return () => {}
@@ -432,7 +407,7 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
    so the set only ever holds in-flight conversions. */
 export const mindmapConvertedSessions = new Set()
 
-/* BLANK sessions this plugin created for a mind map (root-node 新建会话 / the
+/* BLANK sessions this plugin created for a mind map (root-node new-session / the
    blank-card menu — every caller funnels through mindmapActions.createSession).
    The registry learns them as doc branches only after the doc write + index
    refresh, but the harness renders the CURRENT blank session immediately as a
