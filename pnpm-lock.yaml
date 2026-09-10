@@ -17,6 +17,9 @@ importers:
       iconv-lite:
         specifier: ^0.6.3
         version: 0.6.3
+      marked:
+        specifier: ^18.0.12
+        version: 18.0.12
       react:
         specifier: ^18.2.0
         version: 18.2.0
@@ -530,6 +533,11 @@ packages:
 
   loose-envify@1.4.0:
     resolution: {integrity: sha512-lyuxPGr/Wfhrlem2CL/UcnUc1zcqKAImBDzukY7Y5F/yQiNdko6+fRLevlw1HgMySw7f611UIY408EtxRSoK3Q==}
+    hasBin: true
+
+  marked@18.0.12:
+    resolution: {integrity: sha512-LEm4ga2YeI2T3GVHj9b0BaDPPk93LLTHMFeMyQbNIzPxc8vCI0y/scy0ZA6z6lXKyT9j9Nhl/OC6ZYKYGuFScA==}
+    engines: {node: '>= 20'}
     hasBin: true
 
   obug@2.1.4:
@@ -1080,6 +1088,8 @@ snapshots:
   loose-envify@1.4.0:
     dependencies:
       js-tokens: 3.0.0
+
+  marked@18.0.12: {}
 
   obug@2.1.4: {}
 

@@ -4,22 +4,21 @@ import { diffRows, resolveMergeParts } from '../merge.js'
 import { entryDialogAction, entryDialogTitle } from '../paths.js'
 import { encodingLabel } from '../api.js'
 
-/* Modal a11y: keep Tab INSIDE the open dialog and restore focus to the
+/* Modal a11y: keep Tab inside the open dialog and restore focus to the
    previously focused element on close. The dialogs render conditionally
    (mount = open), so the effect is mount-scoped; the inputs' own autoFocus
-   keeps the initial focus (nothing is stolen here — only Tab is trapped).
-   The `open` flag lets HOST components that render several dialogs from one
+   keeps the initial focus (nothing is stolen — only Tab is trapped). The
+   `open` flag lets host components that render several dialogs from one
    always-mounted component (mind-map confirmations) arm the trap only while
    their dialog subtree is visible. */
 export function useDialogFocusTrap(open = true) {
   const dialogRef = useRef(null)
-  /* Pre-dialog focus, captured by the REF CALLBACK: React applies the dialog
-     input's autoFocus during the LAYOUT phase (commitMount), which runs after
-     the commit-phase ref callback but BEFORE this passive effect. Reading
-     document.activeElement in the effect would capture the dialog's OWN input,
-     and the close-time restore would find it unmounted (isConnected false),
-     dropping focus to body for the input-based dialogs. The mutation-phase ref
-     callback still sees the OUTSIDE element. */
+  /* Pre-dialog focus, captured by the ref callback: React applies the input's
+     autoFocus during the layout phase (commitMount), after the commit-phase
+     ref callback but before this passive effect — reading
+     document.activeElement in the effect would capture the dialog's own
+     input, and the close-time restore would find it unmounted. The
+     mutation-phase ref callback still sees the outside element. */
   const previouslyFocusedRef = useRef(null)
   useEffect(() => {
     if (!open) return undefined
@@ -62,9 +61,9 @@ export function useDialogFocusTrap(open = true) {
 
 /* Window-level Escape for the modals without a text input of their own
    (Encoding/Delete): the input-based dialogs handle Escape on the input and
-   SaveConflictDialog carries its own window listener — this keeps Esc
-   behavior uniform across all five modals regardless of where focus sits.
-   Busy states never cancel (same rule as the × / backdrop). */
+   SaveConflictDialog carries its own window listener, keeping Esc uniform
+   across all five modals. Busy states never cancel (same rule as the × /
+   backdrop). */
 function useDialogEscape(onCancel, busy) {
   useEffect(() => {
     const onKeyDown = (event) => {
@@ -86,8 +85,7 @@ export function DeleteDialog({entry,busy,dirtyWarning,onCancel,onConfirm}){const
 /* Save-time three-way merge conflict: disk changed by another tool and the
    changes overlap local edits. Each region is reviewed one at a time (mine vs
    theirs); the footer walks them and hands back { choices } (one per conflict,
-   in order) or 'cancel'. */
-export function SaveConflictDialog({conflict,fontSize,onResolve}) {
+   in order) or 'cancel'. */export function SaveConflictDialog({conflict,fontSize,onResolve}) {
   const [index, setIndex] = useState(0)
   const [choices, setChoices] = useState([])
   /* Mirror of `choices` read synchronously in pick: two rapid clicks on the

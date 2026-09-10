@@ -4,22 +4,12 @@
  * two stacked blocks (all removed lines, then all added lines). This module
  * registers a keyed `tool.call.toolview` entry for the `edit` and `write` keys
  * at a LOWER priority than the shipped row, so slot cell shadowing (lowest
- * priority renders) replaces it in the chat flow:
- *
- *  - the row opens by default (always; manual collapse still works),
- *  - each file change renders as its OWN card — multi-file edits stack one
- *    card per file vertically; the card header sits inside the card top
- *    (chevron + edit icon + title + openable file path + per-file diffstat +
- *    state dot/chrome + an always-visible copy button),
- *  - the diff renders as ONE merged view per file: added text on a green
- *    background, removed text struck through in red, inline within the same
- *    line, instead of the split removed-block / added-block pair,
- *  - the diff body is a fixed-height viewport (the 编辑显示行数 slider,
- *    --dsh-ws-edit-lines) with its own right-side scrollbar, so the whole
- *    change is reachable by scrolling instead of an expand button.
- *
- * The details panel and every other tool row are untouched: this entry only
- * owns the `edit`/`write` keys in the conversation flow.
+ * priority renders) replaces it in the chat flow: the row opens by default,
+ * each file change renders as its OWN card, the diff is ONE merged view per
+ * file (added green, removed red strikethrough, inline), and the body is a
+ * fixed-height viewport (the 编辑显示行数 slider, --dsh-ws-edit-lines) with its
+ * own scrollbar. The details panel and every other tool row are untouched:
+ * this entry only owns the `edit`/`write` keys in the conversation flow.
  */
 import { createElement as h, Fragment, useCallback, useMemo, useRef, useState } from 'react'
 import {
@@ -28,9 +18,7 @@ import {
 import { inlineDiffSegments, myersDiff } from './merge.js'
 import { CONVERSATION_SCROLLPORT_SELECTOR, installScrollGate } from './scroll-gate.js'
 
-/* Above this many old+new lines, skip the line-level alignment (Myers is
-   O(N*D) worst case) and fall back to the split removed/added blocks — the
-   same graceful degradation the shipped card shows for oversized content. */
+/* Above this many old+new lines, skip the line-level alignment (Myers is O(N*D) worst case) and fall back to the split removed/added blocks — the same graceful degradation the shipped card shows for oversized content. */
 const MERGED_DIFF_ALIGN_MAX_LINES = 4000
 
 /* ---- Narrowing helpers (mirror the shipped tool-call models) ---- */
@@ -131,9 +119,7 @@ function appliedDiffs(meta) {
   return narrowDiffs(diffs)
 }
 
-/* The diff hunks this row shows: the intended change while running, the
-   applied diffs once settled (falling back to the intended whole-file diff
-   for a write with no applied metadata). Null = no diff card (generic body). */
+/* The diff hunks this row shows: the intended change while running, the applied diffs once settled (falling back to the intended whole-file diff for a write with no applied metadata). Null = no diff card (generic body). */
 function diffCardModel(block) {
   if (block.parentCallId !== undefined) return null
   const parsed = parsedToolCall(block)
@@ -190,19 +176,14 @@ function fileMutationModel(toolName, block, cwd, home) {
 
 /* ---- Merged diff card ---- */
 
-/* Split a side's text into its content lines (the same terminator rule the
-   shipped DiffBlock applies: a single trailing newline is a terminator, an
-   interior blank line survives). */
+/* Split a side's text into its content lines (the same terminator rule the shipped DiffBlock applies: a single trailing newline is a terminator, an interior blank line survives). */
 function contentLines(text) {
   if (text === '') return []
   const body = text.endsWith('\n') ? text.slice(0, -1) : text
   return body.split('\n')
 }
 
-/* One hunk's merged rows: unchanged lines plain, whole-line deletions struck,
-   whole-line additions on a green background, and matched del/add line pairs
-   as a character-level inline diff (removed red strikethrough, added green
-   background) — all in ONE block, in file order. */
+/* One hunk's merged rows: unchanged lines plain, whole-line deletions struck, whole-line additions on a green background, and matched del/add line pairs as a character-level inline diff (removed red strikethrough, added green background) — all in ONE block, in file order. */
 function mergedHunkRows(oldText, newText) {
   if (oldText === null) {
     return contentLines(newText).map(text => ({ kind: 'add', text }))
@@ -242,9 +223,7 @@ function mergedHunkRows(oldText, newText) {
   return rows
 }
 
-/* Group the hunks by path, preserving order (a path change opens a new
-   group): one card per path in the flow. A same-path second hunk joins the
-   current group (the in-body `⋯` gap keeps hunks apart). */
+/* Group the hunks by path, preserving order (a path change opens a new group): one card per path in the flow. A same-path second hunk joins the current group (the in-body `⋯` gap keeps hunks apart). */
 function groupDiffsByPath(diffs) {
   const groups = []
   let prevPath
@@ -256,8 +235,7 @@ function groupDiffsByPath(diffs) {
   return groups
 }
 
-/* One file group's merged body rows: hunks in order, with a `⋯` gap between
-   same-file hunks. No path header row — the card header carries the path. */
+/* One file group's merged body rows: hunks in order, with a `⋯` gap between same-file hunks. No path header row — the card header carries the path. */
 function buildFileRows(diffs) {
   const rows = []
   for (const diff of diffs) {
@@ -267,8 +245,7 @@ function buildFileRows(diffs) {
   return rows
 }
 
-/* The diff text a reader copies: each row's `-`/`+` prefix and its content,
-   exactly what the card shows (a pair row copies both sides of the change). */
+/* The diff text a reader copies: each row's `-`/`+` prefix and its content, exactly what the card shows (a pair row copies both sides of the change). */
 function copyText(rows) {
   return rows.map((row) => {
     switch (row.kind) {
@@ -280,8 +257,7 @@ function copyText(rows) {
   }).join('\n')
 }
 
-/* Localized chrome for the per-file diff cards (conversation namespace + the
-   shared common vocabulary, the same keys the shipped DiffBlock labels use). */
+/* Localized chrome for the per-file diff cards (conversation namespace + the shared common vocabulary, the same keys the shipped DiffBlock labels use). */
 function diffLabels(t) {
   return {
     copy: t('copy'),
@@ -289,8 +265,7 @@ function diffLabels(t) {
   }
 }
 
-/* One merged body line: unchanged plain, whole-line deletion struck, whole-
-   line addition on a green background, a pair as inline segments. */
+/* One merged body line: unchanged plain, whole-line deletion struck, whole-line addition on a green background, a pair as inline segments. */
 function MergedDiffRowView({ row }) {
   if (row.kind === 'gap') return h('div', { className: 'dsh-ws-diff-line dsh-ws-diff-gap' }, row.text)
   if (row.kind === 'del') return h('div', { className: 'dsh-ws-diff-line dsh-ws-diff-del' }, row.text)
@@ -316,14 +291,7 @@ function MergedDiffRowView({ row }) {
   return h('div', { className: 'dsh-ws-diff-line' }, row.text)
 }
 
-/* One edit/write tool card: header chrome (chevron + leading state icon +
-   title + openable file path / summary + per-file diffstat + state chrome +
-   an always-visible copy button for diff cards) sits inside the card top;
-   the body is either the fixed-height scrollable diff viewport or a generic
-   input/output block. Collapsing hides the body only; each card owns its
-   expanded state, so a multi-file edit stacks independently collapsible
-   cards. The card shell is the row itself (.dsh-ws-tool-row), mirroring the
-   Think-card pattern. */
+/* One edit/write tool card: header chrome (chevron + leading state icon + title + openable file path / summary + per-file diffstat + state chrome + an always-visible copy button for diff cards) sits inside the card top; the body is either the fixed-height scrollable diff viewport or a generic input/output block. Collapsing hides the body only; each card owns its expanded state, so a multi-file edit stacks independently collapsible cards. The card shell is the row itself (.dsh-ws-tool-row), mirroring the Think-card pattern. */
 function StudioToolCard({
   toolName, title, leading, state, status, headText, headLink, openFile, diffs, labels, children,
 }) {
@@ -336,12 +304,7 @@ function StudioToolCard({
   const [expanded, setExpanded] = useState(true)
   const [copied, setCopied] = useState(false)
   const expandable = diffs !== null || children !== null
-  /* Scroll gating: hovering alone must not scroll the card viewport — wheel
-     is forwarded to the conversation until the user clicks inside the body.
-     The gate lives as long as the body is mounted (collapsing removes it).
-     The card shell is found from the mounted body node (closest) instead of
-     a ref: React attaches child refs before parent refs in the same commit,
-     so a cardRef sibling is still null when this callback runs on mount. */
+  /* Scroll gating: hovering alone must not scroll the card viewport — wheel is forwarded to the conversation until the user clicks inside the body. The gate lives as long as the body is mounted (collapsing removes it). The card shell is found from the mounted body node (closest) instead of a ref: React attaches child refs before parent refs in the same commit, so a cardRef sibling is still null when this callback runs on mount. */
   const gateRef = useRef(null)
   const bodyRef = useCallback((node) => {
     gateRef.current?.()
@@ -434,8 +397,7 @@ function formatToolBody(argsRaw) {
   return JSON.stringify(parsed, null, 2)
 }
 
-/* The Studio edit/write row: always open, one card per changed file (diff
-   hunks grouped by path), or a single generic card for body/output rows. */
+/* The Studio edit/write row: always open, one card per changed file (diff hunks grouped by path), or a single generic card for body/output rows. */
 export function StudioFileMutationRow({ toolName, block, cwd, home, openFile, t }) {
   const model = useMemo(() => fileMutationModel(toolName, block, cwd, home), [toolName, block, cwd, home])
   const diffs = useMemo(() => diffCardModel(block), [block])
@@ -499,10 +461,7 @@ export function StudioFileMutationRow({ toolName, block, cwd, home, openFile, t 
 
 /* ---- Registration ---- */
 
-/* Take over the shipped edit/write rows: a keyed entry at a lower priority
-   than the shipped one (default 0) wins the slot cell (lowest renders), so
-   the conversation flow shows this row for both keys. The locale seat binds
-   the conversation namespace, the same dictionary the shipped row uses. */
+/* Take over the shipped edit/write rows: a keyed entry at a lower priority than the shipped one (default 0) wins the slot cell (lowest renders), so the conversation flow shows this row for both keys. The locale seat binds the conversation namespace, the same dictionary the shipped row uses. */
 export function registerStudioFileMutationToolview(ctx) {
   ctx.slots.inject('tool.call.toolview', () => ctx.slots.register({
     name: 'tool.call.toolview', key: 'edit', locale: 'conversation', priority: -100,

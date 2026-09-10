@@ -8,21 +8,18 @@
  * re-fetch when a cheap change check reports the disk moved.
  *
  * Invariants (dev-notes §23):
- * - CONTENT AND SNAPSHOT ALWAYS MOVE TOGETHER. An entry's snapshot is the
- *   disk state that produced its payload; a baseline-only update (a poll
- *   observing a change) must never be written into an entry — it would make
- *   the next activation "validate" stale content against the new disk state
- *   and serve it as fresh. When the disk moved, the entry is dropped and the
- *   next activation re-reads.
- * - The payload is DISK content only. Restored drafts (session-scoped unsaved
- *   work) never enter the cache.
+ * - CONTENT AND SNAPSHOT ALWAYS MOVE TOGETHER: a baseline-only update (a
+ *   poll observing a change) must never be written into an entry — it would
+ *   make the next activation "validate" stale content against the new disk
+ *   state and serve it as fresh. When the disk moved, the entry is dropped.
+ * - The payload is DISK content only; restored drafts never enter the cache.
  * - The cache is bounded (entry/byte caps, LRU per path) and dies with the
  *   page: a full refresh re-reads once, exactly like the pre-cache behavior.
  *
- * Key layout: workspaceId \u0000 path \u0000 encoding. Encoding is the
- * RESULT encoding the tab carries (a plain file open without a BOM decodes
- * under the requested encoding, so keying on the payload's own encoding keeps
- * every later activation on the same key). */
+ * Key layout: workspaceId \u0000 path \u0000 encoding — the RESULT encoding
+ * the tab carries (a plain file open without a BOM decodes under the
+ * requested encoding, so keying on the payload's own encoding keeps every
+ * later activation on the same key). */
 import { FILE_CACHE_MAX_BYTES, FILE_CACHE_MAX_ENTRIES, FILE_CACHE_MAX_ENTRY_BYTES } from './constants.js'
 
 const SEP = '\u0000'
@@ -41,8 +38,7 @@ function removePath(key) {
   for (const entry of group.encodings.values()) totalBytes -= entry.bytes
   return true
 }
-/* Drop oldest path groups until the byte/count caps fit `extra`. A single
-   over-cap path is skipped at store time, so eviction always converges. */
+/* Drop oldest path groups until the byte/count caps fit `extra`. A single over-cap path is skipped at store time, so eviction always converges. */
 function evictFor(extra) {
   while ((cache.size >= FILE_CACHE_MAX_ENTRIES || totalBytes + extra > FILE_CACHE_MAX_BYTES) && cache.size > 0) {
     let oldestKey
@@ -60,8 +56,7 @@ function touch(pathKey, at) {
   const group = cache.get(pathKey)
   if (group === undefined) return
   group.at = at
-  /* LRU eviction re-scans all groups on overflow (bounded by MAX_ENTRIES),
-     so iteration order is irrelevant here. */
+  /* LRU eviction re-scans all groups on overflow (bounded by MAX_ENTRIES), so iteration order is irrelevant here. */
 }
 function pathMatches(pathPart, path) {
   return pathPart === path || (path !== '' && pathPart.startsWith(`${path}/`))
@@ -76,9 +71,7 @@ export function getCachedPreview(workspaceId, path, encoding) {
   touch(keyOf(workspaceId, path), Date.now())
   return { payload: entry.payload, snapshot: entry.snapshot }
 }
-/* Store (or replace) one (path, encoding) payload+snapshot pair. Payloads
-   larger than FILE_CACHE_MAX_ENTRY_BYTES are not cached (they would dominate
-   the budget and evict everything else on every open). */
+/* Store (or replace) one (path, encoding) payload+snapshot pair. Payloads larger than FILE_CACHE_MAX_ENTRY_BYTES are not cached (they would dominate the budget and evict everything else on every open). */
 export function storeCachedPreview(workspaceId, path, encoding, payload, snapshot) {
   const enc = String(encoding ?? 'utf-8')
   if (typeof payload?.content !== 'string') return
@@ -98,9 +91,7 @@ export function storeCachedPreview(workspaceId, path, encoding, payload, snapsho
   totalBytes += bytes
   touch(pathKey, Date.now())
 }
-/* Refresh the snapshot of an existing entry after a successful UNCHANGED
-   change check (same disk state, fresher stat/checkedAt). Never call with a
-   snapshot describing a DIFFERENT disk state than the stored payload. */
+/* Refresh the snapshot of an existing entry after a successful UNCHANGED change check (same disk state, fresher stat/checkedAt). Never call with a snapshot describing a DIFFERENT disk state than the stored payload. */
 export function refreshCachedSnapshot(workspaceId, path, encoding, snapshot) {
   const group = cache.get(keyOf(workspaceId, path))
   if (group === undefined) return
@@ -119,8 +110,7 @@ export function invalidateCachedSubtree(workspaceId, path) {
     if (pathMatches(pathPartOf(pathKey, workspaceId), path)) removePath(pathKey)
   }
 }
-/* Move a subtree's entries to a new path (fs rename/move). The payload and
-   snapshot describe the same disk content, so they survive the move. */
+/* Move a subtree's entries to a new path (fs rename/move). The payload and snapshot describe the same disk content, so they survive the move. */
 export function rewriteCachedPaths(workspaceId, from, to) {
   if (from === to) return
   const header = wsHeader(workspaceId)
@@ -133,8 +123,7 @@ export function rewriteCachedPaths(workspaceId, from, to) {
     const group = cache.get(pathKey)
     if (group === undefined) continue
     cache.delete(pathKey)
-    /* pathKey = ws \0 from [remainder]; rebuild with `to` keeping the
-       remainder ('' for the exact path, '/x' for descendants). */
+    /* pathKey = ws \0 from [remainder]; rebuild with `to` keeping the remainder ('' for the exact path, '/x' for descendants). */
     const nextKey = header + to + pathKey.slice(fromHeader.length)
     cache.set(nextKey, group)
   }
@@ -148,8 +137,7 @@ export function diskSnapshot(mtimeMs, size, revision) {
     checkedAt: Date.now(),
   }
 }
-/* Change-signal equality of two snapshots: mtime/size/hash only (checkedAt is
-   a per-check timestamp and never participates in content identity). */
+/* Change-signal equality of two snapshots: mtime/size/hash only (checkedAt is a per-check timestamp and never participates in content identity). */
 export function sameDiskSnapshot(a, b) {
   if (a === b) return true
   if (a === undefined || a === null || b === undefined || b === null) return false

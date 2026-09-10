@@ -11,10 +11,10 @@ export function EmptyWorkspaceExplorer({ treePortalTarget, sessionTitle }) {
   return h(Fragment, null,
     treePortalTarget ? createPortal(treeSection, treePortalTarget) : null,
     h('section', { className: 'dsh-ws-preview' }, h(PanelHeader, { title: translate('panel.filePreview'), subtitle: translate('panel.noWorkspace') }), h('div', { className: 'dsh-ws-empty' }, translate('panel.chooseWorkspaceToBrowse'))))
-}/* Configured models for the AI-summary picker AND the effective summary
-   config: shared by the settings panel and the map view (the 60 s module
-   cache makes the second consumer free). Degraded to an empty list on
-   failure so neither consumer ever blocks. */
+}/* Configured models for the AI-summary picker and the effective summary
+   config, shared by the settings panel and the map view (the 60 s module
+   cache makes the second consumer free); degraded to an empty list on failure
+   so neither consumer blocks. */
 export function useMindmapSummaryModels() {
   const [summaryModels, setSummaryModels] = useState(null) // null = loading; { available, models } after
   useEffect(() => {
@@ -26,16 +26,15 @@ export function useMindmapSummaryModels() {
   }, [])
   return summaryModels
 }
-/* Plugin self-update group — the FIRST group of the workspace settings
-   section. Checking is an EXPLICIT user action (the README contract: no
-   automatic checks — an auto-check on every settings open would re-download
-   the main-branch tarball whenever the Host's check cache is cold); the
-   version signal is the main-branch package.json (the repo publishes no
+/* Plugin self-update group — the first group of the workspace settings
+   section. Checking is an explicit user action (README contract: no automatic
+   checks — an auto-check on every settings open would re-download the
+   main-branch tarball whenever the Host's check cache is cold); the version
+   signal is the main-branch package.json (the repo publishes no
    tags/releases). Walks the check → download → install → restart state
-   machine. The "restart dsh" outcome is a PERSISTENT inline notice (not a
-   transient toast) so it cannot be missed; a `file` install additionally
-   notes that only the profile copy was replaced. Returns null when the
-   feature is disabled by host config. */
+   machine; the "restart dsh" outcome is a persistent inline notice (not a
+   transient toast) so it cannot be missed. Returns null when the feature is
+   disabled by host config. */
 function UpdateSettingsGroup() {
   const [state, setState] = useState({ phase: 'idle' })
   const mountedRef = useRef(false)
@@ -64,12 +63,12 @@ function UpdateSettingsGroup() {
       }
       setPhase('up-to-date', { current: payload.current })
     } catch (error) {
-      /* A TIMEOUT is a real failure, not a cancellation (the AbortError name
+      /* A timeout is a real failure, not a cancellation (the AbortError name
          is shared by both — distinguish by reason, the same rule as the
-         save/search paths): silently returning here would leave the phase
-         stuck on 'checking' with no retry button. No user signal is passed
-         to checkUpdate, so a plain AbortError without a TimeoutError reason
-         can only be an environment quirk — surface it too rather than hang. */
+         save/search paths): silently returning would leave the phase stuck on
+         'checking' with no retry button. A plain AbortError without a
+         TimeoutError reason can only be an environment quirk — surface it too
+         rather than hang. */
       if (error?.name === 'AbortError' && error?.reason?.name !== 'TimeoutError') return
       setPhase('error', { message: error instanceof Error ? error.message : String(error) })
     }
@@ -85,8 +84,7 @@ function UpdateSettingsGroup() {
       await downloadUpdate(state.latest)
       setPhase('done', { latest: state.latest, installMode: state.installMode, pending: false })
     } catch (error) {
-      /* Same timeout rule as runCheck: a timed-out download must land on the
-         error state (with its retry button), not hang on 'downloading'. */
+      /* Same timeout rule as runCheck: a timed-out download must land on the error state, not hang on 'downloading'. */
       if (error?.name === 'AbortError' && error?.reason?.name !== 'TimeoutError') return
       setPhase('error', { message: error instanceof Error ? error.message : String(error) })
     }
@@ -136,10 +134,10 @@ export function ExplorerSettingsSection({ settingsStore }) {
   const summaryModelsAvailable = summaryModels !== null && summaryModels?.available === true
     && Array.isArray(summaryModels?.models) && summaryModels.models.length > 0
   const summaryModelList = summaryModelsAvailable ? summaryModels.models : []
-  /* Render-side normalization for the summary-length sliders: the store
-     clamps on write, but a legacy/out-of-range persisted value (e.g. 47)
-     would otherwise show off-grid while the slider thumb sits between
-     ticks — snap to the configured step (4) exactly like the store action. */
+  /* Render-side normalization for the summary-length sliders: a
+     legacy/out-of-range persisted value (e.g. 47) would show off-grid while
+     the thumb sits between ticks — snap to the configured step (4) like the
+     store action. */
   const stepAligned = (value, min, max, step) => {
     const number = Number(value)
     if (!Number.isFinite(number)) return min
@@ -158,32 +156,28 @@ export function ExplorerSettingsSection({ settingsStore }) {
     MINDMAP_SUMMARY_SESSION_MAX_LENGTH,
     MINDMAP_SUMMARY_SESSION_LENGTH_STEP,
   )
-  /* Render-side normalization of the think-card line count: the store clamps
-     (and rounds) on write, but a legacy/out-of-range persisted value would
-     otherwise show e.g. "47 行" next to a slider visually pinned at 30 (and
-     keep the reset button enabled). Same min/max clamp as setThinkLines. */
+  /* Render-side normalization of the think-card line count: a
+     legacy/out-of-range persisted value would show e.g. "47 行" next to a
+     slider visually pinned at 30 (and keep the reset button enabled). Same
+     min/max clamp as setThinkLines. */
   const thinkLinesValue = clamp(settings.thinkLines ?? THINK_LINES_DEFAULT, THINK_LINES_MIN, THINK_LINES_MAX)
-  /* Same render-side normalization for the edit-row line count (legacy or
-     hand-written out-of-range values must not mislead the slider/reset). */
+  /* Same render-side normalization for the edit-row line count (out-of-range values must not mislead the slider/reset). */
   const editLinesValue = clamp(settings.editLines ?? EDIT_LINES_DEFAULT, EDIT_LINES_MIN, EDIT_LINES_MAX)
   const rowHeight = clamp(settings.rowHeight ?? ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MIN, ROW_HEIGHT_MAX)
   const conflictFontSize = clamp(settings.conflictFontSize ?? CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MIN, CONFLICT_FONT_SIZE_MAX)
   const mindmapSpinSpeed = clampSpinSpeed(settings.mindmapSpinSpeed)
-  /* Effective mind-map highlight colors: user hex or theme default resolved to a concrete hex
-     (color input), plus whether customized (drives each reset button's disabled state). */
+  /* Effective mind-map highlight colors: user hex or theme default resolved to a concrete hex (color input), plus whether customized (drives each reset button's disabled state). */
   const mindmapHoverColorHex = mindmapEffectiveColor(settings.mindmapHoverColor, MINDMAP_HOVER_THEME_VAR, MINDMAP_HOVER_COLOR_FALLBACK)
   const mindmapSelectedColorHex = mindmapEffectiveColor(settings.mindmapSelectedColor, MINDMAP_SELECTED_THEME_VAR, MINDMAP_SELECTED_COLOR_FALLBACK)
   /* "Customized" = the user stored a non-default hex (the store deletes the entry when the
-     picked color equals the theme default). Comparing the stored value against the EFFECTIVE
-     hex was always true, which left both reset buttons permanently disabled. */
+     picked color equals the theme default); comparing against the effective hex was always
+     true, which left both reset buttons permanently disabled. */
   const mindmapHoverColorCustom = settings.mindmapHoverColor !== undefined
   const mindmapSelectedColorCustom = settings.mindmapSelectedColor !== undefined
-  /* Session-head accent: default is the fixed violet (not theme adaptive), so the effective
-     hex is the stored override or the default constant. */
+  /* Session-head accent: default is the fixed violet (not theme adaptive), so the effective hex is the stored override or the default constant. */
   const mindmapHeadColorHex = settings.mindmapHeadColor ?? MINDMAP_HEAD_COLOR_DEFAULT
   const mindmapHeadColorCustom = settings.mindmapHeadColor !== undefined
-  /* End-of-branch accent: default is the fixed success green (not theme adaptive), so the
-     effective hex is the stored override or the default constant. */
+  /* End-of-branch accent: default is the fixed success green (not theme adaptive), so the effective hex is the stored override or the default constant. */
   const mindmapEndColorHex = settings.mindmapEndColor ?? MINDMAP_END_COLOR_DEFAULT
   const mindmapEndColorCustom = settings.mindmapEndColor !== undefined
   const mindmapMountBulge = clampMountBulge(settings.mindmapMountBulge)
@@ -320,8 +314,7 @@ export function ExplorerSettingsSection({ settingsStore }) {
         h('button', {
           className: 'dsh-ws-text-button',
           disabled: settings.mindmapSummaryEnabled !== true || undefined,
-          /* 恢复默认 here ONLY turns the feature off: the chosen model and the
-             length stay as they are, so re-enabling is a single click. */
+          /* 恢复默认 here only turns the feature off: the chosen model and length stay, so re-enabling is a single click. */
           onClick: () => settingsStore.actions.setMindmapSummaryEnabled(false),
           title: translate('settings.mindmapSummary.reset.title'),
           type: 'button',
@@ -335,8 +328,7 @@ export function ExplorerSettingsSection({ settingsStore }) {
             : h('select', {
               'aria-label': translate('settings.mindmapSummary.model'),
               className: 'dsh-ws-settings-select',
-              /* Always selectable: the choice is remembered even while the
-                 feature is off, so re-enabling needs no re-picking. */
+              /* Always selectable: the choice is remembered even while the feature is off, so re-enabling needs no re-picking. */
               id: 'dsh-ws-mindmap-summary-model',
               onChange: e => {
                 const raw = e.target.value
@@ -346,9 +338,7 @@ export function ExplorerSettingsSection({ settingsStore }) {
                   if (hit !== undefined) settingsStore.actions.setMindmapSummaryModel({ provider: hit.provider, model: hit.model })
                 }
               },
-              /* A stored route that is no longer in the catalog falls back to
-                 "follow session model" visually (the stored value stays so a
-                 re-appearing model is picked up again). */
+              /* A stored route no longer in the catalog falls back to "follow session model" visually (the stored value stays so a re-appearing model is picked up again). */
               value: settings.mindmapSummaryModel !== undefined && settings.mindmapSummaryModel !== null
                 && summaryModelList.some(m => m.provider === settings.mindmapSummaryModel.provider && m.model === settings.mindmapSummaryModel.model)
                 ? `${settings.mindmapSummaryModel.provider}/${settings.mindmapSummaryModel.model}`

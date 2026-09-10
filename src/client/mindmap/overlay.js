@@ -5,26 +5,20 @@ import { mindmapConvertedSessions } from './hider.js'
 import { MINDMAP_ICON } from './panel.js'
 import { mindmapDockStore, mindmapRegistry, useMindmapRegistry } from './registry.js'
 
-/* The session-header mind-map button: opens the current session's mind map as
-   a preview tab (dsh-ws-preview) — the map lives in the tab strip and can be
-   switched freely against file tabs. On a NORMAL session the first click asks
-   for confirmation before converting; only "yes" converts. */
+/* Session-header mind-map button: docks the current session's map as a
+   preview tab; on a normal session the first click asks before converting. */
 export function MindmapHeaderButton({ sessionId }) {
-  // Track the doc index so isMember sees a fresh conversion without an
-  // unrelated re-render, or the button keeps offering the convert dialog.
+  // Re-render on registry changes so a fresh conversion is seen immediately.
   const registry = useMindmapRegistry()
   const registryVersion = registry.getVersion()
   const [confirmTarget, setConfirmTarget] = useState(null)
-  /* Declared BEFORE the Escape effect so the effect can reference it (and list
-     it) without the use-before-declaration smell: a reorder keeps the closure
-     and the dependency array in sync. */
+  /* Declared before the Escape effect so the effect can reference it. */
   const closeConfirm = () => setConfirmTarget(null)
   useEffect(() => {
     if (sessionId !== undefined && sessionId !== null && registry.isMember(String(sessionId))) {
       mindmapConvertedSessions.delete(String(sessionId))
     }
   }, [registryVersion, sessionId])
-  /* Escape closes the confirm dialog. */
   useEffect(() => {
     if (confirmTarget === null) return undefined
     const onKeyDown = event => { if (event.key === 'Escape') closeConfirm() }
@@ -34,13 +28,10 @@ export function MindmapHeaderButton({ sessionId }) {
   /* No current session (hero page / transient): nothing to map yet. */
   if (sessionId === undefined || sessionId === null) return null
   const key = String(sessionId)
-  /* The background index may lag a fresh conversion, so the membership check
-     uses the last known registry state plus in-flight conversions
-     (see mindmapConvertedSessions). */
+  /* The background index may lag a fresh conversion: also check in-flight ones. */
   const member = mindmapRegistry.isMember(key) || mindmapConvertedSessions.has(key)
   const label = translate('view.mindmap')
-  /* Resolve the map's ROOT session (a branch click must dock the SAME tab as
-     the root — the doc is keyed by root) and its title from the doc index. */
+  /* Resolve the map's root session (the doc is keyed by root) and its title. */
   const rootDocOf = (id) => {
     const docs = mindmapRegistry.getDocs()
     for (const doc of docs) {
@@ -52,11 +43,8 @@ export function MindmapHeaderButton({ sessionId }) {
   const dockMap = (id) => {
     const doc = rootDocOf(id)
     const rootId = doc?.sessionId ?? String(id)
-    /* expectFamily = the map's root: the header button docks the CURRENT
-       session's own map, whose family the mounted explorer already matches
-       (member sessions share the root's previewSessionId; a fresh conversion
-       keys on the session id itself), so the click-time explorer consumes it
-       exactly as before — the gate only stops OTHER sessions' mounts. */
+    /* expectFamily = the map's root: the mounted explorer already matches the
+       current session's family, so the gate only stops other sessions' mounts. */
     mindmapDockStore.dock(rootId, doc?.rootTitle ?? '', rootId)
   }
   const onButtonClick = () => {

@@ -1,6 +1,5 @@
 /** Editor session domain: read pass, draft/autosave machinery, save/cancel/
- * conflict resolution, external-change polling and editor-context publishing.
- * Extracted verbatim from WorkspaceExplorer; behavior is unchanged. */
+ * conflict resolution, external-change polling and editor-context publishing. */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { AUTO_RELOAD_COOLDOWN_MS, AUTO_SYNC_CHECK_MS, AUTO_SYNC_MODE_AUTO, AUTOSAVE_DELAY_MS, FILE_CACHE_REVALIDATE_SKIP_MS, WATCH_FILES_DEFAULT } from '../../../constants.js'
 import { translate } from '../../../locale/index.js'
@@ -27,38 +26,31 @@ export function useEditorSession({
   const [status, setStatus] = useState()
   const [readEpoch, setReadEpoch] = useState(0)
   const [conflictDialog, setConflictDialog] = useState()
-  /* Monotonic sequence for file READS. The read effect re-runs on every
-     reloadToken bump (refresh / encoding re-open / auto-sync), and a stale
-     in-flight attempt can resolve AFTER the newer one when the path is the
-     SAME (the activePathRef guard only catches path switches). Each pass
-     captures a sequence and applies its result only while it is still the
-     latest, so a stranded earlier read can never flash stale content, bump the
-     read epoch twice, or clobber the watch snapshot baseline. */
+  /* Monotonic sequence for file READS: a stale in-flight read can resolve
+     after a newer same-path pass (the activePathRef guard only catches path
+     switches), so each pass applies its result only while it is still the
+     latest. */
   const readSeqRef = useRef(0)
   const readController = useRef()
   const saveController = useRef()
   const baseText = useRef('')
   const diskBaseRef = useRef('')
-  /* Latest disk state this editor wrote (or read): content + revision. Auto-
-     save uses the revision as If-Match; editor-context uses content to judge
-     selection-vs-disk. Per-path, since a pending auto-save can outlive the tab. */
+  /* Latest disk state this editor wrote (or read): content + revision, used by
+     auto-save (If-Match) and editor-context (selection-vs-disk). Per-path,
+     since a pending auto-save can outlive the tab. */
   const lastWriteRef = useRef(new Map())
   const autosaveTimers = useRef(new Map())
   /* Preview auto-sync state: per-path change snapshots (mtime/size/hash);
      only non-external tabs are tracked, all cleaned on unmount. */
   const watchSnapshotsRef = useRef(new Map())
-  /* Content baseline: per-path disk snapshot the content CURRENTLY shown was
-     read/saved against (mount-local, updated by read passes, saves and
-     unchanged validations). The poll moves watchSnapshotsRef when it observes
-     a disk change; their divergence is exactly "the served content is stale",
-     which the activation path turns into a fresh read (dev-notes §23). */
+  /* Content baseline: per-path disk snapshot the content currently shown was
+     read/saved against. The poll moves watchSnapshotsRef on a disk change;
+     their divergence means "the served content is stale" and triggers a fresh
+     read (dev-notes §23). */
   const contentBaselinesRef = useRef(new Map())
-  /* Retained CodeMirror EditorSessions of previously shown file/external
-     tabs: path -> { state, editable, wrap, phrases, name }. Rebuilding a view
-     from the SAME EditorState preserves doc/undo/selection/folds across tab
-     switches; an entry is dropped when the content genuinely changed (fresh
-     doc), the tab closes, or the file renamed (language extension is bound
-     into the state). */
+  /* Retained CodeMirror EditorSessions of previously shown tabs: rebuilding a
+     view from the SAME EditorState preserves doc/undo/selection/folds across
+     tab switches; entries drop on content change, tab close, or rename. */
   const retainedStatesRef = useRef(new Map())
   /* Per-path reload cooldown (until timestamp) for AUTO mode: suppresses the
      remount storm for continuously-written files (see applyFileChanged). */
@@ -68,17 +60,15 @@ export function useEditorSession({
      (AbortController cannot retract a request the Host has started). The Host
      fences every op behind ONE owner-level generation (src/host/drafts.js
      ownerCurrentGeneration), so all operations share a single counter —
-     separate per-path/'__tree__' counters collided with that fence (409
-     draft-generation-conflict) when a second op reused a consumed generation. */
+     per-path/'__tree__' counters collided with that fence (409). */
   const draftGenerationCounterRef = useRef(0)
   const draftGenerationsRef = useRef(new Map())
   const draftTailsRef = useRef(new Map())
   const pendingAutosavesRef = useRef(new Map())
   const conflictDialogRef = useRef(undefined)
-  /* Full-document text is only needed for the dirty comparison — it is sliced
-     once per DOC identity (CodeMirror documents are immutable, so a
-     selection-only update reuses the cached string instead of re-copying O(n)
-     text on every selection change). */
+  /* Full-document text is only needed for the dirty comparison — sliced once
+     per DOC identity (CodeMirror docs are immutable, so selection-only
+     updates reuse the cached string instead of re-copying O(n) text). */
   const sliceTextCacheRef = useRef({ doc: null, text: null })
   const publishContextState = useCallback((state, docChanged = true, precomputedText) => {
     if (activeTab === undefined || preview.state !== 'ready') return
@@ -100,19 +90,13 @@ export function useEditorSession({
           const start = state.doc.lineAt(main.from)
           const end = state.doc.lineAt(main.to)
           /* CodeMirror internal positions count each line break as ONE unit
-             and keep breaks out of line content — its lineSeparator facet
-             declares '\r\n' as the break for CRLF files, so a CRLF pair is a
-             single two-char unit inside the doc, not '\r' content + '\n'
-             break. sliceDoc() EXPANDS breaks back out ('\r\n' → 2 chars), and
-             LF-normalizing the slice deletes exactly the '\r' of each break:
-             normalized text length === main.to - main.from, and the internal
-             coordinates ARE the LF-normalized coordinates the server verifies
-             against (lib/index.js validateDirtySelection / verifyCleanSelection).
-             An earlier offset table that subtracted one per preceding CRLF
-             pair (built on the wrong assumption that the doc keeps raw '\r'
-             in line content) shifted every cross-line selection off by one
-             break and made the Host reject it with the
-             "选区偏移与选中文本长度不一致" 409. */
+             and keep breaks out of line content, so for CRLF files the
+             internal coordinates ARE the LF-normalized coordinates the server
+             verifies against (lib/index.js validateDirtySelection /
+             verifyCleanSelection): LF-normalizing the slice deletes exactly
+             the '\r' of each break. An earlier offset table that subtracted
+             one per CRLF pair shifted cross-line selections and made the Host
+             reject them with the "选区偏移与选中文本长度不一致" 409. */
           const text = state.sliceDoc(main.from, main.to).replace(/\r\n/g, '\n').replace(/\r/g, '\n')
           return {
             from: main.from,
@@ -124,7 +108,7 @@ export function useEditorSession({
             text,
           }
         })()
-    // Dirty = "differs from the committed snapshot". The source file is never
+    // Dirty = "differs from the committed snapshot". The source is never
     // polluted by the draft, so a clean selection verifies against the source
     // revision; a dirty editor sends the selection verbatim instead.
     publishEditorContext({
@@ -147,22 +131,16 @@ export function useEditorSession({
     const view = editorRef.current
     if (view !== undefined) publishContextState(view.state)
   }, [preview, publishContextState])
-  /* Preview auto-sync:
-     - while a tab is open, poll the cheap change-check endpoint on a fixed
-       cadence (AUTO_SYNC_CHECK_MS) and compare the returned snapshot against
-       the stored baseline;
-     - a clean active tab re-reads (auto) or shows "file changed" (watch-only);
-       dirty active tabs are NEVER overwritten — banner, user decides.
-     A Host fs.watch push path was removed: it never worked (no client ref was
-     registered and no push listener existed) and only leaked fs.watch handles,
-     so polling is the single change-detection mechanism. */
+  /* Preview auto-sync: poll the cheap change-check endpoint on a fixed cadence
+     (AUTO_SYNC_CHECK_MS); a clean active tab re-reads (auto) or shows "file
+     changed" (watch-only), dirty active tabs are NEVER overwritten — banner,
+     user decides. A Host fs.watch push path was removed (it never worked and
+     leaked handles), so polling is the single change-detection mechanism. */
   const syncControllerRef = useRef()
-  /* Change handler applied when a change is detected for `path`. */
   const applyFileChanged = useCallback((path) => {
-    /* A re-read for this path is already in flight (the tick skips reloading
-       paths, but a check issued BEFORE the read pass started can resolve
-       after it): bumping the reload token again would remount the editor a
-       second time and discard the just-restored scroll. */
+    /* A re-read for this path is already in flight: bumping the reload token
+       again would remount the editor a second time and discard the
+       just-restored scroll. */
     if (reloadingPathsRef.current.has(path)) return
     const tab = tabsRef.current.find(item => item.path === path)
     if (tab === undefined) return
@@ -172,26 +150,24 @@ export function useEditorSession({
     if (activeNow && !tab.dirty && !tab.saving) {
       const auto = (settings.autoSyncMode ?? AUTO_SYNC_MODE_AUTO) === AUTO_SYNC_MODE_AUTO
       if (auto) {
-        /* Backpressure for continuously-written files: after one reload,
-           further changes to the same path inside AUTO_RELOAD_COOLDOWN_MS
-           only surface a status — a second reload would remount the editor
-           and wipe its undo history, and a busy build/log file would do that
-           every tick forever. */
+        /* Backpressure for continuously-written files: changes within
+           AUTO_RELOAD_COOLDOWN_MS only surface a status — a second reload
+           would remount the editor and wipe its undo history. */
         const cooldownUntil = autoReloadCooldownRef.current.get(path)
         if (cooldownUntil !== undefined && cooldownUntil > Date.now()) {
           updateTab(path, { status: { text: translate('status.fileChanged') } })
           setStatus({ text: translate('status.fileChanged') })
           return
         }
-        // Clean active tab, AUTO mode: reload from disk right away. Scroll is
-        // preserved — the read path restores the persisted scrollTop.
-        // Mark this path as reloading so the polling tick skips it until the
-        // read settles — a second bump would remount and discard the scroll.
+        // Clean active tab, AUTO mode: reload from disk right away (scroll is
+        // preserved). Mark the path as reloading so the polling tick skips it
+        // until the read settles — a second bump would remount and discard
+        // the scroll.
         autoReloadCooldownRef.current.set(path, Date.now() + AUTO_RELOAD_COOLDOWN_MS)
         reloadingPathsRef.current.add(path)
-        // Flag the read pass to surface the reloaded status (same path as the
-        // manual refresh button), then bump the reload token — but only if no
-        // manual refresh already armed the pass with its own bump.
+        // Flag the read pass to surface the reloaded status, then bump the
+        // reload token — but only if no manual refresh already armed the pass
+        // with its own bump.
         if (refreshPendingRef.current !== path) {
           refreshPendingRef.current = path
           setReloadToken(token => token + 1)
@@ -200,17 +176,15 @@ export function useEditorSession({
         setStatus({ text: translate('editor.refreshed') })
       } else {
         // WATCH-ONLY mode ("仅提示，不自动刷新"): surface the change WITHOUT
-        // reloading — the user decides when to pull the new content (the
-        // preview header refresh button re-reads from disk). Nothing is added
-        // to reloadingPathsRef, so the next tick keeps polling against the
-        // updated baseline without re-reporting.
+        // reloading — the user pulls new content via the preview header
+        // refresh button. Nothing is added to reloadingPathsRef, so the next
+        // tick keeps polling without re-reporting.
         updateTab(path, { status: { text: translate('status.fileChanged') } })
         setStatus({ text: translate('status.fileChanged') })
       }
     } else if (activeNow && !tab.saving) {
       // Dirty (non-saving) tab: NEVER overwrite the draft or the in-flight
-      // save status; surface the change and let the user decide (save
-      // three-way merges / asks, or their own refresh).
+      // save status; surface the change and let the user decide.
       const dirtyNow = editableActive ? tab.dirty : false
       const text = dirtyNow
         ? translate('status.fileChangedDirty')
@@ -226,10 +200,9 @@ export function useEditorSession({
     const controller = new AbortController()
     syncControllerRef.current = controller
     let timer = 0
-    /* Per-path in-flight guard: a hung Host (or a slow poll) must not stack an
-       unbounded number of overlapping change checks — each path is polled
-       again only after the previous check settled (the check request itself is
-       also timeout-bounded in api.js). */
+    /* Per-path in-flight guard: a hung Host must not stack overlapping change
+       checks — each path is polled again only after the previous check
+       settled. */
     const inflight = new Set()
     const tick = () => {
       if (controller.signal.aborted || !mounted.current) return
@@ -250,33 +223,27 @@ export function useEditorSession({
           if (controller.signal.aborted || result === undefined) return
           /* The tab may have been closed while the check was in flight: do not
              re-seed a baseline for a path that no longer has a tab (a stale
-             entry would make the next open of that path report a spurious
-             change until the read pass re-seeds it). */
+             entry would report a spurious change on the next open). */
           if (!tabsRef.current.some(item => item.path === tab.path)) return
-          /* A save (commitTab) or a read pass may have refreshed this path's
-             baseline while the check was in flight: only write the result back
-             when the baseline is STILL the snapshot this check was issued
-             against (reference equality). Overwriting a fresh post-save
-             baseline with the stale pre-save snapshot would make the next tick
-             report our own save as an external change — remounting the editor
-             and wiping the undo history (or a false "file changed" banner in
-             watch-only mode). */
+          /* A save or read pass may have refreshed this path's baseline while
+             the check was in flight: only write the result back when the
+             baseline is STILL the snapshot this check was issued against
+             (reference equality), or the next tick would report our own save
+             as an external change. */
           const nextSnapshot = result.snapshot ?? null
           if (watchSnapshotsRef.current.get(tab.path) !== snapshot) return
           if (nextSnapshot !== null) {
             watchSnapshotsRef.current.set(tab.path, nextSnapshot)
             if (result.changed === true) {
-              /* The disk moved: the cache entry (content read against the old
-                 snapshot) is stale from now on — drop it so no later cold
+              /* The disk moved: drop the stale cache entry so no later cold
                  activation serves it (dev-notes §23 content/snapshot rule). */
               invalidateCachedPath(workspace.workspaceId, tab.path)
               applyFileChanged(tab.path)
             }
           } else {
-            /* File disappeared. Show the removal notice for the active tab
-               once, then keep a `null` sentinel so later ticks (while it
-               stays gone) do not repeat it; a re-create resets the baseline
-               and reports again. */
+            /* File disappeared: show the removal notice once, then keep a
+               `null` sentinel so later ticks do not repeat it; a re-create
+               resets the baseline. */
             invalidateCachedPath(workspace.workspaceId, tab.path)
             if (tab.path === activePathRef.current
               && watchSnapshotsRef.current.get(tab.path) !== null) {
@@ -300,9 +267,7 @@ export function useEditorSession({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [applyFileChanged, settings.watchFiles, workspace.workspaceId])
-  /* Cleanup on unmount: stop polling and drop per-path change baselines. The
-     content baselines and retained editor sessions are hook-owned and die
-     with the mount; cleared here for symmetry with the watch baselines. */
+  /* Cleanup on unmount: stop polling and drop per-path change baselines. */
   useEffect(() => {
     return () => {
       syncControllerRef.current?.abort()
@@ -315,12 +280,11 @@ export function useEditorSession({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace.workspaceId])
   useLayoutEffect(() => {
-    // A user-requested file refresh (preview header action) is tracked through
-    // this flag: consumed at the start of every read pass so a stale flag
-    // never decorates a later ordinary open with the reloaded status. A flag
-    // left for ANOTHER path (the user switched files before the read pass) is
-    // cleared here too — otherwise reopening that path later would show a
-    // fake "已从磁盘重新读取" toast without any refresh click.
+    // A user-requested file refresh is tracked through this flag: consumed at
+    // the start of every read pass so a stale flag never decorates a later
+    // ordinary open with the reloaded status. A flag left for ANOTHER path is
+    // cleared here too — otherwise reopening that path would show a fake
+    // "已从磁盘重新读取" toast.
     const refreshPending = refreshPendingRef.current === activePath
     if (refreshPendingRef.current !== null && refreshPendingRef.current !== activePath) refreshPendingRef.current = null
     if (refreshPending) refreshPendingRef.current = null
@@ -338,8 +302,7 @@ export function useEditorSession({
       return undefined
     }
     // A mind-map tab carries no file: no read, no draft, no editor state. The
-    // map body is owned by the global host; the preview state only needs to
-    // stay out of the file paths (idle).
+    // map body is owned by the global host; the preview state stays idle.
     const mindmapTab = tabsRef.current.find(item => item.path === activePath && item.kind === 'mindmap')
     if (mindmapTab !== undefined) {
       readController.current?.abort()
@@ -389,19 +352,13 @@ export function useEditorSession({
       return undefined
     }
     /* ---- Fast activation path (dev-notes §23) -------------------------
-       A CLEAN file whose content is already known paints INSTANTLY from
-       memory: no content GET, no loading state; the retained EditorState
-       (CodeEditor `restore`) keeps undo/selection/folds across the view
-       swap. Sources: (a) this mount already loaded the tab (tab.loaded +
-       mount content baseline) — served only while no poll-observed disk
-       change exists (watch baseline == content baseline); (b) the global
-       file cache for a cold tab shell (first activation of the path in this
-       mount). The served content is then validated in the BACKGROUND against
-       the snapshot it was read from: a real disk change upgrades to a full
-       read pass (the external-change refresh the user accepts), a dirty tab
-       only banners, and the cache entry is invalidated so stale content is
-       never served again. Dirty/saving tabs, explicit refreshes, encoding
-       re-opens and cancel-restores always take the full pass below. */
+       A CLEAN file whose content is already known paints INSTANTLY from memory
+       (retained EditorState or the global file cache), then validates in the
+       BACKGROUND against the snapshot it was read from: a real disk change
+       upgrades to a full read pass, a dirty tab only banners, and the cache
+       entry is invalidated so stale content is never served again.
+       Dirty/saving tabs, explicit refreshes, encoding re-opens and
+       cancel-restores always take the full pass below. */
     const candidateTab = tabsRef.current.find(item => item.path === activePath)
     const mountLoaded = candidateTab?.loaded === true && typeof candidateTab?.baseText === 'string'
     const contentBaseline = contentBaselinesRef.current.get(activePath)
@@ -424,11 +381,9 @@ export function useEditorSession({
       publishEditorContext(undefined)
       const selection = entryFromPreviewTab(candidateTab)
       setSelected(selection)
-      /* Disk-derived payload: for a loaded tab the live tab fields are the
-         runtime mirror of the last read (tab payload fields are set by every
-         read pass); for a cold shell the cache holds the full read payload.
-         Drafts are excluded here by the dirty gate, so baseText == the disk
-         content shown. */
+      /* Disk-derived payload: live tab fields for a loaded tab, the cache's
+         full read payload for a cold shell. Drafts are excluded by the dirty
+         gate, so baseText == the disk content shown. */
       const payload = mountLoaded
         ? {
             bom: Boolean(candidateTab.bom),
@@ -508,10 +463,9 @@ export function useEditorSession({
       setPreview(ready)
       reloadingPathsRef.current.delete(activePath)
       /* Background validation: one cheap change check against the snapshot
-         the served content was read from (skipped only when the poll has
-         JUST confirmed the same disk state — watch baseline equal + fresh
-         checkedAt). The editor stays interactive meanwhile; a detected
-         change upgrades exactly like a poll-driven reload. */
+         the served content was read from (skipped only when the poll JUST
+         confirmed the same disk state). A detected change upgrades exactly
+         like a poll-driven reload. */
       const baseline = serveSnapshot
       const pollJustConfirmed = watchBaseline !== undefined && watchBaseline !== null
         && sameDiskSnapshot(watchBaseline, baseline)
@@ -538,9 +492,8 @@ export function useEditorSession({
         const nextSnapshot = result?.snapshot ?? null
         if (result?.exists === false) {
           /* The file disappeared while we were away: serving cached content
-             would silently show a ghost. Upgrade to the full pass (which
-             surfaces the error preview like a plain activation) or, with
-             unsaved edits, mirror the poll's removal banner. */
+             would show a ghost. Upgrade to the full pass (error preview) or,
+             with unsaved edits, mirror the poll's removal banner. */
           watchSnapshotsRef.current.set(activePath, null)
           invalidateCachedPath(workspace.workspaceId, activePath)
           if (tabNow.dirty === true || tabNow.saving === true) {
@@ -567,18 +520,17 @@ export function useEditorSession({
             return
           }
           if (reloadingPathsRef.current.has(activePath)) return
-          /* Silent fresh read — a plain activation re-reads without a banner
-             today, so the upgrade matches that (the full pass replaces the
-             stale content, rebuilds the doc and updates every baseline). */
+          /* Silent fresh read — matches a plain activation: the full pass
+             replaces the stale content, rebuilds the doc and updates every
+             baseline. */
           reloadingPathsRef.current.add(activePath)
           setReloadToken(token => token + 1)
           return
         }
         /* Unchanged: this response is a REAL disk confirmation, so its
-           checkedAt may refresh the watch/content baselines (later
-           activations can then skip the check within the skip window) and
-           the cache snapshot stays coherent. Only when the baseline is still
-           the one this check ran against (a concurrent pass re-seeded it). */
+           checkedAt may refresh the baselines (later activations skip the
+           check within the skip window) — only when the baseline is still the
+           one this check ran against. */
         if (nextSnapshot !== null && typeof nextSnapshot === 'object') {
           const currentBaseline = contentBaselinesRef.current.get(activePath)
           if (currentBaseline === undefined || sameDiskSnapshot(currentBaseline, baseline)) {
@@ -594,9 +546,9 @@ export function useEditorSession({
     readController.current?.abort()
     const controller = new AbortController()
     readController.current = controller
-    /* Capture this pass's read sequence: a same-path re-run (reloadToken bump)
-       supersedes it, and any result applying under a stale sequence must be
-       dropped even though the path never changed (see readSeqRef). */
+    /* Capture this pass's read sequence: a same-path re-run supersedes it, and
+       any result applying under a stale sequence must be dropped (see
+       readSeqRef). */
     const readSeq = ++readSeqRef.current
     publishEditorContext(undefined)
     const tab = tabsRef.current.find(item => item.path === activePath)
@@ -610,27 +562,24 @@ export function useEditorSession({
     setDirty(Boolean(tab?.dirty))
     setSaving(Boolean(tab?.saving))
     /* Error statuses are session-transient (same policy as serializePreviewTab):
-       replaying a stale "保存失败" banner when switching back to a tab would
-       mislead the user into thinking the failure just happened again. */
+       replaying a stale "保存失败" banner on tab switch would mislead the user. */
     setStatus(tab?.status?.error === true ? undefined : tab?.status)
-    // Any re-read (auto-sync, manual refresh, encoding re-open, tab switch)
-    // marks the path as reloading so the polling tick skips it until the pass
-    // settles — a second bump remounts and discards the restored scroll.
-    // Idempotent with the marks set by applyFileChanged / refreshFile /
-    // openWithEncoding.
+    // Any re-read marks the path as reloading so the polling tick skips it
+    // until the pass settles — a second bump remounts and discards the
+    // restored scroll. Idempotent with the marks set by applyFileChanged /
+    // refreshFile / openWithEncoding.
     reloadingPathsRef.current.add(activePath)
     // Snapshot the live scroll position BEFORE the loading state unmounts the
-    // editor: the ref holds the last scroll-event value while the view is
-    // attached, and this copy rides through the re-read in the tab patch so
-    // the remount restores it even if the ref is touched later. Fall back to
-    // the tab's persisted value (cold restore).
+    // editor: this copy rides through the re-read in the tab patch so the
+    // remount restores it even if the ref is touched later. Fall back to the
+    // tab's persisted value (cold restore).
     const savedScrollTop = scrollTopRef.current.get(activePath) ?? tab?.scrollTop ?? 0
     setPreview({ state: 'loading', path: activePath })
     readFile(workspace.workspaceId, activePath, controller.signal, effectiveEncoding).then((result) => {
       // The tab may have switched since the read started (abort covers most
-      // cases; a fetch already resolved is caught here). A same-path re-run
-      // supersedes this pass even when the path is unchanged, so applying a
-      // stale result would flash the wrong file and bump the read epoch.
+      // cases; a resolved fetch is caught here). A same-path re-run supersedes
+      // this pass, so a stale result would flash the wrong file and bump the
+      // read epoch.
       if (!mounted.current || readSeq !== readSeqRef.current || activePathRef.current !== activePath) return
       requestedEncodingRef.current = undefined
       // Read the draft file (staging content + snapshot) so a refresh restores
@@ -638,9 +587,9 @@ export function useEditorSession({
       // back to the source.
       return Promise.all([
         /* A failed draft read must NOT silently degrade to "no draft": the
-           restore below would show a clean tab and a later save could
-           overwrite the hidden unsaved work. Mark the failure so the read
-           pass can surface a warning banner instead. */
+           restore would show a clean tab and a later save could overwrite
+           hidden unsaved work. Mark the failure so the read pass surfaces a
+           warning banner. */
         loadDraft(workspace.workspaceId, activePath, controller.signal, draftScopeId)
           .catch(() => ({ exists: false, failed: true })),
         readEmergencyDraft(workspace.workspaceId, draftScopeId, activePath).catch(() => undefined),
@@ -652,13 +601,11 @@ export function useEditorSession({
         const emergencyTombstone = emergencyDraft !== null && emergencyDraft !== undefined
           && emergencyDraft?.state === 'deleted'
         /* A mirror TOMBSTONE may suppress the host draft ONLY when the host
-           does not hold a live draft of its own: every real discard writes (or
-           tries to write) the host side FIRST, so a live host draft means the
-           discard never persisted there — trusting an (possibly stale or
-           mirror-only) tombstone over it would hide unsaved work after exactly
-           the kind of transient host write failure the mirror exists to
-           survive. When the host draft is live, the tombstone is ignored and
-           the host draft wins. */
+           holds no live draft of its own: every real discard writes the host
+           side FIRST, so a live host draft means the discard never persisted
+           there — trusting a (possibly stale) tombstone over it would hide
+           unsaved work. When the host draft is live, the tombstone is ignored
+           and the host draft wins. */
         const hostDraftLive = hostDraft !== null && hostDraft !== undefined
           && hostDraft?.exists === true && typeof hostDraft?.draft === 'string'
           && hostDraft.draft !== hostDraft.baseText
@@ -672,9 +619,9 @@ export function useEditorSession({
         const editable = result.editable === true
         const diskDraftPresent = draftData !== null && typeof draftData === 'object'
           && draftData.exists !== false && typeof draftData.draft === 'string'
-        // A clean fallback draft (draft===baseText) or a stale draft already
-        // equal to the source carries no unsaved work and must never override
-        // a later disk revision.
+        // A clean fallback draft (draft===baseText) or a stale draft equal to
+        // the source carries no unsaved work and must never override a later
+        // disk revision.
         const hasDiskDraft = diskDraftPresent
           && draftData.draft !== draftData.baseText
           && draftData.draft !== result.content
@@ -686,17 +633,17 @@ export function useEditorSession({
         }
         /* A live tab knows whether its in-memory draft is materialized, so a
            deliberate empty edit stays distinct from a content-free dirty marker
-           restored from localStorage. Cold restores wait for the durable
-           Host/IndexedDB draft rather than treating an empty field as a request
-           to erase the source. */
+           restored from localStorage. Cold restores wait for the durable draft
+           rather than treating an empty field as a request to erase the
+           source. */
         const hasTabDraft = tabDraft !== undefined && tabDraft.draftKnown === true
           && typeof tabDraft.draft === 'string' && tabDraft.draft !== result.content
         /* In-session the in-memory tab draft is ALWAYS at least as new as any
            disk draft (host draft + emergency mirror are only debounced copies
            of it), so prefer it whenever present; a stale disk draft would roll
-           the editor back and write older text over the source on the next
-           save. On a cold restore (refresh) the tab is clean, so the disk
-           draft remains the fallback that rehydrates the editing session. */
+           the editor back and write older text over the source. On a cold
+           restore the tab is clean, so the disk draft remains the fallback
+           that rehydrates the session. */
         const restored = hasTabDraft
           ? { content: tabDraft.draft, baseText: tabDraft.baseText, baseRevision: tabDraft.revision }
           : hasDiskDraft
@@ -735,9 +682,8 @@ export function useEditorSession({
           ? { error: true, text: translate('status.draftNotRestorable') }
           : undefined
         /* A failed Host draft read with no usable emergency mirror must not
-           silently degrade to a clean tab: the disk content is shown (the only
-           available source), but the user is warned that unsaved work may be
-           hidden and a direct save could overwrite it. */
+           silently degrade to a clean tab: show the disk content but warn that
+           unsaved work may be hidden and a direct save could overwrite it. */
         const draftReadFailedStatus = hostReadFailed && !hasDiskDraft && !hasTabDraft
           ? { error: true, text: translate('status.draftReadFailed') }
           : undefined
@@ -750,29 +696,28 @@ export function useEditorSession({
         // clean) so the next auto-save only fires after an edit.
         const restoredGeneration = Math.max(hostGeneration, emergencyGeneration)
         // Seed the owner generation counter with the highest the Host knows
-        // (its durable owner generation covers every path and tree op) so the
-        // next write strictly exceeds it and never collides with the owner
-        // fence after a reload.
+        // (it covers every path and tree op) so the next write strictly
+        // exceeds it and never collides with the owner fence after a reload.
         const ownerGeneration = Number.isSafeInteger(hostDraft?.ownerGeneration) ? hostDraft.ownerGeneration : 0
         draftGenerationCounterRef.current = Math.max(draftGenerationCounterRef.current, restoredGeneration, ownerGeneration)
         draftGenerationsRef.current.set(activePath, Math.max(draftGenerationsRef.current.get(activePath) ?? 0, draftGenerationCounterRef.current))
         lastWriteRef.current.set(activePath, { generation: draftGenerationCounterRef.current, content })
         /* Auto-sync baseline: after any re-read, reset the per-path change
-           snapshot so the watcher/poll does not re-report the just-loaded
-           content as a fresh external change. Seeds carry NO checkedAt: only
-           a REAL change-check response may stamp one, otherwise the
-           revalidation skip window would fire without a disk confirmation. */
+           snapshot so the poll does not re-report the just-loaded content as a
+           fresh external change. Seeds carry NO checkedAt: only a REAL
+           change-check response may stamp one, otherwise the revalidation
+           skip window would fire without a disk confirmation. */
         watchSnapshotsRef.current.set(activePath, {
           mtimeMs: Number(result.mtimeMs) || 0,
           size: Number(result.size) || 0,
           hash: typeof result.revision === 'string' ? result.revision : null,
         })
         /* Content baseline + global cache (dev-notes §23): the disk state the
-           payload was read against. The cache serves later cold activations
-           (session/workspace switches) without a content GET. CONTENT AND
-           SNAPSHOT ALWAYS MOVE TOGETHER — the cache holds the DISK payload
-           only (a restored draft never enters it); the encoding alias covers
-           the tab's own key (result.encoding) and the request key. */
+           payload was read against; the cache serves later cold activations
+           without a content GET. CONTENT AND SNAPSHOT ALWAYS MOVE TOGETHER —
+           the cache holds the DISK payload only (a restored draft never
+           enters it); the encoding alias covers the tab's own key and the
+           request key. */
         const payloadEncoding = result.encoding ?? effectiveEncoding
         const freshSnapshot = diskSnapshot(result.mtimeMs, result.size, result.revision)
         contentBaselinesRef.current.set(activePath, {
@@ -797,14 +742,12 @@ export function useEditorSession({
         }
         if (cancelRestore) setStatus({ text: translate('editor.cancelRestored') })
         else if (refreshPending) setStatus({ text: translate('editor.refreshed') })
-        /* Editor-session retention: a same-content re-read (tab switch back,
-           refresh with unchanged disk) must not destroy the file's undo/caret
-           — the remount below rebuilds from the retained EditorState when its
-           doc equals the new content. Any real content change (or a rename
-           that swapped the name/language) drops the retained state so the
-           remount builds fresh. A cancel/discard restore drops it too: undo
-           stepping back into the discarded keystrokes would resurrect the
-           abandoned edit. */
+        /* Editor-session retention: a same-content re-read must not destroy
+           the file's undo/caret — the remount rebuilds from the retained
+           EditorState when its doc equals the new content. Any real content
+           change, rename, or cancel/discard restore drops the retained state
+           (undo stepping back into discarded keystrokes would resurrect the
+           abandoned edit). */
         const retainedNow = retainedStatesRef.current.get(activePath)
         if (retainedNow !== undefined && (cancelRestore
           || retainedNow.state.doc.toString() !== content
@@ -835,9 +778,9 @@ export function useEditorSession({
           symlink: Boolean(selection.symlink),
           truncated: Boolean(result.truncated),
         })
-        /* For an auto-triggered re-read, the clean active tab's status was
-           already set to "reloaded"; the read pass updates the baseline above.
-           Release the reloading marker now that the read settled. */
+        /* Release the reloading marker now that the read settled (an
+           auto-triggered re-read already set the "reloaded" status and
+           updated the baseline). */
         reloadingPathsRef.current.delete(activePath)
       })
     }, (error) => {
@@ -846,21 +789,20 @@ export function useEditorSession({
       // and surface the error preview.
       if (error?.name === 'AbortError' && error?.reason?.name !== 'TimeoutError') return
       // Only the CURRENT pass may release the marker: a superseded pass's late
-      // failure (e.g. a timeout firing after a same-path re-run started) must
-      // not delete the marker the newer pass re-armed — the polling tick would
-      // then double-bump reloadToken and remount, discarding the restored
-      // scroll. A stale pass's state update is already gated below.
+      // failure must not delete the marker the newer pass re-armed — the
+      // polling tick would then double-bump reloadToken and remount,
+      // discarding the restored scroll. A stale pass's state update is
+      // already gated below.
       if (readSeq === readSeqRef.current && activePathRef.current === activePath) {
         reloadingPathsRef.current.delete(activePath)
         const message = error instanceof Error ? error.message : String(error)
         setPreview({ state: 'error', path: activePath, message })
-        /* A DIRTY tab whose file read fails (deleted/moved/corrupt) would
-           otherwise deadlock: save/cancel are gated on preview.state==='ready',
-           closeTab refuses dirty tabs, and discardDraft refuses non-ready
-           previews — no UI path out. Mark the tab clean WITHOUT touching the
-           staging draft (closeTab only clears it for non-editable dirty tabs,
+        /* A DIRTY tab whose file read fails would otherwise deadlock:
+           save/cancel are gated on preview.state==='ready', closeTab refuses
+           dirty tabs, and discardDraft refuses non-ready previews — no UI
+           path out. Mark the tab clean WITHOUT touching the staging draft,
            so the unsaved work survives in the staging area + emergency mirror
-           and is restored if the file becomes readable again). */
+           and is restored if the file becomes readable again. */
         if (tab?.dirty === true) {
           const notice = translate('editor.readFailedDraftPreserved', { message })
           updateTab(activePath, { saving: false, dirty: false, draft: '', draftKnown: false, status: { error: true, text: notice } })
@@ -926,37 +868,32 @@ export function useEditorSession({
   }, [draftScopeId, draftTree, nextDraftGeneration, workspace.workspaceId])
 
   /* Drop the per-path runtime bookkeeping when a tab closes: no stale
-     last-write dedup skipping the first auto-save of a repeat edit, no orphan
-     draft generation. The tab is guaranteed clean here (dirty/saving tabs
-     cannot be closed), so nothing unsaved is dropped. The live scroll ref is
-     deliberately KEPT (see below) so a same-session reopen restores the real
-     scroll position. */
+     last-write dedup, no orphan draft generation. The tab is guaranteed clean
+     here (dirty/saving tabs cannot be closed), so nothing unsaved is dropped.
+     The live scroll ref is deliberately KEPT (see below) so a same-session
+     reopen restores the real scroll position. */
   const forgetPathRefs = useCallback((path) => {
     clearAutosaveTimer(path)
     lastWriteRef.current.delete(path)
     /* KEEP the scrollTopRef entry: the read path restores
        `scrollTopRef.get(path) ?? tab?.scrollTop ?? 0`, so a same-session
-       reopen after close picks up the LIVE scroll from the ref. (The old code
-       tried to merge the live value into the tab here, but closeTab's setTabs
-       had already removed the tab — React batches the two updates, so the
-       merge was a no-op — and then deleted the ref, so a reopen fell back to
-       the stale mount-time scroll.) One number per closed path is a
-       negligible cost. */
+       reopen picks up the LIVE scroll from the ref. (The old code merged into
+       the tab here, but closeTab's setTabs had already removed it — the merge
+       was a no-op — and then deleted the ref.) One number per closed path is
+       a negligible cost. */
     watchSnapshotsRef.current.delete(path)
     contentBaselinesRef.current.delete(path)
     /* The retained editor session dies with the tab: a same-session reopen
-       builds a fresh session, like the pre-retention behavior. The global
-       content cache entry is deliberately KEPT (a reopen reads the file
-       content from memory). */
+       builds a fresh session. The global content cache entry is deliberately
+       KEPT (a reopen reads the file content from memory). */
     retainedStatesRef.current.delete(path)
     reloadingPathsRef.current.delete(path)
     /* Keep the per-path generation entry alive while a draft op is queued:
        closeTab's non-editable-dirty escape enqueues a clearDraftFile DELETE
        just before forgetPathRefs runs, and enqueueDraftOperation's staleness
-       gate compares against this entry — deleting it synchronously would judge
-       that DELETE stale and skip it, so the discarded staging draft would
-       survive and resurrect the stuck tab on reopen. Defer until the tail
-       settles. */
+       gate compares against this entry — deleting it synchronously would
+       judge that DELETE stale and skip it, resurrecting the stuck tab on
+       reopen. Defer until the tail settles. */
     const tail = draftTailsRef.current.get(path)
     if (tail === undefined) draftGenerationsRef.current.delete(path)
     else tail.catch(() => {}).finally(() => { draftGenerationsRef.current.delete(path) })
@@ -969,12 +906,11 @@ export function useEditorSession({
   const clearDraftFile = useCallback((path, content, encoding, lineEnding, bom, revision) => {
     const generation = invalidateDraftPath(path)
     return enqueueDraftOperation(path, generation, async () => {
-      /* Tombstone the emergency mirror FIRST: a tab switch (re-read) between
-         the Host DELETE and this write would otherwise restore the stale live
-         mirror record (its generation is still >= the Host's) and re-materialize
-         the discarded draft as a saveable edit. The tombstone's generation
-         suppresses the mirror immediately — while the Host DELETE is in flight
-         (fence not yet advanced) AND after it lands. */
+      /* Tombstone the emergency mirror FIRST: a tab switch between the Host
+         DELETE and this write would otherwise restore the stale live mirror
+         record and re-materialize the discarded draft as a saveable edit. The
+         tombstone's generation suppresses the mirror while the DELETE is in
+         flight AND after it lands. */
       await deleteEmergencyDraft(workspace.workspaceId, draftScopeId, path, generation).catch(() => {})
       let result
       try {
@@ -1011,13 +947,11 @@ export function useEditorSession({
       const result = await saveFile(workspace.workspaceId, path, content, revision, controller.signal, encoding)
       if (!mounted.current) return false
       /* The PUT just rewrote the file on disk: refresh the change-poll
-         baseline so the next tick does not report our own save as an
-         external modification (which would remount the editor and wipe
-         the undo history). The PUT now carries the written file's real
-         mtime (Host side), so the baseline keeps the sameMtime fast path
-         working; the hash is the just-written content, so a clean save
-         reads back as unchanged while a real external edit still trips
-         the poll. */
+         baseline so the next tick does not report our own save as an external
+         modification (which would remount the editor and wipe the undo
+         history). The PUT carries the written file's real mtime and hash, so
+         a clean save reads back as unchanged while a real external edit still
+         trips the poll. */
       watchSnapshotsRef.current.set(path, {
         mtimeMs: Number(result.mtimeMs) || 0,
         size: Number.isFinite(result.size) ? result.size : 0,
@@ -1058,14 +992,12 @@ export function useEditorSession({
         await clearDraftFile(path, content, savedEncoding, tab.lineEnding ?? 'none', savedBom, result.revision ?? revision)
       } catch (error) {
         /* Best-effort: the source write already succeeded, so a failed draft
-           cleanup must not fail the save. A stale draft is reconciled by the
-           restore path (draft===disk is clean) or the next auto-save; the
-           emergency mirror already holds the newest content for the unload
-           case. When BOTH the DELETE and the clean-DRAFT fallback fail, the
-           OLD draft survives on the Host and a merge/conflict save (whose
-           draft differs from the written content) would come back as a dirty
-           tab after refresh — surface that honestly instead of pretending
-           the cleanup succeeded. */
+           cleanup must not fail the save (a stale draft is reconciled by the
+           restore path or the next auto-save; the emergency mirror holds the
+           newest content for the unload case). When BOTH the DELETE and the
+           clean-DRAFT fallback fail, the OLD draft survives on the Host and
+           would come back as a dirty tab after refresh — surface that
+           honestly instead of pretending the cleanup succeeded. */
         draftCleanupFailed = true
         console.warn('workspace-studio: draft cleanup after save failed:', error)
       }
@@ -1131,12 +1063,11 @@ export function useEditorSession({
       const pending = pendingAutosavesRef.current.get(path)
       if (pending?.generation === generation) pendingAutosavesRef.current.delete(path)
       /* A 409 draft-generation-conflict means the owner generation fence
-         advanced past this write: a tree mutation (rename/move/delete) — which
-         already re-queued the draft at the new path — or a CONCURRENT tab's
-         write. Sync the local counter to the Host's current generation so the
-         next autosave strictly exceeds it and converges instead of pinging
-         forever; the pending entry is dropped (the tree-op path re-queued, and
-         the emergency mirror still holds this text). */
+         advanced past this write (a tree mutation or a CONCURRENT tab's
+         write). Sync the local counter to the Host's current generation so
+         the next autosave strictly exceeds it and converges instead of
+         pinging forever; the pending entry is dropped (the tree-op path
+         re-queued, and the emergency mirror still holds this text). */
       if (error?.status === 409) {
         const current = Number(error?.data?.currentGeneration)
         if (Number.isSafeInteger(current)) {
@@ -1155,26 +1086,22 @@ export function useEditorSession({
     const tab = tabsRef.current.find(item => item.path === path)
     if (tab === undefined || tab.external || (tab.saving && !skipSavingGate) || (!force && tab.editing !== true)) return
     // Drop the pending timer first: an edit reverting to the last-written text
-    // must not let an earlier (different-content) timer fire; the dedup return
-    // below skips the generation bump, so the stale timer would bypass the
-    // enqueueDraftOperation staleness check too.
+    // must not let an earlier (different-content) timer fire — the dedup
+    // return below skips the generation bump, so the stale timer would
+    // bypass the enqueueDraftOperation staleness check too.
     clearAutosaveTimer(path)
     // Skip a redundant write when the draft equals the last content this owner
-    // persisted (dedup in development-notes §15, never wired): typing back to
-    // the last-written text must not rewrite the staging file or the mirror.
+    // persisted: typing back to the last-written text must not rewrite the
+    // staging file or the mirror.
     if (lastWriteRef.current.get(path)?.content === text) {
-      /* The dedup skips the generation bump, but the emergency IndexedDB mirror
-         is written SYNCHRONOUSLY on every keystroke with a fresh generation
-         (below), while lastWriteRef only advances after the debounced Host
-         write. An intermediate edit (mirror @gen2) reverted within the debounce
-         window therefore leaves the mirror holding a NEWER content than the
-         Host draft (@gen1) — restore's `emergencyGeneration >= hostGeneration`
-         would resurrect the reverted-away text on refresh. Reconcile the mirror
-         with a LIVE record at a fresh generation carrying the CURRENT text:
-         restore then picks the mirror (newest generation) and shows exactly
-         what the user sees. A tombstone would be wrong here — it suppresses
-         the Host draft too (restore treats a newer tombstone as "no draft at
-         all"), silently losing the unsaved edit on refresh. */
+      /* The dedup skips the generation bump, but the emergency IndexedDB
+         mirror is written SYNCHRONOUSLY on every keystroke with a fresh
+         generation, so an intermediate edit reverted within the debounce
+         window leaves the mirror holding NEWER content than the Host draft —
+         restore would resurrect the reverted-away text. Reconcile the mirror
+         with a LIVE record at a fresh generation carrying the CURRENT text. A
+         tombstone would be wrong here: it suppresses the Host draft too,
+         silently losing the unsaved edit on refresh. */
       const reconcileGeneration = nextDraftGeneration(path)
       void writeEmergencyDraft(workspace.workspaceId, draftScopeId, path, {
         owner: draftScopeId,
@@ -1225,13 +1152,11 @@ export function useEditorSession({
   }, [performAutosave])
 
   /* When a directory holding a dirty tab is moved or renamed, the tab's
-     pending (debounced) auto-save must follow the path. Re-keying the pending
-     map alone is not enough: the old timer still captures the old path, and
-     the tree op bumped the generation fence, so the old generation would be
-     rejected. Cancel the old timers, drop the stale entries, and flush each
-     snapshot at the new path with a fresh generation. Otherwise the newest
-     edits survive only in the IndexedDB mirror, which restore discards because
-     its generation is older than the moved Host draft's. */
+     pending (debounced) auto-save must follow the path: the old timer still
+     captures the old path and the tree op bumped the generation fence, so the
+     old generation would be rejected. Cancel the old timers, drop the stale
+     entries, and flush each snapshot at the new path with a fresh
+     generation. */
   const migratePendingAutosaves = useCallback((from, to) => {
     const pending = pendingAutosavesRef.current
     const timers = autosaveTimers.current
@@ -1270,9 +1195,9 @@ export function useEditorSession({
   /* A keystroke can land between the save's text snapshot and the editor
      freeze (the editable compartment reconfigures in a passive effect after
      the saving flag commits); it stays visible yet is marked clean — recover
-     it as an unsaved edit so it is never silently dropped. Only relevant while
-     this tab is active (a tab switch swaps editorRef). Declared BEFORE save:
-     save's dependency array references it (TDZ rule). */
+     it as an unsaved edit so it is never silently dropped. Only relevant
+     while this tab is active. Declared BEFORE save: save's dependency array
+     references it (TDZ rule). */
   const preservePostSaveKeystrokes = useCallback((path, committedText) => {
     if (activePathRef.current !== path) return
     const view = editorRef.current
@@ -1281,13 +1206,13 @@ export function useEditorSession({
     if (liveText === committedText) return
     setDraft(liveText)
     setDirty(true)
-    /* The save's `saving` flag is still set in tabsRef here (React has not
-       re-rendered the commit; the ref only syncs in a layout effect AFTER the
-       render): scheduleAutosave's saving gate would skip this keystroke's
-       staging write, leaving the Host draft and IndexedDB mirror one keystroke
-       behind until the next edit — and a refresh in that window silently drops
-       the key. The patch below clears the flag in state; skip the STALE ref's
-       gate explicitly (the save's own finally() would clear it right after). */
+    /* The save's `saving` flag is still set in tabsRef here (the ref only
+       syncs in a layout effect AFTER the render): scheduleAutosave's saving
+       gate would skip this keystroke's staging write, leaving the Host draft
+       and IndexedDB mirror one keystroke behind — and a refresh in that
+       window silently drops the key. The patch below clears the flag in
+       state; skip the STALE ref's gate explicitly (the save's own finally()
+       would clear it right after). */
     updateTab(path, { draft: liveText, draftKnown: true, dirty: true, saving: false })
     scheduleAutosave(path, liveText, false, true)
   }, [scheduleAutosave, updateTab])
@@ -1364,9 +1289,9 @@ export function useEditorSession({
               setDirty(true)
               updateTab(path, { draft: liveBefore, draftKnown: true, dirty: true })
               /* The tab's `saving` flag is still true in the ref (the save's
-                 finally clears it in a later task): the save itself has
-                 COMPLETED at this point (commitTab awaited), so skip the stale
-                 gate — the typed-during-merge text must reach the staging file. */
+                 finally clears it in a later task), but the save has COMPLETED
+                 (commitTab awaited): skip the stale gate — the
+                 typed-during-merge text must reach the staging file. */
               scheduleAutosave(path, liveBefore, false, true)
               setStatus({ error: true, text: translate('editor.saveTypedDuringMerge') })
             }
@@ -1376,8 +1301,8 @@ export function useEditorSession({
       }
       // Overlapping changes → ask the user to pick; keep the tab busy so no
       // auto-save races the pending decision. Conflicts stay structural —
-      // never literal markers in the content — so the file text cannot collide
-      // with an implementation marker.
+      // never literal markers in the content — so the file text cannot
+      // collide with an implementation marker.
       const dialog = { path, mine: text, theirs: diskText, base: baseAtSave, diskRevision, encoding, savedStatusText, savingStatus, conflicts: merged.conflicts, parts: merged.parts }
       conflictDialogRef.current = dialog
       setConflictDialog(dialog)
@@ -1424,11 +1349,10 @@ export function useEditorSession({
     }
   }, [activeTab, baseText, commitTab, dirty, draft, preview, preservePostSaveKeystrokes, readFile, scheduleAutosave, saving, updateTab, workspace.workspaceId])
 
-  /* Resolve the pending save conflict. The dialog walks conflicts one at a time
-     and calls back with { choices } ('mine'/'theirs' per conflict, in order) or
-     'cancel'. The resolved file is the merge skeleton — every non-conflicting
-     change already applied — with each conflict marker line replaced by the
-     chosen side's lines. */
+  /* Resolve the pending save conflict: the dialog walks conflicts one at a
+     time and calls back with { choices } ('mine'/'theirs' per conflict, in
+     order) or 'cancel'. The resolved file is the merge skeleton with each
+     conflict marker line replaced by the chosen side's lines. */
   const resolveConflict = useCallback(async (result) => {
     const dialog = conflictDialogRef.current
     if (dialog === undefined) return
@@ -1441,9 +1365,9 @@ export function useEditorSession({
       /* Clear the tab's "正在保存…" status too: it was written by save() and
          would otherwise persist (serializePreviewTab keeps informational
          statuses) and show as a stale banner after a tab switch or refresh.
-         Only clear when it is STILL the saving status — a successful commitTab
-         replaces it with the saved status, which must survive. Read the CURRENT
-         tab (the closure `tab` predates commitTab's updateTab). */
+         Only clear when it is STILL the saving status — a successful
+         commitTab replaces it with the saved status, which must survive. Read
+         the CURRENT tab (the closure `tab` predates commitTab's updateTab). */
       const current = tabsRef.current.find(item => item.path === path)
       const patch = { saving: false }
       if (savingStatus !== undefined && current !== undefined && current.status === savingStatus) patch.status = undefined
@@ -1602,10 +1526,10 @@ export function useEditorSession({
     }
   }, [activeTab, clearDraftFile, dirty, draft, preview, scheduleAutosave, saving, updateTab])
   /* A non-editable file (read-only, oversized, editing disabled) with a
-     leftover draft has no save/cancel path (both gated on editability), so the
-     tab would be stuck dirty with no way to close, save, or refresh. This is
-     the escape: discard the staging draft and re-read the source so the tab
-     returns to a clean read-only preview; the file is never touched. */
+     leftover draft has no save/cancel path (both gated on editability), so
+     the tab would be stuck dirty with no way to close, save, or refresh.
+     This is the escape: discard the staging draft and re-read the source so
+     the tab returns to a clean read-only preview; the file is never touched. */
   const discardDraft = useCallback(async () => {
     if (preview.state !== 'ready' || saving || activeTab === undefined || !dirty) return
     const path = activeTab.path

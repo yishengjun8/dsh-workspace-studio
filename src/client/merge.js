@@ -6,20 +6,15 @@ import { MERGE_MAX_LINES, MYERS_TRACE_CELL_LIMIT } from './constants.js'
  * When an explicit save finds the file changed on disk since the editing
  * snapshot, user and external edits are merged: non-overlapping changes both
  * kept (clean merge), overlapping ones become conflicts for the user to pick.
- * Inputs split on '\n' — editor and disk text share line endings because
- * editable files are never mixed — preserving line endings without extra
- * normalization.
+ * Inputs split on '\n' (editor and disk text share line endings), preserving
+ * line endings without extra normalization.
  */
 
-/* Budgeted Myers diff: the { from, to, added } edit script turning `base`
-   into `mine`, or null when the trace would exceed the memory budget.
-   Adjacent ops coalesce so a replacement is one change, not del + ins. */
+/* Budgeted Myers diff: the { from, to, added } edit script turning `base` into `mine`, or null when the trace would exceed the memory budget. Adjacent ops coalesce so a replacement is one change, not del + ins. */
 export function myersDiff(base, mine, alt = false) {
   const N = base.length
   const M = mine.length
-  /* Empty-empty is an identity edit: return no changes immediately instead of
-     running the frontier (which would read v[1] out of bounds on a 1-cell
-     array). */
+  /* Empty-empty is an identity edit: return no changes immediately instead of running the frontier (which would read v[1] out of bounds on a 1-cell array). */
   if (N === 0 && M === 0) return []
   const max = N + M
   const offset = max
@@ -32,9 +27,7 @@ export function myersDiff(base, mine, alt = false) {
     trace.push(v.slice())
     for (let k = -d; k <= d; k += 2) {
       let x
-      /* The tie-break (< vs <=) selects one canonical shortest path among
-         several when repeated values make the greedy snake ambiguous; `alt`
-         flips it so a merge that clusters poorly on one can try the other. */
+      /* The tie-break (< vs <=) selects one canonical shortest path among several when repeated values make the greedy snake ambiguous; `alt` flips it so a merge that clusters poorly on one can try the other. */
       if (k === -d || (k !== d && (alt ? v[offset + k - 1] <= v[offset + k + 1] : v[offset + k - 1] < v[offset + k + 1]))) x = v[offset + k + 1]
       else x = v[offset + k - 1] + 1
       let y = x - k
@@ -46,8 +39,7 @@ export function myersDiff(base, mine, alt = false) {
   const changes = []
   let x = N
   let y = M
-  // `d` is one past the found end; the trace snapshot for backtracking step
-  // dd was recorded at the start of iteration dd.
+  // `d` is one past the found end; the trace snapshot for backtracking step dd was recorded at the start of iteration dd.
   for (let dd = d - 1; dd >= 1; dd -= 1) {
     const vPrev = trace[dd]
     const k = x - y
@@ -63,9 +55,7 @@ export function myersDiff(base, mine, alt = false) {
     y = prevY
   }
   changes.reverse()
-  // Coalesce adjacent operations (deletion + insertion at the same position
-  // = one replacement; two insertions = one) so the merge walk sees one
-  // change per base span.
+  // Coalesce adjacent operations (deletion + insertion at the same position = one replacement; two insertions = one) so the merge walk sees one change per base span.
   const coalesced = []
   for (const change of changes) {
     const previous = coalesced[coalesced.length - 1]
@@ -86,9 +76,7 @@ export function changesTouch(left, right) {
   const leftInsertion = left.from === left.to
   const rightInsertion = right.from === right.to
   if (leftInsertion && rightInsertion) return left.from === right.from
-  // An insertion touches a span only when it lands INSIDE [from, to): at the
-  // exclusive end (right.to / left.to) it is disjoint from the deletion and
-  // must merge cleanly (one side deletes the last line, the other appends).
+  // An insertion touches a span only when it lands INSIDE [from, to): at the exclusive end (right.to / left.to) it is disjoint from the deletion and must merge cleanly (one side deletes the last line, the other appends).
   if (leftInsertion) return left.from >= right.from && left.from < right.to
   if (rightInsertion) return right.from >= left.from && right.from < left.to
   return left.from < right.to && right.from < left.to
@@ -96,9 +84,7 @@ export function changesTouch(left, right) {
 
 export function changeTouchesSpan(change, start, end) {
   if (change.from === change.to) {
-    // A degenerate span (start === end) is touched by insertions exactly at
-    // that point; otherwise the half-open rule holds — an insertion at the
-    // exclusive end stays disjoint and merges cleanly.
+    // A degenerate span (start === end) is touched by insertions exactly at that point; otherwise the half-open rule holds — an insertion at the exclusive end stays disjoint and merges cleanly.
     return end === start
       ? change.from === start
       : change.from >= start && change.from < end
@@ -125,12 +111,7 @@ export function applyChangesToSpan(base, start, end, changes) {
   return output
 }
 
-/* Map a base-coordinate span to the corresponding slice of the side array
-   through the side's edit script. Used to verify a conflict region's
-   mine/theirs segments against the REAL side text: the parts skeleton mixes
-   both sides' non-conflicting edits, so rebuilding one side from it fails
-   whenever the other side also edited elsewhere (a false unsound-cluster
-   that degraded mixed merges to a whole-file conflict). */
+/* Map a base-coordinate span to the corresponding slice of the side array through the side's edit script. Used to verify a conflict region's mine/theirs segments against the REAL side text: the parts skeleton mixes both sides' non-conflicting edits, so rebuilding one side from it fails whenever the other side also edited elsewhere (a false unsound-cluster that degraded mixed merges to a whole-file conflict). */
 export function sideSliceForSpan(base, side, changes, start, end) {
   const result = []
   let basePos = 0
@@ -151,13 +132,7 @@ export function sideSliceForSpan(base, side, changes, start, end) {
       const addedEnd = Math.min(change.added.length, delEnd - change.from)
       if (addedEnd > addedStart) result.push(...change.added.slice(addedStart, addedEnd))
     }
-    /* sidePos tracks the side index of basePos: the kept run [basePos,
-       change.from) advances it too. Skipping it made every later kept segment
-       (mid-region gaps and the trailing run after the last change) slice from
-       a drifted offset, so the round-trip check failed with a false
-       unsound-cluster and degraded the most common overlapping-edit shapes
-       (different end boundaries) to a whole-file conflict. Compute the kept
-       run length BEFORE overwriting basePos. */
+    /* sidePos tracks the side index of basePos: the kept run [basePos, change.from) advances it too. Skipping it made every later kept segment slice from a drifted offset, so the round-trip check failed with a false unsound-cluster and degraded the most common overlapping-edit shapes to a whole-file conflict. Compute the kept run length BEFORE overwriting basePos. */
     sidePos += (change.from - basePos) + change.added.length
     basePos = change.to
   }
@@ -194,12 +169,7 @@ export function resolveMergeParts(parts, conflicts, choices) {
   return output.join('\n')
 }
 
-/* Merge both edit scripts by clustering every transitively overlapping
-   change — the closure that makes one-large-vs-many-small overlaps terminate.
-   Conflicts stay structural (`parts`), so user text can never collide with a
-   marker string. Returns { parts, conflicts } on a consistent walk, or
-   { fallback: reason } when the scripts are unusable (caller falls back to
-   the whole-file conflict). */
+/* Merge both edit scripts by clustering every transitively overlapping change — the closure that makes one-large-vs-many-small overlaps terminate. Conflicts stay structural (`parts`), so user text can never collide with a marker string. Returns { parts, conflicts } on a consistent walk, or { fallback: reason } when the scripts are unusable (caller falls back to the whole-file conflict). */
 export function runMergeWalk(base, mine, theirs, mineChanges, theirsChanges) {
   const parts = []
   const conflicts = []
@@ -275,34 +245,15 @@ export function runMergeWalk(base, mine, theirs, mineChanges, theirsChanges) {
   return { parts, conflicts }
 }
 
-/* Finalize a merge walk: clean when no conflicts, a structural conflict list
-   after the round-trip soundness check, or { fallback: reason } when the walk
-   cannot reconstruct one side (whole-file conflict is safer than a wrong save).
-   Shared by the primary and the alternate-tie-break retry. `mineText` /
-   `theirsText` are the ORIGINAL side texts (the arrays are split copies), used
-   by the round-trip check below. */
+/* Finalize a merge walk: clean when no conflicts, a structural conflict list after the round-trip soundness check, or { fallback: reason } when the walk cannot reconstruct one side (whole-file conflict is safer than a wrong save). Shared by the primary and the alternate-tie-break retry. `mineText` / `theirsText` are the ORIGINAL side texts (the arrays are split copies), used by the round-trip check below. */
 export function tryMergeWithScripts(base, mine, theirs, mineChanges, theirsChanges, mineText, theirsText) {
   const walked = runMergeWalk(base, mine, theirs, mineChanges, theirsChanges)
   if (walked.fallback !== undefined) return walked
   const { parts, conflicts } = walked
   if (conflicts.length > 0) {
-    /* The conflict structure is trustworthy only when each conflict region's
-       side segment matches the REAL side text mapped through that side's edit
-       script: a non-canonical Myers diff on repeated identical lines can
-       split one replacement into an insertion plus a remote deletion whose
-       coordinates collide, so the clustered segment cannot reconstruct one
-       side. Verified per region against the side arrays (NOT the parts
-       skeleton — it mixes both sides' non-conflicting edits, so rebuilding
-       one side from it fails whenever the other side also edited elsewhere,
-       degrading mixed merges to a whole-file conflict). If any region fails,
-       fall back to the whole-file conflict (exact choice) — a wrong save is
-       worse than a manual one. */
+    /* The conflict structure is trustworthy only when each conflict region's side segment matches the REAL side text mapped through that side's edit script: a non-canonical Myers diff on repeated identical lines can split one replacement into an insertion plus a remote deletion whose coordinates collide, so the clustered segment cannot reconstruct one side. Verified per region against the side arrays (NOT the parts skeleton — it mixes both sides' non-conflicting edits, so rebuilding one side from it fails whenever the other side also edited elsewhere). If any region fails, fall back to the whole-file conflict (exact choice) — a wrong save is worse than a manual one. */
     for (const conflict of conflicts) {
-      /* A degenerate region (start === end) is an insertion-only clash: both
-         sides inserted different text at the same point. There is no base
-         span to map (sideSliceForSpan would return []), and no deletion span
-         means no non-canonical coordinate collision is possible — the
-         structure is exact, skip the check. */
+      /* A degenerate region (start === end) is an insertion-only clash: both sides inserted different text at the same point. There is no base span to map (sideSliceForSpan would return []), and no deletion span means no non-canonical coordinate collision is possible — the structure is exact, skip the check. */
       if (conflict.start === conflict.end) continue
       const mineSlice = sideSliceForSpan(base, mine, mineChanges, conflict.start, conflict.end)
       const theirsSlice = sideSliceForSpan(base, theirs, theirsChanges, conflict.start, conflict.end)
@@ -315,25 +266,18 @@ export function tryMergeWithScripts(base, mine, theirs, mineChanges, theirsChang
   return { status: 'clean', merged: resolveMergeParts(parts, [], []) }
 }
 
-/* MERGE_MAX_LINES counts LINES, but split('\n') yields one extra empty
-   element for a text ending in '\n' — a file of exactly MERGE_MAX_LINES
-   lines would otherwise trip the limit and degrade to the whole-file dialog.
-   Count with the trailing-empty-element tolerance. */
+/* MERGE_MAX_LINES counts LINES, but split('\n') yields one extra empty element for a text ending in '\n' — a file of exactly MERGE_MAX_LINES lines would otherwise trip the limit. Count with the trailing-empty-element tolerance. */
 function lineCountOf(text) {
   const parts = text.split('\n')
   return parts.length > 0 && parts[parts.length - 1] === '' ? parts.length - 1 : parts.length
 }
 
-/* Merge both edit scripts by clustering every transitively overlapping
-   change — the closure that makes one-large-vs-many-small overlaps terminate.
-   Conflicts stay structural (`parts`), so user text can never collide with a
-   marker string. */
+/* Cluster transitively overlapping changes; conflicts stay structural (`parts`), so user text can never collide with a marker string. */
 export function threeWayMerge(baseText, mineText, theirsText) {
   const base = baseText.split('\n')
   const mine = mineText.split('\n')
   const theirs = theirsText.split('\n')
-  // Budget guard first: an oversized file that happens to equal one side must
-  // still fall back to the whole-file dialog, not commit unchecked.
+  // Budget guard first: an oversized file that happens to equal one side must still fall back to the whole-file dialog, not commit unchecked.
   if (lineCountOf(baseText) > MERGE_MAX_LINES || lineCountOf(mineText) > MERGE_MAX_LINES || lineCountOf(theirsText) > MERGE_MAX_LINES) {
     return wholeFileConflict(base, mine, theirs, 'line-limit')
   }
@@ -346,11 +290,7 @@ export function threeWayMerge(baseText, mineText, theirsText) {
 
   const primary = tryMergeWithScripts(base, mine, theirs, mineChanges, theirsChanges, mineText, theirsText)
   if (primary.fallback === undefined) return primary
-  /* A non-canonical Myers tie-break on repeated identical lines can cluster
-     disjoint edits into a false conflict that fails the round-trip check
-     (unsound-cluster). Retry with the alternate canonical shortest path —
-     bounded to ONE retry, and accepted only when it passes the same round-trip
-     verification; otherwise the whole-file conflict stands. */
+  /* A non-canonical Myers tie-break on repeated identical lines can cluster disjoint edits into a false conflict that fails the round-trip check (unsound-cluster). Retry with the alternate canonical shortest path — bounded to ONE retry, accepted only when it passes the same round-trip verification; otherwise the whole-file conflict stands. */
   if (primary.fallback === 'unsound-cluster') {
     const altMine = myersDiff(base, mine, true)
     const altTheirs = myersDiff(base, theirs, true)
@@ -362,11 +302,7 @@ export function threeWayMerge(baseText, mineText, theirsText) {
   return wholeFileConflict(base, mine, theirs, primary.fallback)
 }
 
-/* Character-level diff of one conflict side against the common base:
-   coalesced { text, kind } segments ('same' | 'add' | 'del'). Unchanged keep
-   color, added green, removed red strikethrough, all inline. Codepoint
-   splitting keeps surrogate pairs intact. Returns null when too large (caller
-   falls back to line-level). */
+/* Character-level diff of one conflict side against the common base: coalesced { text, kind } segments ('same' | 'add' | 'del'). Unchanged keep color, added green, removed red strikethrough, all inline. Codepoint splitting keeps surrogate pairs intact. Returns null when too large (caller falls back to line-level). */
 export const INLINE_DIFF_MAX_CHARS = 20000
 export function inlineDiffSegments(baseText, sideText) {
   const baseChars = Array.from(baseText)
@@ -392,10 +328,7 @@ export function inlineDiffSegments(baseText, sideText) {
   return segments
 }
 
-/* React nodes for one conflict side against the common base: character-level
-   inline diff (unchanged plain, added green, removed red strikethrough);
-   newlines in any segment keep the <pre>'s exact line layout. Oversized
-   regions fall back to line-level marks. */
+/* React nodes for one conflict side against the common base: character-level inline diff (unchanged plain, added green, removed red strikethrough); newlines in any segment keep the <pre>'s exact line layout. Oversized regions fall back to line-level marks. */
 export function diffRows(baseLines, sideLines) {
   const segments = inlineDiffSegments(baseLines.join('\n'), sideLines.join('\n'))
   if (segments !== null) {
@@ -407,8 +340,7 @@ export function diffRows(baseLines, sideLines) {
     }
     return nodes
   }
-  // Fallback: line-level diff rows (deleted lines struck, added highlighted)
-  // for content too large for the character diff.
+  // Fallback: line-level diff rows (deleted lines struck, added highlighted) for content too large for the character diff.
   const rows = diffSideLines(baseLines, sideLines)
   const nodes = []
   for (let i = 0; i < rows.length; i += 1) {
@@ -418,8 +350,7 @@ export function diffRows(baseLines, sideLines) {
   return nodes
 }
 
-/* Line-level diff rows for one conflict side: { text, kind }[] with kind
-   'same' | 'add' | 'del'; the oversized fallback for the inline diff. */
+/* Line-level diff rows for one conflict side: { text, kind }[] with kind 'same' | 'add' | 'del'; the oversized fallback for the inline diff. */
 export function diffSideLines(baseLines, sideLines) {
   if (baseLines.length > MERGE_MAX_LINES || sideLines.length > MERGE_MAX_LINES) {
     return sideLines.map(text => ({ text, kind: 'same' }))

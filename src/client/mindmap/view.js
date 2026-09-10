@@ -14,9 +14,8 @@ import { MindMapDialogs } from './dialogs.js'
 import { useMindmapNotices } from './hooks/notices.js'
 import { useMindmapViewport } from './hooks/viewport.js'
 
-/* Monotonic suffix for client-created session ids: `Date.now()` alone is
-   millisecond-precision, and two forks/creates in the same millisecond would
-   mint the same id (a React key collision inside one doc). */
+/* Monotonic suffix for client-created session ids: `Date.now()` alone could
+   mint the same id twice in one millisecond (a React key collision). */
 let mindmapClientSessionSeq = 0
 /* Stable empty family for the memo below (a fresh [] per render would defeat
    the identity-keyed family-string cache in useMindmapSessionView). */
@@ -31,8 +30,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   const [phase, setPhase] = useState({ status: 'loading' })
   /* Manual retry for a failed load: the load effect's deps are sessionId-only,
      so a phase change alone cannot re-trigger it — an epoch bump forces a
-     re-run (rootId is null while phase is 'error', so the in-family early
-     return stays out of the way). */
+     re-run (rootId is null while phase is 'error'). */
   const [loadEpoch, setLoadEpoch] = useState(0)
   const retryLoad = useCallback(() => { setLoadEpoch(epoch => epoch + 1) }, [])
   const [doc, setDoc] = useState(null)
@@ -47,10 +45,9 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   docRef.current = doc
   /* Doc family ids, kept current BEFORE the narrowed sessions subscription
      below runs: the selector can't close over doc/rootId, and its getSnapshot
-     must see the fresh family during this render. The array is MEMOIZED per
-     (doc, rootId) so useMindmapSessionView can key its family-string by array
-     identity — an unconditional rebuild would allocate a new array (and a new
-     join string) on every render. */
+     must see the fresh family during this render. MEMOIZED per (doc, rootId)
+     so useMindmapSessionView can key its family-string by array identity —
+     an unconditional rebuild would allocate a new array on every render. */
   const familyIds = useMemo(() => doc === null || rootId === null
     ? EMPTY_FAMILY_IDS
     : [...new Set([String(rootId), ...(doc.sessions ?? []).map(s => String(s?.sessionId))])],
@@ -75,15 +72,14 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   const openSessionRef = useRef(openSession)
   openSessionRef.current = openSession
   /* True only when THIS mount was created by a dock request (the explorer
-     marks freshly docked tabs): restoreLastSession — landing the chat on the
-     map's remembered session — must fire only for a deliberate open, never
-     for a tab restored from the shared snapshot on a session switch (that
-     would yank the chat away from the session the user just clicked). */
+     marks freshly docked tabs): restoreLastSession must fire only for a
+     deliberate open, never for a tab restored from the shared snapshot on a
+     session switch. */
   const freshDockRef = useRef(freshDock)
   freshDockRef.current = freshDock
   /* Consumes the fresh flag at the host once this mount captured it (see the
-     mount effect below): a later remount of this body must never replay
-     restoreLastSession off a stale fresh=true. */
+     mount effect below): a later remount must never replay restoreLastSession
+     off a stale fresh=true. */
   const onFreshConsumedRef = useRef(onFreshConsumed)
   onFreshConsumedRef.current = onFreshConsumed
   /* Every map-internal selection change funnels through here: openSession
@@ -95,8 +91,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
      persists through Web Locks (async), so a same-tick restoreLastSession
      could read the PREVIOUS selection from localStorage and bounce the chat
      back to the old branch. The ref is the same-tick source of truth;
-     localStorage remains the cross-reload source. Reset on a family switch
-     (the full-reload branch of the load effect). */
+     localStorage remains the cross-reload source. Reset on a family switch. */
   const lastSelectedRef = useRef(null)
   const switchToSession = useCallback((id) => {
     const target = String(id)
@@ -108,8 +103,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
      remembered session when it still exists in the loaded doc, the root
      otherwise. Called only after a load/open where the doc is authoritative —
      the sidebar entry no longer pre-switches the chat to the root (see
-     openMindmapSession), so this single call replaces the old root →
-     remembered double hop. */
+     openMindmapSession). */
   const restoreLastSession = useCallback((loadedDoc, loadedRoot) => {
     const remembered = lastSelectedRef.current ?? readMindmapLastSession(String(loadedRoot))
     const target = remembered !== null
@@ -128,8 +122,8 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   const menuRef = useRef(null)
   const mountedRef = useRef(true)
   /* Docked mode (map shown as a preview tab): the floating window's close
-     paths must instead tell the explorer to drop the tab. Read at call time so
-     the async load/sync continuations always see the latest callback. */
+     paths must instead tell the explorer to drop the tab. Read at call time
+     so async continuations always see the latest callback. */
   const onDocGoneRef = useRef(onDocGone)
   onDocGoneRef.current = onDocGone
   /* The map's own title (doc.rootTitle) reported to the explorer so the tab
@@ -142,15 +136,13 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   /* Counter (not a boolean): every doc-writing operation increments it on
      entry and decrements in its finally, so the sync guard stays armed until
      the LAST writer settles — a boolean cleared by the first finisher let a
-     periodic sync slip through while a second write was still in flight and
-     momentarily roll back its optimistic update. */
+     periodic sync slip through and roll back its optimistic update. */
   /* Monotonic counter bumped at the start of every local doc write (fork /
      delete / archive / rename). A periodic sync issued BEFORE such a write can
-     resolve AFTER the write completes (savingRef is back to false) and apply a
-     stale doc that momentarily wipes the optimistic card; the sync effects
-     capture this counter at issue time and drop any response that is no longer
-     current, so a stale response can never overwrite a newer local write (the
-     next periodic sync re-fetches and stays consistent). */
+     resolve AFTER it completes and apply a stale doc that momentarily wipes
+     the optimistic card; the sync effects capture this counter at issue time
+     and drop any response that is no longer current (the next periodic sync
+     re-fetches and stays consistent). */
   const localWriteSeqRef = useRef(0)
   /* Synchronous gate for in-flight fork writes: the `forking` STATE guard only
      appears after a re-render, so a same-tick second trigger would pass it and

@@ -32,6 +32,7 @@ import { useSessionMenu } from './hooks/session-menu.js'
 import { useSidebarChrome } from './hooks/sidebar-chrome.js'
 import { useThinkCard } from './hooks/think-card.js'
 import { registerStudioFileMutationToolview } from './toolview.js'
+import { installOpenResourceRouter } from './open-resource.js'
 
 export function AppFrame(props) {
   const panels = props.useStore(state => state)
@@ -561,6 +562,11 @@ export function mountStudio(ctx) {
      (green-background additions, red-strikethrough deletions in one block),
      shadowing the shipped FileMutationRow for the edit/write keys. */
   registerStudioFileMutationToolview(ctx)
+  /* Route the chat's file-open path (ctx.sidebarRight.openResource) into the
+     plugin's own preview tabs: the harness right-Sidebar seat never mounts
+     under this root layout, so every open would otherwise throw "no session
+     surface is mounted". */
+  installOpenResourceRouter(ctx)
   ctx.effect(() => () => { editorContexts.dispose() }, 'workspace-studio: editor context state')
   /* Mobile mode entries: the sidebar-footer toggle, the session-header whale +
      file-content-browsing controls (declared by ui-conversation), and the

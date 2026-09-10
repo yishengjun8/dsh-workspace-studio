@@ -1,6 +1,4 @@
-/** Session-row context menu + inline rename, archive and reveal feedback,
- *  owned here because the target rows live in the harness sidebar slot this
- *  component renders. */
+/** Session-row context menu + inline rename, archive and reveal feedback, owned here because the target rows live in the harness sidebar slot this component renders. */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { translate } from '../locale/index.js'
 import { revealInExplorer } from '../api.js'
@@ -16,9 +14,7 @@ export function useSessionMenu({ props, mountedRef }) {
   const [sessionInlineRenameError, setSessionInlineRenameError] = useState()
   const [sessionNotice, setSessionNotice] = useState()
   const sessionNoticeTimerRef = useRef()
-  /* Abort in-flight reveal requests on unmount (and supersede the previous
-     one per call): the fetch would otherwise keep running after the menu
-     owner is gone. */
+  /* Abort in-flight reveal requests on unmount (and supersede the previous one per call): the fetch would otherwise keep running after the menu owner is gone. */
   const revealControllerRef = useRef()
   const showSessionNotice = useCallback((text, error = false) => {
     setSessionNotice({ error, text })
@@ -33,11 +29,7 @@ export function useSessionMenu({ props, mountedRef }) {
       revealControllerRef.current?.abort()
     }
   }, [])
-  // Right-click detection on harness session rows. Session rows are
-  // `[role="treeitem"]` without `aria-expanded` (workspace group headers carry
-  // it); the row carries no session id, so its display title is matched against
-  // the sessions snapshot — preferring the current session on duplicate titles.
-  // Blank (never-started) sessions get no menu.
+  // Right-click detection on harness session rows: `[role="treeitem"]` without `aria-expanded` (workspace group headers carry it); the row carries no session id, so its display title is matched against the sessions snapshot — preferring the current session on duplicate titles. Blank (never-started) sessions get no menu.
   useEffect(() => {
     const onContextMenu = (event) => {
       if (event.defaultPrevented) return
@@ -53,11 +45,7 @@ export function useSessionMenu({ props, mountedRef }) {
       const snapshot = props.getSessionList()
       const candidates = snapshot.ids.filter(id => {
         const summary = snapshot.byId[id]
-        /* Subagent sessions are excluded: their rows are not the right-click
-           target (the menu's rename/archive actions must never hit a subagent —
-           archiveSessionFromMenu skips them explicitly, so the lookup must too).
-           Blank (never-started) sessions get no menu either: they must never
-           win the duplicate-title match and shadow a real session's row. */
+        /* Subagent sessions are excluded: their rows are not the right-click target (the menu's rename/archive actions must never hit a subagent — archiveSessionFromMenu skips them explicitly, so the lookup must too). Blank (never-started) sessions get no menu either: they must never win the duplicate-title match and shadow a real session's row. */
         return summary !== undefined && summary.origin !== 'subagent' && summary.blank !== true && summary.displayTitle === title
       })
       if (candidates.length === 0) return
@@ -65,10 +53,7 @@ export function useSessionMenu({ props, mountedRef }) {
       if (snapshot.current !== undefined && candidates.includes(snapshot.current)) sessionId = snapshot.current
       const summary = snapshot.byId[sessionId]
       if (summary === undefined || summary.blank) return
-      /* Duplicate titles are ambiguous: the row carries no session id, so the
-         matched session may not be the one the user right-clicked. Flag the
-         menu so items show the target id and archive asks for confirmation
-         (archiving removes the whole fork tree — a wrong target is data loss). */
+      /* Duplicate titles are ambiguous: the row carries no session id, so the matched session may not be the one the user right-clicked. Flag the menu so items show the target id and archive asks for confirmation (archiving removes the whole fork tree — a wrong target is data loss). */
       const ambiguous = candidates.length > 1
       event.preventDefault()
       sessionContextRowRef.current = row
@@ -77,8 +62,7 @@ export function useSessionMenu({ props, mountedRef }) {
     document.addEventListener('contextmenu', onContextMenu, true)
     return () => document.removeEventListener('contextmenu', onContextMenu, true)
   }, [props.getSessionList])
-  // Close the session menu on outside pointer/context/scroll, Escape and resize
-  // (same contract as the other plugin context menus).
+  // Close the session menu on outside pointer/context/scroll, Escape and resize (same contract as the other plugin context menus).
   useEffect(() => {
     if (sessionContextMenu === undefined) return undefined
     const inside = event => { const node = sessionMenuRef.current; return node !== null && event.target instanceof Node && node.contains(event.target) }
@@ -132,17 +116,14 @@ export function useSessionMenu({ props, mountedRef }) {
   const archiveSessionFromMenu = useCallback(() => {
     const menu = sessionContextMenu
     if (menu === undefined) return
-    /* A duplicate-title match may target the wrong session: archiving is
-       destructive (it removes the whole fork tree), so require explicit
-       confirmation naming the matched session. */
+    /* A duplicate-title match may target the wrong session: archiving is destructive (it removes the whole fork tree), so require explicit confirmation naming the matched session. */
     if (menu.ambiguous === true) {
       const shortId = String(menu.sessionId).slice(0, 8)
       if (typeof window === 'undefined' || !window.confirm(translate('context.archiveAmbiguousConfirm', { id: shortId }))) return
     }
     setSessionContextMenu(undefined)
     setSessionInlineRename(undefined)
-    // A fork root archives its whole derived branch tree (same rule as the
-    // mind map's branch archive); standalone sessions archive just themselves.
+    // A fork root archives its whole derived branch tree (same rule as the mind map's branch archive); standalone sessions archive just themselves.
     const snapshot = props.getSessionList()
     const parentOf = new Map()
     for (const id of snapshot.ids) {
@@ -154,8 +135,7 @@ export function useSessionMenu({ props, mountedRef }) {
     const ids = [...new Set([String(menu.sessionId), ...mindmapDescendantsOf(parentOf, String(menu.sessionId))])]
     const run = async () => {
       for (const id of ids) await props.archiveSession(id)
-      // Archiving a mind-map root removes the whole map: drop its doc so the
-      // self-drawn sidebar entry disappears with it.
+      // Archiving a mind-map root removes the whole map: drop its doc so the self-drawn sidebar entry disappears with it.
       if (mindmapRegistry.isRoot(String(menu.sessionId))) {
         try { await props.deleteMindmapDoc(String(menu.sessionId)) } catch { /* best effort */ }
         mindmapRegistry.markDirty()
@@ -170,8 +150,7 @@ export function useSessionMenu({ props, mountedRef }) {
       showSessionNotice(translate('status.archiveFailed', { message: error instanceof Error ? error.message : String(error) }), true)
     })
   }, [props.archiveSession, props.deleteMindmapDoc, props.getSessionList, sessionContextMenu, showSessionNotice])
-  /* Reveal a session's workspace in the OS file explorer (shared by the
-     session-row context menu and the sidebar mind-map entries' menu). */
+  /* Reveal a session's workspace in the OS file explorer (shared by the session-row context menu and the sidebar mind-map entries' menu). */
   const revealSessionById = useCallback((sessionId) => {
     let workspace
     try {
@@ -212,19 +191,15 @@ export function useSessionMenu({ props, mountedRef }) {
   // Sidebar mind-map entries: land the chat on the map FIRST, then dock the
   // map as a preview tab. The dock request carries its expected family (the
   // map's root) and is only consumed by the explorer whose previewSessionId
-  // matches — the OLD session's explorer (mounted at click time) skips it,
-  // so the map's tab can no longer be stamped onto the session the click is
-  // leaving and leak into its persisted snapshot. The switch targets the
-  // map's remembered session while it still exists AND still resolves to this
-  // map's root through the registry (the same localStorage source the view's
-  // restoreLastSession reads, so the later landing is a no-op — no root →
-  // remembered double hop). A remembered session the registry does not know
-  // (forked in another tab, index poll up to 30 s behind) would leave
-  // previewSessionId on the branch id and strand the dock request — fall back
-  // to the root, which the registry always knows (the entry itself came from
-  // it); the fresh-dock load then restores the remembered session from the
-  // doc. Falling back to the root also covers a remembered session that
-  // belongs to a DIFFERENT map (stale localStorage).
+  // matches — the OLD session's explorer (mounted at click time) skips it, so
+  // the map's tab can no longer leak into the leaving session's snapshot. The
+  // switch targets the map's remembered session while it still exists AND
+  // still resolves to this map's root through the registry (the same
+  // localStorage source the view's restoreLastSession reads, so the later
+  // landing is a no-op); otherwise fall back to the root, which the registry
+  // always knows — the fresh-dock load then restores the remembered session
+  // from the doc. Falling back to the root also covers a remembered session
+  // that belongs to a DIFFERENT map (stale localStorage).
   const openMindmapSession = useCallback((id, name) => {
     const rootId = String(id)
     const remembered = readMindmapLastSession(rootId)

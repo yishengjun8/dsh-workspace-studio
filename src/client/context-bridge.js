@@ -21,8 +21,8 @@ export function EditorContextPrefix({ useEditorContext, useSessions, toggle, ens
     observer.observe(parent, { childList: true })
     return () => { observer.disconnect() }
     /* sessionId: a session switch re-renders this component in a different
-       slot — without it the observer keeps watching the OLD parent (leaking
-       until present/direct change) and the gap stops tracking the new row. */
+       slot — without it the observer keeps watching the old parent and the
+       gap stops tracking the new row. */
   }, [context.present, direct, sessionId])
   if (!context.present || !direct) return null
   const range = context.selection === undefined
@@ -54,25 +54,22 @@ const MESSAGE_CONTEXT_SELECTOR = '[data-chat-flow-kind="user"],[data-chat-flow-k
 const MESSAGE_CONTEXT_SUMMARY_ATTR = 'data-dsh-ws-message-context-summary'
 const pendingEditorContextDisplays = new Map()
 /* The queue is consumed only when the message mounts and compacts; a session
-   switch, rendered-text mismatch, or skipped fast-path can leave an entry
-   pending forever. Bound the map so a long session can't grow it without
-   limit — the oldest pending display drops first (the envelope still renders;
-   only the rich summary is lost, the same as a never-consumed entry). */
+   switch or rendered-text mismatch can leave entries pending forever, so
+   bound the map — the oldest pending display drops first (the envelope still
+   renders; only the rich summary is lost). */
 const MAX_PENDING_CONTEXT_DISPLAYS = 256
 let pendingContextDisplayCount = 0
 
-/* Entries carry a unique handle so a failed send can discard EXACTLY its own
-   display: popping the queue tail by text key would remove a DIFFERENT
-   concurrent send's entry when two identical messages (same context + same
-   user text) are in flight and the first one fails. */
+/* Entries carry a unique handle so a failed send discards exactly its own
+   display: popping the queue tail by text key could remove a different
+   concurrent send's entry when two identical messages are in flight. */
 let pendingContextDisplaySeq = 0
 
 export function rememberEditorContextDisplay(text, display) {
-  /* Bound the GLOBAL entry count, not just the key count: repeated context-only
-     sends with the same selection produce the same key, and that key's queue
-     would otherwise grow without limit when consumption fails (session switch,
-     rendered-text mismatch, skipped fast-path). Evict the oldest key's whole
-     queue once the cap is reached. */
+  /* Bound the global entry count, not just the key count: repeated
+     context-only sends share a key whose queue would otherwise grow without
+     limit when consumption fails. Evict the oldest key's whole queue once the
+     cap is reached. */
   if (pendingContextDisplayCount >= MAX_PENDING_CONTEXT_DISPLAYS) {
     const oldest = pendingEditorContextDisplays.keys().next().value
     if (oldest !== undefined) {
@@ -169,13 +166,11 @@ function parseSelectionContext(text) {
   if (headerMatch === null) return null
   const startLine = Number(headerMatch[1])
   const endLine = Number(headerMatch[2])
-  // The envelope ALWAYS closes with the trailer line directly before
-  // `</selection>`, and the bridge appends the user's own text after a blank
-  // line (`rendered + '\n\n' + text`). Anchor on the LAST marker whose tail
-  // starts with that blank-line separator (or is empty): a marker inside the
-  // envelope body can't truncate the fold early, and a marker inside the
-  // user's own text (which would otherwise be picked by a bare lastIndexOf,
-  // folding part of the user's message) is skipped.
+  // The envelope always closes with the trailer line directly before
+  // `</selection>`, and the bridge appends the user's text after a blank line
+  // (`rendered + '\n\n' + text`). Anchor on the last marker whose tail starts
+  // with that blank-line separator (or is empty), so a marker inside the
+  // envelope body or the user's own text is skipped.
   const marker = `${SELECTION_TRAILER}${SELECTION_CLOSE}`
   let markerAt = text.lastIndexOf(marker)
   while (markerAt >= 0) {
@@ -184,19 +179,15 @@ function parseSelectionContext(text) {
       const closeAt = markerAt + marker.length - SELECTION_CLOSE.length
       const body = text.slice(headerEnd + 1, closeAt)
       if (body.endsWith(SELECTION_TRAILER) || body.endsWith(`\r${SELECTION_TRAILER}`)) {
-        /* Line-count guard (U2 audit): the envelope body is the selection
-           text plus the trailer line, so it must contain exactly
-           endLine - startLine + 2 lines (the header declares the selection's
-           line span; the trailing newline of a selection ending in \n is
-           already accounted for by split). The Host CDATA-wraps the selection
-           (`<![CDATA[` open line and `]]>` close line, each on its own line)
-           so a literal `</selection>` in the selected code cannot terminate
-           the envelope early — strip those two framing lines before counting
-           (the escaped text can never contain a bare `]]>` line, so the
-           second-to-last-line check is unambiguous). A marker inside the
-           USER's own text would make the body longer than the header
-           declares — reject that marker and keep searching for the real
-           envelope end. */
+        /* Line-count guard: the envelope body is the selection text plus the
+           trailer line, so it must contain exactly endLine - startLine + 2
+           lines (the trailing newline of a selection ending in \n is already
+           accounted for by split). The Host CDATA-wraps the selection
+           (`<![CDATA[` / `]]>` framing lines) so a literal `</selection>` in
+           the code cannot end the envelope early — strip those two framing
+           lines before counting. A marker inside the user's own text would
+           make the body longer than the header declares — reject it and keep
+           searching for the real envelope end. */
         const bodyLinesRaw = body.replace(/\r\n/g, '\n').split('\n')
         let bodyLines = bodyLinesRaw.length
         if (bodyLinesRaw.length >= 3 && bodyLinesRaw[0] === '<![CDATA['
@@ -231,27 +222,21 @@ function findEditorContextBubble(candidate) {
   for (let current = candidate; current instanceof HTMLElement; current = current.parentElement) {
     if (current.parentElement?.parentElement?.hasAttribute('data-time-hover-root')) return current
     /* Pending steering messages render as
-       [data-pending-steering] > div:first-child > div:last-child WITHOUT a
+       [data-pending-steering] > div:first-child > div:last-child without a
        data-time-hover-root ancestor (see the CSS at .dsh-ws-chat
-       [data-pending-steering]): the bubble is the last child of the first
-       child of the pending container. Without this branch the walk falls
-       through to body and returns the DEEPEST prefix-matching element (often
-       just the header paragraph), so a split envelope never folds. */
+       [data-pending-steering]): without this branch the walk returns the
+       deepest prefix-matching element (often just the header paragraph), so
+       a split envelope never folds. */
     if (current.parentElement?.parentElement?.hasAttribute('data-pending-steering')) return current
   }
   /* The harness reshaped user rows (ui-chat, 2026-08): data-time-hover-root
-     became data-actions-reveal, so the attribute walk above falls through and
-     returns the candidate — which is then the ROW CONTAINER itself
-     ([data-chat-flow-kind="user"|"steering"] flowItem or
-     [data-pending-steering] userRow), NOT the bubble. Rewriting the container
-     would wipe the whole message row instead of folding the envelope inside
-     the bubble. Descend the container instead: the bubble is the unique
-     direct-div chain whose textContent starts with the envelope
-     (flowItem > userRow > userStack > bubble, or
-     [data-pending-steering] > userStack > bubble); the bubble's own children
-     are inline runs (projectUserText spans), so the descent stops there. Only
-     descend from a matched row container, and cap the depth so a deeper DOM
-     reshape fails safe (stops at the last prefix-matching div). */
+     became data-actions-reveal, so the walk above returns the row container
+     itself, not the bubble — rewriting it would wipe the whole message row.
+     Descend the container instead: the bubble is the unique direct-div chain
+     whose textContent starts with the envelope (flowItem > userRow >
+     userStack > bubble); its own children are inline runs, so the descent
+     stops there. Only descend from a matched row container, and cap the depth
+     so a deeper DOM reshape fails safe. */
   if (!(candidate instanceof HTMLElement)
     || (!candidate.hasAttribute('data-chat-flow-kind') && !candidate.hasAttribute('data-pending-steering'))) {
     return candidate instanceof HTMLElement ? candidate : null
@@ -279,11 +264,10 @@ function findEditorContextBubble(candidate) {
 }
 
 function findEditorContextCandidate(container) {
-  /* FIRST envelope wins (was: last-wins). Compacting the first one rewrites
-     the container's text and schedules the observer again, so the second
-     envelope is found by the next pass — with last-wins, everything before
-     the final envelope stayed unfolded forever (the prefix cache saw an
-     unchanged container start and never re-scanned). */
+  /* First envelope wins (was: last-wins): compacting the first rewrites the
+     container's text and schedules the observer again, so the next envelope
+     is found by the next pass — with last-wins, everything before the final
+     envelope stayed unfolded forever. */
   let candidate = null
   const elements = [container, ...container.querySelectorAll('div,span,p,pre')]
   for (const element of elements) {
@@ -331,22 +315,20 @@ export function installEditorContextMessageCompactor() {
     const text = bubble.textContent ?? ''
     const context = parseEditorContextEnvelope(text)
     if (context === null) return
-    /* Store the summary ROW reference (not just the original text) so a
-       later cleanup can remove the row even after the bubble itself left the
-       document — a disconnected bubble has no previousElementSibling, so the
-       old sibling-walk cleanup was a no-op for exactly the ghost cases. */
+    /* Store the summary row reference (not just the text) so cleanup can
+       remove the row even after the bubble left the document — a disconnected
+       bubble has no previousElementSibling. */
     originals.set(bubble, { text, summary: renderEditorContextSummary(bubble, consumeEditorContextDisplay(text) ?? context) })
     bubble.classList.add('dsh-ws-message-context-bubble')
     if (context.visibleText === '') bubble.setAttribute('data-dsh-ws-empty-prompt', '')
     else bubble.removeAttribute('data-dsh-ws-empty-prompt')
     bubble.textContent = context.visibleText
   }
-  /* Per-container prefix fingerprint: reading textContent of every user
-     message on every mutation batch is O(total text) per batch during
-     streaming. The envelope markers sit at the very start of the text, so
-     cache the leading slice per container and skip the read (and the element
-     scan) while it is unchanged. WeakMap keys let removed containers be
-     collected automatically. */
+  /* Per-container prefix fingerprint: reading every message's textContent on
+     each mutation batch is O(total text) during streaming. The envelope
+     markers sit at the very start, so cache the leading slice per container
+     (WeakMap keys let removed containers be collected) and skip the read
+     while it is unchanged. */
   const containerPrefixes = new WeakMap()
   const ENVELOPE_PREFIX_LEN = Math.max(OPENED_FILE_PREFIX.length, SELECTION_PREFIX.length)
   const compactContainer = (container) => {
@@ -362,11 +344,9 @@ export function installEditorContextMessageCompactor() {
   const compactAll = () => {
     for (const container of document.querySelectorAll(MESSAGE_CONTEXT_SELECTOR)) compactContainer(container)
     /* Release bubbles that left the document (message cleared, session
-       removed): their DOM refs and full text must not accumulate until the
-       plugin is disposed. Remove each bubble's summary ROW first — a message
-       teardown may drop the bubble but leave its sibling summary row behind
-       (a ghost "↳ file" line), and a disconnected bubble can no longer be
-       located by sibling walk. */
+       removed): their DOM refs and full text must not accumulate. Remove each
+       bubble's summary row first — a teardown may drop the bubble but leave a
+       ghost "↳ file" line behind. */
     for (const [bubble, original] of originals) {
       if (!bubble.isConnected) {
         if (original?.summary instanceof HTMLElement && original.summary.isConnected) original.summary.remove()
@@ -390,11 +370,9 @@ export function installEditorContextMessageCompactor() {
     observer.disconnect()
     clearEditorContextDisplays()
     for (const [bubble, original] of originals) {
-      /* A disconnected bubble (message cleared / session removed) still owns
-         its summary row: remove the row even when the bubble itself is gone,
-         or a ghost "↳ file" line would linger in the chat until refresh. The
-         row reference was captured at compaction time, so this works without
-         any sibling relationship. */
+      /* A disconnected bubble still owns its summary row: remove it even when
+         the bubble is gone, or a ghost "↳ file" line lingers until refresh
+         (the row reference was captured at compaction time). */
       if (original?.summary instanceof HTMLElement && original.summary.isConnected) original.summary.remove()
       if (!bubble.isConnected) continue
       bubble.classList.remove('dsh-ws-message-context-bubble')

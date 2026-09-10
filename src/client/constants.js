@@ -1,18 +1,16 @@
 export const PACKAGE_ID = '@yishengjun8/dsh-workspace-studio'
 export const API_PREFIX = '/workspace-studio/api'
-/* Plugin self-update (设置 → 工作区设置 → 插件更新): the download+install
-   round trip makes a real network call from the Host, so it gets a longer
-   timeout than the workspace API's generic 30 s (the check itself stays on
-   the generic 30 s). */
+/* Plugin self-update (设置 → 工作区设置 → 插件更新): the download+install round trip makes a real network call from the Host, so it gets a longer timeout than the workspace API's generic 30 s (the check itself stays on the generic 30 s). */
 export const UPDATE_CHECK_TIMEOUT_MS = 30_000
 export const UPDATE_DOWNLOAD_TIMEOUT_MS = 120_000
 export const EDITOR_CONTEXT_PROVIDER = 'workspace-editor-context'
 export const SEND_SESSION_BRIDGE_MARKER = Symbol('workspace-studio.send-session-bridge')
-/* The true original sendSession recorded on a wrapper, so an overlapping
-   re-install can unwrap a stale wrapper instead of recursing through it. */
+/* The true original sendSession recorded on a wrapper, so an overlapping re-install can unwrap a stale wrapper instead of recursing through it. */
 export const SEND_SESSION_BRIDGE_ORIGINAL = Symbol('workspace-studio.send-session-bridge.original')
-/* Max 50 ms retries while a session's input binding is not ready (≈1 s total);
-   a session whose binding never becomes ready must not spin a timer forever. */
+/* The chat file-open router (open-resource.js) patches the harness ctx.sidebarRight.openResource method with the same marker + recorded original convention, so an overlapping re-install unwraps instead of recursing and cleanup restores only its own wrapper. */
+export const OPEN_RESOURCE_BRIDGE_MARKER = Symbol('workspace-studio.open-resource-bridge')
+export const OPEN_RESOURCE_BRIDGE_ORIGINAL = Symbol('workspace-studio.open-resource-bridge.original')
+/* Max 50 ms retries while a session's input binding is not ready (≈1 s total); a session whose binding never becomes ready must not spin a timer forever. */
 export const ENSURE_RETRY_MAX = 20
 export const PREVIEW_SESSION_STORE_KEY = 'dsh.workspace.studio.preview-sessions.v1'
 export const PREVIEW_SESSION_MAX = 25
@@ -31,28 +29,17 @@ export const PREVIEW_RIGHT_DEFAULT = false
 /* Watch opened files for external changes and auto-sync the clean preview (user-tunable); polls this cadence when the host watch is unavailable. */
 export const WATCH_FILES_DEFAULT = true
 export const AUTO_SYNC_CHECK_MS = 2000
-/* Backpressure for AUTO-mode reloads: after reloading a file, further
-   external changes to the SAME path within this window only surface a status
-   (no remount), so a continuously-written file (logs, build output) cannot
-   remount the editor — and wipe its undo history — every single tick. */
+/* Backpressure for AUTO-mode reloads: after reloading a file, further external changes to the SAME path within this window only surface a status (no remount), so a continuously-written file (logs, build output) cannot remount the editor — and wipe its undo history — every single tick. */
 export const AUTO_RELOAD_COOLDOWN_MS = 4000
 /* "Auto" = a clean tab reloads on change; "watch-only" = only shows a "file changed" status and waits for the user's refresh. */
 export const AUTO_SYNC_MODE_AUTO = 'auto'
 export const AUTO_SYNC_MODE_WATCH_ONLY = 'watch-only'
-/* Think card: every Think block stays open as a card whose body viewport shows
-   only the latest N lines (user-tunable slider, 5-30, default 10); earlier
-   lines are reachable through the card's own scrollbar, which stays pinned to
-   the newest text while the block streams. Published as the document-wide
-   --dsh-ws-think-lines property for the card CSS. */
+/* Think card: every Think block stays open as a card whose body viewport shows only the latest N lines (user-tunable slider, 5-30, default 10); earlier lines are reachable through the card's own scrollbar, which stays pinned to the newest text while the block streams. Published as the document-wide --dsh-ws-think-lines property for the card CSS. */
 export const THINK_LINES_DEFAULT = 10
 export const THINK_LINES_MIN = 5
 export const THINK_LINES_MAX = 30
 export const THINK_LINES_STEP = 1
-/* Edit/write tool rows always open by default. The merged-diff body and the
-   generic input/output sections are fixed-height viewports showing the latest
-   N lines (user-tunable slider, 5-30, default 10) with the card's own
-   scrollbar; published as the document-wide --dsh-ws-edit-lines property,
-   independent of the Think-card line count. */
+/* Edit/write tool rows always open by default. The merged-diff body and the generic input/output sections are fixed-height viewports showing the latest N lines (user-tunable slider, 5-30, default 10) with the card's own scrollbar; published as the document-wide --dsh-ws-edit-lines property, independent of the Think-card line count. */
 export const EDIT_LINES_DEFAULT = 10
 export const EDIT_LINES_MIN = 5
 export const EDIT_LINES_MAX = 30
@@ -98,15 +85,12 @@ export const cssColorToHex = (color) => {
   const text = color.trim()
   const shortHex = text.match(/^#([0-9a-fA-F]{3,4})$/)
   if (shortHex !== null) {
-    /* 3-digit #abc → #aabbcc; 4-digit #abcd → #aabbccdd (nibble doubling
-       keeps the alpha channel — slicing to 3 digits silently dropped it). */
+    /* 3-digit #abc → #aabbcc; 4-digit #abcd → #aabbccdd (nibble doubling keeps the alpha channel — slicing to 3 digits silently dropped it). */
     const doubled = shortHex[1].split('').map(part => `${part}${part}`).join('').toLowerCase()
     return `#${doubled}`
   }
   if (/^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$/.test(text)) {
-    /* 8-digit #rrggbbaa keeps its alpha channel (the 4-digit shorthand path
-       doubles nibbles to preserve it too); slicing to 6 digits would silently
-       drop the user's picked opacity. */
+    /* 8-digit #rrggbbaa keeps its alpha channel (the 4-digit shorthand path doubles nibbles to preserve it too); slicing to 6 digits would silently drop the user's picked opacity. */
     return `#${text.slice(1).toLowerCase()}`
   }
   const rgb = text.match(/^rgba?\(\s*(-?[0-9.]+%?)(?:\s*,\s*|\s+)(-?[0-9.]+%?)(?:\s*,\s*|\s+)(-?[0-9.]+%?)(?:\s*(?:,|\/)\s*[^)]+)?\s*\)$/i)
@@ -168,17 +152,12 @@ export const MINDMAP_HEAD_H = 124
 export const MINDMAP_DEPTH_GAP = 64
 export const MINDMAP_ROW_GAP = 12
 export const MINDMAP_TEXT_MAX = 88
-/* AI card summaries: the model picker + advisory length live in 设置 → 工作区设置 →
-   导图浏览设置. The length is a SUGGESTION (prompt wording), not a hard bound.
-   Step 4 keeps the 48-char default on the slider grid (a step of 10 would snap
-   it to 50); the default is what the length row's 恢复默认 restores to. */
+/* AI card summaries: the model picker + advisory length live in 设置 → 工作区设置 → 导图浏览设置. The length is a SUGGESTION (prompt wording), not a hard bound. Step 4 keeps the 48-char default on the slider grid (a step of 10 would snap it to 50); the default is what the length row's 恢复默认 restores to. */
 export const MINDMAP_SUMMARY_DEFAULT_LENGTH = 48
 export const MINDMAP_SUMMARY_MIN_LENGTH = 20
 export const MINDMAP_SUMMARY_MAX_LENGTH = 200
 export const MINDMAP_SUMMARY_LENGTH_STEP = 4
-/* Session-level summary length (右键会话头 → 总结当前会话): a paragraph, so the
-   range is wider than the card length; step 4 keeps the 64-char default on the
-   slider grid. */
+/* Session-level summary length (右键会话头 → 总结当前会话): a paragraph, so the range is wider than the card length; step 4 keeps the 64-char default on the slider grid. */
 export const MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH = 64
 export const MINDMAP_SUMMARY_SESSION_MIN_LENGTH = 20
 export const MINDMAP_SUMMARY_SESSION_MAX_LENGTH = 500
@@ -191,12 +170,7 @@ export const MINDMAP_PAN_MARGIN = 48
 /* Max fraction of the map (per axis, at current zoom) draggable out of view: 0.8 → at least 20% stays on screen; applies to grab-pan and wheel-zoom alike. */
 export const MINDMAP_PAN_OUT_MAX = 0.8
 export const MINDMAP_WHEEL_STEP = 0.0016
-/* Mind-map doc-index refresh interval (sidebar panel + branch hider read it);
-   also bumped on every doc mutation (markDirty refreshes immediately), so the
-   idle poll only needs to catch external changes. 30 s plus the Host's
-   stat-fingerprint index cache (unchanged files are not re-read) keeps the
-   constant background disk scan near-zero; the registry also pauses the timer
-   entirely while no doc exists. */
+/* Mind-map doc-index refresh interval (sidebar panel + branch hider read it); also bumped on every doc mutation (markDirty refreshes immediately), so the idle poll only needs to catch external changes. 30 s plus the Host's stat-fingerprint index cache (unchanged files are not re-read) keeps the constant background disk scan near-zero; the registry also pauses the timer entirely while no doc exists. */
 export const MINDMAP_INDEX_REFRESH_MS = 30000
 /* Re-sync the doc this often while the map is mounted, so a branch turn that completes in chat folds in live. */
 export const MINDMAP_SYNC_MS = 2500
@@ -223,15 +197,9 @@ export const ENCODING_FALLBACK = Object.freeze([
   { id: 'ascii', label: 'ASCII' },
 ])
 export const ENCODING_LABEL_FALLBACK = Object.fromEntries(ENCODING_FALLBACK.map(encoding => [encoding.id, encoding.label]))
-/* In-memory (never persisted) global file-content cache: readFile payloads +
-   their disk change snapshots keyed per (workspace, path, encoding). Survives
-   explorer remounts (session/workspace switches) inside one page load, so a
-   re-activated file needs no content GET while its disk state is unchanged.
-   Cap counts and total bytes; entries larger than MAX_ENTRY are not cached. */
+/* In-memory (never persisted) global file-content cache: readFile payloads + their disk change snapshots keyed per (workspace, path, encoding). Survives explorer remounts (session/workspace switches) inside one page load, so a re-activated file needs no content GET while its disk state is unchanged. Cap counts and total bytes; entries larger than MAX_ENTRY are not cached. */
 export const FILE_CACHE_MAX_ENTRIES = 48
 export const FILE_CACHE_MAX_BYTES = 12 * 1024 * 1024
 export const FILE_CACHE_MAX_ENTRY_BYTES = 4 * 1024 * 1024
-/* A fast activation serve skips its background change check only when the
-   mount's poll has confirmed the disk state equals the served content within
-   this window (watch baseline == content baseline, fresh checkedAt). */
+/* A fast activation serve skips its background change check only when the mount's poll has confirmed the disk state equals the served content within this window (watch baseline == content baseline, fresh checkedAt). */
 export const FILE_CACHE_REVALIDATE_SKIP_MS = 2 * AUTO_SYNC_CHECK_MS + 1000

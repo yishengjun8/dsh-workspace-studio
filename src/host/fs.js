@@ -8,7 +8,7 @@ import { open, readdir, realpath, stat } from 'node:fs/promises'
 import { Buffer } from 'node:buffer'
 import { HttpError } from './errors.js'
 import { entryPath, hasSymlinkComponent, isInside, resolveWorkspacePath } from './paths.js'
-import { containsNul, decodeBytes, decodeUtf8, effectiveReadEncoding, encodingById, revisionFor, textMetadata } from './encodings.js'
+import { containsNul, decodeBytes, decodeUtf8, effectiveReadEncoding, encodingById, hasBom, revisionFor, textMetadata } from './encodings.js'
 import { header, readBody } from './http.js'
 
 const execFileAsync = promisify(execFile)
@@ -425,6 +425,44 @@ export async function readPreview(workspace, relativePath, config, encodingId = 
   }
   if (!truncated) result.revision = revisionFor(previewBytes)
   return result
+}
+/* Charset label for a raw response: the encoding id is already a valid
+   charset name except for the BOM/ascii spellings. */
+const CHARSET_BY_ENCODING = Object.freeze({ 'utf-8-bom': 'utf-8', ascii: 'us-ascii' })
+/* Detect the encoding of a raw file the way the preview's default read does:
+   BOM first (UTF-16 LE/BE, UTF-8), else UTF-8. */
+function detectRawEncoding(bytes) {
+  if (hasBom(bytes, 'utf-16le')) return 'utf-16le'
+  if (hasBom(bytes, 'utf-16be')) return 'utf-16be'
+  if (hasBom(bytes, 'utf-8')) return 'utf-8-bom'
+  return 'utf-8'
+}
+/* Read a workspace file's ORIGINAL bytes for the "open in new window" tab
+   action: bounded by maxPreviewBytes, binary/NUL rejected, encoding detected
+   from the BOM (else UTF-8) for the Content-Type charset. The route serves
+   the response with a sandbox CSP, so the opened document is a unique origin
+   and cannot touch the GUI's storage or API. Markdown files are flagged so
+   the route can serve a server-rendered document instead of the raw bytes
+   (the extension table matches the client's markdown color group). */
+export async function readRawFile(workspace, relativePath, config) {
+  if (relativePath === '') throw new HttpError(400, 'not-a-file', '请选择要预览的文件')
+  const root = await realpath(workspace.path)
+  const target = await resolveWorkspacePath(root, relativePath)
+  const targetStat = await stat(target)
+  if (!targetStat.isFile()) throw new HttpError(400, 'not-a-file', '所选路径不是普通文件')
+  if (targetStat.size > config.maxPreviewBytes) {
+    throw new HttpError(413, 'file-too-large', `文件超过 ${config.maxPreviewBytes} 字节，无法在新窗口打开`)
+  }
+  const bytes = await readPrefix(target, targetStat.size)
+  if (containsNul(bytes)) throw new HttpError(415, 'binary-file', '该文件包含二进制内容，无法在新窗口打开')
+  const encodingId = detectRawEncoding(bytes)
+  return {
+    bytes,
+    charset: CHARSET_BY_ENCODING[encodingId] ?? encodingId,
+    encodingId,
+    isHtml: /\.(html|htm)$/i.test(relativePath),
+    isMarkdown: /\.(md|markdown|mdx)$/i.test(relativePath),
+  }
 }
 /* ------------------------------------------------------------------------
  * External file-change checking for clean preview tabs.

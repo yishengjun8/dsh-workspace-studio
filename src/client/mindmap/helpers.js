@@ -16,7 +16,7 @@ export function isMindmapBranchDescendant(list, id) {
   return false
 }
 
-/* Walk fork lineage to the ordinary root; subagent hops are transparent (family-root title = first non-subagent ancestor's title). */
+/* Walk fork lineage to the ordinary root; subagent hops are transparent. */
 export function mindmapRootTitleOf(list, id) {
   let cursor = String(id)
   const seen = new Set()
@@ -85,17 +85,14 @@ export function mindmapFoldedRunOf(doc, sessionId, seq) {
   return { firstSeq: Number(turns[start].seq), lastSeq: Number(turns[end].seq), count: end - start + 1 }
 }
 
-/* Plan of a card deletion (right-click → 删除卡片): the card is removed by TRUNCATING its
-   session chain (card + every later card cut, session re-created from the previous card via
-   a fork at its turn/end, OLD session archived so the chat shows the truncated conversation);
-   every session hanging off a removed card is archived too. An empty placeholder card — or a
-   session's FIRST card — removes the whole session instead. Removing the LAST remaining
-   session is blocked (the map must keep at least one; the root node is virtual). The doc
-   records nothing about removed turns: a removed turn only resurfaces through a failed
-   archive of its old session (ACCEPTED — pure fork + archive + replace; see
-   docs/mindmap-notes.md). Returns null
-   when the target card is not in the doc, or a plan { archiveIds, sessions, replaced,
-   wholeBranch, lastSession, next }. */
+/* Plan of a card deletion (right-click → 删除卡片): the card and every later card in its
+   session chain are cut, the session is re-created from the previous card via a fork, and the
+   old session — plus every session hanging off a removed card — is archived. An empty
+   placeholder or a session's FIRST card removes the whole session instead; removing the LAST
+   remaining session is blocked (the root node is virtual). Removed turns leave no trace in
+   the doc; they only resurface through a failed archive of their old session (ACCEPTED — pure
+   fork + archive + replace; see docs/mindmap-notes.md). Returns null when the target card is
+   not in the doc, or a plan { archiveIds, sessions, replaced, wholeBranch, lastSession, next }. */
 export function mindmapDeletePlan(doc, ownerId, turnSeq, emptyCard) {
   const sessions = (doc?.sessions ?? []).filter(s => s !== null && s !== undefined)
   const ownerIdx = sessions.findIndex(s => String(s?.sessionId) === String(ownerId))
@@ -138,11 +135,10 @@ export function mindmapDeletePlan(doc, ownerId, turnSeq, emptyCard) {
       if (String(s?.parentSessionId) === String(t.sessionId)
         && (t.n === undefined || Number(s?.parentTurn) === Number(t.n))) {
         pruneIds.add(String(s.sessionId))
-        /* An EMPTY pruned session has no turns to anchor ITS OWN subtree: seed
-           it with a null-key work item (the same rule the whole-branch seed
-           above uses for the owner) so its descendants are pruned too. Without
-           this the children would stay in nextSessions while their parent is
-           gone — invisible in the map, hidden from the sidebar, unreachable. */
+        /* An EMPTY pruned session has no turns to anchor its own subtree: seed
+           it with a null-key work item (same rule as the whole-branch seed
+           above) so its descendants are pruned too — otherwise they'd stay in
+           nextSessions while their parent is gone. */
         if ((s?.turns ?? []).length === 0) {
           removed.push({ sessionId: String(s.sessionId), seq: undefined, n: undefined })
         }
@@ -218,13 +214,11 @@ export function mindmapDocFingerprint(doc) {
 }
 
 /* Structure-ONLY fingerprint for the layout memo: everything mindmapDocLayout
-   reads EXCEPT the AI summaries. A summary write must re-render only the
-   affected card (its summary prop), never rebuild the whole canvas — the layout
-   (and every node entry it produces) stays referentially stable across summary
-   changes, so React.memo on the cards keeps working. The question text IS
-   included (the cards render it), so an in-place edit of a turn's user text
-   (same seq/n) still rebuilds the card. JSON-encoded for the same
-   collision-free reasons as mindmapDocFingerprint. */
+   reads EXCEPT the AI summaries, so a summary write re-renders only the
+   affected card and the layout stays referentially stable (React.memo on the
+   cards keeps working). The question text IS included (the cards render it), so
+   an in-place edit of a turn's user text (same seq/n) still rebuilds the card.
+   JSON-encoded for the same collision-free reasons as mindmapDocFingerprint. */
 export function mindmapDocStructureFingerprint(doc) {
   return JSON.stringify({
     rootSessionId: String(doc?.rootSessionId ?? ''),
@@ -245,10 +239,8 @@ export function mindmapDocStructureFingerprint(doc) {
 
 /* Deterministic per-session palette for a streaming card + parent pair (the gradient ring and
    flowing edge): a hash of the session id seeds a PRNG picking ONE 3-color scheme from the
-   curated pool, stable across renders. Returns a FLAT 3-color array (c1, c2, c3) — a buggy
-   earlier version returned arrays of palettes, making every stroke/stop an invalid color list
-   (edge rendered black). Cached by session id so the array identity survives layout recomputes
-   and React.memo comparisons. */
+   curated pool, stable across renders. Returns a FLAT 3-color array (c1, c2, c3); cached by
+   session id so the array identity survives layout recomputes and React.memo comparisons. */
 export const MINDMAP_STREAM_PALETTE = [
   ['#22d3ee', '#818cf8', '#a78bfa'],
   ['#fb923c', '#f472b6', '#e11d48'],
@@ -302,10 +294,10 @@ export const mindmapStreamPalette = (sessionId) => {
    right after, indented to the card they hang off. A session with no turns renders one
    placeholder card; an optional `streaming` descriptor ({ sessionId, question }) appends an
    ephemeral live card to the chain tail (replacing an empty session's placeholder). Consecutive
-   folded turns merge into ONE folded card (unless the run is being peeked — `peekedRuns`
-   (a Set of `${sessionId}:${firstSeq}` keys) temporarily expands those runs back into
-   individual cards without touching the folded attribute); children of folded turns re-mount
-   from the folded card. Returns { nodes, edges, width, height, peekBoxes } — nodes carry
+   folded turns merge into ONE folded card unless the run is being peeked (`peekedRuns`, a Set
+   of `${sessionId}:${firstSeq}` keys, temporarily expands those runs back into individual
+   cards without touching the folded attribute); children of folded turns re-mount from the
+   folded card. Returns { nodes, edges, width, height, peekBoxes } — nodes carry
    key/kind/sessionId/turn/empty/streaming/folded/peeked/row/depth/x/y/width/height, edges are
    { from, to, mount?, d } with the SVG path precomputed, peekBoxes is one amber outline per
    peeked run (empty array when none). */
@@ -741,10 +733,9 @@ export function mindmapFitView(worldW, worldH, vw, vh) {
 export function useMindmapSessionView(useSessions, familyIdsRef) {
   const cacheRef = useRef(null)
   /* Join-string cache keyed by the family ARRAY identity (the caller memoizes
-     the array per doc/rootId change): the selector runs on every store change
-     (streaming churn), and an unconditional `family.join('\u0002')` would
-     allocate a fresh string on every run — the whole point of the value-level
-     unchanged check below is to stay allocation-free on the hot path. */
+     the array per doc/rootId change): an unconditional `family.join('\u0002')`
+     would allocate a fresh string on every selector run — the point of the
+     value-level unchanged check below is to stay allocation-free on the hot path. */
   const keyRef = useRef(null) // { family, key }
   return useSessions((state) => {
     const byId = state?.byId ?? {}

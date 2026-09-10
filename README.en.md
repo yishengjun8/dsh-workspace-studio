@@ -47,6 +47,7 @@ This bundle replaces the DeepSeek Harness Web root layout with **three panes fro
 ### Preview Tabs
 
 - Opened files enter per-Session preview tabs: `X` to close, drag to reorder, and tabs survive reloads.
+- Right-click a tab → **Open in new window**: Markdown files (md / markdown / mdx) open as a **rendered document** in the new tab (GFM: tables, task lists, strikethrough; raw HTML renders as literal text, links and images are allowlisted to http / https / mailto — the same policy as the in-pane preview, and the page carries no scripts); HTML files run their page scripts as-is, other files show the raw text.
 - **Pinned tabs**: right-click a tab to **Pin / Unpin**; pinned tabs show a pin icon and sort first, and **Close Other Tabs** only closes unpinned tabs.
 - Unsaved edits show a `·` after the tab label and after the filename in the preview panel title; it disappears once saved.
 - Unsaved drafts are kept in staging files (see Editing & Saving); localStorage only holds the dirty marker, never content; switching files never silently discards unsaved content.

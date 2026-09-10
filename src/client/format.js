@@ -15,10 +15,9 @@ export function highlightPresetLabel(id) {
 }
 
 
-/* File-tree badge color groups. Each group owns one accent color for the
-   leading type badge (text + translucent tint), user-recolorable in settings
-   with unset groups falling back to their default. Directory and blocked
-   entries are groups like any file type. */
+/* File-tree badge color groups: each owns one accent color for the leading
+   type badge, user-recolorable in settings with unset groups falling back to
+   their default. Directory and blocked entries are groups like any file type. */
 export const FILE_COLOR_GROUPS = Object.freeze([
   { group: 'directory', label: '目录', color: '#3b82f6' },
   { group: 'typescript', label: 'TypeScript', color: '#3178c6' },
@@ -47,8 +46,8 @@ export function fileColorOf(settings, group) {
   return settings?.fileColors?.[group] ?? fileColorDefault(group)
 }
 
-/* Extension -> color group. Mirrors EXTENSION_LANGUAGES so a file's badge
-   and editor highlighting agree; unknown suffixes land in 'other'. */
+/* Extension -> color group; mirrors EXTENSION_LANGUAGES so badge and editor
+   highlighting agree. Unknown suffixes land in 'other'. */
 export const FILE_GROUP_BY_EXTENSION = Object.freeze({
   ts: 'typescript', tsx: 'typescript', mts: 'typescript', cts: 'typescript',
   js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript',
@@ -82,10 +81,10 @@ export function colorGroupOf(entry) {
   return FILE_GROUP_BY_EXTENSION[extension] ?? DEFAULT_FILE_GROUP
 }
 
-/* Editor syntax-highlight presets. Each non-default preset overrides the
+/* Editor syntax-highlight presets: each non-default preset overrides the
    --shiki-token-* variables on the editor host (light/dark variants via the
    body attribute), so the HighlightStyle keeps its single var() mapping.
-   'default' leaves the app theme's shiki palette untouched. */
+   'default' leaves the app theme's palette untouched. */
 export const HIGHLIGHT_PRESETS = Object.freeze([
   { id: 'default', label: '默认' },
   { id: 'classic', label: '经典' },
@@ -106,8 +105,7 @@ export const HIGHLIGHT_PRESETS = Object.freeze([
   { id: 'vs2022', label: 'Visual Studio 2022' },
 ])
 export const HIGHLIGHT_PRESET_DEFAULT = 'default'
-/* Per-group default highlight presets; a group with no entry here and no user
-   pick follows the app theme's shiki palette ('default'). */
+/* Per-group default highlight presets; a group with no entry here and no user pick follows the app theme's palette ('default'). */
 export const HIGHLIGHT_PRESET_DEFAULT_BY_GROUP = Object.freeze({
   markup: 'vscode-xml',
   python: 'vscode-python',
@@ -136,8 +134,7 @@ export function lineSeparator(value) {
   return '\n'
 }
 
-/* Read-only reason codes the preview may carry, mapped to dictionary keys
-   (including server alias spellings). */
+/* Read-only reason codes the preview may carry, mapped to dictionary keys (including server alias spellings). */
 export const READ_ONLY_REASON_KEYS = Object.freeze({
   binary: 'readonly.binary',
   encoding: 'readonly.encoding',
@@ -167,8 +164,7 @@ export function readOnlyReason(preview) {
 export const fileLabel = name => languageFor(name).label
 export const clamp = (value, min, max) => {
   const rounded = Math.round(value)
-  // NaN must not leak through Math.min/max into state; non-numeric input
-  // resolves to the lower bound as a safe default.
+  // NaN must not leak through Math.min/max into state; non-numeric input resolves to the lower bound.
   return Number.isFinite(rounded) ? Math.min(max, Math.max(min, rounded)) : min
 }
 export function formatBytes(bytes) { if (!Number.isFinite(bytes) || bytes < 0) return ''; if (bytes < 1024) return `${bytes} B`; if (bytes < 1048576) return `${(bytes / 1024).toFixed(bytes < 10240 ? 1 : 0)} KB`; return `${(bytes / 1048576).toFixed(1)} MB` }

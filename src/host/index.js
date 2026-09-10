@@ -1,14 +1,16 @@
 /** Plugin entry: Config schema, route dispatch and apply(). */
 import z from '@deepseek-ai/schemastery'
+import { Buffer } from 'node:buffer'
 import { HttpError } from './errors.js'
-import { isTrustedRequest, normalizeFailure, readJsonObject, requiredQuery, sendError, sendJson } from './http.js'
+import { isTrustedRequest, normalizeFailure, readJsonObject, requiredQuery, sendError, sendJson, sendRaw } from './http.js'
 import { normalizeRelativePath } from './paths.js'
 import { ENCODINGS } from './encodings.js'
-import { listTree, readExternalPreview, readPreview, readPreviewHead, revealInExplorer, searchWorkspace } from './fs.js'
+import { listTree, readExternalPreview, readPreview, readPreviewHead, readRawFile, revealInExplorer, searchWorkspace } from './fs.js'
 import { createEntry, fsOperation, renameEntry, saveFile } from './write.js'
 import { deleteDraftFile, draftTreeOperation, parseDraftGenerationQuery, readDraftFile, saveDraftFile, validateDraftOwner, validateDraftPayload, writeJsonAtomic } from './drafts.js'
 import { adoptMindmapOrphans, buildMindmapDoc, deleteMindmapDoc, findMindmapDocWithAncestors, indexMindmapDocs, isValidMindmapDoc, listMindmapModels, MINDMAP_DOC_MAX_BYTES, mindmapAnchorOf, mindmapDocPath, mindmapDrainPendingSessionSummaries, mindmapLock, mindmapLockedReanchorOp, mindmapSessionSummarizingOf, mindmapSummarizingOf, mindmapSyncCache, parseMindmapSummaryConfig, purgeArchivedMindmapDocs, readMindmapDocFile, refreshMindmapDocCore, regenerateAllMindmapSummaries, regenerateMindmapSummary, renameMindmapDoc, seedMindmapSyncCacheAfterLoad, summarizeMindmapSession, syncMindmapDoc, validateMindmapSession, writeMindmapDoc } from './mindmap.js'
 import { renderPromptContext } from './prompt-context.js'
+import { renderMarkdownDocument } from './markdown.js'
 import { checkForUpdate, downloadUpdate } from './update.js'
 import { workspaceFor } from './workspace.js'
 /** Stable Cordis plugin name. */
@@ -98,6 +100,7 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
     const entryEndpoint = url.pathname === `${API_PREFIX}/entry`
     const externalFileEndpoint = url.pathname === `${API_PREFIX}/external-file`
     const fileEndpoint = url.pathname === `${API_PREFIX}/file`
+    const rawEndpoint = url.pathname === `${API_PREFIX}/raw`
     const fsEndpoint = url.pathname === `${API_PREFIX}/fs`
     const treeEndpoint = url.pathname === `${API_PREFIX}/tree`
     const searchEndpoint = url.pathname === `${API_PREFIX}/search`
@@ -124,7 +127,9 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
             ? 'POST'
             : fileEndpoint
               ? 'GET, HEAD, PUT'
-              : fsEndpoint
+              : rawEndpoint
+                ? 'GET, HEAD'
+                : fsEndpoint
                 ? 'POST'
                 : treeEndpoint
                   ? 'GET, HEAD'
@@ -161,7 +166,7 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
       sendError(req, res, 405, 'method-not-allowed', `该接口只允许 ${allowed} 请求`, { allow: allowed })
       return
     }
-    if (!contextEndpoint && !encodingsEndpoint && !entryEndpoint && !externalFileEndpoint && !fileEndpoint && !fsEndpoint && !treeEndpoint && !searchEndpoint && !revealEndpoint && !draftEndpoint && !draftTreeEndpoint && !mindmapDocEndpoint && !mindmapDocIndexEndpoint && !mindmapDocSyncEndpoint && !mindmapDocRenameEndpoint && !mindmapDocModelsEndpoint && !mindmapDocRegenerateEndpoint && !mindmapDocRegenerateAllEndpoint && !mindmapDocSummarizeSessionEndpoint && !updateCheckEndpoint && !updateDownloadEndpoint) {
+    if (!contextEndpoint && !encodingsEndpoint && !entryEndpoint && !externalFileEndpoint && !fileEndpoint && !rawEndpoint && !fsEndpoint && !treeEndpoint && !searchEndpoint && !revealEndpoint && !draftEndpoint && !draftTreeEndpoint && !mindmapDocEndpoint && !mindmapDocIndexEndpoint && !mindmapDocSyncEndpoint && !mindmapDocRenameEndpoint && !mindmapDocModelsEndpoint && !mindmapDocRegenerateEndpoint && !mindmapDocRegenerateAllEndpoint && !mindmapDocSummarizeSessionEndpoint && !updateCheckEndpoint && !updateDownloadEndpoint) {
       sendError(req, res, 404, 'endpoint-not-found', '接口不存在')
       return
     }
@@ -393,6 +398,38 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
     }
     const relativePath = normalizeRelativePath(url.searchParams.get('path') ?? '')
     const encodingId = url.searchParams.get('encoding') ?? 'utf-8'
+    if (rawEndpoint) {
+      /* "Open in new window": serve the file's original bytes with a sandbox
+         CSP so the opened document is a unique origin (scripts run, but it
+         cannot read the GUI's storage or call the API with credentials).
+         Markdown files get a server-rendered HTML document instead, whose
+         CSP drops allow-scripts entirely (the page carries no scripts);
+         errors go out as plain text — the response is a browser tab, not a
+         fetch. */
+      try {
+        const raw = await readRawFile(workspace, relativePath, config)
+        if (raw.isMarkdown) {
+          const fileName = relativePath.slice(relativePath.lastIndexOf('/') + 1)
+          const document = renderMarkdownDocument(raw.bytes, raw.encodingId, fileName)
+          if (document !== null) {
+            sendRaw(req, res, 200, document, 'text/html; charset=utf-8', {
+              'content-security-policy': 'sandbox allow-popups allow-popups-to-escape-sandbox',
+            })
+            return
+          }
+          /* Undecodable as the detected encoding: fall through to the raw
+             bytes (the pre-rendering behavior). */
+        }
+        sendRaw(req, res, 200, raw.bytes, `${raw.isHtml ? 'text/html' : 'text/plain'}; charset=${raw.charset}`, {
+          'content-security-policy': 'sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms allow-modals allow-downloads',
+        })
+      } catch (error) {
+        const failure = normalizeFailure(error)
+        const message = failure instanceof HttpError ? failure.message : '无法打开文件'
+        sendRaw(req, res, failure.status, Buffer.from(`${message}\n`, 'utf8'), 'text/plain; charset=utf-8')
+      }
+      return
+    }
     if (draftEndpoint) {
       const owner = validateDraftOwner(url.searchParams.get('owner') ?? url.searchParams.get('sessionId') ?? undefined)
       if (owner === undefined) throw new HttpError(400, 'invalid-draft', '暂存请求必须提供 owner')

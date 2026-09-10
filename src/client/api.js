@@ -1,10 +1,7 @@
 import { API_PREFIX, ENCODING_FALLBACK, ENCODING_LABEL_FALLBACK, MINDMAP_MODELS_CACHE_MS, UPDATE_CHECK_TIMEOUT_MS, UPDATE_DOWNLOAD_TIMEOUT_MS } from './constants.js'
 import { localeIsZh, translate } from './locale/index.js'
 
-/* Bounded request timeouts: a hung Host (dead process, stuck LLM call) must
-   not leave the UI in a permanent loading/saving state. Merges the caller's
-   signal with a timeout; falls back to the caller's signal alone when the
-   timeout APIs are unavailable. */
+/* Bounded request timeouts: a hung Host (dead process, stuck LLM call) must not leave the UI in a permanent loading/saving state. Merges the caller's signal with a timeout; falls back to the caller's signal alone when the timeout APIs are unavailable. */
 const REQUEST_TIMEOUT_MS = 30_000
 const MINDMAP_LLM_TIMEOUT_MS = 60_000
 function withTimeout(signal, timeoutMs) {
@@ -60,24 +57,18 @@ export class WorkspaceApiError extends Error {
     this.status = status
   }
 }
-/* Build the error of a failed JSON response; unexpected 500s now carry the
-   Host's internal `detail` (added 2026-08) so a state-dependent failure is
-   diagnosable from the toast/console instead of a black-box generic message. */
+/* Build the error of a failed JSON response; unexpected 500s now carry the Host's internal `detail` (added 2026-08) so a state-dependent failure is diagnosable from the toast/console instead of a black-box generic message. */
 function apiFailure(failure, fallbackCode, fallbackKey, status) {
   const code = typeof failure?.code === 'string' ? failure.code : fallbackCode
   const message = apiErrorMessage(code, typeof failure?.message === 'string' ? failure.message : undefined, fallbackKey, { status })
   const detail = typeof failure?.detail === 'string' && failure.detail !== '' ? failure.detail : undefined
   const error = new WorkspaceApiError(code, detail === undefined ? message : `${message}: ${detail}`, status)
   if (detail !== undefined) error.detail = detail
-  /* Structured payload (e.g. { currentGeneration } on a draft generation
-     conflict) rides along so callers can recover without parsing prose. */
+  /* Structured payload (e.g. { currentGeneration } on a draft generation conflict) rides along so callers can recover without parsing prose. */
   if (failure?.data !== undefined && failure.data !== null) error.data = failure.data
   return error
 }
-/* Build the failure of a NON-2xx response whose body may not be JSON (proxy
-   HTML, empty 5xx, connection error page): the endpoint's fallback code
-   carries the status instead of the generic invalid-response, so callers
-   still get a sane code + message when the server detail is unreadable. */
+/* Build the failure of a NON-2xx response whose body may not be JSON (proxy HTML, empty 5xx, connection error page): the endpoint's fallback code carries the status instead of the generic invalid-response, so callers still get a sane code + message when the server detail is unreadable. */
 async function responseFailure(response, fallbackCode, fallbackKey) {
   let failure
   try {
@@ -90,8 +81,7 @@ async function responseFailure(response, fallbackCode, fallbackKey) {
 export async function requestJson(endpoint, workspaceId, path, signal, encoding) {
   const query = new URLSearchParams({ workspaceId, path })
   if (encoding !== undefined && encoding !== null) query.set('encoding', String(encoding))
-  /* Read requests are timeout-bounded too (a hung Host must not leave the
-     explorer on a permanent loading state). */
+  /* Read requests are timeout-bounded too (a hung Host must not leave the explorer on a permanent loading state). */
   const response = await fetch(`${API_PREFIX}/${endpoint}?${query}`, { method: 'GET', headers: { accept: 'application/json' }, credentials: 'same-origin', signal: withTimeout(signal, REQUEST_TIMEOUT_MS) })
   if (!response.ok) throw await responseFailure(response, 'request-failed', 'error.request-failed')
   let payload
@@ -101,8 +91,7 @@ export async function requestJson(endpoint, workspaceId, path, signal, encoding)
     if (error?.name === 'AbortError') throw error
     throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, endpoint === 'file' ? 'error.invalid-response.file' : 'error.invalid-response.tree', { status: response.status }), response.status)
   }
-  /* Minimal shape assertions: a 200 body missing the payload contract is a
-     Host anomaly, not a render-time crash (the tree maps entries directly). */
+  /* Minimal shape assertions: a 200 body missing the payload contract is a Host anomaly, not a render-time crash (the tree maps entries directly). */
   if (endpoint === 'tree' && !Array.isArray(payload?.entries)) {
     throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.tree', { status: response.status }), response.status)
   }
@@ -111,13 +100,12 @@ export async function requestJson(endpoint, workspaceId, path, signal, encoding)
   }
   return payload
 }
-/* Cheap file-change check for open preview tabs: the Host stats the file and
-   compares mtime/size/hash against the previous snapshot (workspace-confined,
-   read-only). Returns `changed` plus the new baseline snapshot; null means the
-   file is gone. A null previousSnapshot (the file was deleted and the client
-   holds the `null` sentinel) is sent as an explicit { gone: true } marker so
-   a RE-CREATED file reports `changed` — without it the Host sees no baseline
-   and answers changed:false, and the tab would keep showing stale content. */
+/* The URL of a workspace file's raw bytes for the "open in new window" tab action: a same-origin navigation the Host serves with a sandbox CSP (the opened document is a unique origin and cannot touch the GUI's storage). */
+export function rawFileUrl(workspaceId, path) {
+  const query = new URLSearchParams({ workspaceId: String(workspaceId), path })
+  return `${API_PREFIX}/raw?${query}`
+}
+/* Cheap file-change check for open preview tabs: the Host stats the file and compares mtime/size/hash against the previous snapshot (workspace-confined, read-only). Returns `changed` plus the new baseline snapshot; null means the file is gone. A null previousSnapshot (the file was deleted and the client holds the `null` sentinel) is sent as an explicit { gone: true } marker so a RE-CREATED file reports `changed` — without it the Host sees no baseline and answers changed:false, and the tab would keep showing stale content. */
 export async function checkFileChange(workspaceId, path, previousSnapshot, signal) {
   const query = new URLSearchParams({ workspaceId: String(workspaceId), path, check: '1' })
   if (previousSnapshot !== undefined && previousSnapshot !== null) {
@@ -125,9 +113,7 @@ export async function checkFileChange(workspaceId, path, previousSnapshot, signa
       mtimeMs: previousSnapshot.mtimeMs,
       size: previousSnapshot.size,
       hash: previousSnapshot.hash,
-      /* The Host's mtime+size fast path is TTL-bounded (CHANGE_CHECK_FAST_PATH_TTL_MS):
-         carrying the check timestamp lets it force a hash after the TTL so a
-         same-size rewrite with preserved mtime is still detected. */
+      /* The Host's mtime+size fast path is TTL-bounded (CHANGE_CHECK_FAST_PATH_TTL_MS): carrying the check timestamp lets it force a hash after the TTL so a same-size rewrite with preserved mtime is still detected. */
       checkedAt: previousSnapshot.checkedAt,
     }))
   } else if (previousSnapshot === null) {
@@ -135,11 +121,7 @@ export async function checkFileChange(workspaceId, path, previousSnapshot, signa
   }
   const response = await fetch(`${API_PREFIX}/file?${query}`, { method: 'GET', headers: { accept: 'application/json' }, credentials: 'same-origin', signal: withTimeout(signal, REQUEST_TIMEOUT_MS) })
   if (!response.ok) {
-    /* NOTE: a MISSING file is NOT an error here — the Host answers 200 with
-       { exists: false, snapshot: null } (the { gone: true } baseline above
-       covers re-creates). Treating every non-2xx as a real failure (a path
-       validation error, server trouble) keeps the poll honest: the caller's
-       tick swallows transient failures and keeps polling. */
+    /* NOTE: a MISSING file is NOT an error here — the Host answers 200 with { exists: false, snapshot: null } (the { gone: true } baseline above covers re-creates). Treating every non-2xx as a real failure (a path validation error, server trouble) keeps the poll honest: the caller's tick swallows transient failures and keeps polling. */
     throw await responseFailure(response, 'request-failed', 'error.request-failed')
   }
   let payload
@@ -167,16 +149,10 @@ export async function putFile(workspaceId, path, content, revision, signal, enco
   }
   return payload
 }
-// Mind-map document API: the 导图 conversation view is backed by a persisted
-// per-root-session document (a flat list of session turn-chains + fork branches)
-// the Host reverse-parses from the FULL session logs — the single source of
-// truth. The client only re-syncs (folding new turns) and persists structural
-// changes (forks, branch removal).
+// Mind-map document API: the 导图 conversation view is backed by a persisted per-root-session document (a flat list of session turn-chains + fork branches) the Host reverse-parses from the FULL session logs — the single source of truth. The client only re-syncs (folding new turns) and persists structural changes (forks, branch removal).
 export async function mindmapRequest(endpoint, options) {
   const { method = 'GET', body, signal } = options ?? {}
-  /* The regenerate/summarize endpoints run a synchronous LLM call on the Host
-     (up to its 25 s internal cap): give them a longer timeout than the plain
-     doc/sync traffic. */
+  /* The regenerate/summarize endpoints run a synchronous LLM call on the Host (up to its 25 s internal cap): give them a longer timeout than the plain doc/sync traffic. */
   const llmEndpoint = endpoint === '/regenerate-summary' || endpoint === '/regenerate-all' || endpoint === '/summarize-session'
   const response = await fetch(`${API_PREFIX}/mindmap-doc${endpoint}`, {
     method,
@@ -210,9 +186,7 @@ export const syncMindmapDoc = (sessionId, liveSessionIds, signal, summaryConfig)
   const body = ids.length > 0
     ? { sessionId: String(sessionId), liveSessionIds: ids }
     : { sessionId: String(sessionId) }
-  /* AI-summary config ({ mode:'session' } or { provider, model } + advisory
-     length); absent = feature off. The Host only enqueues generation as a
-     side effect of this sync, so no extra endpoint is needed for it. */
+  /* AI-summary config ({ mode:'session' } or { provider, model } + advisory length); absent = feature off. The Host only enqueues generation as a side effect of this sync, so no extra endpoint is needed for it. */
   if (summaryConfig !== null && summaryConfig !== undefined) body.summaryModel = summaryConfig
   return mindmapRequest('/sync', {
     method: 'POST',
@@ -220,22 +194,17 @@ export const syncMindmapDoc = (sessionId, liveSessionIds, signal, summaryConfig)
     signal,
   })
 }
-/* Configured models for the AI-summary picker, cached briefly (the catalog
-   rarely changes while the settings panel is open). */
+/* Configured models for the AI-summary picker, cached briefly (the catalog rarely changes while the settings panel is open). */
 let mindmapModelsCache = null // { at, payload }
 let mindmapModelsRequest = null // in-flight promise (dedup concurrent opens)
-/* The shared request is deliberately NOT bound to any single caller's signal:
-   the first caller's abort would otherwise kill the promise every concurrent
-   opener is waiting on. The small catalog fetch either completes into the
-   cache or fails — callers read the cached result / next request instead. */
+/* The shared request is deliberately NOT bound to any single caller's signal: the first caller's abort would otherwise kill the promise every concurrent opener is waiting on. The small catalog fetch either completes into the cache or fails — callers read the cached result / next request instead. */
 export const fetchMindmapModels = () => {
   if (mindmapModelsCache !== null && mindmapModelsCache.at + MINDMAP_MODELS_CACHE_MS > Date.now()) {
     return Promise.resolve(mindmapModelsCache.payload)
   }
   if (mindmapModelsRequest !== null) return mindmapModelsRequest
   mindmapModelsRequest = mindmapRequest('/models', { method: 'GET' }).then((payload) => {
-    /* Stamp the cache when the fetch COMPLETES so a slow request does not
-       shorten the 60 s window. */
+    /* Stamp the cache when the fetch COMPLETES so a slow request does not shorten the 60 s window. */
     mindmapModelsCache = { at: Date.now(), payload }
     return payload
   }).finally(() => {
@@ -243,8 +212,7 @@ export const fetchMindmapModels = () => {
   })
   return mindmapModelsRequest
 }
-/* Right-click → 重新生成摘要: the Host runs the LLM call synchronously and
-   persists the new summary into the doc; the client applies it optimistically. */
+/* Right-click → 重新生成摘要: the Host runs the LLM call synchronously and persists the new summary into the doc; the client applies it optimistically. */
 export const regenerateMindmapSummary = (sessionId, seq, config, signal) => mindmapRequest('/regenerate-summary', {
   method: 'POST',
   body: {
@@ -254,9 +222,7 @@ export const regenerateMindmapSummary = (sessionId, seq, config, signal) => mind
   },
   signal,
 })
-/* Toolbar → 重新生成全部摘要: the Host force-enqueues EVERY turn of the doc
-   (old summaries are kept until the new ones land); the per-card
-   "正在生成摘要中…" status arrives via the sync response's `summarizing`. */
+/* Toolbar → 重新生成全部摘要: the Host force-enqueues EVERY turn of the doc (old summaries are kept until the new ones land); the per-card "正在生成摘要中…" status arrives via the sync response's `summarizing`. */
 export const regenerateAllMindmapSummaries = (sessionId, config, signal) => mindmapRequest('/regenerate-all', {
   method: 'POST',
   body: {
@@ -265,9 +231,7 @@ export const regenerateAllMindmapSummaries = (sessionId, config, signal) => mind
   },
   signal,
 })
-/* 右键会话头 → 总结当前会话: the Host summarizes the session from its card
-   summaries only; missing card summaries are generated first (status 'waiting'
-   — the result arrives via a later sync). */
+/* 右键会话头 → 总结当前会话: the Host summarizes the session from its card summaries only; missing card summaries are generated first (status 'waiting' — the result arrives via a later sync). */
 export const summarizeMindmapSession = (sessionId, config, signal) => mindmapRequest('/summarize-session', {
   method: 'POST',
   body: {
@@ -278,20 +242,14 @@ export const summarizeMindmapSession = (sessionId, config, signal) => mindmapReq
 })
 export const fetchMindmapDocIndex = signal => mindmapRequest('/index', { method: 'GET', signal })
 export const deleteMindmapDoc = (sessionId, signal) => mindmapRequest(`?sessionId=${encodeURIComponent(String(sessionId))}`, { method: 'DELETE', signal })
-/* Rename only the map's OWN title (doc.rootTitle) on the Host — a targeted
-   update instead of a GET-then-POST round trip, which could clobber a turn a
-   concurrent sync had just folded in between. */
+/* Rename only the map's OWN title (doc.rootTitle) on the Host — a targeted update instead of a GET-then-POST round trip, which could clobber a turn a concurrent sync had just folded in between. */
 export const renameMindmapDoc = (sessionId, title, signal) => mindmapRequest('/rename', {
   method: 'POST',
   body: { sessionId: String(sessionId), title },
   signal,
 })
 
-// Draft (staging) file access: editing content lives in a draft file outside
-// the workspace, never in the source file. The draft JSON carries { path,
-// encoding, lineEnding, bom, baseText, baseRevision, draft, owner, generation }
-// so a refresh restores the whole session without localStorage; the Host's
-// generation fence rejects stale writes from a discarded or previous mount.
+// Draft (staging) file access: editing content lives in a draft file outside the workspace, never in the source file. The draft JSON carries { path, encoding, lineEnding, bom, baseText, baseRevision, draft, owner, generation } so a refresh restores the whole session without localStorage; the Host's generation fence rejects stale writes from a discarded or previous mount.
 export async function readDraft(workspaceId, path, signal, owner) {
   const query = new URLSearchParams({ workspaceId: String(workspaceId), path })
   if (owner !== undefined && owner !== null) query.set('owner', String(owner))
@@ -419,12 +377,7 @@ export async function revealInExplorer(workspaceId, path, signal) {
 }
 export const createWorkspaceEntry=(workspaceId,path,kind,name,signal)=>mutateEntry('POST',workspaceId,path,{kind,name},signal)
 export const renameWorkspaceEntry=(workspaceId,path,name,signal)=>mutateEntry('PATCH',workspaceId,path,{name},signal)
-/* Plugin self-update (设置 → 工作区设置 → 插件更新): the Host compares the
-   installed version against the GitHub main branch (codeload tarball, cached
-   briefly) and, on download, swaps its own install directory — the running
-   code stays the OLD copy until dsh is restarted (the check reports
-   restartPending for the UI notice). force=1 bypasses the Host's check cache
-   (the explicit 检查更新/重试 buttons). */
+/* Plugin self-update (设置 → 工作区设置 → 插件更新): the Host compares the installed version against the GitHub main branch (codeload tarball, cached briefly) and, on download, swaps its own install directory — the running code stays the OLD copy until dsh is restarted (the check reports restartPending for the UI notice). force=1 bypasses the Host's check cache (the explicit 检查更新/重试 buttons). */
 export async function checkUpdate(signal, force) {
   const query = force === true ? '?force=1' : ''
   const response = await fetch(`${API_PREFIX}/update/check${query}`, { method: 'GET', headers: { accept: 'application/json' }, credentials: 'same-origin', signal: withTimeout(signal, UPDATE_CHECK_TIMEOUT_MS) })
@@ -443,9 +396,7 @@ export async function checkUpdate(signal, force) {
 }
 export async function downloadUpdate(version, signal) {
   const response = await fetch(`${API_PREFIX}/update/download`, { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ version }), signal: withTimeout(signal, UPDATE_DOWNLOAD_TIMEOUT_MS) })
-  /* The download/install failure fallback is its own key: the generic
-     'error.update-failed' copy says "Failed to CHECK for updates", which
-     would mislead on a failed download. */
+  /* The download/install failure fallback is its own key: the generic 'error.update-failed' copy says "Failed to CHECK for updates", which would mislead on a failed download. */
   if (!response.ok) throw await responseFailure(response, 'update-download-failed', 'error.update-download-failed')
   let payload
   try {

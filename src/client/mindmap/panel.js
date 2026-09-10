@@ -30,17 +30,13 @@ export const MINDMAP_ICON = h('g', { fill: 'none', stroke: 'currentColor', strok
   h('path', { d: 'M19 7l-7 10' }))
 
 /* Self-drawn sidebar entries replacing the hidden ordinary session rows.
-   Rendered per workspace group: only docs whose root session belongs to that
-   group's workspace; with groupTitle undefined (flat/search) every doc is
-   shown. Clicking opens the root session and docks the mind map as a preview
-   tab; drag reorders (persisted per group in localStorage); right-click renames the
-   root session or reveals its workspace in the OS explorer. */
+   Rendered per workspace group (all docs when groupTitle is undefined);
+   click opens the root session, drag reorders (persisted per group),
+   right-click renames the root session or reveals its workspace. */
 export const MINDMAP_ORDER_ALL_KEY = '__all__'
 export function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, openSession, revealSession }) {
   useMindmapRegistry()
-  /* Narrow selector: only byId is consumed here, so session-list churn for
-     UNRELATED sessions (streaming updates elsewhere) must not re-render the
-     panel on every tick. */
+  /* Narrow selector: unrelated session churn must not re-render the panel. */
   const byId = useSessions(state => state.byId)
   const workspaces = useWorkspaces(state => state.items)
   const mountedRef = useRef(true)
@@ -56,9 +52,7 @@ export function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, o
   const [renameTarget, setRenameTarget] = useState(null)
   const [renameBusy, setRenameBusy] = useState(false)
   const [renameError, setRenameError] = useState(null)
-  /* The persisted per-group order only changes through THIS component's drag
-     handler, so read it once per mount (a state seed) instead of parsing
-     localStorage on every render. */
+  /* Order only changes through this component's drag handler: read once per mount. */
   const [mindmapOrder, setMindmapOrder] = useState(() => readMindmapOrder())
   const docs = mindmapRegistry.getDocs()
   const entries = docs.filter((doc) => {
@@ -66,19 +60,14 @@ export function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, o
     if (groupTitle === undefined) return true
     const row = byId[String(doc.sessionId)]
     const item = workspaces.find(w => (w.sessionIds ?? []).includes(String(doc.sessionId)))
-      /* Same normalized path comparison as the root-node workspace resolver:
-         an exact `w.path === row.cwd` match would miss on trailing slashes,
-         case differences or mixed separators, dropping the doc into the wrong
-         (ungrouped) bucket. */
+      /* Normalized comparison (as in the root-node resolver): exact matches
+         miss on trailing slashes, case or separator differences. */
       || (row?.cwd !== undefined ? workspaces.find(w => normalizeMindmapWorkspacePath(w.path) === normalizeMindmapWorkspacePath(row.cwd)) : undefined)
     const docTitle = item?.title
-    /* A doc whose workspace resolves to a real Host workspace appears ONLY
-       under that workspace's group, matched by its exact title. */
+    /* A doc resolving to a real workspace appears only under that group. */
     if (docTitle !== undefined) return docTitle === groupTitle
-    /* A doc with no resolvable workspace lives in the ungrouped bucket (its
-       title matches no real workspace). Exact-match grouping is safe: real
-       workspace headers render their canonical title and the ungrouped bucket
-       the localized label, so a resolved doc never falls through. */
+    /* No resolvable workspace → ungrouped bucket; exact-match grouping is
+       safe because real headers and the bucket label never collide. */
     return !workspaces.some(w => w.title === groupTitle)
   })
   const groupKey = groupTitle === undefined ? MINDMAP_ORDER_ALL_KEY : groupTitle
@@ -93,9 +82,8 @@ export function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, o
     if (ib === undefined) return -1
     return ia - ib
   })
-  /* In per-group mode an empty group renders nothing (CSS :empty collapses
-     the seat); only the fallback shows the empty hint. The injected container
-     is the styled seat, so children render directly (Fragment). */
+  /* Empty per-group renders nothing (CSS :empty collapses the seat); only the
+     fallback shows the empty hint. */
   /* NOTE: the early return below must come after every hook (React #310). */
   useEffect(() => {
     if (contextMenu === null) return undefined
@@ -105,8 +93,7 @@ export function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, o
       close()
     }
     const onKeyDown = event => { if (event.key === 'Escape') close() }
-    /* Same inside-menu guard as pointerdown: a scrollable menu must not close
-       itself while its list is being scrolled. */
+    /* Same inside-menu guard as pointerdown: scrolling the menu must not close it. */
     const onScroll = event => {
       if (menuRef.current !== null && event.target instanceof Node && menuRef.current.contains(event.target)) return
       close()
@@ -136,9 +123,8 @@ export function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, o
     const to = ids.indexOf(target.id)
     if (to === -1) return
     ids.splice(target.half === 'after' ? to + 1 : to, 0, sourceId)
-    /* Read-modify-write INSIDE the Web Lock (updateMindmapOrder re-reads under
-       the lock): a concurrent tab's drag must not be clobbered by a stale
-       in-memory order. The merged map keeps the local copy in step. */
+    /* Read-modify-write under the Web Lock: a concurrent tab's drag must not
+       be clobbered by a stale in-memory order. */
     void updateMindmapOrder(groupKey, ids).then(map => {
       if (map !== undefined) setMindmapOrder({ ...map })
     })
@@ -169,8 +155,7 @@ export function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, o
   const startRename = () => {
     if (contextMenu === null) return
     const sid = contextMenu.sessionId
-    /* Renaming edits the MIND MAP's own title (doc.rootTitle), independent of
-       the root session's title. */
+    /* Renames the mind map's own title (doc.rootTitle), not the session's. */
     const doc = docs.find(d => String(d.sessionId) === String(sid))
     const row = byId[sid]
     setContextMenu(null)
@@ -245,14 +230,11 @@ export function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, o
       },
         ordered.map(doc => {
           const row = byId[String(doc.sessionId)]
-          /* The entry shows the mind map's OWN title (doc.rootTitle), not the
-             root session's — the two are independent after a rename. */
+          /* Show the mind map's own title (doc.rootTitle), not the session's. */
           const label = doc.rootTitle ?? row?.displayTitle ?? ''
           const count = (doc.branchSessionIds ?? []).length
           const sid = String(doc.sessionId)
-          /* Any family member streaming (summary.running flips at generation
-             start) spins the entry's icon — the signal the hidden rows would
-             have shown. */
+          /* Any streaming family member spins the icon (the hidden rows' signal). */
           const running = [sid, ...(doc.branchSessionIds ?? [])].some(id => byId[id]?.running === true)
           return h('button', {
             className: 'dsh-ws-sidebar-mindmaps-item',
@@ -261,8 +243,8 @@ export function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, o
             'data-running': running ? '' : undefined,
             draggable: true,
             key: sid,
-            /* A genuine drag ends with a click in some engines; suppress the
-               click right after a drag so reordering never opens the session. */
+            /* Some engines fire a click after a drag; suppress it so reordering
+               never opens the session. */
             onClick: () => {
               if (Date.now() - lastDragEndRef.current < 400) return
               openSession(sid, label)

@@ -8,7 +8,7 @@ import { CodeEditor } from '../editor.js'
    mounted under the rendered-Markdown overlay so switching back keeps caret,
    undo history and the draft), and the search-panel mount point. All editor
    callbacks (dirty/save/scroll/context) are props from the explorer shell. */
-export function PreviewPane({ preview, settings, editing, activeTab, draft, mdPreview, isMarkdown, searchReveal, readEpoch, activePath, editorRef, searchPanelContainerRef, scrollTopRef, restore, onViewState, onDirty, onSaveShortcut, onScroll, onRevealApplied, onBodyClick, onSearchPanelContextMenu, onContext }) {
+export function PreviewPane({ preview, settings, editing, activeTab, draft, mdPreview, isMarkdown, htmlPreview, isHtmlFile, searchReveal, readEpoch, activePath, editorRef, searchPanelContainerRef, scrollTopRef, restore, onViewState, onDirty, onSaveShortcut, onScroll, onRevealApplied, onBodyClick, onSearchPanelContextMenu, onContext }) {
   if (preview.state === 'idle') {
     return h('div', { className: 'dsh-ws-empty' }, translate('panel.previewHint'))
   }
@@ -52,6 +52,17 @@ export function PreviewPane({ preview, settings, editing, activeTab, draft, mdPr
       // Rendered-Markdown overlay sits above the kept-mounted editor, so switching back keeps caret/undo state and the draft.
       isMarkdown && mdPreview
         ? h('div', { className: 'dsh-ws-md-preview' }, h(MarkdownText, { text: draft }))
+        : null,
+      // Rendered-page overlay for HTML files: the iframe draws the current
+      // draft via srcDoc, sandboxed to a unique origin — scripts run, but the
+      // page cannot read dsh storage or call the plugin API with credentials.
+      isHtmlFile && htmlPreview
+        ? h('div', { className: 'dsh-ws-html-preview' },
+          h('iframe', {
+            sandbox: 'allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms allow-modals allow-downloads',
+            srcDoc: draft ?? '',
+            title: translate('htmlPreview.preview'),
+          }))
         : null),
   )
 }

@@ -5,9 +5,8 @@ import { normalizePreviewSession, prunePreviewSessions } from './preview-tabs.js
 
 // The persisted sidebar width lives with the explorer pane geometry
 // (EXPLORER_LAYOUT_STORE_KEY): the root layout store can't persist its whole
-// value, so the explorer store mirrors it on change and this rehydrates it on
-// load. 0 means collapsed; missing/invalid data falls back to the default
-// width (render-time clamping still applies the viewport ceiling).
+// value, so the explorer store mirrors it and this rehydrates it on load.
+// 0 means collapsed; missing/invalid data falls back to the default width.
 export function readPersistedSidebarWidth() {
   if (typeof localStorage === 'undefined') return SIDEBAR_DEFAULT
   try {
@@ -26,8 +25,7 @@ export function createLayoutStore() {
     init: () => ({
       sidebar: readPersistedSidebarWidth(),
       detailsOpen: false,
-      // Sidebar browsing region: 'sessions' = workspace/session browser;
-      // 'files' swaps the same region for the workspace file tree.
+      // Sidebar browsing region: 'sessions' = workspace/session browser; 'files' swaps the same region for the file tree.
       view: 'sessions',
     }),
     actions: {
@@ -40,9 +38,8 @@ export function createLayoutStore() {
   })
 }
 /* Explorer pane geometry shared by every session: file-tree width, preview
-   width, sidebar width (0 = collapsed), and explorer open state (controls
-   both panes' on-screen presence). Persisted in localStorage so switches and
-   reloads keep one shared set. */
+   width, sidebar width (0 = collapsed), and explorer open state. Persisted in
+   localStorage so switches and reloads keep one shared set. */
 export function createExplorerPaneStore() {
   return defineStore({
     init: () => ({
@@ -68,14 +65,12 @@ export function createPreviewSessionStore() {
     persist: PREVIEW_SESSION_STORE_KEY,
     actions: {
       rememberPreviewSession: (draft, key, value) => {
-        // Rehydrated wholesale from localStorage; a polluted or legacy key
-        // without the expected shape must not throw.
+        // Rehydrated wholesale from localStorage; a polluted or legacy key must not throw.
         if (draft.previewSessions === undefined || draft.previewSessions === null || typeof draft.previewSessions !== 'object') draft.previewSessions = {}
         const normalized = normalizePreviewSession(value)
         if (normalized.tabs.length === 0 && (normalized.expanded ?? []).length === 0) delete draft.previewSessions[String(key)]
         else {
-          // Timestamp every write so stale sessions can be pruned below; the
-          // in-memory editor keeps full content, only the stored copy is slim.
+          // Timestamp every write so stale sessions can be pruned below; the stored copy is slim, the in-memory editor keeps full content.
           draft.previewSessions[String(key)] = { ...normalized, updatedAt: Date.now() }
           prunePreviewSessions(draft)
         }
@@ -98,8 +93,7 @@ export function createExplorerSettingsStore() {
       mindmapHeadColor: undefined,
       mindmapEndColor: undefined,
       mindmapMountBulge: MINDMAP_MOUNT_BULGE_DEFAULT_X,
-      /* AI card summaries: OFF by default (no hidden token cost); the model is
-         undefined = "follow the session's model" once enabled. */
+      /* AI card summaries: off by default (no hidden token cost); model undefined = "follow the session's model". */
       mindmapSummaryEnabled: false,
       mindmapSummaryModel: undefined,
       mindmapSummaryLength: MINDMAP_SUMMARY_DEFAULT_LENGTH,
@@ -144,8 +138,7 @@ export function createExplorerSettingsStore() {
       setMindmapHeadColor: (draft, value) => {
         const hex = cssColorToHex(value)
         if (hex === null) return
-        /* The DEFAULT head color is the fixed violet (not a theme var): picking
-           it back means "use the default" — drop the stored override. */
+        /* The default head color is the fixed violet (not a theme var): picking it back means "use the default" — drop the stored override. */
         if (hex === MINDMAP_HEAD_COLOR_DEFAULT) delete draft.mindmapHeadColor
         else draft.mindmapHeadColor = hex
       },
@@ -153,8 +146,7 @@ export function createExplorerSettingsStore() {
       setMindmapEndColor: (draft, value) => {
         const hex = cssColorToHex(value)
         if (hex === null) return
-        /* The DEFAULT end-card color is the fixed success green (not a theme
-           var): picking it back means "use the default" — drop the override. */
+        /* The default end-card color is the fixed success green (not a theme var): picking it back means "use the default" — drop the override. */
         if (hex === MINDMAP_END_COLOR_DEFAULT) delete draft.mindmapEndColor
         else draft.mindmapEndColor = hex
       },

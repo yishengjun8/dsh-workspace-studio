@@ -36,10 +36,9 @@ const client = defineConfig({
   },
 })
 
-/* Host entry: bundle src/host/*.js into the single lib/index.js artifact that
-   cordis loads. Node builtins stay external (platform: 'node' default);
-   schemastery and iconv-lite remain bare runtime imports resolved from the
-   profile's node_modules, so the artifact shape is unchanged. */
+/* Host entry: bundle src/host/*.js into the single lib/index.js artifact cordis
+   loads; Node builtins stay external and schemastery/iconv-lite remain bare
+   runtime imports, so the artifact shape is unchanged. */
 const host = defineConfig({
   name: `${ID}/host`,
   entry: { index: 'src/host/index.js' },

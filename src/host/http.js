@@ -79,6 +79,20 @@ export function sendJson(req, res, status, value, extraHeaders = {}) {
 export function sendError(req, res, status, code, message, extraHeaders, data) {
   sendJson(req, res, status, { error: { code, message, ...(data === undefined ? {} : { data }) } }, extraHeaders)
 }
+/* Raw byte response (the /raw endpoint): the body is served verbatim with the
+   caller's Content-Type; errors surface as plain text so a browser tab opened
+   directly at the URL reads them instead of a JSON blob. */
+export function sendRaw(req, res, status, bytes, contentType, extraHeaders = {}) {
+  res.writeHead(status, {
+    'content-type': contentType,
+    'content-length': String(bytes.byteLength),
+    'cache-control': 'no-store',
+    'cross-origin-resource-policy': 'same-origin',
+    'x-content-type-options': 'nosniff',
+    ...extraHeaders,
+  })
+  res.end(req.method === 'HEAD' ? undefined : bytes)
+}
 export function requiredQuery(url, name) {
   const value = url.searchParams.get(name)
   if (value === null || value === '') throw new HttpError(400, 'invalid-request', `缺少查询参数 ${name}`)

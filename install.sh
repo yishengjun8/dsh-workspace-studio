@@ -57,9 +57,8 @@ fi
 PROFILE_MANIFEST="$DSH_HOME_SHELL/profiles/$PROFILE/package.json"
 PROFILE_DIR="$DSH_HOME_SHELL/profiles/$PROFILE"
 
-# Add one exact pnpm allowBuilds key (name@spec#commit) to the profile's
-# pnpm-workspace.yaml so a git dependency's prepare script may run at install
-# time. The key comes verbatim from pnpm's printed hint.
+# Allowlist the pnpm allowBuilds key (name@spec#commit) printed by pnpm so a
+# git dependency's prepare script may run at install time.
 ensure_allowbuilds() {
   local key="$1"
   mkdir -p "$PROFILE_DIR"
@@ -83,9 +82,8 @@ ensure_allowbuilds() {
 
 if [[ "$GIT_MODE" == 1 ]]; then
   # Resolve the git spec: an explicit GIT_SPEC wins verbatim; otherwise derive
-  # it from this repo's origin remote (falling back to the canonical GitHub
-  # repo) and pin the install to the current HEAD so a later push cannot
-  # silently change what runs.
+  # it from this repo's origin remote and pin to the current HEAD so a later
+  # push cannot silently change what runs.
   if [[ -z "${GIT_SPEC:-}" ]]; then
     REMOTE_URL="$(git -C "$BUNDLE_DIR" remote get-url origin 2>/dev/null || true)"
     if [[ "$REMOTE_URL" =~ ^(https?://github\.com/|git@github\.com:)([^/]+)/([^/.]+)(\.git)?$ ]]; then

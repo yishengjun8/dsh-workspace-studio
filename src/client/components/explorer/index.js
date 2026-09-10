@@ -6,12 +6,13 @@ import { clamp, colorGroupOf, fileLabel, formatBytes, readOnlyReason } from '../
 import { copyText, defaultEntryName, entryNameError, entryPath, joinAbsolutePath, parentPath, pathBaseName, rewriteDirectoryMap, rewritePathMap, rewritePathSet, rewriteRelativePath, selectedLevelPath } from '../../paths.js'
 import { ancestorDirectoryPaths, dropIndexFromEvent, entryFromPreviewTab, isMindmapTab, mindmapRootIdOfTab, mindmapTabPath, normalizePreviewSession, orderPinnedFirst, rewritePreviewTabs, serializePreviewSession } from '../../preview-tabs.js'
 import { IconFolder, IconNewFile, IconNewFolder, IconRefresh, IconSearch } from '../../icons.js'
-import { encodingLabel, fetchEncodings, requestFsOperation, revealInExplorer, uploadExternalFile, WorkspaceApiError } from '../../api.js'
+import { encodingLabel, fetchEncodings, rawFileUrl, requestFsOperation, revealInExplorer, uploadExternalFile, WorkspaceApiError } from '../../api.js'
 import { hasDraggedFiles, hasNormalFile } from '../../utils.js'
 import { deleteEmergencyDraft, rewriteEmergencyDraftPath } from '../../drafts.js'
 import { invalidateCachedSubtree, rewriteCachedPaths } from '../../file-cache.js'
 import { mindmapDockStore } from '../../mindmap/registry.js'
 import { mindmapViewHost } from '../../mindmap/host.js'
+import { fileOpenRequestStore } from '../../open-request.js'
 import { EncodingMenu, PanelHeader, PreviewToast, TabContextMenu, TreeContextMenu } from '../menus.js'
 import { DeleteDialog, EncodingDialog, EntryDialog, SaveConflictDialog, SessionRenameDialog } from '../dialogs.js'
 import { DropOverlay } from './drop.js'
@@ -33,15 +34,14 @@ export function WorkspaceExplorer({
   /* Draft scope follows the SHARED persistence key: inside a mind map every
      member session shares one draft scope (the map's root), because the tab
      strip — and with it the in-memory draft — is shared; a per-session scope
-     would strand unsaved edits under the session where they were typed and
-     lose them on a refresh in another member session. Sessions outside any
-     map keep their own scope. */
+     would strand unsaved edits under the session where they were typed.
+     Sessions outside any map keep their own scope. */
   const draftScopeId = sessionId === undefined ? `workspace:${workspace.workspaceId}` : `session:${previewSessionId ?? sessionId}`
-  /* Restore under THIS mount's persistence family: a docked mind-map tab
-     whose dockedAt (or, for legacy snapshots, root session id) does not match
+  /* Restore under THIS mount's persistence family: a docked mind-map tab whose
+     dockedAt (or, for legacy snapshots, root session id) does not match
      previewSessionId leaked in from another session's snapshot and must not
-     reappear here (session switch restore). The explorer's React key embeds
-     previewSessionId, so it is constant for the mount's lifetime. */
+     reappear here. The explorer's React key embeds previewSessionId, so it is
+     constant for the mount's lifetime. */
   const initialPreviewSession = normalizePreviewSession(storedPreviewSession, previewSessionId)
   const [directories, setDirectories] = useState(() => new Map())
   const [expanded, setExpanded] = useState(() => new Set(['', ...(initialPreviewSession.expanded ?? [])]))
@@ -66,6 +66,8 @@ export function WorkspaceExplorer({
   const [previewToast, setPreviewToast] = useState()
   // Markdown rendered-preview toggle (per-file; reset whenever the file changes).
   const [mdPreview, setMdPreview] = useState(false)
+  // HTML rendered-page preview toggle (per-file; reset whenever the file changes).
+  const [htmlPreview, setHtmlPreview] = useState(false)
   const [entryDialog, setEntryDialog] = useState()
   const [entryDraft, setEntryDraft] = useState('')
   const [entryBusy, setEntryBusy] = useState(false)
@@ -106,16 +108,15 @@ export function WorkspaceExplorer({
   const copyNoticeTimer = useRef()
   const requests = useRef(new Map())
   const mutationController = useRef()
-  // Monotonic sequence for tree mutations (create/rename/paste/delete). Each
-  // op applies its UI result only while it is still the latest; overlapping
-  // ops no longer abort one another (the Host serializes writes anyway), so a
-  // stranded server-side op can never corrupt the tree with a stale result.
+  // Monotonic sequence for tree mutations (create/rename/paste/delete): each
+  // op applies its UI result only while it is still the latest, so a stranded
+  // server-side op can never corrupt the tree with a stale result.
   const mutationSeqRef = useRef(0)
   const editorRef = useRef()
   const searchPanelContainerRef = useRef(null)
   const composingRef = useRef(false)
   const mounted = useRef(true)
-  // Paths being re-read by an auto-sync reload. The polling tick skips them so
+  // Paths being re-read by an auto-sync reload: the polling tick skips them so
   // a change check racing the in-flight read cannot bump reloadToken again (a
   // second remount would discard the scroll the first reload just restored).
   // Cleared when the read pass settles or the path closes.
@@ -134,9 +135,9 @@ export function WorkspaceExplorer({
      nothing real was ever persisted. Seeded from the restored snapshot. */
   const persistedRealContentRef = useRef(initialPreviewSession.tabs.some(tab => !tab.external) || (initialPreviewSession.expanded ?? []).length > 0)
   // Paths confirmed missing in the current workspace while restoring persisted
-  // expansion. Later restore passes (notably the late-arriving stored session)
-  // skip them until the cleaned snapshot is persisted, so a pruned path cannot
-  // be re-seeded and 404 again within one mount.
+  // expansion. Later restore passes skip them until the cleaned snapshot is
+  // persisted, so a pruned path cannot be re-seeded and 404 again within one
+  // mount.
   const prunedPathsRef = useRef(new Set())
   const previewTabsBootstrapped = useRef(Boolean(initialPreviewSession.tabs.length > 0 || initialPreviewSession.activePath !== null))
   const selectedDirectoryPath = selectedLevelPath(selected)
@@ -154,13 +155,11 @@ export function WorkspaceExplorer({
      the placeholder by the layout effect below) instead of a file: no file
      header / status bar, no tree selection, no file read. */
   const activeMindmap = activeTab !== undefined && isMindmapTab(activeTab)
-  /* A session switch inside the same mind map keeps this explorer MOUNTED
-     (its key is the shared persistence id), so the read pass does not re-run
-     and the editor context would stay bound to the previous session. A file
-     tab is re-published automatically (the editor-session effect follows
-     publishEditorContext identity changes), but a mind-map tab carries no
-     file context — clear it for the new session, matching the remount
-     behavior. */
+  /* A session switch inside the same mind map keeps this explorer MOUNTED (its
+     key is the shared persistence id), so the read pass does not re-run and the
+     editor context would stay bound to the previous session. A file tab is
+     re-published automatically, but a mind-map tab carries no file context —
+     clear it for the new session, matching the remount behavior. */
   const lastSessionIdRef = useRef(sessionId)
   useEffect(() => {
     if (lastSessionIdRef.current === sessionId) return
@@ -193,9 +192,8 @@ export function WorkspaceExplorer({
        the store action would DELETE the current-session and workspace anchor
        keys — the workspace key may be the only saved copy of ANOTHER session's
        tabs. But the skip must NOT apply once real content was ever persisted:
-       closing the last real tab (leaving only external tabs) is a real state
-       change and must write through, or the closed tab would resurrect on
-       refresh. */
+       closing the last real tab is a real state change and must write through,
+       or the closed tab would resurrect on refresh. */
     const hasRealTabs = liveTabs.some(tab => !tab.external)
     const hasRealContent = hasRealTabs || hasTreeExpansion
     if (!hasRealContent && !persistedRealContentRef.current) return
@@ -203,7 +201,8 @@ export function WorkspaceExplorer({
     const meaningful = previewTabsBootstrapped.current || liveTabs.length !== 0 || activePathRef.current !== null || hasTreeExpansion
     // Skip until this session establishes state: a bare empty mount must not
     // clobber another session's workspace-key snapshot. Once established, keep
-    // writing (empty snapshot deletes the stale entry, so collapse-to-root persists).
+    // writing (an empty snapshot deletes the stale entry, so collapse-to-root
+    // persists).
     if (!meaningful && !sessionEstablishedRef.current) return
     if (meaningful) sessionEstablishedRef.current = true
     // Merge live scroll positions (kept out of React state so scrolling never re-renders or writes) into the serialized copy only.
@@ -230,23 +229,21 @@ export function WorkspaceExplorer({
   useLayoutEffect(() => { schedulePersist() }, [activePath, schedulePersist, tabs, expanded])
 
   /* Dock requests from the sidebar mind-map entries and the session-header
-     button: add/update the mind-map tab and activate it. Subscribed once — the handler
-     only touches stable setters and module stores. A request is consumed
+     button: add/update the mind-map tab and activate it. A request is consumed
      only when its expectFamily matches THIS mount's previewSessionId: the
      matching explorer is the one the opener just navigated to, so the map's
-     tab lands there — never on the session the click left behind (whose
-     explorer sees the request first and skips it). A request awaiting its
-     family stays pending for the matching mount. */
+     tab lands there — never on the session the click left behind. A request
+     awaiting its family stays pending for the matching mount. */
   useEffect(() => {
     const applyDock = () => {
       const { request } = mindmapDockStore.getSnapshot()
       if (request === null) return
       if (request.expectFamily !== (previewSessionId ?? null)) return
       const path = mindmapTabPath(request.rootId)
-      /* The map needs a body in the GLOBAL host: a new tab's body mounts
-         FRESH (its restoreLastSession may land the chat on the map's
-         remembered session — a deliberate open); a re-dock of an already-open
-         tab is a no-op (the mounted body keeps its mount-time fresh flag). */
+      /* The map needs a body in the GLOBAL host: a new tab's body mounts FRESH
+         (its restoreLastSession may land the chat on the map's remembered
+         session — a deliberate open); a re-dock of an already-open tab is a
+         no-op (the mounted body keeps its mount-time fresh flag). */
       mindmapViewHost.ensure(String(request.rootId), true)
       /* Stamp the persistence family the tab was docked on (constant for the
          mount): restore later keeps the map only under this family, so a
@@ -457,11 +454,10 @@ export function WorkspaceExplorer({
         next.add(path)
         return next
       })
-      /* Load every non-ready directory in the chain INCLUDING the entry
-         itself when it is a directory: chooseDirectory (search-result
-         directory click, tree row click) only selects + reveals, so skipping
-         the entry here left it stuck on the loading placeholder forever (its
-         listing never arrived) until the user collapsed and re-expanded it. */
+      /* Load every non-ready directory in the chain INCLUDING the entry itself
+         when it is a directory: chooseDirectory only selects + reveals, so
+         skipping the entry here left it stuck on the loading placeholder
+         forever until the user collapsed and re-expanded it. */
       const isEntryDirectory = entry.kind === 'directory' && path === entry.path
       if ((isEntryDirectory || path !== entry.path) && directories.get(path)?.state !== 'ready') void loadDirectory(path)
     }
@@ -536,6 +532,26 @@ export function WorkspaceExplorer({
     setSelected(entry)
     revealPath(entry)
   }, [revealPath])
+  /* Open requests from the chat's file-open path (the patched
+     ctx.sidebarRight.openResource, see open-resource.js): add/activate the
+     file tab and optionally reveal a line, mirroring the search-result open.
+     Consumed only when the request's workspace matches THIS mount's workspace;
+     a request awaiting its workspace stays pending for the matching mount
+     (same semantics as the mind-map dock subscription). */
+  useEffect(() => {
+    const applyOpen = () => {
+      const { request } = fileOpenRequestStore.getSnapshot()
+      if (request === null) return
+      if (request.workspaceId !== String(workspace.workspaceId)) return
+      chooseFile({ kind: 'file', name: request.name, path: request.path, symlink: false })
+      if (request.line !== undefined) {
+        setSearchReveal({ line: request.line, column: 1, endColumn: 1, path: request.path })
+      }
+      fileOpenRequestStore.consume()
+    }
+    if (fileOpenRequestStore.getSnapshot().request !== null) applyOpen()
+    return fileOpenRequestStore.subscribe(applyOpen)
+  }, [chooseFile, workspace.workspaceId])
   // Open a non-workspace file dropped into the preview pane: upload its raw
   // bytes to the plugin endpoint, which decodes them into a read-only preview
   // payload, then add a session-only external tab. Resolves true on success,
@@ -675,15 +691,14 @@ export function WorkspaceExplorer({
       }
     }
     const onDragLeave = (event) => {
-      /* Firefox can clear dataTransfer.types on dragleave, and OS file drags
-         never fire window dragend — gating the decrement on hasDraggedFiles
-         here could leave the depth stuck at 1 and the drop overlay up until
-         the next drag. Decrement unconditionally (dragenter only ever
-         incremented for file drags); the suppressed flag still stops the
-         overlay from flashing. When the drag is fully out (depth 0) the
-         suppressed flag is cleared too: closing the hint mid-drag then
-         leaving the section must not mute every later drag forever (there is
-         no window dragend to run resetDrop for OS file drags). */
+  /* Firefox can clear dataTransfer.types on dragleave, and OS file drags never
+     fire window dragend — gating the decrement on hasDraggedFiles could leave
+     the depth stuck at 1 and the overlay up until the next drag. Decrement
+     unconditionally (dragenter only ever incremented for file drags); the
+     suppressed flag still stops the overlay from flashing. When the drag is
+     fully out (depth 0) the suppressed flag is cleared too: closing the hint
+     mid-drag then leaving the section must not mute every later drag forever
+     (there is no window dragend to run resetDrop for OS file drags). */
       depth = Math.max(0, depth - 1)
       if (depth === 0) {
         dropSuppressedRef.current = false
@@ -696,8 +711,9 @@ export function WorkspaceExplorer({
       event.stopPropagation()
       /* The mask's × marks THIS drag as suppressed: dropping after dismissing
          must not upload/open the file either (OS file drags never fire window
-         dragend, so the flag would otherwise survive until the next dragleave/
-         dragend). Swallow the drop like the dragenter/dragover paths do. */
+         dragend, so the flag would otherwise survive until the next
+         dragleave/dragend). Swallow the drop like the dragenter/dragover
+         paths do. */
       if (dropSuppressedRef.current) {
         resetDrop()
         return
@@ -739,6 +755,8 @@ export function WorkspaceExplorer({
   // The markdown preview mode is scoped to one file: switching files always
   // lands back in the source editor.
   useEffect(() => { setMdPreview(false) }, [activePath])
+  // The HTML page preview is scoped to one file for the same reason.
+  useEffect(() => { setHtmlPreview(false) }, [activePath])
   const rewriteRuntimePaths = useCallback((from, to) => {
     lastWriteRef.current = rewritePathMap(lastWriteRef.current, from, to)
     draftGenerationsRef.current = rewritePathMap(draftGenerationsRef.current, from, to)
@@ -752,8 +770,7 @@ export function WorkspaceExplorer({
     /* The content baseline and the retained editor session describe the SAME
        disk content, so they follow the move (the language extension of a
        retained state is re-evaluated when the tab renames — the render-time
-       name check drops renamed entries then). */
-    contentBaselinesRef.current = rewritePathMap(contentBaselinesRef.current, from, to)
+       name check drops renamed entries then). */    contentBaselinesRef.current = rewritePathMap(contentBaselinesRef.current, from, to)
     const retainedNext = new Map()
     for (const [path, session] of retainedStatesRef.current) {
       retainedNext.set(rewriteRelativePath(path, from, to), session)
@@ -767,11 +784,10 @@ export function WorkspaceExplorer({
      its dependency array — they are declared LATER in the component body, and
      listing them here would throw a TDZ ReferenceError at the useCallback call
      site (the deps array is evaluated eagerly). Their identities are stable
-     for the lifetime of one mount (draftScopeId/workspaceId change remounts
-     the whole explorer via its key), so the omission is safe; body references
+     for the lifetime of one mount, so the omission is safe; body references
      are lazy and resolve at call time. draftTree (a prop, declared before) IS
      listed. */
-  const submitEntryDialog=useCallback(()=>{if(entryBusy||entryDialog===undefined)return;/* A concurrent tree mutation (paste/delete/another rename) would bump mutationSeq and drop this op's bookkeeping after the server already succeeded — refuse while one is in flight (same guard as pasteEntry). */if(mutationController.current!==undefined){setEntryError(translate('editor.operationBusy'));return}const trimmed=entryDraft.trim();const message=entryNameError(entryDraft);if(message!==undefined){setEntryError(message);return}const parentPathValue=entryDialog.mode==='create'?entryDialog.parentPath:parentPath(entryDialog.entry.path);const siblings=directories.get(parentPathValue)?.entries??[];if(entryDialog.mode==='create'){if(siblings.some(entry=>entry.name===trimmed)){setEntryError(translate('entry.duplicate'));return}}else if(trimmed===entryDialog.entry.name||siblings.some(entry=>entry.name===trimmed&&entry.path!==entryDialog.entry.path)){setEntryError(trimmed===entryDialog.entry.name?translate('entry.nameUnchanged'):translate('entry.duplicate'));return}const controller=new AbortController();mutationController.current=controller;setEntryBusy(true);setEntryError(undefined);const mutationSeq=mutationSeqRef.current+=1;let draftMoveGeneration;const request=(async()=>{if(entryDialog.mode==='rename'){draftMoveGeneration=nextDraftGeneration('__tree__');await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:draftMoveGeneration,fromPath:entryDialog.entry.path,toPath:entryPath(parentPath(entryDialog.entry.path),trimmed)},controller.signal)}return entryDialog.mode==='create'?createEntry(workspace.workspaceId,entryDialog.parentPath,entryDialog.kind,trimmed,controller.signal):renameEntry(workspace.workspaceId,entryDialog.entry.path,trimmed,controller.signal)})();request.then(result=>{if(!mounted.current||mutationSeq!==mutationSeqRef.current)return;const mode=entryDialog.mode;const sourcePath=mode==='create'?entryDialog.parentPath:entryDialog.entry.path;const nextStatus=mode==='create'?result.kind==='directory'?translate('status.createdFolder'):translate('status.createdFile'):result.kind==='directory'?translate('status.renamedFolder'):translate('status.renamedFile');composingRef.current=false;setEntryBusy(false);setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);setStatus({text:nextStatus});if(mode==='create'){setExpanded(cur=>{const next=new Set(cur);next.add(sourcePath);if(result.kind==='directory')next.add(result.path);return next});if(result.kind==='file'){previewTabsBootstrapped.current = true;setTabs(cur=>cur.some(tab=>tab.path===result.path)?cur:[...cur,{baseText:'',dirty:false,draft:'',editing:false,name:result.name,path:result.path,pinned:false,saving:false,scrollTop:0,size:null,status:undefined,symlink:Boolean(result.symlink),bom:false,lineEnding:'none',revision:null}]);activatePath(result.path)}setSelected(result);void loadDirectory(sourcePath);if(result.kind==='directory')void loadDirectory(result.path)}else{setDirectories(cur=>rewriteDirectoryMap(cur,sourcePath,result.path,result));setExpanded(cur=>rewritePathSet(cur,sourcePath,result.path));setTabs(cur=>rewritePreviewTabs(cur,sourcePath,result.path,result));rewriteRuntimePaths(sourcePath,result.path);migratePendingAutosavesRef.current?.(sourcePath,result.path);void rewriteEmergencyDraftPath(workspace.workspaceId,draftScopeId,sourcePath,result.path).catch(error=>{if(mounted.current)setStatus({error:true,text:translate('editor.autosaveFailed',{message:error instanceof Error?error.message:String(error)})})});{const nextActivePath=activePathRef.current===null?null:rewriteRelativePath(activePathRef.current,sourcePath,result.path);if(nextActivePath!==activePathRef.current)setActivePath(nextActivePath)}setSelected(result);void loadDirectory(parentPath(sourcePath))}}).catch(error=>{if(error?.name==='AbortError'||!mounted.current||mutationSeq!==mutationSeqRef.current){return}if(entryDialog?.mode==='rename'&&draftMoveGeneration!==undefined){void rollbackDraftTree(entryDialog.entry.path,entryPath(parentPath(entryDialog.entry.path),trimmed))}setEntryBusy(false);setEntryError(error instanceof Error?error.message:String(error))}).finally(()=>{if(mutationController.current===controller)mutationController.current=undefined;if(mounted.current)setEntryBusy(false)})},[createEntry,directories,draftScopeId,draftTree,entryBusy,entryDialog,entryDraft,loadDirectory,renameEntry,rewriteRuntimePaths,workspace.workspaceId])
+  const submitEntryDialog=useCallback(()=>{if(entryBusy||entryDialog===undefined)return;/* A concurrent tree mutation would bump mutationSeq and drop this op's bookkeeping after the server already succeeded — refuse while one is in flight (same guard as pasteEntry). */if(mutationController.current!==undefined){setEntryError(translate('editor.operationBusy'));return}const trimmed=entryDraft.trim();const message=entryNameError(entryDraft);if(message!==undefined){setEntryError(message);return}const parentPathValue=entryDialog.mode==='create'?entryDialog.parentPath:parentPath(entryDialog.entry.path);const siblings=directories.get(parentPathValue)?.entries??[];if(entryDialog.mode==='create'){if(siblings.some(entry=>entry.name===trimmed)){setEntryError(translate('entry.duplicate'));return}}else if(trimmed===entryDialog.entry.name||siblings.some(entry=>entry.name===trimmed&&entry.path!==entryDialog.entry.path)){setEntryError(trimmed===entryDialog.entry.name?translate('entry.nameUnchanged'):translate('entry.duplicate'));return}const controller=new AbortController();mutationController.current=controller;setEntryBusy(true);setEntryError(undefined);const mutationSeq=mutationSeqRef.current+=1;let draftMoveGeneration;const request=(async()=>{if(entryDialog.mode==='rename'){draftMoveGeneration=nextDraftGeneration('__tree__');await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:draftMoveGeneration,fromPath:entryDialog.entry.path,toPath:entryPath(parentPath(entryDialog.entry.path),trimmed)},controller.signal)}return entryDialog.mode==='create'?createEntry(workspace.workspaceId,entryDialog.parentPath,entryDialog.kind,trimmed,controller.signal):renameEntry(workspace.workspaceId,entryDialog.entry.path,trimmed,controller.signal)})();request.then(result=>{if(!mounted.current||mutationSeq!==mutationSeqRef.current)return;const mode=entryDialog.mode;const sourcePath=mode==='create'?entryDialog.parentPath:entryDialog.entry.path;const nextStatus=mode==='create'?result.kind==='directory'?translate('status.createdFolder'):translate('status.createdFile'):result.kind==='directory'?translate('status.renamedFolder'):translate('status.renamedFile');composingRef.current=false;setEntryBusy(false);setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);setStatus({text:nextStatus});if(mode==='create'){setExpanded(cur=>{const next=new Set(cur);next.add(sourcePath);if(result.kind==='directory')next.add(result.path);return next});if(result.kind==='file'){previewTabsBootstrapped.current = true;setTabs(cur=>cur.some(tab=>tab.path===result.path)?cur:[...cur,{baseText:'',dirty:false,draft:'',editing:false,name:result.name,path:result.path,pinned:false,saving:false,scrollTop:0,size:null,status:undefined,symlink:Boolean(result.symlink),bom:false,lineEnding:'none',revision:null}]);activatePath(result.path)}setSelected(result);void loadDirectory(sourcePath);if(result.kind==='directory')void loadDirectory(result.path)}else{setDirectories(cur=>rewriteDirectoryMap(cur,sourcePath,result.path,result));setExpanded(cur=>rewritePathSet(cur,sourcePath,result.path));setTabs(cur=>rewritePreviewTabs(cur,sourcePath,result.path,result));rewriteRuntimePaths(sourcePath,result.path);migratePendingAutosavesRef.current?.(sourcePath,result.path);void rewriteEmergencyDraftPath(workspace.workspaceId,draftScopeId,sourcePath,result.path).catch(error=>{if(mounted.current)setStatus({error:true,text:translate('editor.autosaveFailed',{message:error instanceof Error?error.message:String(error)})})});{const nextActivePath=activePathRef.current===null?null:rewriteRelativePath(activePathRef.current,sourcePath,result.path);if(nextActivePath!==activePathRef.current)setActivePath(nextActivePath)}setSelected(result);void loadDirectory(parentPath(sourcePath))}}).catch(error=>{if(error?.name==='AbortError'||!mounted.current||mutationSeq!==mutationSeqRef.current){return}if(entryDialog?.mode==='rename'&&draftMoveGeneration!==undefined){void rollbackDraftTree(entryDialog.entry.path,entryPath(parentPath(entryDialog.entry.path),trimmed))}setEntryBusy(false);setEntryError(error instanceof Error?error.message:String(error))}).finally(()=>{if(mutationController.current===controller)mutationController.current=undefined;if(mounted.current)setEntryBusy(false)})},[createEntry,directories,draftScopeId,draftTree,entryBusy,entryDialog,entryDraft,loadDirectory,renameEntry,rewriteRuntimePaths,workspace.workspaceId])
 
   // The unmount cleanup must run exactly once per real unmount. flushAutosaves
   // depends on performAutosave → `preview`, so its identity changes on every
@@ -810,14 +826,12 @@ export function WorkspaceExplorer({
   }, [])
 
   /* Re-apply the tree's pre-refresh scrollTop over a short animation-frame
-     window. The refresh clears every listing, so the content briefly collapses
+     window: the refresh clears every listing, so the content briefly collapses
      to loading rows and the native scroll position clamps toward 0; listings
-     then settle back over a few frames and each commit can change the height
-     above the viewport, so one restore would land on an intermediate layout.
-     Re-applying every frame until the window closes holds the saved position
-     (clamped to the new max when files were deleted on disk) across the whole
-     settle. The window is bounded and short; later frames that find the same
-     layout simply re-assign the same value. */
+     then settle back over a few frames, so one restore would land on an
+     intermediate layout. Re-applying every frame until the window closes holds
+     the saved position (clamped to the new max when files were deleted on
+     disk) across the whole settle. */
   const restoreTreeScroll = useCallback((savedScrollTop, framesLeft = 12) => {
     const el = treeScrollRef.current
     if (el === null) return
@@ -832,22 +846,21 @@ export function WorkspaceExplorer({
      the folders stay open. loadDirectory's pruneOnMissing mirrors the
      restore-time self-heal: a folder deleted on disk 404s, drops itself and
      its descendants from the expanded set/directory state and persists the
-     cleaned expansion, exactly as if it had vanished under a collapsed tree. */
-  const scrollEl=treeScrollRef.current;const savedScrollTop=scrollEl?.scrollTop??0;const expandedPaths=[...expandedRef.current].filter(path=>path!=='');abortDirectoryRequests();setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);composingRef.current=false;setDirectories(new Map());setStatus(undefined);const reloads=[loadDirectory(''),...expandedPaths.map(path=>loadDirectory(path,{pruneOnMissing:true}))];void Promise.allSettled(reloads).then(()=>{if(mounted.current)restoreTreeScroll(savedScrollTop)})},[abortDirectoryRequests,hasDirtyTabs,loadDirectory,restoreTreeScroll])
+     cleaned expansion, exactly as if it had vanished under a collapsed tree. */  const scrollEl=treeScrollRef.current;const savedScrollTop=scrollEl?.scrollTop??0;const expandedPaths=[...expandedRef.current].filter(path=>path!=='');abortDirectoryRequests();setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);composingRef.current=false;setDirectories(new Map());setStatus(undefined);const reloads=[loadDirectory(''),...expandedPaths.map(path=>loadDirectory(path,{pruneOnMissing:true}))];void Promise.allSettled(reloads).then(()=>{if(mounted.current)restoreTreeScroll(savedScrollTop)})},[abortDirectoryRequests,hasDirtyTabs,loadDirectory,restoreTreeScroll])
   const toggleDirectory=useCallback(entry=>{const path=entry.path;const opening=!expanded.has(path);setExpanded(cur=>{const next=new Set(cur);opening?next.add(path):next.delete(path);return next});if(opening){if(directories.get(path)?.state!=='ready')void loadDirectory(path);chooseDirectory(entry)}else setSelected(entry)},[chooseDirectory,directories,expanded,loadDirectory])
   const openContextMenu=useCallback((event,entry)=>{event.preventDefault();setSelected(entry);setContextMenu({entry,x:event.clientX,y:event.clientY})},[])
   const copyEntryPath=useCallback((entry,relative)=>{const value=relative?entry.path:joinAbsolutePath(workspace.path,entry.path);void copyText(value).then(ok=>{if(!mounted.current)return;setContextMenu(undefined);setCopyNotice(ok?(relative?translate('status.copiedRelative'):translate('status.copiedPath')):translate('status.copyFailed'));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},1600)})},[workspace.path])
   const copyEntryName=useCallback((entry)=>{void copyText(entry.name).then(ok=>{if(!mounted.current)return;setContextMenu(undefined);setCopyNotice(ok?translate('status.copiedName'):translate('status.copyFailed'));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},1600)})},[])
   const openInExplorer=useCallback((entry)=>{setContextMenu(undefined);const controller=new AbortController();revealInExplorer(workspace.workspaceId,entry.path,controller.signal).then(()=>{if(!mounted.current)return;setCopyNotice(translate('status.revealed'));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},1600)}).catch(error=>{if(!mounted.current||error?.name==='AbortError')return;setCopyNotice(translate('status.revealFailed',{message:error instanceof Error?error.message:String(error)}));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},3000)})},[workspace.workspaceId])
   const copyEntryToClipboard=useCallback((entry,cut)=>{setContextMenu(undefined);setClipboard({workspaceId:workspace.workspaceId,path:entry.path,name:entry.name,kind:entry.kind,cut});setCopyNotice(cut?translate('status.cut'):translate('status.copied'));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},1600)},[workspace.workspaceId])
-  const pasteEntry=useCallback((targetEntry)=>{if(clipboard===undefined||clipboard.workspaceId!==workspace.workspaceId)return;const targetDir=targetEntry.kind==='directory'?targetEntry.path:parentPath(targetEntry.path);const targetPath=entryPath(targetDir,pathBaseName(clipboard.path));if(clipboard.cut&&clipboard.path===targetPath)return;const wasCut=clipboard.cut;const affectedPrefix=clipboard.path===''?'':`${clipboard.path}/`;if(wasCut&&tabsRef.current.some(tab=>{if(!tab.dirty&&!tab.saving)return false;return tab.path===clipboard.path||(affectedPrefix!==''&&tab.path.startsWith(affectedPrefix))})){setStatus({error:true,text:translate('editor.unsavedBlocked')});return}/* A concurrent mutation (rename/delete/another paste) would bump mutationSeq and drop this paste's bookkeeping after the fs move already succeeded — refuse while one is in flight. */if(mutationController.current!==undefined){setStatus({error:true,text:translate('editor.operationBusy')});return}const controller=new AbortController();mutationController.current=controller;const mutationSeq=mutationSeqRef.current+=1;let draftMoveGeneration;let draftMoveFailed=false;const request=(async()=>{const result=await requestFsOperation(workspace.workspaceId,{action:wasCut?'move':'copy',source:clipboard.path,target:targetPath},controller.signal);if(wasCut){draftMoveGeneration=nextDraftGeneration('__tree__');await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:draftMoveGeneration,fromPath:clipboard.path,toPath:result.path},controller.signal).catch(async error=>{if(!mounted.current)return;draftMoveFailed=true;console.warn('workspace-studio: draft move after fs move failed:',error);setStatus({error:true,text:translate('status.movedDraftWarning')});/* The old-path draft is the ONLY persistent copy of the user's unsaved edits: deleting it on a failed move (the old behavior) could lose them if the page refreshes before the next autosave lands on the new path. Retry once with a fresh generation (the failure is usually a transient generation race with a concurrent autosave); if the retry also fails, KEEP the old-path draft — a harmless zombie that only restores if a file appears at the old path again — and warn. */try{await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:nextDraftGeneration('__tree__'),fromPath:clipboard.path,toPath:result.path},controller.signal);draftMoveFailed=false}catch(retryError){if(mounted.current)console.warn('workspace-studio: draft move retry also failed; keeping draft at source path:',retryError)}})}return result})();request.then(result=>{if(!mounted.current||mutationSeq!==mutationSeqRef.current)return;setContextMenu(undefined);setStatus(draftMoveFailed?{error:true,text:translate('status.movedDraftWarning')}:{text:wasCut?translate('status.moved'):translate('status.pasted')});if(wasCut){const source=clipboard.path;if(clipboardRef.current?.path===source&&clipboardRef.current?.cut===true)setClipboard(undefined);setSelected(result);setDirectories(cur=>rewriteDirectoryMap(cur,source,result.path,result));setExpanded(cur=>rewritePathSet(cur,source,result.path));setTabs(cur=>rewritePreviewTabs(cur,source,result.path,result));rewriteRuntimePaths(source,result.path);migratePendingAutosavesRef.current?.(source,result.path);void rewriteEmergencyDraftPath(workspace.workspaceId,draftScopeId,source,result.path).catch(error=>{if(mounted.current)setStatus({error:true,text:translate('editor.autosaveFailed',{message:error instanceof Error?error.message:String(error)})})});const nextActivePath=activePathRef.current===null?null:rewriteRelativePath(activePathRef.current,source,result.path);if(nextActivePath!==activePathRef.current)setActivePath(nextActivePath);void loadDirectory(parentPath(source));void loadDirectory(targetDir)}else{void loadDirectory(targetDir)}}).catch(error=>{if(error?.name==='AbortError'||!mounted.current||mutationSeq!==mutationSeqRef.current)return;setContextMenu(undefined);setCopyNotice(translate(wasCut?'status.cutFailed':'status.pasteFailed',{message:error instanceof Error?error.message:String(error)}));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},3000)}).finally(()=>{if(mutationController.current===controller)mutationController.current=undefined})},[clipboard,draftScopeId,draftTree,loadDirectory,nextDraftGeneration,rewriteRuntimePaths,workspace.workspaceId])
+  const pasteEntry=useCallback((targetEntry)=>{if(clipboard===undefined||clipboard.workspaceId!==workspace.workspaceId)return;const targetDir=targetEntry.kind==='directory'?targetEntry.path:parentPath(targetEntry.path);const targetPath=entryPath(targetDir,pathBaseName(clipboard.path));if(clipboard.cut&&clipboard.path===targetPath)return;const wasCut=clipboard.cut;const affectedPrefix=clipboard.path===''?'':`${clipboard.path}/`;if(wasCut&&tabsRef.current.some(tab=>{if(!tab.dirty&&!tab.saving)return false;return tab.path===clipboard.path||(affectedPrefix!==''&&tab.path.startsWith(affectedPrefix))})){setStatus({error:true,text:translate('editor.unsavedBlocked')});return}/* A concurrent mutation would bump mutationSeq and drop this paste's bookkeeping after the fs move already succeeded — refuse while one is in flight. */if(mutationController.current!==undefined){setStatus({error:true,text:translate('editor.operationBusy')});return}const controller=new AbortController();mutationController.current=controller;const mutationSeq=mutationSeqRef.current+=1;let draftMoveGeneration;let draftMoveFailed=false;const request=(async()=>{const result=await requestFsOperation(workspace.workspaceId,{action:wasCut?'move':'copy',source:clipboard.path,target:targetPath},controller.signal);if(wasCut){draftMoveGeneration=nextDraftGeneration('__tree__');await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:draftMoveGeneration,fromPath:clipboard.path,toPath:result.path},controller.signal).catch(async error=>{if(!mounted.current)return;draftMoveFailed=true;console.warn('workspace-studio: draft move after fs move failed:',error);setStatus({error:true,text:translate('status.movedDraftWarning')});/* The old-path draft is the ONLY persistent copy of the user's unsaved edits: deleting it on a failed move (the old behavior) could lose them if the page refreshes before the next autosave lands on the new path. Retry once with a fresh generation (the failure is usually a transient generation race with a concurrent autosave); if the retry also fails, KEEP the old-path draft — a harmless zombie that only restores if a file appears at the old path again — and warn. */try{await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:nextDraftGeneration('__tree__'),fromPath:clipboard.path,toPath:result.path},controller.signal);draftMoveFailed=false}catch(retryError){if(mounted.current)console.warn('workspace-studio: draft move retry also failed; keeping draft at source path:',retryError)}})}return result})();request.then(result=>{if(!mounted.current||mutationSeq!==mutationSeqRef.current)return;setContextMenu(undefined);setStatus(draftMoveFailed?{error:true,text:translate('status.movedDraftWarning')}:{text:wasCut?translate('status.moved'):translate('status.pasted')});if(wasCut){const source=clipboard.path;if(clipboardRef.current?.path===source&&clipboardRef.current?.cut===true)setClipboard(undefined);setSelected(result);setDirectories(cur=>rewriteDirectoryMap(cur,source,result.path,result));setExpanded(cur=>rewritePathSet(cur,source,result.path));setTabs(cur=>rewritePreviewTabs(cur,source,result.path,result));rewriteRuntimePaths(source,result.path);migratePendingAutosavesRef.current?.(source,result.path);void rewriteEmergencyDraftPath(workspace.workspaceId,draftScopeId,source,result.path).catch(error=>{if(mounted.current)setStatus({error:true,text:translate('editor.autosaveFailed',{message:error instanceof Error?error.message:String(error)})})});const nextActivePath=activePathRef.current===null?null:rewriteRelativePath(activePathRef.current,source,result.path);if(nextActivePath!==activePathRef.current)setActivePath(nextActivePath);void loadDirectory(parentPath(source));void loadDirectory(targetDir)}else{void loadDirectory(targetDir)}}).catch(error=>{if(error?.name==='AbortError'||!mounted.current||mutationSeq!==mutationSeqRef.current)return;setContextMenu(undefined);setCopyNotice(translate(wasCut?'status.cutFailed':'status.pasteFailed',{message:error instanceof Error?error.message:String(error)}));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},3000)}).finally(()=>{if(mutationController.current===controller)mutationController.current=undefined})},[clipboard,draftScopeId,draftTree,loadDirectory,nextDraftGeneration,rewriteRuntimePaths,workspace.workspaceId])
   const openDeleteConfirm=useCallback(entry=>{setContextMenu(undefined);setDeleteDialog(entry);setDeleteBusy(false)},[])
   const closeDeleteDialog=useCallback(()=>{if(deleteBusy)return;setDeleteDialog(undefined)},[deleteBusy])
   const confirmDelete = useCallback(async () => {
     if (deleteBusy || deleteDialog === undefined) return
-    /* A concurrent tree mutation (paste/rename/another delete) would bump
-       mutationSeq and drop this delete's bookkeeping after the server already
-       succeeded — refuse while one is in flight (same guard as pasteEntry). */
+    /* A concurrent tree mutation would bump mutationSeq and drop this delete's
+       bookkeeping after the server already succeeded — refuse while one is in
+       flight (same guard as pasteEntry). */
     if (mutationController.current !== undefined) {
       setDeleteDialog(undefined)
       setStatus({ error: true, text: translate('editor.operationBusy') })
@@ -901,10 +914,10 @@ export function WorkspaceExplorer({
         scheduleAutosave(item.path, fresh?.draft ?? item.draft, true)
       }
       if (error?.name === 'AbortError' && error?.reason?.name !== 'TimeoutError') {
-        /* Release the mutation slot even on abort (defensive: the mounted/
-           mutationSeq guard above already returns for the unmount case, but a
-           future reorder must not leave the controller stuck and block every
-           later paste with "operation busy"). */
+        /* Release the mutation slot even on abort (defensive: the
+           mounted/mutationSeq guard above already returns for the unmount
+           case, but a future reorder must not leave the controller stuck and
+           block every later paste with "operation busy"). */
         if (mutationController.current === controller) mutationController.current = undefined
         return
       }
@@ -931,8 +944,7 @@ export function WorkspaceExplorer({
       }
       /* Runtime maps of CLOSED tabs (clean ones are not in `affected`) die
          with the subtree too, and the global cache must not serve content of
-         a deleted path (or a later same-named file) as if it were current. */
-      const subtreeMatch = (path) => path === entry.path || (path !== '' && path.startsWith(`${entry.path}/`))
+         a deleted path (or a later same-named file) as if it were current. */      const subtreeMatch = (path) => path === entry.path || (path !== '' && path.startsWith(`${entry.path}/`))
       for (const path of [...retainedStatesRef.current.keys()]) {
         if (subtreeMatch(path)) retainedStatesRef.current.delete(path)
       }
@@ -1083,8 +1095,7 @@ export function WorkspaceExplorer({
     // A dirty tab is close-guarded only while EDITABLE: a non-editable file
     // with a leftover draft has no save/cancel path (both gated on
     // editability), so it would be stuck forever — allow closing and drop its
-    // staging draft below.
-    const nonEditableDirty = closing.dirty === true && closing.editing === false
+    // staging draft below.    const nonEditableDirty = closing.dirty === true && closing.editing === false
     if (closing.saving || (closing.dirty && !nonEditableDirty)) {
       const nextStatus = { error: true, text: translate('editor.unsavedTabClose') }
       if (activePathRef.current === path) setStatus(nextStatus)
@@ -1240,12 +1251,12 @@ export function WorkspaceExplorer({
     setDraggingPath(null)
     setDropIndex(null)
   }, [clampDropIndexForTab, dropTabAt])
-  /* The strip API handed to the GLOBAL mind-map host: doc-gone closes the
-     tab, root renames update the tab label — while THIS explorer shows the
-     map's strip (the host falls back to fixing the persisted family snapshot
-     when the user is on another session). closeTab/updateTab may change
-     identity across renders, so the API forwards through refs; hasTab reads
-     the live tabsRef. */
+  /* The strip API handed to the GLOBAL mind-map host: doc-gone closes the tab,
+     root renames update the tab label — while THIS explorer shows the map's
+     strip (the host falls back to fixing the persisted family snapshot when
+     the user is on another session). closeTab/updateTab may change identity
+     across renders, so the API forwards through refs; hasTab reads the live
+     tabsRef. */
   const closeTabRef = useRef(closeTab)
   closeTabRef.current = closeTab
   const updateTabRef = useRef(updateTab)
@@ -1275,13 +1286,12 @@ export function WorkspaceExplorer({
      moves a parked body unnecessarily. */
   const placedMapRootsRef = useRef(new Map())
   /* Placement runs as a LAYOUT effect so the container move lands before
-     paint: a session switch back shows the map instantly, never a blank
-     frame. Tabs arriving from ANY path (snapshot restore, late-arriving
-     storedPreviewSession, dock request) first ensure() their body so the
-     loading state renders in the same commit — ensure is idempotent and never
-     downgrades a body's mount-time fresh flag. The parked element is the
-     host's STABLE container (the portal target never changes): parking it
-     here is a plain DOM move, the map body never remounts. */
+     paint: a session switch back shows the map instantly, never a blank frame.
+     Tabs arriving from ANY path first ensure() their body so the loading state
+     renders in the same commit — ensure is idempotent and never downgrades a
+     body's mount-time fresh flag. The parked element is the host's STABLE
+     container (the portal target never changes): parking it here is a plain
+     DOM move, the map body never remounts. */
   useLayoutEffect(() => {
     const next = new Map()
     for (const tab of tabs) {
@@ -1301,11 +1311,11 @@ export function WorkspaceExplorer({
     }
     placedMapRootsRef.current = next
   }, [tabs])
-  /* Explorer teardown (a session switch): unpark every placed container so
-     the map bodies fall back to the host's hidden holding node and keep
-     their state. A LAYOUT-effect cleanup: React runs it while this mount is
-     being deleted, so the containers are rescued to the holding node as the
-     strip goes away — before OR after the placeholder node itself is removed
+  /* Explorer teardown (a session switch): unpark every placed container so the
+     map bodies fall back to the host's hidden holding node and keep their
+     state. A LAYOUT-effect cleanup: React runs it while this mount is being
+     deleted, so the containers are rescued to the holding node as the strip
+     goes away — before OR after the placeholder node itself is removed
      (appendChild re-parents the possibly detached container either way). */
   useLayoutEffect(() => () => {
     for (const rootId of placedMapRootsRef.current.keys()) mindmapViewHost.unplace(rootId)
@@ -1313,14 +1323,16 @@ export function WorkspaceExplorer({
   }, [])
   // Markdown files offer a rendered-preview toggle (same extension table as the tree badge and editor highlighting).
   const isMarkdown = preview.state === 'ready' && colorGroupOf({ kind: 'file', name: preview.name }) === 'markdown'
+  // HTML files offer a rendered-page preview toggle. html/htm only: xml and svg
+  // share the markup color group but are not pages.
+  const isHtmlFile = preview.state === 'ready' && /\.(html|htm)$/i.test(preview.name)
   /* A mind-map tab renders nothing HERE: this div is a PLACEHOLDER the global
      host parks its STABLE map-body container into (one body per family root,
      mounted across session switches; the actual map body lives in the host
      and portals into its own container). Parking is a plain appendChild move
      done by the layout effect below — React never re-keys the map body, so
      the doc, pan/zoom and highlight survive a session switch. The file
-     header/status bar stay hidden for map tabs. */
-  const mindmapTabs = tabs.filter(isMindmapTab)
+     header/status bar stay hidden for map tabs. */  const mindmapTabs = tabs.filter(isMindmapTab)
   /* The active file's retained CodeMirror session (see retainEditorState).
      Dropped here when its name no longer matches the tab: a rename binds the
      language extension into the state, so the next view builds fresh. */
@@ -1353,6 +1365,8 @@ export function WorkspaceExplorer({
     editorRef,
     isMarkdown,
     mdPreview,
+    htmlPreview,
+    isHtmlFile,
     onBodyClick: () => { if (activePathRef.current !== null) scrollTabIntoView(activePathRef.current) },
     onContext: publishContextState,
     onDirty: (text) => {
@@ -1389,6 +1403,8 @@ export function WorkspaceExplorer({
     editorRef,
     isMarkdown,
     mdPreview,
+    htmlPreview,
+    isHtmlFile,
     onBodyClick: () => { if (activePathRef.current !== null) scrollTabIntoView(activePathRef.current) },
     onContext: publishContextState,
     onDirty: (text) => {
@@ -1441,6 +1457,15 @@ export function WorkspaceExplorer({
   const reason = preview.state === 'ready' ? readOnlyReason(preview) : translate('editor.notLoaded')
   const size = preview.state === 'ready' ? formatBytes(preview.size) : ''
   const tabMenuTarget = tabContextMenu === undefined ? undefined : tabs.find(tab => tab.path === tabContextMenu.path)
+  /* "Open in new window" is limited to workspace file tabs: a mind-map tab has
+     no file content and an external (dropped) tab has no workspace path the
+     Host could serve. */
+  const canOpenInNewWindow = tabMenuTarget !== undefined && !isMindmapTab(tabMenuTarget) && !tabMenuTarget.external
+  const openTabInNewWindow = () => {
+    setTabContextMenu(undefined)
+    if (!canOpenInNewWindow) return
+    window.open(rawFileUrl(workspace.workspaceId, tabMenuTarget.path), '_blank', 'noopener')
+  }
   const treeSection = h('section', { className: 'dsh-ws-tree' },
       searchOpen
         ? h(Fragment, null,
@@ -1544,7 +1569,7 @@ export function WorkspaceExplorer({
         }
       }, onClose: closeTab, onContextMenu: (path, x, y) => setTabContextMenu({ path, x, y }), onDragEnd: () => { setDraggingPath(null); setDropIndex(null) }, onDragLeave: handleTabsDragLeave, onDragOver: updateDropIndex, onDragStart: (path, event) => { setDraggingPath(path); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', path) }, onDrop: handleTabsDrop, onMouseEnter: handleTabsMouseEnter, onMouseLeave: handleTabsMouseLeave, onScroll: handleTabsScroll, onUnpin: unpinTab, tabs }) : null,
       tabs.length ? h('div', { className: 'dsh-ws-preview-scrollbar', onMouseEnter: handleScrollbarMouseEnter, onMouseLeave: handleScrollbarMouseLeave, onPointerCancel: handleScrollbarPointerEnd, onPointerDown: handleScrollbarPointerDown, onPointerMove: handleScrollbarPointerMove, onPointerUp: handleScrollbarPointerEnd, ref: previewScrollbarRef }, h('div', { className: 'dsh-ws-preview-scrollbar-thumb', ref: previewScrollThumbRef })) : null,
-      tabContextMenu ? h(TabContextMenu, { menuRef: tabMenuRef, onCloseOthers: () => { setTabContextMenu(undefined); closeOtherTabs(tabContextMenu.path) }, onTogglePin: () => { setTabContextMenu(undefined); if (tabMenuTarget?.pinned) unpinTab(tabContextMenu.path); else pinTab(tabContextMenu.path) }, pinned: Boolean(tabMenuTarget?.pinned), x: tabContextMenu.x, y: tabContextMenu.y }) : null,
+      tabContextMenu ? h(TabContextMenu, { menuRef: tabMenuRef, onCloseOthers: () => { setTabContextMenu(undefined); closeOtherTabs(tabContextMenu.path) }, onTogglePin: () => { setTabContextMenu(undefined); if (tabMenuTarget?.pinned) unpinTab(tabContextMenu.path); else pinTab(tabContextMenu.path) }, onOpenInNewWindow: openTabInNewWindow, canOpenInNewWindow, pinned: Boolean(tabMenuTarget?.pinned), x: tabContextMenu.x, y: tabContextMenu.y }) : null,
       /* A mind-map tab hides the file header: the map draws its own toolbar
          and title bar. */
       activeMindmap ? null : h('header', { className: 'dsh-ws-panel-header dsh-ws-preview-file-header', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) }, ref: previewHeaderRef },
@@ -1565,6 +1590,16 @@ export function WorkspaceExplorer({
                 title: mdPreview ? translate('mdPreview.edit.title') : translate('mdPreview.preview.title'),
                 type: 'button',
               }, mdPreview ? translate('editor.edit') : translate('mdPreview.preview'))
+              : null,
+            isHtmlFile
+              ? h('button', {
+                'aria-pressed': htmlPreview,
+                className: 'dsh-ws-text-button',
+                'data-active': htmlPreview || undefined,
+                onClick: () => setHtmlPreview(value => !value),
+                title: htmlPreview ? translate('htmlPreview.edit.title') : translate('htmlPreview.preview.title'),
+                type: 'button',
+              }, htmlPreview ? translate('editor.edit') : translate('htmlPreview.preview'))
               : null,
             h('button', {
               'aria-label': translate('editor.refresh'),

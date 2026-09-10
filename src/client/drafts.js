@@ -1,8 +1,8 @@
 import { rewriteRelativePath } from './paths.js'
 
-/* IndexedDB mirrors the newest dirty snapshot immediately. Host drafts stay
-   the authority, but an unload cannot reliably finish a 1 MiB fetch; the
-   local mirror closes that durability gap and is reconciled on restore. */
+/* IndexedDB mirrors the newest dirty snapshot immediately: an unload cannot
+   reliably finish a 1 MiB fetch, so the local mirror closes that durability
+   gap and is reconciled on restore (Host drafts stay the authority). */
 const EMERGENCY_DRAFT_DB = 'dsh-workspace-studio'
 const EMERGENCY_DRAFT_STORE = 'drafts-v1'
 let emergencyDraftDbPromise
@@ -10,20 +10,18 @@ const emergencyDraftTails = new Map()
 function emergencyDraftKey(workspaceId, scopeId, path) {
   return JSON.stringify([String(workspaceId), String(scopeId), path])
 }
-/* Tombstones (state: 'deleted') only suppress restoring a discarded draft and
-   are reclaimed after a retention window so the mirror cannot grow without
-   bound. Live records hold unsaved work but the Host staging draft stays
-   authoritative, so even live records older than the window are reclaimed —
-   a genuinely active draft is re-mirrored on every keystroke. */
+/* Tombstones (state: 'deleted') only suppress restoring a discarded draft
+   and are reclaimed after a retention window. Live records older than the
+   window are reclaimed too — the Host staging draft stays authoritative and
+   an active draft is re-mirrored on every keystroke. */
 const EMERGENCY_DRAFT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 let emergencyDraftPruneScheduled = false
 /* Circuit breaker for a persistently unavailable IndexedDB (private mode,
-   storage disabled): without it every keystroke would re-open the same
-   failing database and reject anew (callsites absorb the rejection, so this
-   is noise rather than breakage — but the retries are pure waste). The
-   breaker is TIME-BOUND: a single transient open failure (disk hiccup,
-   browser storage glitch) must not disable the mirror for the whole page
-   lifetime, so after the window a retry is allowed once. */
+   storage disabled): without it every keystroke re-opens the failing
+   database (callsites absorb the rejection, so it is noise, but the retries
+   are pure waste). Time-bounded: a transient failure must not disable the
+   mirror for the whole page lifetime, so one retry is allowed after the
+   window. */
 let emergencyDraftDbFailed = false
 let emergencyDraftDbFailedAt = 0
 const EMERGENCY_DRAFT_BREAKER_WINDOW_MS = 30_000
@@ -38,19 +36,18 @@ async function pruneEmergencyDrafts() {
     request.onsuccess = () => {
       for (const value of request.result ?? []) {
         /* A record with a missing/corrupt updatedAt can never satisfy the
-           retention check (NaN < cutoff is false) and would linger forever:
-           treat it as the oldest so it is reclaimed on the first sweep. */
+           retention check (NaN < cutoff is false): treat it as the oldest so
+           it is reclaimed on the first sweep. */
         const updatedAt = Number(value.updatedAt)
         const expired = !Number.isFinite(updatedAt) || updatedAt < cutoff
         if (value?.state === 'deleted') {
           if (expired) store.delete(value.key)
         } else if (expired) {
           /* Live records are normally never pruned (unsaved work), but a
-             zombie record left by a raced path rewrite (see
+             zombie left by a raced path rewrite (see
              rewriteEmergencyDraftPath) has no Host counterpart to reconcile
-             against. The Host staging draft stays authoritative, so
-             reclaiming mirror records older than the retention window is
-             safe — a genuinely active draft is re-mirrored on every keystroke. */
+             against; the Host staging draft stays authoritative, so
+             reclaiming records older than the window is safe. */
           store.delete(value.key)
         }
       }
@@ -65,7 +62,7 @@ function openEmergencyDraftDb() {
   if (typeof indexedDB === 'undefined') return Promise.resolve(undefined)
   if (emergencyDraftDbFailed) {
     /* Time-bounded breaker: allow one retry after the window so a transient
-       failure does not disable the mirror for the whole page lifetime. */
+       failure does not disable the mirror for the page lifetime. */
     if (Date.now() - emergencyDraftDbFailedAt < EMERGENCY_DRAFT_BREAKER_WINDOW_MS) return Promise.resolve(undefined)
     emergencyDraftDbFailed = false
   }
@@ -86,15 +83,14 @@ function openEmergencyDraftDb() {
     }
     request.onsuccess = () => {
       /* The upgrade may have been blocked at open time (we already resolved
-         undefined) and only now succeeded after the blocking tab closed: close
-         the late connection instead of leaking it — the mirror stays disabled
-         for this session by design. */
+         undefined) and only now succeeded after the blocking tab closed:
+         close the late connection instead of leaking it. */
       if (blocked) {
         request.result.close()
         return
       }
       resolveDb(request.result)
-      /* One best-effort sweep per page load: reclaim expired tombstones, never live drafts. */
+      /* One best-effort sweep per page load: reclaim expired records. */
       if (!emergencyDraftPruneScheduled) {
         emergencyDraftPruneScheduled = true
         void pruneEmergencyDrafts().catch(() => {})
@@ -102,10 +98,9 @@ function openEmergencyDraftDb() {
     }
     request.onerror = () => { reject(request.error ?? new Error('IndexedDB open failed')) }
     request.onblocked = () => {
-      /* Another tab holds the old version and the upgrade cannot proceed. The
-         mirror is best-effort (the Host draft stays authoritative), so degrade
-         to "no mirror" instead of rejecting forever — a rejected promise would
-         be retried on every write and keep failing. */
+      /* Another tab holds the old version and the upgrade cannot proceed:
+         degrade to "no mirror" instead of rejecting forever — a rejected
+         promise would be retried on every write. */
       blocked = true
       console.warn('workspace-studio: IndexedDB draft upgrade blocked; emergency mirror disabled for this session')
       resolveDb(undefined)
@@ -113,8 +108,8 @@ function openEmergencyDraftDb() {
   }).catch(error => {
     emergencyDraftDbPromise = undefined
     /* Failure (private mode / disabled storage / transient glitch): trip the
-       time-bounded breaker so later writes stop re-opening the database on
-       every keystroke, but allow a retry after the window. */
+       time-bounded breaker so later writes stop re-opening the database,
+       with one retry after the window. */
     emergencyDraftDbFailed = true
     emergencyDraftDbFailedAt = Date.now()
     throw error
@@ -154,19 +149,16 @@ function queueEmergencyDraft(key, operation) {
 }
 export function writeEmergencyDraft(workspaceId, scopeId, path, payload) {
   const key = emergencyDraftKey(workspaceId, scopeId, path)
-  /* Spread the payload FIRST so identity fields always win: a payload's own
-     path must never override the record's derived `path` (and key), or
-     restore/rewrite would operate on inconsistent records. */
+  /* Spread the payload first so identity fields always win: a payload's own
+     path must never override the record's derived `path` (and key). */
   const value = { ...payload, key, workspaceId: String(workspaceId), scopeId: String(scopeId), path, updatedAt: Date.now() }
   return queueEmergencyDraft(key, () => emergencyDraftRequest('readwrite', store => store.put(value)))
 }
 export async function readEmergencyDraft(workspaceId, scopeId, path) {
   const key = emergencyDraftKey(workspaceId, scopeId, path)
   /* Queue the read on the same key as every write: a bare "wait for the
-     current tail, then read" leaves a window where a write enqueued right
-     after the wait commits AFTER the read transaction — restore would see
-     the previous snapshot. Serializing the read makes read-after-write
-     strict for this key. */
+     tail, then read" leaves a window where a write enqueued after the wait
+     commits after the read — restore would see the previous snapshot. */
   return queueEmergencyDraft(key, () => emergencyDraftRequest('readonly', store => store.get(key)))
 }
 export function deleteEmergencyDraft(workspaceId, scopeId, path, generation) {
@@ -179,11 +171,10 @@ export async function rewriteEmergencyDraftPath(workspaceId, scopeId, from, to) 
   await Promise.all([...emergencyDraftTails.values()].map(tail => tail.catch(() => {})))
   const db = await openEmergencyDraftDb()
   if (db === undefined) return
-  /* Read ALL + decide + delete/put inside ONE readwrite transaction: a write
-     enqueued between a separate read transaction and a later write transaction
-     could otherwise be overwritten by the stale snapshot (or deleted along
-     with the old key). IndexedDB serializes transactions on the same store, so
-     the whole read-modify-write is atomic against concurrent mirror writes. */
+  /* Read all + decide + delete/put inside one readwrite transaction: a write
+     enqueued between separate read and write transactions could be
+     overwritten by the stale snapshot. IndexedDB serializes transactions on
+     the same store, so the read-modify-write is atomic. */
   const rewrittenOldKeys = []
   await new Promise((resolveRewrite, reject) => {
     const transaction = db.transaction(EMERGENCY_DRAFT_STORE, 'readwrite')
@@ -199,9 +190,9 @@ export async function rewriteEmergencyDraftPath(workspaceId, scopeId, from, to) 
         rewrites.push({ oldKey: value.key, value: { ...value, key: emergencyDraftKey(workspaceId, scopeId, path), path, updatedAt: Date.now() } })
       }
       if (rewrites.length === 0) return
-      /* Destination collision: keep the NEWER side (generation, then updatedAt)
-         so a live draft at the destination never loses newer work to a moved
-         older record. */
+      /* Destination collision: keep the newer side (generation, then
+         updatedAt) so a live draft never loses newer work to a moved older
+         record. */
       const destinationByKey = new Map()
       for (const record of all) if (record.key !== undefined) destinationByKey.set(record.key, record)
       const finalized = []
@@ -233,12 +224,10 @@ export async function rewriteEmergencyDraftPath(workspaceId, scopeId, from, to) 
     transaction.onerror = () => { reject(transaction.error ?? new Error('IndexedDB draft rewrite failed')) }
     transaction.onabort = () => { reject(transaction.error ?? new Error('IndexedDB draft rewrite aborted')) }
   })
-  /* Sweep pass: a mirror write enqueued AFTER the rewrite transaction started
-     (the user typed at the old path while the move was in flight) commits
-     after it and would resurrect the old-key record as a zombie. Migrate any
-     such record to the new path in a second readwrite transaction — the editor
-     has switched to the new path by now, so no further old-path writes are
-     expected. */
+  /* Sweep pass: a mirror write enqueued after the rewrite transaction
+     started (the user typed at the old path while the move was in flight)
+     would resurrect the old-key record as a zombie — migrate it in a second
+     readwrite transaction. */
   if (rewrittenOldKeys.length > 0) {
     await new Promise((resolveSweep, reject) => {
       const transaction = db.transaction(EMERGENCY_DRAFT_STORE, 'readwrite')
