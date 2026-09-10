@@ -7,6 +7,7 @@ import { readOnlyReason } from '../../../format.js'
 import { encodingLabel } from '../../../api.js'
 import { resolveMergeParts, threeWayMerge } from '../../../merge.js'
 import { entryFromPreviewTab } from '../../../preview-tabs.js'
+import { isImageName } from '../../../renderers/registry.js'
 import { rewriteRelativePath } from '../../../paths.js'
 import { deleteEmergencyDraft, readEmergencyDraft, writeEmergencyDraft } from '../../../drafts.js'
 import { diskSnapshot, getCachedPreview, invalidateCachedPath, refreshCachedSnapshot, sameDiskSnapshot, storeCachedPreview } from '../../../file-cache.js'
@@ -146,7 +147,8 @@ export function useEditorSession({
     if (tab === undefined) return
     const activePathNow = activePathRef.current
     const activeNow = activePathNow === path
-    const editableActive = activeNow && preview.state === 'ready' && preview.editable !== false && !preview.readOnlyReason
+    const editableActive = activeNow && preview.state === 'ready'
+      && (preview.kind === 'image' || (preview.editable !== false && !preview.readOnlyReason))
     if (activeNow && !tab.dirty && !tab.saving) {
       const auto = (settings.autoSyncMode ?? AUTO_SYNC_MODE_AUTO) === AUTO_SYNC_MODE_AUTO
       if (auto) {
@@ -192,7 +194,7 @@ export function useEditorSession({
       setStatus({ error: dirtyNow, text })
       updateTab(path, { status: { error: dirtyNow, text } })
     }
-  }, [preview.state, preview.editable, preview.readOnlyReason, setReloadToken, settings.autoSyncMode, translate, updateTab])
+  }, [preview.state, preview.kind, preview.editable, preview.readOnlyReason, setReloadToken, settings.autoSyncMode, translate, updateTab])
   /* Polling: every AUTO_SYNC_CHECK_MS, check each tracked open tab against the
      cheap head endpoint. */
   useEffect(() => {
@@ -349,6 +351,45 @@ export function useEditorSession({
       baseText.current = externalTab.baseText
       setDraft(externalTab.baseText)
       setPreview(ready)
+      return undefined
+    }
+    /* Image files render through the standalone image view (complete bytes via
+       the standard workspace-files Remote), never the text read path: the Host
+       text preview rejects binary content (415 binary-file). No draft, no
+       baselines, no editor state; the read-epoch bump re-fetches on refresh
+       and on external-change reloads. */
+    const imageTab = tabsRef.current.find(item => item.path === activePath && isImageName(item.name))
+    if (imageTab !== undefined) {
+      readController.current?.abort()
+      publishEditorContext(undefined)
+      const selection = entryFromPreviewTab(imageTab)
+      setSelected(selection)
+      setEditing(false)
+      setDirty(false)
+      setSaving(false)
+      setStatus(undefined)
+      setDraft('')
+      baseText.current = ''
+      diskBaseRef.current = ''
+      setPreview({
+        state: 'ready',
+        kind: 'image',
+        path: activePath,
+        name: selection.name,
+        symlink: Boolean(selection.symlink),
+        size: Number.isFinite(imageTab.size) ? imageTab.size : null,
+        editable: false,
+      })
+      setReadEpoch(epoch => epoch + 1)
+      updateTab(activePath, {
+        editing: false,
+        dirty: false,
+        saving: false,
+        status: undefined,
+        loaded: true,
+        readOnlyReason: null,
+        truncated: false,
+      })
       return undefined
     }
     /* ---- Fast activation path (dev-notes §23) -------------------------

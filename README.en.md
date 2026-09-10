@@ -16,6 +16,7 @@ This bundle replaces the DeepSeek Harness Web root layout with **three panes fro
 | 📁 **Workspace file tree** | Fused into the left sidebar's **File Explorer** view; directories first, incremental expansion, and **expanded state and scroll position restore per session** after a reload |
 | ⌨️ **CodeMirror 6 editor** | 20+ language syntax highlighting, line numbers, code folding, in-editor search, word wrap, and 14 text encodings |
 | 🗂️ **Preview tabs** | Persisted per session, survive reloads, drag reorder, pinned tabs, drafts never lost, conflict protection, external-change auto-sync |
+| 🖼️ **Renderer views** | A view-as menu: rendered Markdown / HTML previews, direct image preview, and paged read-only browsing of full file content |
 | 🎯 **Editor context** | Open files / selections inject as `<opened_file>` / `<selection>` prefixes; history keeps a one-line summary |
 | 🧹 **File operations** | Right-click create / rename / copy / cut / paste / delete / copy path, with shortcuts |
 | 🧭 **Mind-map mode** | Conversation branch tree: the session header's **Mind map** button enters mind-map mode, reverse-parses the full session log into turn cards and persists them, forks a new branch at any card, rename / delete cards, archive the whole map |
@@ -52,6 +53,13 @@ This bundle replaces the DeepSeek Harness Web root layout with **three panes fro
 - Unsaved edits show a `·` after the tab label and after the filename in the preview panel title; it disappears once saved.
 - Unsaved drafts are kept in staging files (see Editing & Saving); localStorage only holds the dirty marker, never content; switching files never silently discards unsaved content.
 - The tab bar scrolls horizontally with the wheel, and newly activated tabs auto-scroll into view.
+
+### Renderer Views
+
+- The preview pane's view mode is driven by a **renderer registry** (the same lineage as the new Harness right-Sidebar document preview): Markdown files switch between **source editing / rendered preview** (GFM rendering, the same policy as **Open in new window**); HTML files switch between **source editing / page preview**, and the preview page's relative scripts and stylesheets are read through the standard workspace-files API and packed into the sandboxed iframe (edits apply live; packing is debounced by 400 ms).
+- Image files (png / jpg / jpeg / gif / webp / bmp / ico / svg) open directly as an **image preview**: complete bytes are read through the standard workspace-files API and re-fetched on refresh or external change.
+- Read-only text files (truncated, oversized, read-only, …) switch between **source / read-only browse**: the browse view **pages through the full file** (the editor is capped at `maxPreviewBytes`), appending the next page at scroll-to-bottom, rendering Markdown as a document and other code highlighted.
+- The view mode resets per file switch and is not persisted; PDF rendering is not provided yet.
 
 ### Editing & Saving
 
@@ -120,7 +128,7 @@ Built in for **20+ languages**: JavaScript/JSX, TypeScript/TSX, JSON, HTML, CSS/
 One package ships three faces:
 
 - **Host entry** (`lib/index.js`) registers `/workspace-studio/api`: it lists directories by Workspace ID, reads bounded UTF-8 files, authorizes the current Session by membership or canonical cwd, and, when editing is explicitly enabled, saves existing regular files, creates files and folders, and renames entries through revision validation, single-segment name checks, and atomic replacement — refusing stale revisions instead of overwriting them. It also serves `/mindmap-doc` (read / write / delete) plus `/mindmap-doc/sync`, `/mindmap-doc/index`, `/mindmap-doc/rename`, `/mindmap-doc/models`, `/mindmap-doc/regenerate-summary`, `/mindmap-doc/regenerate-all`, and `/mindmap-doc/summarize-session`, persisting per-session mind-map documents built by reverse-parsing full event logs and folding in every session's turns, with renames updating only the map title instead of round-tripping the whole document and AI-summary generation/regeneration/session-summarization serialized by the Host. Additionally `/update/check` (compares the installed version against the GitHub main branch) and `/update/download` (verifies and atomically swaps the plugin's own install directory) back the settings "Plugin Update" group; a dsh restart is required to apply the swap.
-- **Browser entry** (`lib/client.js`) provides the compatible `ctx.layout` service, occupies the root Slot, keeps declaring `sidebar`, `conversation`, `details`, and `shell.overlay`, and adds the file tree, the CodeMirror 6 browser/editor, the editor-context row, the Workspace settings tab, the `/init` command, and the conversation-branch mind map (preview tab).
+- **Browser entry** (`lib/client.js`) provides the compatible `ctx.layout` service and the `usePanelInfo` standard hook (the `panelInfo` root contribution), occupies the root Slot, declares `sidebar`, `main` (keyed, hosting the newer Harness conversation panel), `details`, and `shell.overlay`, and adds the file tree, the CodeMirror 6 browser/editor, the editor-context row, the Workspace settings tab, the `/init` command, and the conversation-branch mind map (preview tab).
 - **Shared invariants** (`lib/invariant.js`) back every Host request with path-containment and write-eligibility checks.
 
 ### Activation Model

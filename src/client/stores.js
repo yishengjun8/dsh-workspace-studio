@@ -27,6 +27,12 @@ export function createLayoutStore() {
       detailsOpen: false,
       // Sidebar browsing region: 'sessions' = workspace/session browser; 'files' swaps the same region for the file tree.
       view: 'sessions',
+      /* Selected global main panel (the harness's PanelInfo contract). This
+         plugin's root layout replaces ui-layout, so it owns the panelInfo
+         root standard source itself; the conversation is the only main entry
+         in the shipped composition, and the chat column renders it whenever
+         no panel is selected. */
+      panelInfo: { activePanelId: null },
     }),
     actions: {
       setSidebar: (draft, width, max = SIDEBAR_MAX_FALLBACK) => { draft.sidebar = width === 0 ? 0 : clamp(width, SIDEBAR_MIN, max) },
@@ -34,6 +40,9 @@ export function createLayoutStore() {
       openDetails: (draft) => { draft.detailsOpen = true },
       closeDetails: (draft) => { draft.detailsOpen = false },
       setView: (draft, view) => { draft.view = view === 'files' ? 'files' : 'sessions' },
+      selectPanel: (draft, panelId) => {
+        draft.panelInfo = { activePanelId: panelId === null || panelId === undefined ? null : String(panelId) }
+      },
     },
   })
 }
@@ -194,4 +203,4 @@ export function createExplorerSettingsStore() {
     },
   })
 }
-export class LayoutController { attach(actions){this.actions=actions} requireActions(){if(!this.actions)throw new Error('workspace-studio: root store actions are not attached');return this.actions} toggleSidebar(){this.requireActions().toggleSidebar()} openDetails(){this.requireActions().openDetails()} closeDetails(){this.requireActions().closeDetails()} }
+export class LayoutController { attach(actions){this.actions=actions} requireActions(){if(!this.actions)throw new Error('workspace-studio: root store actions are not attached');return this.actions} toggleSidebar(){this.requireActions().toggleSidebar()} openDetails(){this.requireActions().openDetails()} closeDetails(){this.requireActions().closeDetails()} /* The harness ILayout face this plugin's root layout must satisfy (ui-layout is disabled by the plugin patch): selectPanel drives the main slot's entryKey; the right-panel verbs are no-ops because this layout has no rightbar track. */ selectPanel(panelId){this.requireActions().selectPanel(panelId)} beginNavigation(){return new AbortController().signal} openRightbar(){} closeRightbar(){} }

@@ -2,7 +2,7 @@ import { createElement as h, Fragment, useRef, useState, useEffect, useLayoutEff
 import { createPortal } from 'react-dom'
 import { CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MAX, CONFLICT_FONT_SIZE_MIN, CONTEXT_MENU_WIDTH, ENCODING_FALLBACK } from '../../constants.js'
 import { translate } from '../../locale/index.js'
-import { clamp, colorGroupOf, fileLabel, formatBytes, readOnlyReason } from '../../format.js'
+import { clamp, fileLabel, formatBytes, readOnlyReason } from '../../format.js'
 import { copyText, defaultEntryName, entryNameError, entryPath, joinAbsolutePath, parentPath, pathBaseName, rewriteDirectoryMap, rewritePathMap, rewritePathSet, rewriteRelativePath, selectedLevelPath } from '../../paths.js'
 import { ancestorDirectoryPaths, dropIndexFromEvent, entryFromPreviewTab, isMindmapTab, mindmapRootIdOfTab, mindmapTabPath, normalizePreviewSession, orderPinnedFirst, rewritePreviewTabs, serializePreviewSession } from '../../preview-tabs.js'
 import { IconFolder, IconNewFile, IconNewFolder, IconRefresh, IconSearch } from '../../icons.js'
@@ -25,6 +25,7 @@ import { useEditorSession } from './hooks/editor-session.js'
 import { usePreviewScrollbar } from './hooks/scrollbar.js'
 import { useSearchState } from './hooks/search.js'
 import { useSessionRename } from './hooks/session-rename.js'
+import { isHtmlName, isImageName, isMarkdownName, VIEW_EDIT, VIEW_PREVIEW, viewerCandidates } from '../../renderers/registry.js'
 
 
 export function WorkspaceExplorer({
@@ -64,10 +65,12 @@ export function WorkspaceExplorer({
   const [dropIndex, setDropIndex] = useState(null)
   const [dropActive, setDropActive] = useState(false)
   const [previewToast, setPreviewToast] = useState()
-  // Markdown rendered-preview toggle (per-file; reset whenever the file changes).
-  const [mdPreview, setMdPreview] = useState(false)
-  // HTML rendered-page preview toggle (per-file; reset whenever the file changes).
-  const [htmlPreview, setHtmlPreview] = useState(false)
+  /* Viewer mode for the active file (registry-driven, mirroring the harness
+     right-Sidebar viewer menu): 'edit' = the editor, 'preview' = the rendered
+     view (Markdown overlay / HTML iframe / paged read-only browse). Per-file
+     and reset on switch, exactly like the toggles it replaces; deliberately
+     NOT persisted (no per-tab renderer preference in the tab model). */
+  const [viewMode, setViewMode] = useState(VIEW_EDIT)
   const [entryDialog, setEntryDialog] = useState()
   const [entryDraft, setEntryDraft] = useState('')
   const [entryBusy, setEntryBusy] = useState(false)
@@ -752,11 +755,9 @@ export function WorkspaceExplorer({
     composingRef.current = false
   }, [activePath, dirty])
   const closeEntryDialog=useCallback(()=>{if(entryBusy)return;setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);composingRef.current=false},[entryBusy])
-  // The markdown preview mode is scoped to one file: switching files always
-  // lands back in the source editor.
-  useEffect(() => { setMdPreview(false) }, [activePath])
-  // The HTML page preview is scoped to one file for the same reason.
-  useEffect(() => { setHtmlPreview(false) }, [activePath])
+  // The viewer mode is scoped to one file: switching files always lands back
+  // in the source editor.
+  useEffect(() => { setViewMode(VIEW_EDIT) }, [activePath])
   const rewriteRuntimePaths = useCallback((from, to) => {
     lastWriteRef.current = rewritePathMap(lastWriteRef.current, from, to)
     draftGenerationsRef.current = rewritePathMap(draftGenerationsRef.current, from, to)
@@ -1321,11 +1322,31 @@ export function WorkspaceExplorer({
     for (const rootId of placedMapRootsRef.current.keys()) mindmapViewHost.unplace(rootId)
     placedMapRootsRef.current = new Map()
   }, [])
-  // Markdown files offer a rendered-preview toggle (same extension table as the tree badge and editor highlighting).
-  const isMarkdown = preview.state === 'ready' && colorGroupOf({ kind: 'file', name: preview.name }) === 'markdown'
-  // HTML files offer a rendered-page preview toggle. html/htm only: xml and svg
-  // share the markup color group but are not pages.
-  const isHtmlFile = preview.state === 'ready' && /\.(html|htm)$/i.test(preview.name)
+  // Renderer dispatch (registry-driven, mirroring the harness right-Sidebar
+  // document-preview pipeline): markdown/html offer a rendered preview; image
+  // files render standalone; read-only text files offer a paged full-file
+  // browse the editor cannot show.
+  const isMarkdown = preview.state === 'ready' && isMarkdownName(preview.name)
+  const isHtmlFile = preview.state === 'ready' && isHtmlName(preview.name)
+  const isImage = preview.state === 'ready' && isImageName(preview.name)
+  const isReadOnlyText = preview.state === 'ready' && preview.kind !== 'image'
+    && (preview.editable === false || preview.readOnlyReason)
+  /* Browse mode = the paged full-file view; it replaces the editor for
+     read-only text files (markdown renders as MarkdownText, everything else
+     as a highlighted CodeBlock). HTML keeps the iframe overlay instead;
+     external (dropped) files have no workspace path the Remote could read. */
+  const showBrowse = viewMode === VIEW_PREVIEW && isReadOnlyText && !isHtmlFile && activeTab?.external !== true
+  const browseKind = isMarkdown ? 'markdown' : 'code'
+  const viewerItems = useMemo(() => {
+    if (preview.state !== 'ready' || activeTab === undefined || isMindmapTab(activeTab)) return []
+    return viewerCandidates(preview, activeTab.name, activeTab.external)
+  }, [activeTab, preview])
+  const currentViewer = viewerItems.find(item => item.id === (isImage ? 'image' : viewMode)) ?? viewerItems[0]
+  /* The toggle button's tooltip names the view it switches TO (the old
+     per-type toggle titles, registry-driven). */
+  const viewerToggleTitle = currentViewer?.id === VIEW_PREVIEW
+    ? (isMarkdown ? translate('mdPreview.edit.title') : isHtmlFile ? translate('htmlPreview.edit.title') : translate('editor.edit.title'))
+    : (isMarkdown ? translate('mdPreview.preview.title') : isHtmlFile ? translate('htmlPreview.preview.title') : translate('renderer.browse.title'))
   /* A mind-map tab renders nothing HERE: this div is a PLACEHOLDER the global
      host parks its STABLE map-body container into (one body per family root,
      mounted across session switches; the actual map body lives in the host
@@ -1360,13 +1381,13 @@ export function WorkspaceExplorer({
         activeMindmap ? null : h(PreviewPane, {
     activePath,
     activeTab,
+    browseKind,
     draft,
     editing,
     editorRef,
-    isMarkdown,
-    mdPreview,
-    htmlPreview,
+    isBrowse: showBrowse,
     isHtmlFile,
+    isMarkdown,
     onBodyClick: () => { if (activePathRef.current !== null) scrollTabIntoView(activePathRef.current) },
     onContext: publishContextState,
     onDirty: (text) => {
@@ -1393,18 +1414,20 @@ export function WorkspaceExplorer({
     scrollTopRef,
     searchPanelContainerRef,
     searchReveal,
+    sessionId: previewSessionId,
     settings,
+    viewMode,
   }))
     : h(PreviewPane, {
     activePath,
     activeTab,
+    browseKind,
     draft,
     editing,
     editorRef,
-    isMarkdown,
-    mdPreview,
-    htmlPreview,
+    isBrowse: showBrowse,
     isHtmlFile,
+    isMarkdown,
     onBodyClick: () => { if (activePathRef.current !== null) scrollTabIntoView(activePathRef.current) },
     onContext: publishContextState,
     onDirty: (text) => {
@@ -1431,7 +1454,9 @@ export function WorkspaceExplorer({
     scrollTopRef,
     searchPanelContainerRef,
     searchReveal,
+    sessionId: previewSessionId,
     settings,
+    viewMode,
   })
   const searchBody = h(SearchResults, { expanded: searchExpanded, onOpenEntry: openSearchEntry, onOpenMatch: openSearchMatch, onToggleFile: toggleSearchFile, state: searchState })
   const entryDialogTrimmed = entryDraft.trim()
@@ -1458,9 +1483,11 @@ export function WorkspaceExplorer({
   const size = preview.state === 'ready' ? formatBytes(preview.size) : ''
   const tabMenuTarget = tabContextMenu === undefined ? undefined : tabs.find(tab => tab.path === tabContextMenu.path)
   /* "Open in new window" is limited to workspace file tabs: a mind-map tab has
-     no file content and an external (dropped) tab has no workspace path the
-     Host could serve. */
+     no file content, an external (dropped) tab has no workspace path the Host
+     could serve, and an image tab's raw bytes are rejected by the Host's
+     binary guard (the image view is the preview). */
   const canOpenInNewWindow = tabMenuTarget !== undefined && !isMindmapTab(tabMenuTarget) && !tabMenuTarget.external
+    && !isImageName(tabMenuTarget.name)
   const openTabInNewWindow = () => {
     setTabContextMenu(undefined)
     if (!canOpenInNewWindow) return
@@ -1572,7 +1599,7 @@ export function WorkspaceExplorer({
       tabContextMenu ? h(TabContextMenu, { menuRef: tabMenuRef, onCloseOthers: () => { setTabContextMenu(undefined); closeOtherTabs(tabContextMenu.path) }, onTogglePin: () => { setTabContextMenu(undefined); if (tabMenuTarget?.pinned) unpinTab(tabContextMenu.path); else pinTab(tabContextMenu.path) }, onOpenInNewWindow: openTabInNewWindow, canOpenInNewWindow, pinned: Boolean(tabMenuTarget?.pinned), x: tabContextMenu.x, y: tabContextMenu.y }) : null,
       /* A mind-map tab hides the file header: the map draws its own toolbar
          and title bar. */
-      activeMindmap ? null : h('header', { className: 'dsh-ws-panel-header dsh-ws-preview-file-header', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) }, ref: previewHeaderRef },
+      activeMindmap ? null : h('header', { className: 'dsh-ws-panel-header dsh-ws-preview-file-header', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && preview.kind !== 'image' && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) }, ref: previewHeaderRef },
         h('span', { className: 'dsh-ws-preview-file-path', title: activeTab === undefined ? undefined : (activeTab.external ? translate('external.externalFile.title') : activeTab.path) },
           activeTab
             ? (activeTab.external
@@ -1581,25 +1608,20 @@ export function WorkspaceExplorer({
             : workspace.title),
         preview.state === 'ready'
           ? h(Fragment, null,
-            isMarkdown
+            /* Viewer toggle (registry-driven): exactly two candidates exist
+               for every file that shows the button (edit + one rendered
+               view), so the button flips directly instead of opening a menu;
+               a single candidate (image files, editable plain text) renders
+               no button. */
+            viewerItems.length > 1
               ? h('button', {
-                'aria-pressed': mdPreview,
+                'aria-label': translate('viewer.menu'),
                 className: 'dsh-ws-text-button',
-                'data-active': mdPreview || undefined,
-                onClick: () => setMdPreview(value => !value),
-                title: mdPreview ? translate('mdPreview.edit.title') : translate('mdPreview.preview.title'),
+                'data-active': currentViewer?.id === VIEW_PREVIEW || undefined,
+                onClick: () => setViewMode(currentViewer?.id === VIEW_PREVIEW ? VIEW_EDIT : VIEW_PREVIEW),
+                title: viewerToggleTitle,
                 type: 'button',
-              }, mdPreview ? translate('editor.edit') : translate('mdPreview.preview'))
-              : null,
-            isHtmlFile
-              ? h('button', {
-                'aria-pressed': htmlPreview,
-                className: 'dsh-ws-text-button',
-                'data-active': htmlPreview || undefined,
-                onClick: () => setHtmlPreview(value => !value),
-                title: htmlPreview ? translate('htmlPreview.edit.title') : translate('htmlPreview.preview.title'),
-                type: 'button',
-              }, htmlPreview ? translate('editor.edit') : translate('htmlPreview.preview'))
+              }, currentViewer?.label ?? '')
               : null,
             h('button', {
               'aria-label': translate('editor.refresh'),
@@ -1615,9 +1637,9 @@ export function WorkspaceExplorer({
       body,
       // Merged bottom status bar: action buttons + file meta (left) and the transient status notice (right).
       // A mind-map tab hides it: the map surfaces its own notices.
-      activeMindmap ? null : h('div', { className: 'dsh-ws-status', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) } },
+      activeMindmap ? null : h('div', { className: 'dsh-ws-status', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && preview.kind !== 'image' && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) } },
         h('div', { className: 'dsh-ws-preview-status-actions' },
-          preview.state === 'ready'
+          preview.state === 'ready' && preview.kind !== 'image'
             ? h(Fragment, null,
               h('button', {
                 'aria-pressed': settings.wrap === true,
@@ -1641,8 +1663,8 @@ export function WorkspaceExplorer({
         h('div', { className: 'dsh-ws-preview-status-meta' },
           activeTab ? h('span', { className: 'dsh-ws-language' }, fileLabel(activeTab.name)) : null,
           size ? h('span', null, size) : null,
-          preview.state === 'ready' && preview.encoding ? h('span', { className: 'dsh-ws-encoding', title: translate('encoding.badge') }, encodingLabel(preview.encoding)) : null,
-          preview.state === 'ready' && reason ? h('span', { title: reason }, reason) : null,
+          preview.state === 'ready' && preview.kind !== 'image' && preview.encoding ? h('span', { className: 'dsh-ws-encoding', title: translate('encoding.badge') }, encodingLabel(preview.encoding)) : null,
+          preview.state === 'ready' && preview.kind !== 'image' && reason ? h('span', { title: reason }, reason) : null,
         ),
         h('span', { className: 'dsh-ws-preview-status-msg', 'data-error': status?.error || undefined }, status?.text ?? ''),
       ),

@@ -3,12 +3,20 @@ import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import { translate } from '../../locale/index.js'
 import { colorGroupOf, highlightPresetOf, readOnlyReason } from '../../format.js'
 import { CodeEditor } from '../editor.js'
+import { BrowseView } from '../../renderers/browse-view.js'
+import { HtmlPreview } from '../../renderers/html-preview.js'
+import { ImageView } from '../../renderers/image-view.js'
 
 /* Preview pane body: idle/loading/error states, the CodeMirror editor (kept
    mounted under the rendered-Markdown overlay so switching back keeps caret,
    undo history and the draft), and the search-panel mount point. All editor
-   callbacks (dirty/save/scroll/context) are props from the explorer shell. */
-export function PreviewPane({ preview, settings, editing, activeTab, draft, mdPreview, isMarkdown, htmlPreview, isHtmlFile, searchReveal, readEpoch, activePath, editorRef, searchPanelContainerRef, scrollTopRef, restore, onViewState, onDirty, onSaveShortcut, onScroll, onRevealApplied, onBodyClick, onSearchPanelContextMenu, onContext }) {
+   callbacks (dirty/save/scroll/context) are props from the explorer shell.
+   Renderer dispatch (registry-driven, mirroring the harness right-Sidebar
+   document-preview pipeline): image files render standalone from complete
+   bytes; read-only text files in browse mode render a paged full-file view;
+   everything else keeps the editor, with Markdown/HTML overlays in preview
+   mode. */
+export function PreviewPane({ preview, settings, editing, activeTab, draft, viewMode, isMarkdown, isHtmlFile, isBrowse, browseKind, sessionId, searchReveal, readEpoch, activePath, editorRef, searchPanelContainerRef, scrollTopRef, restore, onViewState, onDirty, onSaveShortcut, onScroll, onRevealApplied, onBodyClick, onSearchPanelContextMenu, onContext }) {
   if (preview.state === 'idle') {
     return h('div', { className: 'dsh-ws-empty' }, translate('panel.previewHint'))
   }
@@ -18,6 +26,17 @@ export function PreviewPane({ preview, settings, editing, activeTab, draft, mdPr
   if (preview.state === 'error') {
     return h('div', { className: 'dsh-ws-empty' },
       h('div', { className: 'dsh-ws-error-card' }, preview.message))
+  }
+  /* Image files never enter the text read path: the standalone view fetches
+     complete bytes through the standard workspace-files Remote. */
+  if (preview.kind === 'image') {
+    return h('div', { className: 'dsh-ws-preview-body', onClick: onBodyClick },
+      h(ImageView, { name: preview.name, path: preview.path, readEpoch, sessionId }))
+  }
+  /* Read-only browse: paged full-file view for non-editable text files. */
+  if (isBrowse) {
+    return h('div', { className: 'dsh-ws-preview-body', onClick: onBodyClick },
+      h(BrowseView, { key: preview.path, kind: browseKind, name: preview.name, path: preview.path, readEpoch, sessionId }))
   }
   const highlightPreset = highlightPresetOf(settings, colorGroupOf({ kind: 'file', name: preview.name }))
   const previewReason = readOnlyReason(preview)
@@ -50,19 +69,16 @@ export function PreviewPane({ preview, settings, editing, activeTab, draft, mdPr
         scrollTop: scrollTopRef.current.get(activePath) ?? activeTab?.scrollTop ?? 0,
       }),
       // Rendered-Markdown overlay sits above the kept-mounted editor, so switching back keeps caret/undo state and the draft.
-      isMarkdown && mdPreview
+      isMarkdown && viewMode === 'preview'
         ? h('div', { className: 'dsh-ws-md-preview' }, h(MarkdownText, { text: draft }))
         : null,
       // Rendered-page overlay for HTML files: the iframe draws the current
-      // draft via srcDoc, sandboxed to a unique origin — scripts run, but the
-      // page cannot read dsh storage or call the plugin API with credentials.
-      isHtmlFile && htmlPreview
-        ? h('div', { className: 'dsh-ws-html-preview' },
-          h('iframe', {
-            sandbox: 'allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms allow-modals allow-downloads',
-            srcDoc: draft ?? '',
-            title: translate('htmlPreview.preview'),
-          }))
+      // draft via srcDoc (relative scripts/stylesheets packed in through the
+      // standard readRelated Remote), sandboxed to a unique origin — scripts
+      // run, but the page cannot read dsh storage or call the plugin API with
+      // credentials.
+      isHtmlFile && viewMode === 'preview'
+        ? h(HtmlPreview, { draft, path: preview.path, sessionId })
         : null),
   )
 }
