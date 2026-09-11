@@ -1,4 +1,5 @@
 /* Renderer registry: extension-matched view modes for the preview pane, mirroring the harness document-preview pipeline (extension band first, then longest suffix). */
+import { useMemo } from 'react'
 import { translate } from '../locale/index.js'
 
 export const VIEW_EDIT = 'edit'
@@ -93,4 +94,12 @@ export function viewerCandidates(preview, name, external) {
     ]
   }
   return [{ id: VIEW_EDIT, label: translate('editor.edit') }]
+}
+
+/* Localized chrome for the shared MarkdownText primitive: the harness component requires a reference-stable MarkdownLabels object (it memoizes on its identity), so the memo keys on the three translated strings and rebuilds only when the active locale changes them. */
+export function useMarkdownLabels() {
+  const copyLabel = translate('renderer.copy')
+  const copiedLabel = translate('renderer.copied')
+  const footnotes = translate('renderer.footnotes')
+  return useMemo(() => ({ code: { copyLabel, copiedLabel }, footnotes }), [copyLabel, copiedLabel, footnotes])
 }

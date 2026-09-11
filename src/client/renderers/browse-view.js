@@ -3,10 +3,11 @@ import { createElement as h } from 'react'
 import { useCallback } from 'react'
 import { CodeBlock, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import { translate } from '../locale/index.js'
-import { shikiLanguageFor } from './registry.js'
+import { shikiLanguageFor, useMarkdownLabels } from './registry.js'
 import { usePagedText } from './paged-text.js'
 
 export function BrowseView({ sessionId, path, name, kind, readEpoch }) {
+  const markdownLabels = useMarkdownLabels()
   const { text, eof, loading, failure, loadMore } = usePagedText(sessionId, path, readEpoch)
   const onScroll = useCallback((event) => {
     const body = event.currentTarget
@@ -25,7 +26,7 @@ export function BrowseView({ sessionId, path, name, kind, readEpoch }) {
   const copiedLabel = translate('renderer.copied')
   return h('div', { className: 'dsh-ws-renderer-view dsh-ws-renderer-browse', onScroll },
     kind === 'markdown'
-      ? h(MarkdownText, { text, streaming: !eof })
+      ? h(MarkdownText, { text, streaming: !eof, labels: markdownLabels })
       : h(CodeBlock, {
         code: text,
         copyLabel,

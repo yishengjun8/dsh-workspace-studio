@@ -1962,3 +1962,46 @@ export function validateMindmapSession(value) {
   }
   return value
 }
+
+/* Drop a fresh fork child's inherited pending queue. A harness fork copies the
+   source log prefix up to the next turn/start, and the parent's next submitted
+   message is enqueued into its durable inbox BEFORE that turn/start while its
+   claim lands AFTER it — so the child starts with the parent's following
+   message still pending and would claim it ahead of the user's own first send.
+   The fork resolves with the child agent idle and unopened, so dropping its
+   pending inbox here is race-free. Guarded to seeded fork children
+   (header.parentSession set) whose agent is NOT running: never a live user's
+   queued work on an arbitrary session. */
+export async function clearForkInheritedQueue(ctx, sessionId) {
+  const id = validateMindmapSession(sessionId)
+  let live = undefined
+  try {
+    live = ctx.sessions.get(id)
+  } catch {
+    live = undefined
+  }
+  if (live === null || live === undefined || live.header === undefined
+    || live.header === null || live.header.parentSession === undefined) {
+    return { cleared: 0, reason: 'not-a-fork-child' }
+  }
+  /* Optional service (same guard as ctx.get('llm'): cordis proxies throw on a
+     service outside this plugin's inject list). */
+  let agents
+  try {
+    agents = ctx.get('agents')
+  } catch {
+    return { cleared: 0, reason: 'agents-unavailable' }
+  }
+  const agent = typeof agents?.get === 'function' ? agents.get(id) : undefined
+  if (agent === null || agent === undefined) return { cleared: 0, reason: 'agent-not-attached' }
+  if (agent.status !== 'idle') return { cleared: 0, reason: 'agent-not-idle' }
+  const inbox = agent.inbox
+  if (inbox === null || inbox === undefined || typeof inbox.clear !== 'function') {
+    return { cleared: 0, reason: 'inbox-unavailable' }
+  }
+  const pending = (Array.isArray(inbox.nextTurn) ? inbox.nextTurn.length : 0)
+    + (Array.isArray(inbox.nextStep) ? inbox.nextStep.length : 0)
+  if (pending === 0) return { cleared: 0, reason: 'queue-empty' }
+  inbox.clear()
+  return { cleared: pending }
+}

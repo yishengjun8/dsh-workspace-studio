@@ -8,7 +8,7 @@ import { ENCODINGS } from './encodings.js'
 import { listTree, readExternalPreview, readPreview, readPreviewHead, readRawFile, revealInExplorer, searchWorkspace } from './fs.js'
 import { createEntry, fsOperation, renameEntry, saveFile } from './write.js'
 import { deleteDraftFile, draftTreeOperation, parseDraftGenerationQuery, readDraftFile, saveDraftFile, validateDraftOwner, validateDraftPayload, writeJsonAtomic } from './drafts.js'
-import { adoptMindmapOrphans, buildMindmapDoc, deleteMindmapDoc, findMindmapDocWithAncestors, indexMindmapDocs, isValidMindmapDoc, listMindmapModels, MINDMAP_DOC_MAX_BYTES, mindmapAnchorOf, mindmapDocPath, mindmapDrainPendingSessionSummaries, mindmapLock, mindmapLockedReanchorOp, mindmapSessionSummarizingOf, mindmapSummarizingOf, mindmapSyncCache, parseMindmapSummaryConfig, purgeArchivedMindmapDocs, readMindmapDocFile, refreshMindmapDocCore, regenerateAllMindmapSummaries, regenerateMindmapSummary, renameMindmapDoc, seedMindmapSyncCacheAfterLoad, summarizeMindmapSession, syncMindmapDoc, validateMindmapSession, writeMindmapDoc } from './mindmap.js'
+import { adoptMindmapOrphans, buildMindmapDoc, clearForkInheritedQueue, deleteMindmapDoc, findMindmapDocWithAncestors, indexMindmapDocs, isValidMindmapDoc, listMindmapModels, MINDMAP_DOC_MAX_BYTES, mindmapAnchorOf, mindmapDocPath, mindmapDrainPendingSessionSummaries, mindmapLock, mindmapLockedReanchorOp, mindmapSessionSummarizingOf, mindmapSummarizingOf, mindmapSyncCache, parseMindmapSummaryConfig, purgeArchivedMindmapDocs, readMindmapDocFile, refreshMindmapDocCore, regenerateAllMindmapSummaries, regenerateMindmapSummary, renameMindmapDoc, seedMindmapSyncCacheAfterLoad, summarizeMindmapSession, syncMindmapDoc, validateMindmapSession, writeMindmapDoc } from './mindmap.js'
 import { renderPromptContext } from './prompt-context.js'
 import { renderMarkdownDocument } from './markdown.js'
 import { checkForUpdate, downloadUpdate } from './update.js'
@@ -101,6 +101,7 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
     const mindmapDocRegenerateEndpoint = url.pathname === `${API_PREFIX}/mindmap-doc/regenerate-summary`
     const mindmapDocRegenerateAllEndpoint = url.pathname === `${API_PREFIX}/mindmap-doc/regenerate-all`
     const mindmapDocSummarizeSessionEndpoint = url.pathname === `${API_PREFIX}/mindmap-doc/summarize-session`
+    const mindmapForkCleanupEndpoint = url.pathname === `${API_PREFIX}/mindmap-doc/fork-cleanup`
     const updateCheckEndpoint = url.pathname === `${API_PREFIX}/update/check`
     const updateDownloadEndpoint = url.pathname === `${API_PREFIX}/update/download`
     const allowed = contextEndpoint
@@ -139,7 +140,9 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
                                       ? 'POST'
                                       : mindmapDocSummarizeSessionEndpoint
                                         ? 'POST'
-                                        : updateCheckEndpoint
+                                        : mindmapForkCleanupEndpoint
+                                          ? 'POST'
+                                          : updateCheckEndpoint
                                           ? 'GET, HEAD'
                                           : updateDownloadEndpoint
                                             ? 'POST'
@@ -152,7 +155,7 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
       sendError(req, res, 405, 'method-not-allowed', `该接口只允许 ${allowed} 请求`, { allow: allowed })
       return
     }
-    if (!contextEndpoint && !encodingsEndpoint && !entryEndpoint && !externalFileEndpoint && !fileEndpoint && !rawEndpoint && !fsEndpoint && !treeEndpoint && !searchEndpoint && !revealEndpoint && !draftEndpoint && !draftTreeEndpoint && !mindmapDocEndpoint && !mindmapDocIndexEndpoint && !mindmapDocSyncEndpoint && !mindmapDocRenameEndpoint && !mindmapDocModelsEndpoint && !mindmapDocRegenerateEndpoint && !mindmapDocRegenerateAllEndpoint && !mindmapDocSummarizeSessionEndpoint && !updateCheckEndpoint && !updateDownloadEndpoint) {
+    if (!contextEndpoint && !encodingsEndpoint && !entryEndpoint && !externalFileEndpoint && !fileEndpoint && !rawEndpoint && !fsEndpoint && !treeEndpoint && !searchEndpoint && !revealEndpoint && !draftEndpoint && !draftTreeEndpoint && !mindmapDocEndpoint && !mindmapDocIndexEndpoint && !mindmapDocSyncEndpoint && !mindmapDocRenameEndpoint && !mindmapDocModelsEndpoint && !mindmapDocRegenerateEndpoint && !mindmapDocRegenerateAllEndpoint && !mindmapDocSummarizeSessionEndpoint && !mindmapForkCleanupEndpoint && !updateCheckEndpoint && !updateDownloadEndpoint) {
       sendError(req, res, 404, 'endpoint-not-found', '接口不存在')
       return
     }
@@ -170,6 +173,11 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
     }
     /* Mind-map docs are keyed by session, not workspace, so they are handled before the workspaceId requirement. */
     const persistence = ctx.get('sessionPersistence')
+    if (mindmapForkCleanupEndpoint) {
+      const payload = await readJsonObject(req, config, MINDMAP_DOC_MAX_BYTES)
+      sendJson(req, res, 200, await clearForkInheritedQueue(ctx, payload?.sessionId))
+      return
+    }
     if (mindmapDocIndexEndpoint) {
       sendJson(req, res, 200, await indexMindmapDocs(ctx))
       return

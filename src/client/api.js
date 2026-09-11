@@ -248,6 +248,18 @@ export const renameMindmapDoc = (sessionId, title, signal) => mindmapRequest('/r
   body: { sessionId: String(sessionId), title },
   signal,
 })
+/* A forked branch inherits the source session's durable pending queue: the
+   parent's next submitted message enters its inbox BEFORE the turn/start the
+   fork cut extends to, while its claim lands AFTER the cut — so the child
+   starts with that message still queued and would claim it ahead of the
+   user's own first input. The Host drops the fresh (idle) fork child's
+   pending inbox right after the fork; the caller treats a failure as
+   best-effort (the leaked message would then run as the branch's first turn). */
+export const clearMindmapForkQueue = (sessionId, signal) => mindmapRequest('/fork-cleanup', {
+  method: 'POST',
+  body: { sessionId: String(sessionId) },
+  signal,
+})
 
 // Draft (staging) file access: editing content lives in a draft file outside the workspace, never in the source file. The draft JSON carries { path, encoding, lineEnding, bom, baseText, baseRevision, draft, owner, generation } so a refresh restores the whole session without localStorage; the Host's generation fence rejects stale writes.
 export async function readDraft(workspaceId, path, signal, owner) {

@@ -934,7 +934,8 @@ export function WorkspaceExplorer({
     const index = current.findIndex(tab => tab.path === path)
     if (index < 0) return
     const closing = current[index]
-    // A dirty tab is close-guarded only while editable: a non-editable file with a leftover draft has no save/cancel path, so allow closing and drop its staging draft below.    const nonEditableDirty = closing.dirty === true && closing.editing === false
+    // A dirty tab is close-guarded only while editable: a non-editable file with a leftover draft has no save/cancel path, so allow closing and drop its staging draft below.
+    const nonEditableDirty = closing.dirty === true && closing.editing === false
     if (closing.saving || (closing.dirty && !nonEditableDirty)) {
       const nextStatus = { error: true, text: translate('editor.unsavedTabClose') }
       if (activePathRef.current === path) setStatus(nextStatus)

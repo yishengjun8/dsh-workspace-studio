@@ -1,4 +1,4 @@
-import { deleteMindmapDoc, fetchMindmapDoc, renameMindmapDoc, syncMindmapDoc, writeMindmapDoc } from './api.js'
+import { clearMindmapForkQueue, deleteMindmapDoc, fetchMindmapDoc, renameMindmapDoc, syncMindmapDoc, writeMindmapDoc } from './api.js'
 import { mindmapRootTitleOf, normalizeMindmapWorkspacePath } from './mindmap/helpers.js'
 import { mindmapBlankSessions } from './mindmap/hider.js'
 
@@ -57,6 +57,18 @@ export function buildMindmapActions(ctx) {
     },
     forkAt: async (id, seq, asRoot) => {
       const childId = await ctx.sessions.fork({ sessionId: String(id), atSeq: seq })
+      /* A fork child inherits the source session's durable pending queue: the
+         parent's next submitted message enters its inbox BEFORE the turn/start
+         the fork cut extends to, while its claim lands AFTER the cut — so the
+         child would claim it ahead of the user's own first message. The Host
+         drops it while the fresh child is still idle (this runs BEFORE the
+         view opens the child, so no prompt can reach it first). Best effort:
+         a failed cleanup degrades to the leaked-queue behavior. */
+      try {
+        await clearMindmapForkQueue(String(childId))
+      } catch {
+        /* cleanup is advisory — never fail the fork for it */
+      }
       const rootTitle = mindmapRootTitleOf(ctx.sessions.list.getSnapshot(), String(id))
       if (rootTitle !== undefined && rootTitle !== '') {
         /* Branch children get the family-root title plus " ›" so they never collide with the root. */

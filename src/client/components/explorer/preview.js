@@ -6,9 +6,11 @@ import { CodeEditor } from '../editor.js'
 import { BrowseView } from '../../renderers/browse-view.js'
 import { HtmlPreview } from '../../renderers/html-preview.js'
 import { ImageView } from '../../renderers/image-view.js'
+import { useMarkdownLabels } from '../../renderers/registry.js'
 
 /* Preview pane body: idle/loading/error states, the CodeMirror editor (kept mounted under the rendered-Markdown overlay so switching back keeps caret, undo history and the draft), and the search-panel mount point. Renderer dispatch is registry-driven: images render standalone, read-only text files browse as a paged view, and everything else keeps the editor with Markdown/HTML overlays in preview mode. */
 export function PreviewPane({ preview, settings, editing, activeTab, draft, viewMode, isMarkdown, isHtmlFile, isBrowse, browseKind, sessionId, searchReveal, readEpoch, activePath, editorRef, searchPanelContainerRef, scrollTopRef, restore, onViewState, onDirty, onSaveShortcut, onScroll, onRevealApplied, onBodyClick, onSearchPanelContextMenu, onContext }) {
+  const markdownLabels = useMarkdownLabels()
   if (preview.state === 'idle') {
     return h('div', { className: 'dsh-ws-empty' }, translate('panel.previewHint'))
   }
@@ -60,7 +62,7 @@ export function PreviewPane({ preview, settings, editing, activeTab, draft, view
       }),
       // Rendered-Markdown overlay sits above the kept-mounted editor so switching back keeps caret/undo state and the draft.
       isMarkdown && viewMode === 'preview'
-        ? h('div', { className: 'dsh-ws-md-preview' }, h(MarkdownText, { text: draft }))
+        ? h('div', { className: 'dsh-ws-md-preview' }, h(MarkdownText, { text: draft, labels: markdownLabels }))
         : null,
       // Rendered-page overlay for HTML files: the iframe draws the current draft via srcDoc, sandboxed to a unique origin so scripts run but cannot read dsh storage or call the plugin API.
       isHtmlFile && viewMode === 'preview'
