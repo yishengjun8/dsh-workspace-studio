@@ -339,7 +339,8 @@ export function useEditorSession({
       && !reloadingPathsRef.current.has(activePath)
       && candidateTab !== undefined && candidateTab.kind !== 'mindmap'
       && !candidateTab.external && !candidateTab.dirty && !candidateTab.saving
-      && (mountLoaded ? diskConfirmedClean : cacheEntry !== undefined)
+      /* draftKnown === false marks the two paths that force a loaded tab clean while a live staging draft may survive (read-failure preserve / clean-revert before its cleanup settles): the fast serve would stamp draft===baseText over that state and hide the draft (no dirty dot, save disabled), so such tabs must take the full pass and re-run draft restoration. */
+      && (mountLoaded ? (candidateTab.draftKnown !== false && diskConfirmedClean) : cacheEntry !== undefined)
     if (canFast) {
       readController.current?.abort()
       const readSeq = ++readSeqRef.current
@@ -919,6 +920,17 @@ export function useEditorSession({
         }
         return
       }
+      /* A 400 invalid-draft 'generation 跳变过大' means the local counter drifted ABOVE the Host fence (sustained failed writes while the user kept typing, or a stale IndexedDB mirror re-seeding a high generation after reload). The error carries the Host's current generation: clamp DOWN and re-arm this snapshot with the reconciled generation — otherwise every later draft write for this owner fails forever, even across reloads. */
+      if (error?.status === 400 && Number.isSafeInteger(Number(error?.data?.currentGeneration))) {
+        const hostGeneration = Number(error.data.currentGeneration)
+        if (draftGenerationCounterRef.current > hostGeneration) {
+          draftGenerationCounterRef.current = hostGeneration + 1
+          const retryGeneration = draftGenerationCounterRef.current
+          draftGenerationsRef.current.set(path, retryGeneration)
+          void performAutosave(path, snapshot, retryGeneration)
+        }
+        return
+      }
       const timedOut = error?.name === 'AbortError' && error?.reason?.name === 'TimeoutError'
       const message = timedOut ? translate('editor.requestTimeout') : (error instanceof Error ? error.message : String(error))
       if (activePathRef.current === path) setStatus({ error: true, text: translate('editor.autosaveFailed', { message }) })
@@ -1326,6 +1338,7 @@ export function useEditorSession({
     setPreview, setEditing, setDirty, setSaving, setDraft, setStatus,
     publishContextState, save, cancel, discardDraft, resolveConflict,
     clearDraftFile, scheduleAutosave, invalidateDraftPath, nextDraftGeneration,
+    clearAutosaveTimer,
     forgetPathRefs, rollbackDraftTree, lastWriteRef, draftTailsRef, draftGenerationsRef,
     watchSnapshotsRef, contentBaselinesRef, retainedStatesRef,
     readController, saveController, flushAutosavesRef, migratePendingAutosavesRef,

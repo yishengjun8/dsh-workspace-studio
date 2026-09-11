@@ -138,7 +138,14 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
       const title = typeof summary.displayTitle === 'string' ? summary.displayTitle.trim() : ''
       const isFamily = isMindmapFamilySession(list, id)
       sessionSig.push(`${id}\u0001${title}\u0001${summary.blank ? 1 : 0}\u0001${summary.origin ?? ''}\u0001${archived.has(String(id)) ? 1 : 0}\u0001${isFamily ? 1 : 0}\u0001${String(id) === String(list.current) ? 1 : 0}`)
-      if (summary.origin === 'subagent' || summary.blank) continue
+      /* Subagent rows TAKE PART in the title census (the row pass hides by
+         title regardless of origin): a family subagent's unique title must
+         produce a hidden vote, and a non-family subagent sharing a family
+         title must count as a visible vote — otherwise the double guarantee
+         is computed over a different population than the rows it hides.
+         Blank rows stay excluded (matched structurally below, never by the
+         stored title). */
+      if (summary.blank) continue
       if (archived.has(String(id))) continue
       if (title === '') continue
       if (!byTitle.has(title)) byTitle.set(title, { hidden: 0, visible: 0 })

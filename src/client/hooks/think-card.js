@@ -12,8 +12,15 @@ const THINK_BOTTOM_TOLERANCE_PX = 4
 const THINK_UNPIN_DISTANCE_PX = 8
 
 export function useThinkCard({ chatSectionRef }) {
-  /* Think roots the user has interacted with are never force-opened again. */
+  /* Think roots the user has interacted with are never force-opened again.
+     DOM identity dies with every ChatView remount (session switch), so the
+     decision ALSO consults a content-fingerprint Set that survives the
+     remount: a re-rendered block with the same text stays closed. Mid-stream
+     interactions fingerprint the partial text (key drift is accepted — no
+     worse than the identity WeakSet), and identical leading text in two
+     blocks collapses both conservatively. */
   const userInteractedRef = useRef(new WeakSet())
+  const interactedKeysRef = useRef(new Set())
   /* Per think root, the attached body tracker: { body, observer, resize, onScroll, pinned }. */
   const trackersRef = useRef(new Map())
   useEffect(() => {
@@ -27,12 +34,27 @@ export function useThinkCard({ chatSectionRef }) {
     let programmatic = false
     const rowOf = root => root.querySelector(':scope [data-disclosure-row]')
     const bodyOf = root => root.querySelector(THINK_BODY_SELECTOR)
+    /* Remount-stable interaction key: the root's collapsed leading text. Bounded so a long session cannot grow the set forever. */
+    const thinkKeyOf = root => {
+      const text = (root.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 200)
+      return text === '' ? null : text
+    }
+    const rememberInteraction = root => {
+      userInteracted.add(root)
+      const key = thinkKeyOf(root)
+      if (key === null) return
+      const keys = interactedKeysRef.current
+      if (keys.size >= 500) keys.delete(keys.values().next().value)
+      keys.add(key)
+    }
     const clickRow = row => {
       programmatic = true
       try { row.click() } finally { programmatic = false }
     }
     const openRow = root => {
       if (userInteracted.has(root)) return
+      const key = thinkKeyOf(root)
+      if (key !== null && interactedKeysRef.current.has(key)) return
       const row = rowOf(root)
       if (row === null) {
         pendingRoots.add(root)
@@ -92,7 +114,7 @@ export function useThinkCard({ chatSectionRef }) {
       if (!(target instanceof Element)) return
       const root = target.closest('[data-variant="think"]')
       if (root === null) return
-      userInteracted.add(root)
+      rememberInteraction(root)
     }
     const onSectionKeyDown = event => {
       if (event.key !== 'Enter' && event.key !== ' ') return
@@ -100,7 +122,7 @@ export function useThinkCard({ chatSectionRef }) {
       if (!(target instanceof Element)) return
       const root = target.closest('[data-variant="think"]')
       if (root === null) return
-      userInteracted.add(root)
+      rememberInteraction(root)
     }
     section.addEventListener('click', onSectionClick, true)
     section.addEventListener('keydown', onSectionKeyDown, true)

@@ -180,6 +180,9 @@ export async function readJsonObject(req, config, maximum = config.maxMutationBo
 }
 export function normalizeFailure(error) {
   if (error instanceof HttpError) return error
+  /* Rollback/cleanup paths aggregate the primary fs error with cleanup failures (AggregateError carries no .code): classify by the primary error, or a documented disk-full/EPERM would surface as a black-box 500. */
+  const primary = error?.errors?.[0]
+  if (primary !== undefined && primary !== error) return normalizeFailure(primary)
   if (error?.code === 'EACCES' || error?.code === 'EPERM') return new HttpError(403, 'path-denied', '没有权限访问该路径')
   if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return new HttpError(404, 'path-not-found', '文件或目录不存在')
   /* Plain-file expectations meeting a directory, a symlink loop, or a read-only filesystem are NOT server faults: classify them instead of surfacing a black-box 500. */

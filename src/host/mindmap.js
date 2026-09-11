@@ -1714,7 +1714,9 @@ export async function seedMindmapSyncCacheAfterLoad(ctx, persistence, doc, flags
   if (!Array.isArray(flags.warnings) || flags.warnings.length > 0) return
   if (flags.changed === true && flags.wrote !== true) return
   const parts = await mindmapSyncSignatureParts(ctx, persistence)
-  const settled = mindmapSyncSignatureFromParts(ctx, doc, undefined, parts)
+  /* The signature embeds a per-member 'same'/'new' identity marker: seeded with prev refs undefined, every attached member is marked 'new', while the first sync recomputes against the STORED refs (stable snapshotEvents identity) and gets 'same' — the seed could never hit. Settle against the probe's own refs (same discipline as the sync settle below) so the stored sig matches the first sync's computation. */
+  const probe = mindmapSyncSignatureFromParts(ctx, doc, undefined, parts)
+  const settled = mindmapSyncSignatureFromParts(ctx, doc, probe.refs, parts)
   const orphanSig = `${parts.liveIds}#${parts.persisted}#${parts.archivedRef}`
   mindmapSyncCacheStore(String(doc.rootSessionId), {
     sig: settled.sig,
@@ -1813,6 +1815,14 @@ export async function writeMindmapDoc(ctx, persistence, sessionId, doc, prevSess
       }
     }
     doc.updatedAt = Date.now()
+    /* Same byte discipline as the sync fold path: the guards above can ENLARGE the doc (stale-overwrite restore, title backfill, summary fills), and an over-cap doc on disk would 413 every later full-doc client write with no shrink path. Refuse instead of persisting an over-limit doc. */
+    const serialized = new TextEncoder().encode(JSON.stringify(doc)).byteLength
+    if (serialized > MINDMAP_DOC_MAX_BYTES) {
+      try {
+        ctx.logger.warn(`[workspace-studio] mindmap doc write refused: serialized ${serialized} bytes exceeds ${MINDMAP_DOC_MAX_BYTES}`)
+      } catch { /* no logger */ }
+      throw new HttpError(413, 'mindmap-doc-size-limit', `导图文档超过 ${MINDMAP_DOC_MAX_BYTES} 字节，请归档或删除部分卡片后再试`)
+    }
     await writeJsonAtomic(mindmapDocPath(doc.rootSessionId), doc)
     if (prevSessionId !== undefined && prevSessionId !== null
       && String(prevSessionId) !== String(sessionId)) {

@@ -70,7 +70,9 @@ export async function saveFile(workspace, relativePath, config, queues, req, enc
     throw new HttpError(400, 'content-length-mismatch', '请求正文长度与 Content-Length 不一致')
   }
   const text = decodeUtf8(bytes, false)
-  if (text === undefined || containsNul(bytes)) {
+  /* The body is UTF-8 text; a NUL byte is only legitimate when the TARGET encoding is UTF-16 (the read/preview path exempts it the same way), where encodeText maps U+0000 through the UTF-16 output. */
+  const bodyIsUtf16 = encodingId === 'utf-16le' || encodingId === 'utf-16be'
+  if (text === undefined || (containsNul(bytes) && !bodyIsUtf16)) {
     throw new HttpError(415, 'invalid-text', '保存内容必须是无二进制数据的有效 UTF-8 文本')
   }
 
@@ -104,6 +106,10 @@ export async function saveFile(workspace, relativePath, config, queues, req, enc
     if (revisionFor(currentBytes) !== ifMatch) throw new HttpError(409, 'file-conflict', '文件已被修改，请重新加载后再保存')
     /* Encode AFTER reading the current file so a BOM-less UTF-16 file stays BOM-less on save (encodeText's withBom follows the original). */
     const outBytes = encodeText(text, encodingId, hasBom(currentBytes, encodingId))
+    /* The UTF-8 body cap is not the encoded size: UTF-16 emits ~2 bytes per character, so a legal save could otherwise write ~2× maxEditableBytes and push the file out of the read side's editable window immediately after a successful save. */
+    if (outBytes.byteLength > config.maxEditableBytes) {
+      throw new HttpError(413, 'file-too-large', `编码后的内容不能超过 ${config.maxEditableBytes} 字节`)
+    }
 
     const parent = dirname(candidate)
     const realParent = await realpath(parent)
@@ -136,7 +142,24 @@ export async function saveFile(workspace, relativePath, config, queues, req, enc
       if (finalParent !== realParent || !isInside(root, finalParent) || await hasSymlinkComponent(root, relativePath)) {
         throw new HttpError(403, 'symlink-write-denied', '拒绝通过符号链接写入文件')
       }
-      await rename(temp, candidate)
+      /* Windows MoveFileEx cannot replace a read-only destination (EPERM) even though the temp file itself was written fine: clear the attribute just before the rename so a read-only file saves like on POSIX. The temp already carries the original mode, so the saved file stays read-only; a failed rename restores the attribute below. */
+      let clearedReadOnly = false
+      if (process.platform === 'win32' && (targetStat.mode & 0o200) === 0) {
+        try {
+          await chmod(candidate, targetStat.mode | 0o200)
+          clearedReadOnly = true
+        } catch {
+          /* rename below surfaces the same EPERM → 403 as before */
+        }
+      }
+      try {
+        await rename(temp, candidate)
+      } catch (error) {
+        if (clearedReadOnly) {
+          try { await chmod(candidate, targetStat.mode) } catch { /* best-effort restore */ }
+        }
+        throw error
+      }
       /* The PUT response carries the written file's stat so the client's change-poll baseline can use the REAL mtime: a fabricated 0 baseline defeats the Host's sameMtime fast path and forces a full hash on every 2 s tick. */
       try {
         savedMtimeMs = (await stat(candidate)).mtimeMs
@@ -391,10 +414,10 @@ async function copyTreeExclusive(
         }
         throw error
       }
-      const targetStat = await lstat(target)
-      createdTargets.push({ path: target, stat: targetStat, directory: false })
+      /* Record the cleanup identity AFTER chmod/utimes below: on ino=0 filesystems (win32) sameEntryIdentity compares mtimeMs/mode, and this call's own metadata rewrite would otherwise make cleanup refuse every entry it just created (AggregateError → 500 + leftover partial copy). */
       await chmod(target, sourceStat.mode & 0o777)
       await utimes(target, sourceStat.atime, sourceStat.mtime)
+      createdTargets.push({ path: target, stat: await lstat(target), directory: false })
       assertEntrySnapshot(sourceStat, await lstat(source))
       sourceSnapshot.push({ path: source, stat: sourceStat, directory: false })
       return rootCall ? { sourceSnapshot, createdTargets } : true
@@ -408,7 +431,9 @@ async function copyTreeExclusive(
       throw error
     }
     const targetStat = await lstat(target)
-    createdTargets.push({ path: target, stat: targetStat, directory: true })
+    /* The dir's cleanup identity is refreshed AFTER children + chmod/utimes below (see the file branch): on ino=0 filesystems the recorded stat must describe the final state this call leaves behind. */
+    const dirRecord = { path: target, stat: targetStat, directory: true }
+    createdTargets.push(dirRecord)
     /* Best-effort fence before recursing: an external writer may replace the just-created target directory with a symlink pointing outside the workspace, so re-verify the target's identity before the children (cleanup later refuses to remove targets that no longer match its recorded identity). */
     const preRecurseStat = await lstat(target)
     if (!sameEntryIdentity(targetStat, preRecurseStat)) {
@@ -438,6 +463,7 @@ async function copyTreeExclusive(
     assertEntrySnapshot(sourceStat, await lstat(source))
     await chmod(target, sourceStat.mode & 0o777)
     await utimes(target, sourceStat.atime, sourceStat.mtime)
+    dirRecord.stat = await lstat(target)
     sourceSnapshot.push({ path: source, stat: sourceStat, directory: true, fingerprint })
     return rootCall ? { sourceSnapshot, createdTargets } : true
   } catch (error) {

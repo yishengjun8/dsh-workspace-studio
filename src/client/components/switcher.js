@@ -1,9 +1,8 @@
 import { createElement as h, useRef, useState, useEffect, useMemo, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { translate } from '../locale/index.js'
-import { isMindmapBranchDescendant } from '../mindmap/helpers.js'
 
-export function SessionSwitcherDropdown({ useSessions, useWorkspaces, sessionId, openSession }) {
+export function SessionSwitcherDropdown({ useSessions, useWorkspaces, sessionId, openSession, isBranchDescendant }) {
   const list = useSessions(state => state)
   const workspaces = useWorkspaces(state => state.items)
   const [open, setOpen] = useState(false)
@@ -91,7 +90,9 @@ export function SessionSwitcherDropdown({ useSessions, useWorkspaces, sessionId,
       }
     }
     const ordered = list.ids
-      .filter(id => list.byId[id] !== undefined && !isMindmapBranchDescendant(list, id))
+      /* The lineage filter arrives as a prop from the app layer (aggregation):
+         components/* must not import mindmap/* (client-split-plan red line). */
+      .filter(id => list.byId[id] !== undefined && !(isBranchDescendant?.(list, id) ?? false))
       .map(id => ({ summary: list.byId[id], workspaceTitle: workspaceTitleBySession.get(id) }))
       // Session summaries carry a numeric updatedAt; sort newest first.
       .sort((a, b) => (b.summary.updatedAt ?? 0) - (a.summary.updatedAt ?? 0))

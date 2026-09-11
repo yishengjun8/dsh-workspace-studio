@@ -402,7 +402,10 @@ export async function downloadUpdate(ctx, config, payload) {
       }
     }
     const installMode = await detectInstallMode()
-    await swapPackage(contentDir, version)
+    /* Consume the cached content under the SAME swap chain as downloadAndCache: a concurrent forced check renames checked-content away between cachedContentValid() and the install's renames — the install would fail (ENOENT → 409) or the verify-rollback would destroy the racing download's cached payload. The exchange is serialized; downloads themselves stay concurrent. */
+    const runInstall = contentSwapChain.then(() => swapPackage(contentDir, version))
+    contentSwapChain = runInstall.catch(() => {})
+    await runInstall
     return { ok: true, version, installMode }
   } catch (error) {
     if (error instanceof HttpError) throw error

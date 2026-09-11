@@ -149,6 +149,20 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   const [forking, setForking] = useState(false)
   const [forkError, setForkError] = useState(null)
   const [menu, setMenu] = useState(null)
+  /* Clamp the mounted context menu inside the viewport with its REAL box: the
+     static innerHeight-92 / width-176 reserves under-estimate every menu (the
+     wide root menu reaches 420px/280px), so a menu opened near the window's
+     bottom/right edge would clip its bottom items (delete/archive). */
+  useLayoutEffect(() => {
+    const el = menuRef.current
+    if (el === null || menu === null) return undefined
+    const rect = el.getBoundingClientRect()
+    const left = Math.max(4, Math.min(menu.x, window.innerWidth - rect.width - 4))
+    const top = Math.max(4, Math.min(menu.y, window.innerHeight - rect.height - 4))
+    if (Math.round(left) !== Math.round(rect.left)) el.style.left = `${left}px`
+    if (Math.round(top) !== Math.round(rect.top)) el.style.top = `${top}px`
+    return undefined
+  }, [menu])
   const [renameTarget, setRenameTarget] = useState(null)
   const [renameBusy, setRenameBusy] = useState(false)
   const [renameError, setRenameError] = useState(null)
@@ -1516,6 +1530,13 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       showNoticeError(translate('mindmap.delete.missing'))
       return
     }
+    if (plan.lastSession === true) {
+      /* Mirror startArchiveBranch: deleting the last remaining session is
+         impossible (a map can never reach 0 sessions) — pre-block with the
+         notice instead of opening a dialog that can only fail on confirm. */
+      showNoticeError(translate('mindmap.delete.lastSession'))
+      return
+    }
     setDeleteTarget({
       sessionId: String(menu.sessionId),
       turnSeq: menu.turnSeq,
@@ -1533,7 +1554,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         (plan.archiveIds ?? []).includes(String(sessionId))
         || (plan.replaced !== null && String(plan.replaced.sessionId) === String(sessionId))),
     })
-  }, [doc, menu, sessionId])
+  }, [doc, menu, sessionId, showNoticeError])
   const closeDelete = useCallback(() => {
     if (deleteBusy) return
     setDeleteTarget(null)

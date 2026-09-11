@@ -196,6 +196,25 @@ export function readMindmapOrder() {
     return {}
   }
 }
+/* Distinguishes "absent" ({} → a fresh map is safe to seed) from "corrupt"
+   (non-empty raw that fails to parse or fails the shape guard): a caller that
+   cannot tell the two apart would seed a fresh {} over corrupt data and
+   silently erase every other group's persisted order. */
+function readMindmapOrderState() {
+  try {
+    const raw = window.localStorage.getItem(MINDMAP_ORDER_STORE_KEY)
+    if (raw === null || raw === '') return { map: {} }
+    try {
+      const parsed = JSON.parse(raw)
+      return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? { map: parsed } : { corrupt: true }
+    } catch {
+      return { corrupt: true }
+    }
+  } catch {
+    /* storage unavailable: nothing readable, nothing writable */
+    return { unavailable: true }
+  }
+}
 export function writeMindmapOrder(map) {
   return withMindmapStoreLock('dsh-workspace-studio:mindmap-order', () => {
     try { window.localStorage.setItem(MINDMAP_ORDER_STORE_KEY, JSON.stringify(map)) } catch { /* quota / private mode */ }
@@ -208,10 +227,13 @@ export function writeMindmapOrder(map) {
 export function updateMindmapOrder(groupKey, ids) {
   return withMindmapStoreLock('dsh-workspace-studio:mindmap-order', () => {
     try {
-      const map = readMindmapOrder()
-      map[String(groupKey)] = ids
-      window.localStorage.setItem(MINDMAP_ORDER_STORE_KEY, JSON.stringify(map))
-      return map
+      const state = readMindmapOrderState()
+      /* Corrupt storage is left untouched: seeding a fresh {} here would erase
+         every other group's persisted order on the next drag. */
+      if (state.corrupt === true || state.unavailable === true) return undefined
+      state.map[String(groupKey)] = ids
+      window.localStorage.setItem(MINDMAP_ORDER_STORE_KEY, JSON.stringify(state.map))
+      return state.map
     } catch { /* quota / private mode */ }
   })
 }

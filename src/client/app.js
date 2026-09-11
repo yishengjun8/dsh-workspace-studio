@@ -18,6 +18,7 @@ import { mindmapRegistry, useMindmapRegistry } from './mindmap/registry.js'
 import { installMindmapBranchHider } from './mindmap/hider.js'
 import { MindmapSessionsPanel } from './mindmap/panel.js'
 import { MindmapHeaderButton } from './mindmap/overlay.js'
+import { isMindmapBranchDescendant } from './mindmap/helpers.js'
 import { ResizeHandle, SessionInlineRename, SidebarTopActions } from './components/menus.js'
 import { EmptyWorkspaceExplorer, ExplorerSettingsSection } from './components/settings.js'
 import { SessionSwitcherDropdown } from './components/switcher.js'
@@ -73,6 +74,15 @@ export function AppFrame(props) {
       sidebarMirrorRef.current = { value: panels.sidebar, max: sidebarMax }
       return
     }
+    // Before the first viewport measure (viewportWidth === 0) the ceiling is the
+    // 420 fallback: writing here would clamp a wider PERSISTED width into the
+    // durable pane store (the store's own value already equals the layout
+    // seed, so no write is needed). Track the mirror and let the effect re-run
+    // with the measured max (sidebarMax changes → re-run) before persisting.
+    if (viewportWidth === 0) {
+      sidebarMirrorRef.current = { value: panels.sidebar, max: sidebarMax }
+      return
+    }
     // Re-mirror when the value changed; on a ceiling-only change (viewport
     // resize) keep the ref current without rewriting the persisted store.
     const previousMirror = sidebarMirrorRef.current
@@ -82,7 +92,7 @@ export function AppFrame(props) {
     } else if (previousMirror?.max !== sidebarMax) {
       sidebarMirrorRef.current = { value: panels.sidebar, max: sidebarMax }
     }
-  }, [mobile.on, panels.sidebar, props.explorerPaneStore, sidebarMax])
+  }, [mobile.on, panels.sidebar, props.explorerPaneStore, sidebarMax, viewportWidth])
   // In mobile file-fullscreen the conversation header stays pinned above the
   // file browsing page; its live height feeds --dsh-ws-mobile-header-h.
   const currentSession = props.useSessions(state => state.current)
@@ -563,7 +573,7 @@ export function mountStudio(ctx) {
   // ctx.sessions.open, so the whole layout follows the new current.
   ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
     name: 'conversation.session.header.actions', id: 'workspace-session-switcher', order: -400,
-    inject: () => ({ openSession: sessionId => { ctx.sessions.open(sessionId) } }),
+    inject: () => ({ openSession: sessionId => { ctx.sessions.open(sessionId) }, isBranchDescendant: isMindmapBranchDescendant }),
   }, SessionSwitcherDropdown))
   /* The session-header mind-map button: opens the current session's mind map
      as a preview tab. */

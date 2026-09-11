@@ -365,7 +365,7 @@ function StudioToolCard({
       status !== null && h('span', { className: 'dsh-ws-tool-state', 'data-state': state },
         h('span', { className: 'dsh-ws-tool-state-dot', 'aria-hidden': true }),
         h('span', { className: 'dsh-ws-tool-state-text' }, status)),
-      rows !== null && h('button', { type: 'button', className: 'dsh-ws-tool-copy', onClick: copyClick },
+      rows !== null && h('button', { type: 'button', className: 'dsh-ws-tool-copy', onClick: copyClick, onKeyDown: fileLinkKeyDown },
         copied ? labels.copied : labels.copy),
     ),
     expanded && rows !== null && h('div', { ref: bodyRef, className: 'dsh-ws-tool-body' },

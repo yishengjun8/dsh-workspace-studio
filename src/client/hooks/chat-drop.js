@@ -28,6 +28,10 @@ export function useChatDropMask({ chatSectionRef }) {
       setChatDropActive(true)
     }
     const onDragLeave = (event) => {
+      /* While suppressed (× clicked), dragenter no longer raises the depth —
+         decrementing here would reach 0 mid-drag and re-arm the mask on the
+         next boundary crossing, defeating the × suppression. */
+      if (chatDropSuppressed.current) return
       /* Decrement unconditionally: Firefox can clear dataTransfer.types on
          dragleave and OS file drags never fire window dragend, so gating on
          hasDraggedFiles could leave the depth stuck and the mask up. */

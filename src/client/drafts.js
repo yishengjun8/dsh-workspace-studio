@@ -31,8 +31,10 @@ async function pruneEmergencyDrafts() {
         if (value?.state === 'deleted') {
           if (expired) store.delete(value.key)
         } else if (expired) {
-          /* A zombie left by a raced path rewrite has no Host counterpart to reconcile against, so reclaiming it is safe. */
-          store.delete(value.key)
+          /* Reclaim only records with NO unsaved work: draft === baseText covers the zombie a raced path rewrite leaves behind (no Host counterpart to reconcile against) and clean snapshots alike. An expired LIVE record with unsaved work (draft !== baseText) may be the only durable copy of the user's edits — the page can close inside the autosave debounce, before the Host PUT lands — so the time sweep must never drop it; the read pass reconciles it when the file is next opened. */
+          const bothTexts = typeof value?.draft === 'string' && typeof value?.baseText === 'string'
+          const noTexts = value?.draft === undefined && value?.baseText === undefined
+          if ((bothTexts && value.draft === value.baseText) || noTexts) store.delete(value.key)
         }
       }
     }

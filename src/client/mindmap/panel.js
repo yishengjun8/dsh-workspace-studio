@@ -1,4 +1,4 @@
-import { createElement as h, Fragment, useRef, useState, useEffect } from 'react'
+import { createElement as h, Fragment, useRef, useState, useEffect, useLayoutEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { CONTEXT_MENU_WIDTH } from '../constants.js'
 import { translate } from '../locale/index.js'
@@ -71,8 +71,11 @@ export function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, o
     return !workspaces.some(w => w.title === groupTitle)
   })
   const groupKey = groupTitle === undefined ? MINDMAP_ORDER_ALL_KEY : groupTitle
-  /* Apply the persisted per-group order; unknown docs keep registry order. */
-  const storedOrder = mindmapOrder[groupKey] ?? []
+  /* Apply the persisted per-group order; unknown docs keep registry order. A
+     corrupt/foreign per-group value must not throw in the render path (the
+     top-level guard only validates the object shape), so filter per entry. */
+  const storedOrderRaw = mindmapOrder[groupKey]
+  const storedOrder = Array.isArray(storedOrderRaw) ? storedOrderRaw.filter(id => typeof id === 'string') : []
   const orderIndex = new Map(storedOrder.map((id, index) => [String(id), index]))
   const ordered = [...entries].sort((a, b) => {
     const ia = orderIndex.get(String(a.sessionId))
@@ -106,6 +109,18 @@ export function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, o
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('scroll', onScroll, true)
     }
+  }, [contextMenu])
+  /* Clamp the mounted menu with its REAL box (the static 92px/176px reserve
+     under-estimates; the bottom item would clip against the window edge). */
+  useLayoutEffect(() => {
+    const el = menuRef.current
+    if (el === null || contextMenu === null) return undefined
+    const rect = el.getBoundingClientRect()
+    const left = Math.max(4, Math.min(contextMenu.x, window.innerWidth - rect.width - 4))
+    const top = Math.max(4, Math.min(contextMenu.y, window.innerHeight - rect.height - 4))
+    if (Math.round(left) !== Math.round(rect.left)) el.style.left = `${left}px`
+    if (Math.round(top) !== Math.round(rect.top)) el.style.top = `${top}px`
+    return undefined
   }, [contextMenu])
 
   if (entries.length === 0 && groupTitle !== undefined) return null
@@ -209,7 +224,7 @@ export function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, o
       h('button', { className: 'dsh-ws-context-item', onClick: onReveal, role: 'menuitem', type: 'button' }, translate('context.reveal'))),
     document.body,
   ) : null
-  const renameView = renameTarget !== null ? h(SessionRenameDialog, {
+  const renameView = renameTarget !== null ? createPortal(h(SessionRenameDialog, {
     busy: renameBusy,
     draft: renameTarget.title,
     error: renameError,
@@ -217,7 +232,11 @@ export function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, o
     onConfirm: confirmRename,
     onDraft: value => { setRenameError(null); setRenameTarget(t => t === null ? t : { ...t, title: value }) },
     title: translate('mindmap.sidebar.renameTitle'),
-  }) : null
+    /* Portal to body like menuView: a transform on .dsh-ws-sidebar (mobile
+       drawer) turns it into the containing block for position:fixed
+       descendants and its overflow:hidden clips the backdrop (the same
+       mechanism styles.js works around for the settings dialog). */
+  }), document.body) : null
 
   return h(Fragment, null,
     entries.length === 0

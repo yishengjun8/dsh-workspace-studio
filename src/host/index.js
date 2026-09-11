@@ -71,8 +71,8 @@ async function refreshMindmapDocLoad(ctx, persistence, doc) {
     const disk = await readMindmapDocFile(String(doc.rootSessionId))
     if (disk !== null && isValidMindmapDoc(disk)) result = disk
   }
-  /* `refresh` flags ride along so the GET route can seed the sync cache with the same policy the sync settle uses (clean + persisted doc only). */
-  return { doc: result, warnings: refresh.warnings, refresh: { changed: refresh.changed, wrote, adoptIncomplete: refresh.adoptIncomplete } }
+  /* `refresh` flags ride along so the GET route can seed the sync cache with the same policy the sync settle uses (clean + persisted doc only). `warnings` MUST ride along too: the seed guard requires the array (and rejects non-clean refreshes) — without it the seed silently no-ops on every reopen. */
+  return { doc: result, warnings: refresh.warnings, refresh: { changed: refresh.changed, wrote, adoptIncomplete: refresh.adoptIncomplete, warnings: refresh.warnings } }
 }
 async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
   if (!isTrustedRequest(req, trustedHosts)) {
@@ -400,7 +400,7 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
         return
       }
       if (relativePath === '') throw new HttpError(400, 'invalid-path', '暂存写入必须指定文件路径')
-      const maximum = Math.min(64 * 1024 * 1024, config.maxEditableBytes * 2 + 64 * 1024)
+      const maximum = Math.min(64 * 1024 * 1024, config.maxEditableBytes * 12 + 64 * 1024)
       const body = await readJsonObject(req, config, maximum)
       const payload = validateDraftPayload(body, config, relativePath, owner, generation)
       sendJson(req, res, 200, await saveDraftFile(workspaceId, payload, config, writeQueues))

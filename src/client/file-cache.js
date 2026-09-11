@@ -75,10 +75,11 @@ export function storeCachedPreview(workspaceId, path, encoding, payload, snapsho
   }
   const prior = group.encodings.get(enc)
   if (prior !== undefined) totalBytes -= prior.bytes
-  evictFor(bytes)
   group.encodings.set(enc, { payload, snapshot, bytes })
   totalBytes += bytes
   touch(pathKey, Date.now())
+  /* Evict AFTER storing and touching: the just-stored group is now the newest, so the sweep can only drop genuinely older groups. Evicting BEFORE the store could select the very group being written (its stale `at` while a read is in flight) — the entry would land in a detached Map and totalBytes would drift. */
+  evictFor(0)
 }
 /* Refresh an entry's snapshot after a successful UNCHANGED change check; never call with a snapshot describing a different disk state than the stored payload. */
 export function refreshCachedSnapshot(workspaceId, path, encoding, snapshot) {
@@ -114,6 +115,8 @@ export function rewriteCachedPaths(workspaceId, from, to) {
     cache.delete(pathKey)
     /* pathKey = ws \0 from [remainder]; rebuild with `to` keeping the remainder ('' for the exact path, '/x' for descendants). */
     const nextKey = header + to + pathKey.slice(fromHeader.length)
+    /* A stale destination group (e.g. the destination was deleted out-of-band and never invalidated) would be silently replaced by Map.set while its bytes stayed counted in totalBytes: route the replacement through the accounting primitive. */
+    if (cache.has(nextKey)) removePath(nextKey)
     cache.set(nextKey, group)
   }
 }
