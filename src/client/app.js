@@ -494,7 +494,7 @@ export function mountStudio(ctx) {
       if (commandUi === undefined) return undefined
       const dispose = commandUi.register({
         name: 'init',
-        description: translate('init.menu.description'),
+        description: () => translate('init.menu.description'),
         available: session => {
           const row = ctx.sessions.list.getSnapshot().byId[String(session.sessionId)]
           return row !== undefined && row.origin !== 'subagent'
