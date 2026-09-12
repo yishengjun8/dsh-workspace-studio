@@ -7,7 +7,13 @@ set -euo pipefail
 
 PROFILE="${1:-${PROFILE:-web}}"
 BUNDLE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-HARNESS_ROOT="$(cd "$BUNDLE_DIR/../.." && pwd)"
+# The bundle may live one level below the harness root (../) or two (../../);
+# prefer the deeper path, fall back to the shallower one.
+if [[ -f "$BUNDLE_DIR/../../package.json" ]]; then
+  HARNESS_ROOT="$(cd "$BUNDLE_DIR/../.." && pwd)"
+else
+  HARNESS_ROOT="$(cd "$BUNDLE_DIR/.." && pwd)"
+fi
 PACKAGE_NAME="@yishengjun8/dsh-workspace-studio"
 
 DSH_HOME_RAW="${DSH_HOME:-$HOME/.dsh}"
