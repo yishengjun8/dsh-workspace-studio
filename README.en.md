@@ -17,7 +17,7 @@ This bundle replaces the DeepSeek Harness Web root layout with **three panes fro
 | ⌨️ **CodeMirror 6 editor** | 20+ language syntax highlighting, line numbers, code folding, in-editor search, word wrap, and 14 text encodings |
 | 🗂️ **Preview tabs** | Persisted per session, survive reloads, drag reorder, pinned tabs, drafts never lost, conflict protection, external-change auto-sync |
 | 🖼️ **Renderer views** | A view-as menu: rendered Markdown / HTML previews, direct image preview, and paged read-only browsing of full file content |
-| 🎯 **Editor context** | Open files / selections inject as `<opened_file>` / `<selection>` prefixes; history keeps a one-line summary |
+| 🎯 **Editor context** | Open files / selections inject as `<opened_file>` / `<selection>` prefixes; history keeps a one-line summary; a title guard auto-cleans envelope prefixes leaked into session titles |
 | 🧹 **File operations** | Right-click create / rename / copy / cut / paste / delete / copy path, with shortcuts |
 | 🧭 **Mind-map mode** | Conversation branch tree: the session header's **Mind map** button enters mind-map mode, reverse-parses the full session log into turn cards and persists them, forks a new branch at any card, rename / delete cards, archive the whole map |
 | 📱 **Mobile mode** | One-click switch to a centered phone column; file browsing can fill the phone column |

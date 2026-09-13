@@ -4,6 +4,7 @@ import { translate } from './locale/index.js'
 import { formatBytes } from './format.js'
 import { renderContext } from './api.js'
 import { clearEditorContextDisplays, describeEditorContext, rememberEditorContextDisplay } from './context-bridge.js'
+import { cleanedSessionTitle, installTitleGuard } from './title-guard.js'
 
 const EMPTY_EDITOR_CONTEXT_VIEW = Object.freeze({ present: false, active: false })
 /* Field-level equality for the projected editor-context view: the projection
@@ -170,6 +171,11 @@ export class PromptContextBridge {
     this.originalSendSession = undefined
     this.wrappedSendSession = undefined
     this.installToken = 0
+    /* Session-title guard state: per-session cleaned replacement title for the
+       sends that carried an editor-context envelope, plus the guard's own
+       sessions-list unsubscriber. */
+    this.cleanedTitles = new Map()
+    this.titleGuardOff = undefined
     /* Bounded retry timers for ensure() on a not-yet-ready session binding. */
     this.ensureRetries = new Map()
   }
@@ -203,6 +209,12 @@ export class PromptContextBridge {
     Object.defineProperty(wrappedSendSession, SEND_SESSION_BRIDGE_ORIGINAL, { value: originalSendSession })
     this.wrappedSendSession = wrappedSendSession
     conversation.sendSession = wrappedSendSession
+    /* An overlapping re-install may still own the previous guard: dispose it
+       before mounting the new one, since the old cleanup's install-token check
+       will make it leave this newer guard alone. */
+    if (this.titleGuardOff !== undefined) this.titleGuardOff()
+    this.cleanedTitles.clear()
+    this.titleGuardOff = installTitleGuard(this.ctx, this.cleanedTitles)
     const reconcile = () => bridge.reconcile()
     const off = this.ctx.sessions.list.subscribe(reconcile)
     reconcile()
@@ -219,6 +231,11 @@ export class PromptContextBridge {
       for (const controller of bridge.pendingControllers) controller.abort()
       bridge.pendingControllers.clear()
       bridge.sendTails.clear()
+      if (bridge.titleGuardOff !== undefined) {
+        bridge.titleGuardOff()
+        bridge.titleGuardOff = undefined
+      }
+      bridge.cleanedTitles.clear()
       clearEditorContextDisplays()
       // Cordis returns a fresh trace proxy per service-method read, so
       // identity cannot detect our wrapper.
@@ -272,6 +289,17 @@ export class PromptContextBridge {
       /* The handle lets a failed send discard exactly this entry, since
          popping by text key could remove a different concurrent send's entry. */
       const displayHandle = rememberEditorContextDisplay(combined, display)
+      /* Record the cleaned replacement title before dispatch: the harness
+         derives a fresh session's fallback title from the first human message
+         verbatim, so the envelope prefix would leak into it; the guard renames
+         with this string when such a polluted title lands. A failed send
+         leaves a stale harmless entry (no polluted title can exist without a
+         landed envelope message), overwritten by the next send. */
+      this.cleanedTitles.set(sessionId, cleanedSessionTitle({
+        remainder: text,
+        fileName: display.fileName,
+        range: display.range,
+      }))
       try {
         return await this.originalSendSession.call(this.conversation, session, combined, imageIds, mode)
       } catch (error) {
