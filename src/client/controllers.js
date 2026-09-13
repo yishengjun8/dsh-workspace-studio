@@ -4,6 +4,7 @@ import { translate } from './locale/index.js'
 import { formatBytes } from './format.js'
 import { renderContext } from './api.js'
 import { clearEditorContextDisplays, describeEditorContext, rememberEditorContextDisplay } from './context-bridge.js'
+import { TitleGuard, deriveCleanPromptTitle } from './title-guard.js'
 
 const EMPTY_EDITOR_CONTEXT_VIEW = Object.freeze({ present: false, active: false })
 /* Field-level equality for the projected editor-context view: the projection
@@ -161,6 +162,10 @@ export class PromptContextBridge {
   constructor(ctx, editorContexts) {
     this.ctx = ctx
     this.editorContexts = editorContexts
+    /* Cleans marker-prefixed automatic session titles (the harness fallback
+       over a message whose text carries the editor-context envelope). Armed
+       per context send, renamed at most once per live entry. */
+    this.titleGuard = new TitleGuard((id, title) => this.renameDirectSession(id, title))
     this.inputPatches = new Map()
     this.contextOnlyInFlight = new Set()
     this.sendTails = new Map()
@@ -220,6 +225,7 @@ export class PromptContextBridge {
       bridge.pendingControllers.clear()
       bridge.sendTails.clear()
       clearEditorContextDisplays()
+      bridge.titleGuard.dispose()
       // Cordis returns a fresh trace proxy per service-method read, so
       // identity cannot detect our wrapper.
       const currentSendSession = conversation.sendSession
@@ -273,7 +279,14 @@ export class PromptContextBridge {
          popping by text key could remove a different concurrent send's entry. */
       const displayHandle = rememberEditorContextDisplay(combined, display)
       try {
-        return await this.originalSendSession.call(this.conversation, session, combined, imageIds, mode)
+        const result = await this.originalSendSession.call(this.conversation, session, combined, imageIds, mode)
+        /* The harness derives the first-prompt fallback title from the combined
+           message text, so a context send would title the session with the raw
+           envelope marker. Arm the guard: it renames only when a
+           marker-prefixed automatic title actually appears, never on
+           provider-generated or user-pinned titles. */
+        this.titleGuard.arm(sessionId, text === '' ? context.path : deriveCleanPromptTitle(text))
+        return result
       } catch (error) {
         discardEditorContextDisplay(displayHandle)
         throw error
@@ -295,6 +308,20 @@ export class PromptContextBridge {
     }
     const text = translate('init.prompt', { root: workspace.path })
     return this.originalSendSession.call(this.conversation, session, text, [], 'queue')
+  }
+  /* Safe rename used by the title guard: resolve the session binding and keep
+     failures as a rejected promise, never a synchronous throw out of the list
+     observer; the guard logs and drops the entry. */
+  renameDirectSession(id, title) {
+    try {
+      const binding = this.ctx.sessions.binding(id)
+      if (binding?.session === undefined) {
+        return Promise.reject(new Error('session binding unavailable'))
+      }
+      return binding.session.rename(title)
+    } catch (error) {
+      return Promise.reject(error)
+    }
   }
   enqueue(id, operation) {
     const controller = new AbortController()
@@ -326,6 +353,7 @@ export class PromptContextBridge {
         this.ensureRetries.delete(id)
       }
     }
+    this.titleGuard.observe(list.byId)
   }
   ensure(id) {
     if (this.inputPatches.has(id)) return

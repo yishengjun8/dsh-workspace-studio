@@ -43,9 +43,9 @@ export function EditorContextPrefix({ useEditorContext, useSessions, toggle, ens
     h('span', { className: 'dsh-ws-context-prefix-label' }, label)))
 }
 
-const OPENED_FILE_PREFIX = '<opened_file>The user opened the file '
+export const OPENED_FILE_PREFIX = '<opened_file>The user opened the file '
 const OPENED_FILE_SUFFIX = ' in the IDE. This may or may not be related to the current task.</opened_file>'
-const SELECTION_PREFIX = '<selection>The user selected the lines '
+export const SELECTION_PREFIX = '<selection>The user selected the lines '
 const SELECTION_TRAILER = 'This may or may not be related to the current task.'
 const SELECTION_CLOSE = '</selection>'
 const MESSAGE_CONTEXT_SELECTOR = '[data-chat-flow-kind="user"],[data-chat-flow-kind="steering"],[data-pending-steering]'
