@@ -172,6 +172,20 @@ export function mindmapDeletePlan(doc, ownerId, turnSeq, emptyCard) {
   }
 }
 
+/* Stable key of a doc's SESSION SET (ids only, sorted): the sidebar index
+   mirrors exactly this set (entries, branch counts, the hider's branch set,
+   rootOf for the preview key and highlight), so an applied document that
+   gained or lost a session must refresh the index instead of waiting for the
+   30 s poll. Separate from the fingerprint below, which also covers turns and
+   summaries. */
+export function mindmapDocSessionKey(doc) {
+  return (doc?.sessions ?? [])
+    .map(session => String(session?.sessionId ?? ''))
+    .filter(Boolean)
+    .sort()
+    .join('\u0001')
+}
+
 /* Stable fingerprint of a doc's structure (turn seqs + AI summaries, fork anchors + the
    map's own title) to skip redundant re-renders after a sync that changed nothing. rootTitle,
    rootSessionId and workspaceCwd are included so a rename, root replacement or workspace change

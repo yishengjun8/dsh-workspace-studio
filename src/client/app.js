@@ -15,6 +15,7 @@ import { EditorContextPrefix, installEditorContextMessageCompactor } from './con
 const SESSION_CONTEXT_MENU_HEIGHT = 140
 import { ThemePresenter } from './theme.js'
 import { mindmapRegistry, useMindmapRegistry } from './mindmap/registry.js'
+import { installForeignForkWatch } from './mindmap/fork-watch.js'
 import { installMindmapBranchHider } from './mindmap/hider.js'
 import { MindmapSessionsPanel } from './mindmap/panel.js'
 import { MindmapHeaderButton } from './mindmap/overlay.js'
@@ -594,6 +595,11 @@ export function mountStudio(ctx) {
     mindmapRegistry.start()
     return () => mindmapRegistry.stop()
   }, 'workspace-studio: mind-map index registry')
+  /* Forks the plugin does not own (the harness chat's own branch button, the
+     workspace navigation fork) bypass the map's fork actions: watch the client
+     session service so such a child is cleaned of the parent's inherited
+     pending input and lands in the map document immediately. */
+  ctx.effect(() => installForeignForkWatch(ctx), 'workspace-studio: foreign fork watch')
   ctx.slots.inject('shell.overlay', () => ctx.slots.register({
     name: 'shell.overlay', id: 'workspace-mobile-hero', order: -100,
   }, MobileHeroControls))

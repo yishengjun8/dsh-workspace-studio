@@ -171,6 +171,49 @@ export const mindmapDockStore = {
   },
 }
 
+/* Module-wide document hand-off: a fork made OUTSIDE the map (the harness
+   chat's own branch button) creates a session the document has not adopted
+   yet, and the map body's periodic sync would keep missing it — the Host
+   sync cache serves an incremental `doc: null` once the fork watch's own sync
+   has folded the child, so the poll can never deliver the new branch. The fork
+   watch therefore performs the family sync itself (which adopts + persists on
+   the Host) and hands the resulting document to the mounted body here.
+   Entries are replaced per publish (a stable snapshot identity per change is
+   what useSyncExternalStore requires) and the map is bounded: an entry holds
+   one document, so the oldest is evicted past the cap. */
+const MINDMAP_HANDOFF_MAX = 8
+const MINDMAP_EMPTY_HANDOFF = { seq: 0, doc: null, sessionId: null }
+export const mindmapDocHandoff = {
+  _entries: new Map(),
+  _listeners: new Set(),
+  subscribe(listener) {
+    this._listeners.add(listener)
+    return () => { this._listeners.delete(listener) }
+  },
+  /* Stable reference while a root has no hand-off: a fresh object per snapshot
+     read would re-render the subscriber forever. */
+  snapshotOf(rootId) {
+    return this._entries.get(String(rootId)) ?? MINDMAP_EMPTY_HANDOFF
+  },
+  publish(rootId, doc, sessionId) {
+    const key = String(rootId)
+    const previous = this._entries.get(key)
+    this._entries.set(key, { seq: (previous?.seq ?? 0) + 1, doc, sessionId: String(sessionId) })
+    if (this._entries.size > MINDMAP_HANDOFF_MAX) {
+      const oldest = this._entries.keys().next().value
+      if (oldest !== undefined && oldest !== key) this._entries.delete(oldest)
+    }
+    for (const listener of [...this._listeners]) listener()
+  },
+}
+/* Same bare-reference trap as useMindmapRegistry: React invokes the subscribe
+   function without a receiver, so it must be a module-level arrow wrapper. */
+const subscribeHandoff = listener => mindmapDocHandoff.subscribe(listener)
+export function useMindmapDocHandoff(rootId) {
+  const key = rootId === null || rootId === undefined ? '' : String(rootId)
+  return useSyncExternalStore(subscribeHandoff, () => mindmapDocHandoff.snapshotOf(key))
+}
+
 /* Per-group sidebar order of mind-map entries in localStorage (id list per
    group key; a workspace rename loses the mapping — accepted trade-off). */
 const MINDMAP_ORDER_STORE_KEY = 'dsh.workspace.studio.mindmap-order.v1'

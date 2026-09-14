@@ -4,9 +4,9 @@ import { clampMountBulge, CONTEXT_MENU_WIDTH, MINDMAP_SUMMARY_DEFAULT_LENGTH, MI
 import { translate } from '../locale/index.js'
 import { styles } from '../styles.js'
 import { regenerateAllMindmapSummaries, regenerateMindmapSummary, summarizeMindmapSession } from '../api.js'
-import { mindmapRegistry, readMindmapLastSession, removeMindmapLastSession, writeMindmapLastSession } from './registry.js'
+import { mindmapRegistry, readMindmapLastSession, removeMindmapLastSession, useMindmapDocHandoff, writeMindmapLastSession } from './registry.js'
 import { useMindmapSummaryModels } from '../components/settings.js'
-import { mindmapCardClickAction, mindmapClip, mindmapDeletePlan, mindmapDocFingerprint, mindmapDocKey, mindmapDocLayout, mindmapDocStructureFingerprint, mindmapEmptyKey, mindmapFoldedRunOf, mindmapGradientId, mindmapStreamPalette, normalizeMindmapWorkspacePath, useMindmapSessionView } from './helpers.js'
+import { mindmapCardClickAction, mindmapClip, mindmapDeletePlan, mindmapDocFingerprint, mindmapDocKey, mindmapDocLayout, mindmapDocSessionKey, mindmapDocStructureFingerprint, mindmapEmptyKey, mindmapFoldedRunOf, mindmapGradientId, mindmapStreamPalette, normalizeMindmapWorkspacePath, useMindmapSessionView } from './helpers.js'
 import { MindMapCard, MindMapFoldedCard, MindMapRootNode, MindMapSessionHead } from './cards.js'
 import { mindmapConvertedSessions } from './hider.js'
 import { MindMapToolbar } from './toolbar.js'
@@ -53,6 +53,10 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   const familyIdsRef = useRef(familyIds)
   familyIdsRef.current = familyIds
   const list = useMindmapSessionView(useSessions, familyIdsRef)
+  /* Document hand-off for forks made OUTSIDE this view (the harness chat's own
+     branch button): the fork watch adopts the child on the Host and delivers
+     the resulting document here (see the apply effect after the sync effects). */
+  const handoff = useMindmapDocHandoff(rootId)
   const loadDocRef = useRef(loadDoc)
   loadDocRef.current = loadDoc
   const saveDocRef = useRef(saveDoc)
@@ -440,6 +444,12 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       }
       const fp = mindmapDocFingerprint(next)
       if (fp !== lastFingerprintRef.current) {
+        /* The doc's SESSION SET changed (a branch was folded in or dropped, e.g.
+           a fork child adopted by this very sync while the registry was stale):
+           the sidebar index mirrors that set, so refresh it now instead of
+           waiting for the 30 s poll — rootOf drives the preview key, the
+           current highlight and the hider. */
+        if (mindmapDocSessionKey(next) !== mindmapDocSessionKey(docRef.current)) mindmapRegistry.markDirty()
         lastFingerprintRef.current = fp
         setDoc(next)
         onTitleChangeRef.current?.(typeof next.rootTitle === 'string' ? next.rootTitle : '')
@@ -559,6 +569,39 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     return () => { clearTimeout(timer) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runningFamilyIds, rootId])
+
+  /* Apply a document handed over by the fork watch (an external fork: the
+     harness chat's branch button). The watch already synced the family on the
+     Host, so the branch is adopted and persisted; applying the document here is
+     what makes the new card appear at once — the periodic poll cannot deliver
+     it, because the Host sync cache answers an incremental `doc: null` for the
+     unchanged signature the watch just settled. Only the DOC is applied: live
+     and summarizing keep flowing through the normal sync path, so a streaming
+     card is never interrupted. */
+  useEffect(() => {
+    const doc = handoff?.doc
+    const sessionId = handoff?.sessionId
+    if (rootId === null || doc === null || doc === undefined || sessionId === null || sessionId === undefined) return
+    if (!mountedRef.current) return
+    /* A local doc write (map fork / delete / archive) owns the document while
+       it runs: the write also invalidates the Host sync cache, so the next
+       periodic sync refetches the full document including this child. */
+    if (savingRef.current > 0) return
+    /* A doc re-anchored under another root (another tab replaced the root) is
+       this view's own sync's business. */
+    if (String(doc.rootSessionId ?? '') !== String(rootIdRef.current)) return
+    /* The map's OWN fork already inserted this child optimistically (the same
+       document also reached the disk by now): applying the handed-over document
+       would drop the card, so the child's presence in the local document is the
+       apply condition. It also makes a remount (fresh load that already carries
+       the child) a no-op. */
+    if ((docRef.current?.sessions ?? []).some(s => String(s?.sessionId) === String(sessionId))) return
+    const fp = mindmapDocFingerprint(doc)
+    if (fp === lastFingerprintRef.current) return
+    lastFingerprintRef.current = fp
+    setDoc(doc)
+    onTitleChangeRef.current?.(typeof doc.rootTitle === 'string' ? doc.rootTitle : '')
+  }, [handoff, rootId])
 
   /* The live streaming cards: every running doc-family session gets a live card
      appended to its own chain tail. The in-flight question arrives with the next

@@ -1,4 +1,5 @@
 import { clearMindmapForkQueue, deleteMindmapDoc, fetchMindmapDoc, renameMindmapDoc, syncMindmapDoc, writeMindmapDoc } from './api.js'
+import { withoutForeignForkWatch } from './mindmap/fork-watch.js'
 import { mindmapRootTitleOf, normalizeMindmapWorkspacePath } from './mindmap/helpers.js'
 import { mindmapBlankSessions } from './mindmap/hider.js'
 
@@ -56,14 +57,20 @@ export function buildMindmapActions(ctx) {
       }
     },
     forkAt: async (id, seq, asRoot) => {
-      const childId = await ctx.sessions.fork({ sessionId: String(id), atSeq: seq })
+      /* This path writes the document itself (optimistic branch + saveDoc) and
+         refreshes the index, so the foreign-fork watch must not also sync the
+         family (an extra Host sync per map fork would pay a full persistence
+         scan, the client doc write having just invalidated that cache). */
+      const childId = await withoutForeignForkWatch(() => ctx.sessions.fork({ sessionId: String(id), atSeq: seq }))
       /* A fork child inherits the source session's durable pending queue: the
          parent's next submitted message enters its inbox BEFORE the turn/start
          the fork cut extends to, while its claim lands AFTER the cut — so the
          child would claim it ahead of the user's own first message. The Host
          drops it while the fresh child is still idle (this runs BEFORE the
          view opens the child, so no prompt can reach it first). Best effort:
-         a failed cleanup degrades to the leaked-queue behavior. */
+         a failed cleanup degrades to the leaked-queue behavior. This is the
+         only cleanup call for the map's own fork (the watch is suppressed for
+         it); foreign forks are cleaned by the watch itself. */
       try {
         await clearMindmapForkQueue(String(childId))
       } catch {
