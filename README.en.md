@@ -56,14 +56,14 @@ This bundle replaces the DeepSeek Harness Web root layout with **three panes fro
 
 ### Renderer Views
 
-- The preview pane's view mode is driven by a **renderer registry** (the same lineage as the new Harness right-Sidebar document preview): Markdown files switch between **source editing / rendered preview** (GFM rendering, the same policy as **Open in new window**); HTML files switch between **source editing / page preview**, and the preview page's relative scripts and stylesheets are read through the standard workspace-files API and packed into the sandboxed iframe (edits apply live; packing is debounced by 400 ms).
+- The preview pane's view mode is driven by a **renderer registry** (the same lineage as the new Harness right-Sidebar document preview): Markdown files switch between **source editing / rendered preview** (GFM rendering, the same policy as **Open in new window**); HTML files switch between **source editing / page preview** and **open in the page preview by default** (the toggle returns to source editing); the preview page's relative scripts and stylesheets are read through the standard workspace-files API and packed into the sandboxed iframe (edits apply live; packing is debounced by 400 ms).
 - Image files (png / jpg / jpeg / gif / webp / bmp / ico / svg) open directly as an **image preview**: complete bytes are read through the standard workspace-files API and re-fetched on refresh or external change.
 - Read-only text files (truncated, oversized, read-only, …) switch between **source / read-only browse**: the browse view **pages through the full file** (the editor is capped at `maxPreviewBytes`), appending the next page at scroll-to-bottom, rendering Markdown as a document and other code highlighted.
-- The view mode resets per file switch and is not persisted; PDF rendering is not provided yet.
+- The view mode resets per file switch to that file's default view (page preview for HTML, source editing for everything else) and is not persisted; PDF rendering is not provided yet.
 
 ### Editing & Saving
 
-- Editable files **open directly in edit mode** with **Save**, **Cancel**, and `Ctrl/Cmd+S`.
+- Editable files **open directly in edit mode** (HTML files open in the page preview by default; the toggle returns to source editing) with **Save**, **Cancel**, and `Ctrl/Cmd+S`.
 - **Staging draft file**: editing takes one **snapshot** (the source content); all temporary edits are debounce-written to a **draft file** (`~/.dsh-plugin/dsh-workspace-studio/drafts/<workspaceId>/`, long-lived), and the **source file is never touched**; a page refresh restores from the draft file (draft + snapshot + encoding). Auto-save is not a "save", so the `·` stays until an explicit save. localStorage only keeps the dirty marker, not the edit content or snapshot.
 - **Save (merge back to source)**: saving re-reads the source and compares it with the snapshot —
   - Source unchanged by other tools (= snapshot): silently write the staged content back to the source, then delete the draft file.
