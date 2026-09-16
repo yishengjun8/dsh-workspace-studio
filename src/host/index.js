@@ -12,6 +12,7 @@ import { adoptMindmapOrphans, buildMindmapDoc, clearForkInheritedQueue, deleteMi
 import { renderPromptContext } from './prompt-context.js'
 import { renderMarkdownDocument } from './markdown.js'
 import { checkForUpdate, downloadUpdate } from './update.js'
+import { computeTokenStats, warmTokenStatsIndex } from './token-stats.js'
 import { workspaceFor } from './workspace.js'
 /** Stable Cordis plugin name. */
 export const name = 'workspace-studio'
@@ -104,6 +105,7 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
     const mindmapForkCleanupEndpoint = url.pathname === `${API_PREFIX}/mindmap-doc/fork-cleanup`
     const updateCheckEndpoint = url.pathname === `${API_PREFIX}/update/check`
     const updateDownloadEndpoint = url.pathname === `${API_PREFIX}/update/download`
+    const tokenStatsEndpoint = url.pathname === `${API_PREFIX}/token-stats`
     const allowed = contextEndpoint
       ? 'POST'
       : encodingsEndpoint
@@ -143,19 +145,21 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
                                         : mindmapForkCleanupEndpoint
                                           ? 'POST'
                                           : updateCheckEndpoint
-                                          ? 'GET, HEAD'
-                                          : updateDownloadEndpoint
-                                            ? 'POST'
-                                            : mindmapDocEndpoint
-                                              ? 'GET, HEAD, POST, DELETE'
-                                              : draftEndpoint
-                                                ? 'GET, HEAD, PUT, DELETE'
-                                                : undefined
+                                            ? 'GET, HEAD'
+                                            : updateDownloadEndpoint
+                                              ? 'POST'
+                                              : tokenStatsEndpoint
+                                                ? 'GET, HEAD'
+                                                : mindmapDocEndpoint
+                                                  ? 'GET, HEAD, POST, DELETE'
+                                                  : draftEndpoint
+                                                    ? 'GET, HEAD, PUT, DELETE'
+                                                    : undefined
     if (allowed !== undefined && !allowed.split(', ').includes(req.method ?? '')) {
       sendError(req, res, 405, 'method-not-allowed', `该接口只允许 ${allowed} 请求`, { allow: allowed })
       return
     }
-    if (!contextEndpoint && !encodingsEndpoint && !entryEndpoint && !externalFileEndpoint && !fileEndpoint && !rawEndpoint && !fsEndpoint && !treeEndpoint && !searchEndpoint && !revealEndpoint && !draftEndpoint && !draftTreeEndpoint && !mindmapDocEndpoint && !mindmapDocIndexEndpoint && !mindmapDocSyncEndpoint && !mindmapDocRenameEndpoint && !mindmapDocModelsEndpoint && !mindmapDocRegenerateEndpoint && !mindmapDocRegenerateAllEndpoint && !mindmapDocSummarizeSessionEndpoint && !mindmapForkCleanupEndpoint && !updateCheckEndpoint && !updateDownloadEndpoint) {
+    if (!contextEndpoint && !encodingsEndpoint && !entryEndpoint && !externalFileEndpoint && !fileEndpoint && !rawEndpoint && !fsEndpoint && !treeEndpoint && !searchEndpoint && !revealEndpoint && !draftEndpoint && !draftTreeEndpoint && !mindmapDocEndpoint && !mindmapDocIndexEndpoint && !mindmapDocSyncEndpoint && !mindmapDocRenameEndpoint && !mindmapDocModelsEndpoint && !mindmapDocRegenerateEndpoint && !mindmapDocRegenerateAllEndpoint && !mindmapDocSummarizeSessionEndpoint && !mindmapForkCleanupEndpoint && !updateCheckEndpoint && !updateDownloadEndpoint && !tokenStatsEndpoint) {
       sendError(req, res, 404, 'endpoint-not-found', '接口不存在')
       return
     }
@@ -256,6 +260,25 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
     if (updateDownloadEndpoint) {
       const payload = await readJsonObject(req, config)
       sendJson(req, res, 200, await downloadUpdate(ctx, config, payload))
+      return
+    }
+    /* Token usage statistics (设置 → 工作区设置 → Token 统计): the client resolves every range (standard week/month presets and custom dates) to concrete [from, to) ms in its own timezone and sends them here; the Host filters the aggregated usage index by that window. Plugin-global like the update endpoints, so it is handled before the workspaceId requirement. */
+    if (tokenStatsEndpoint) {
+      /* HEAD must not scan the session logs (the client never reads the body): answer the availability gate only. */
+      if (req.method === 'HEAD') {
+        sendJson(req, res, 200, { available: true })
+        return
+      }
+      const fromRaw = url.searchParams.get('from')
+      const toRaw = url.searchParams.get('to')
+      const from = Number(fromRaw)
+      const to = Number(toRaw)
+      if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || from < 0 || to <= from) {
+        throw new HttpError(400, 'invalid-range', '统计时间范围无效')
+      }
+      const archivedRaw = url.searchParams.get('archived')
+      const archived = archivedRaw !== '0' && archivedRaw !== 'false'
+      sendJson(req, res, 200, await computeTokenStats(ctx, persistence, { from, to, archived }))
       return
     }
     if (mindmapDocEndpoint) {
@@ -479,5 +502,10 @@ export function apply(ctx, config) {
       handler: (req, res) => handleRequest(ctx, config, trustedHosts, writeQueues, req, res),
     }),
     'workspace-studio: workspace API',
+  )
+  /* Token-statistics warm-up: every dsh start rebuilds the usage index in the background (per-session results are cached on disk behind the persistence revision, so only sessions whose logs changed since the last run are re-read); the first panel open then answers from the cache instead of scanning. */
+  ctx.effect(
+    () => warmTokenStatsIndex(ctx),
+    'workspace-studio: token stats warm-up',
   )
 }

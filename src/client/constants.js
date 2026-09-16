@@ -3,6 +3,8 @@ export const API_PREFIX = '/workspace-studio/api'
 /* Plugin self-update: the download+install round trip makes a real network call, so it gets a longer timeout than the generic 30 s check. */
 export const UPDATE_CHECK_TIMEOUT_MS = 30_000
 export const UPDATE_DOWNLOAD_TIMEOUT_MS = 120_000
+/* Token statistics: the first-ever scan walks every session log on the Host (subsequent opens hit the revision-guarded index), so the request gets a long timeout like the update download. */
+export const TOKEN_STATS_TIMEOUT_MS = 120_000
 export const EDITOR_CONTEXT_PROVIDER = 'workspace-editor-context'
 export const SEND_SESSION_BRIDGE_MARKER = Symbol('workspace-studio.send-session-bridge')
 /* The true original sendSession recorded on a wrapper so an overlapping re-install can unwrap a stale wrapper instead of recursing. */

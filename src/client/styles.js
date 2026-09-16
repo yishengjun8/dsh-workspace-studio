@@ -336,18 +336,39 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-mindmap-head-meta-live{color:var(--dsw-alias-state-business-primary)}
 .dsh-ws-mindmap-head-summary{flex:1;min-height:0;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;overflow:hidden;font-size:10px;line-height:14px;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}
 .dsh-ws-mindmap-head-summary-empty{color:var(--dsw-alias-label-tertiary,var(--dsw-alias-label-secondary));font-style:italic}
-.dsh-ws-mindmap-head.dsh-ws-mindmap-node-ring{border:2px solid transparent;padding:8px 9px;border-radius:12px;background:linear-gradient(var(--dsw-alias-bg-layer-1),var(--dsw-alias-bg-layer-1)) padding-box,conic-gradient(from var(--dsw-ws-mm-angle),var(--dsw-ws-mm-c1),var(--dsw-ws-mm-c2),var(--dsw-ws-mm-c3),var(--dsw-ws-mm-c1)) border-box;animation:dsh-ws-mindmap-ring-spin 2.4s linear infinite}
-/* Live streaming cards: each streaming card and its parent get a colorful flowing gradient ring (conic gradient clipped to the border box, rotating through --dsw-ws-mm-angle), and the edge between them flows with the same palette. The 2px transparent border plus compensated padding keep content from shifting when the ring appears. */
+/* Live streaming pair: the STREAMING CARD keeps the rotating conic ring (border plus a
+   full-colour conic interior spinning through --dsw-ws-mm-angle). Its PARENT node — a question
+   card, a folded card or a session head — instead wears a LEFT-TO-RIGHT iridescent flow on both
+   the 2px border and the card interior, travelling the same way as the connecting edge's dashes. */
 @property --dsw-ws-mm-angle{syntax:'<angle>';initial-value:0deg;inherits:false}
-.dsh-ws-mindmap-node.dsh-ws-mindmap-node-ring{border:2px solid transparent;padding:7px 9px;border-radius:12px;background:linear-gradient(var(--dsw-alias-bg-layer-1),var(--dsw-alias-bg-layer-1)) padding-box,conic-gradient(from var(--dsw-ws-mm-angle),var(--dsw-ws-mm-c1),var(--dsw-ws-mm-c2),var(--dsw-ws-mm-c3),var(--dsw-ws-mm-c1)) border-box;animation:dsh-ws-mindmap-ring-spin 2.4s linear infinite}
-.dsh-ws-mindmap-node.dsh-ws-mindmap-node-ring.dsh-ws-mindmap-node-streaming{box-shadow:0 0 14px color-mix(in srgb,var(--dsw-ws-mm-c1) 22%,transparent);background:linear-gradient(color-mix(in srgb,var(--dsw-alias-bg-layer-1) 78%,transparent),color-mix(in srgb,var(--dsw-alias-bg-layer-1) 78%,transparent)) padding-box,conic-gradient(from var(--dsw-ws-mm-angle),var(--dsw-ws-mm-c1),var(--dsw-ws-mm-c2),var(--dsw-ws-mm-c3),var(--dsw-ws-mm-c1)) padding-box,conic-gradient(from var(--dsw-ws-mm-angle),var(--dsw-ws-mm-c1),var(--dsw-ws-mm-c2),var(--dsw-ws-mm-c3),var(--dsw-ws-mm-c1)) border-box}
+@property --dsh-ws-mm-flow{syntax:'<length>';initial-value:0px;inherits:false}
+/* Parent flow, three background layers (top to bottom): a static base-colour scrim (padding-box,
+   66% — keeps title/question readable), the translucent interior flow (padding-box, 42% of the
+   pair palette) and the opaque border flow (border-box). Both flow layers share ONE 480px period,
+   repeat-x and the same phase, so a single band of light crosses border and interior alike; the
+   0 -> 480px shift is exactly one period, so the loop is seamless and moves left to right. The 2px
+   transparent border plus compensated padding keep content from shifting when the ring appears.
+   Declared BEFORE the streaming rule below, which resets these background longhands via shorthand. */
+.dsh-ws-mindmap-node.dsh-ws-mindmap-node-ring,.dsh-ws-mindmap-head.dsh-ws-mindmap-node-ring{border:2px solid transparent;border-radius:12px;box-shadow:0 0 14px color-mix(in srgb,var(--dsw-ws-mm-c1) 18%,transparent);background-image:linear-gradient(color-mix(in srgb,var(--dsw-alias-bg-layer-1) 66%,transparent),color-mix(in srgb,var(--dsw-alias-bg-layer-1) 66%,transparent)),linear-gradient(90deg,color-mix(in srgb,var(--dsw-ws-mm-c1) 42%,transparent) 0%,color-mix(in srgb,var(--dsw-ws-mm-c2) 42%,transparent) 33.33%,color-mix(in srgb,var(--dsw-ws-mm-c3) 42%,transparent) 66.67%,color-mix(in srgb,var(--dsw-ws-mm-c1) 42%,transparent) 100%),linear-gradient(90deg,var(--dsw-ws-mm-c1) 0%,var(--dsw-ws-mm-c2) 33.33%,var(--dsw-ws-mm-c3) 66.67%,var(--dsw-ws-mm-c1) 100%);background-size:auto,480px 100%,480px 100%;background-repeat:no-repeat,repeat-x,repeat-x;background-origin:padding-box,padding-box,border-box;background-clip:padding-box,padding-box,border-box;background-position:0 0,var(--dsh-ws-mm-flow) 0,var(--dsh-ws-mm-flow) 0;animation:dsh-ws-mindmap-ring-flow 3.2s linear infinite}
+/* Compensated padding per card kind (the head rule wins over the node rule by source order: a head
+   carries both classes). The head also pins the plain card fill so a purple-tinted head turns into
+   the same base as a question card while it is the parent of a streaming card. */
+.dsh-ws-mindmap-node.dsh-ws-mindmap-node-ring{padding:7px 9px}
+.dsh-ws-mindmap-head.dsh-ws-mindmap-node-ring{padding:8px 9px;background-color:var(--dsw-alias-bg-layer-1)}
+/* The streaming card keeps its own conic ring: this rule must re-assert the animation (the parent
+   rule above sets the flow animation on the very same element) and its background shorthand resets
+   every flow longhand. */
+.dsh-ws-mindmap-node.dsh-ws-mindmap-node-ring.dsh-ws-mindmap-node-streaming{box-shadow:0 0 14px color-mix(in srgb,var(--dsw-ws-mm-c1) 22%,transparent);background:linear-gradient(color-mix(in srgb,var(--dsw-alias-bg-layer-1) 78%,transparent),color-mix(in srgb,var(--dsw-alias-bg-layer-1) 78%,transparent)) padding-box,conic-gradient(from var(--dsw-ws-mm-angle),var(--dsw-ws-mm-c1),var(--dsw-ws-mm-c2),var(--dsw-ws-mm-c3),var(--dsw-ws-mm-c1)) padding-box,conic-gradient(from var(--dsw-ws-mm-angle),var(--dsw-ws-mm-c1),var(--dsw-ws-mm-c2),var(--dsw-ws-mm-c3),var(--dsw-ws-mm-c1)) border-box;animation:dsh-ws-mindmap-ring-spin 2.4s linear infinite}
 .dsh-ws-mindmap-node-streaming-status{display:flex;align-items:center;gap:6px;color:var(--dsw-ws-mm-c1,var(--dsw-alias-state-business-primary))}
 .dsh-ws-mindmap-node-streaming-dot{width:7px;height:7px;border-radius:50%;background:var(--dsw-ws-mm-c1,var(--dsw-alias-state-business-primary));animation:dsh-ws-mindmap-dot-pulse 1s ease-in-out infinite}
 /* AI-summary-in-progress status row: replaces "已完成" while a summary is being generated; primary blue, same pulse dot as streaming. */
 .dsh-ws-mindmap-node-summarizing{display:flex;align-items:center;gap:6px;color:var(--dsw-alias-state-business-primary)}
 @keyframes dsh-ws-mindmap-ring-spin{to{--dsw-ws-mm-angle:360deg}}
+/* Parent flow: one full 480px period per iteration — the same distance as the tiled gradient, so
+   the loop is seamless; the positive direction is what makes the light travel left to right. */
+@keyframes dsh-ws-mindmap-ring-flow{to{--dsh-ws-mm-flow:480px}}
 @keyframes dsh-ws-mindmap-dot-pulse{0%,100%{opacity:1}50%{opacity:.25}}
-@media (prefers-reduced-motion: reduce){.dsh-ws-mindmap-node.dsh-ws-mindmap-node-ring{animation:none}.dsh-ws-mindmap-edge-flow{animation:none}.dsh-ws-mindmap-node-streaming-dot{animation:none}}
+@media (prefers-reduced-motion: reduce){.dsh-ws-mindmap-node.dsh-ws-mindmap-node-ring,.dsh-ws-mindmap-head.dsh-ws-mindmap-node-ring{animation:none}.dsh-ws-mindmap-edge-flow{animation:none}.dsh-ws-mindmap-node-streaming-dot{animation:none}}
 .dsh-ws-mindmap-pending-head{display:flex;align-items:center;gap:6px;min-width:0}
 .dsh-ws-mindmap-pending-label{flex:none;display:inline-flex;align-items:center;gap:2px;padding:1px 6px 1px 5px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 28%,transparent);border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent);color:var(--dsw-alias-state-business-primary);font-size:10px;line-height:14px}
 /* End-of-branch capsule ("末端"): the same chip shape, tinted with the success green so the terminal-point chip is distinguishable from a fork point. */
@@ -368,8 +389,8 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-mindmap-notice{margin-bottom:10px;padding:6px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:12px;line-height:17px}
 .dsh-ws-mindmap-notice-error{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}
 .dsh-ws-mindmap-node[data-branch]{border-style:solid}
-/* Folded card: one compact card standing in for a maximal run of consecutive folded turns — dashed border + muted wash, fold icon + count badge in the title row, first-turn text in the body. Placed after the [data-branch] solid rule and before the ancestor/hover rules so the traces keep their border-color overrides. */
-.dsh-ws-mindmap-node.dsh-ws-mindmap-folded{border-style:dashed;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 90%,var(--dsw-alias-label-tertiary,var(--dsw-alias-label-secondary)) 10%)}
+/* Folded card: one compact card standing in for a maximal run of consecutive folded turns — dashed border + muted wash, fold icon + count badge in the title row, first-turn text in the body. Placed after the [data-branch] solid rule and before the ancestor/hover rules so the traces keep their border-color overrides. A RING card is exempt: this rule's background shorthand would otherwise wipe the streaming pair's flow layers (a folded card can be a streaming card's parent), and its dashed border would replace the flow border. */
+.dsh-ws-mindmap-node.dsh-ws-mindmap-folded:not(.dsh-ws-mindmap-node-ring){border-style:dashed;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 90%,var(--dsw-alias-label-tertiary,var(--dsw-alias-label-secondary)) 10%)}
 .dsh-ws-mindmap-fold-count{flex:none;padding:0 6px;border-radius:999px;background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-primary-inverted);font-size:10px;line-height:15px;font-weight:600}
 .dsh-ws-mindmap-node-q-folded{color:var(--dsw-alias-label-secondary);font-style:italic;font-weight:500}
 .dsh-ws-mindmap-node-folded-status{color:var(--dsw-alias-state-business-primary)}
@@ -494,4 +515,28 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-chat [data-variant="think"] [class*="thinkBody"]::-webkit-scrollbar-track{background:transparent}
 /* Think-card header chevron: nudge the disclosure glyph right off the card's left border edge. */
 .dsh-ws-chat [data-variant="think"] [data-disclosure-row] > span:first-child{margin-left:6px}
+/* Token statistics dialog (设置 → 工作区设置 → Token 统计): a wide, tall panel whose body scrolls between the fixed header and footer. */
+.dsh-ws-token-dialog{width:min(920px,100%);height:min(700px,92vh)}
+.dsh-ws-token-dialog .dsh-ws-dialog-body{flex:1;min-height:0;overflow-y:auto}
+.dsh-ws-token-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.dsh-ws-token-controls .dsh-ws-settings-select{flex:1;min-width:0;max-width:200px}
+.dsh-ws-token-date{height:28px;padding:0 6px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;box-sizing:border-box}
+.dsh-ws-token-date:disabled{opacity:.5}
+.dsh-ws-token-check{display:inline-flex;align-items:center;gap:5px;color:var(--dsw-alias-label-secondary);font-size:12px;cursor:pointer;user-select:none}
+.dsh-ws-token-table-wrap{overflow-x:auto;border:1px solid var(--dsw-alias-border-l2);border-radius:8px}
+.dsh-ws-token-table{width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap}
+.dsh-ws-token-table th{position:sticky;top:0;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-weight:600;text-align:right;padding:7px 12px;border-bottom:1px solid var(--dsw-alias-border-l2);z-index:1}
+.dsh-ws-token-table th:first-child,.dsh-ws-token-table td:first-child{text-align:left}
+.dsh-ws-token-table td{padding:7px 12px;border-bottom:1px solid var(--dsw-alias-border-l2);text-align:right;font-variant-numeric:tabular-nums}
+.dsh-ws-token-table tbody tr:last-child td{border-bottom:0}
+.dsh-ws-token-table tbody tr:hover td{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 6%,transparent)}
+.dsh-ws-token-table .dsh-ws-token-dim td{opacity:.45}
+.dsh-ws-token-table .dsh-ws-token-chk{width:34px;text-align:center;padding:7px 6px}
+.dsh-ws-token-table .dsh-ws-token-model{max-width:280px;overflow:hidden;text-overflow:ellipsis}
+.dsh-ws-token-table .dsh-ws-token-total-row td{font-weight:700;background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 8%,transparent)}
+.dsh-ws-token-state{display:flex;flex-direction:column;align-items:center;gap:10px;padding:36px 16px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px;text-align:center}
+.dsh-ws-token-state[data-error]{color:var(--dsw-alias-state-error-primary)}
+.dsh-ws-token-foot{padding:10px 14px;border-top:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:17px;display:flex;flex-direction:column;gap:2px}
+.dsh-ws-token-failed{color:var(--dsw-alias-state-error-primary)}
+.dsh-ws-token-warming{color:var(--dsw-alias-label-secondary)}
 `

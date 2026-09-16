@@ -650,13 +650,13 @@ export function WorkspaceExplorer({
   }, [activePath, dirty])
   const closeEntryDialog=useCallback(()=>{if(entryBusy)return;setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);composingRef.current=false},[entryBusy])
   // The viewer mode is scoped to one file: switching files lands on that
-  // file's default view — an HTML page opens straight into the rendered
-  // preview, every other file in the source editor. The tab lookup reads the
-  // refs kept fresh by the layout effects above, so this effect keeps its
-  // activePath-only dependency.
+  // file's default view — Markdown and HTML files open straight into their
+  // rendered view (document preview / page preview), every other file in the
+  // source editor. The tab lookup reads the refs kept fresh by the layout
+  // effects above, so this effect keeps its activePath-only dependency.
   useEffect(() => {
     const tab = tabsRef.current.find(candidate => candidate.path === activePathRef.current)
-    setViewMode(isHtmlName(tab?.name) ? VIEW_PREVIEW : VIEW_EDIT)
+    setViewMode(isHtmlName(tab?.name) || isMarkdownName(tab?.name) ? VIEW_PREVIEW : VIEW_EDIT)
   }, [activePath])
   const rewriteRuntimePaths = useCallback((from, to) => {
     lastWriteRef.current = rewritePathMap(lastWriteRef.current, from, to)

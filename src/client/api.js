@@ -1,4 +1,4 @@
-import { API_PREFIX, ENCODING_FALLBACK, ENCODING_LABEL_FALLBACK, MINDMAP_MODELS_CACHE_MS, UPDATE_CHECK_TIMEOUT_MS, UPDATE_DOWNLOAD_TIMEOUT_MS } from './constants.js'
+import { API_PREFIX, ENCODING_FALLBACK, ENCODING_LABEL_FALLBACK, MINDMAP_MODELS_CACHE_MS, TOKEN_STATS_TIMEOUT_MS, UPDATE_CHECK_TIMEOUT_MS, UPDATE_DOWNLOAD_TIMEOUT_MS } from './constants.js'
 import { localeIsZh, translate } from './locale/index.js'
 
 /* Bounded request timeouts: a hung Host must not leave the UI in a permanent loading/saving state; merges the caller's signal with a timeout, falling back to the signal alone when the timeout APIs are unavailable. */
@@ -416,6 +416,20 @@ export async function downloadUpdate(version, signal) {
   } catch (error) {
     if (error?.name === 'AbortError') throw error
     throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.update', { status: response.status }), response.status)
+  }
+  return payload
+}
+/* Token usage statistics (设置 → 工作区设置 → Token 统计): from/to are concrete epoch-ms bounds resolved client-side (standard week/month presets or custom dates); archived=false excludes archived sessions on the Host. The first-ever scan walks every session log, so the timeout matches the update download. */
+export async function fetchTokenStats(from, to, archived, signal) {
+  const params = new URLSearchParams({ from: String(Math.trunc(from)), to: String(Math.trunc(to)), archived: archived === false ? '0' : '1' })
+  const response = await fetch(`${API_PREFIX}/token-stats?${params}`, { method: 'GET', headers: { accept: 'application/json' }, credentials: 'same-origin', signal: withTimeout(signal, TOKEN_STATS_TIMEOUT_MS) })
+  if (!response.ok) throw await responseFailure(response, 'token-stats-failed', 'error.token-stats-failed')
+  let payload
+  try {
+    payload = await response.json()
+  } catch (error) {
+    if (error?.name === 'AbortError') throw error
+    throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.token-stats', { status: response.status }), response.status)
   }
   return payload
 }

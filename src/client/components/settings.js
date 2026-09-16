@@ -5,6 +5,7 @@ import { translate } from '../locale/index.js'
 import { clamp, FILE_COLOR_GROUPS, fileColorGroupLabel, fileColorOf, HIGHLIGHT_PRESETS, highlightPresetLabel, highlightPresetOf } from '../format.js'
 import { checkUpdate, downloadUpdate, fetchMindmapModels } from '../api.js'
 import { PanelHeader } from './menus.js'
+import { TokenStatsGroup } from './token-stats.js'
 
 export function EmptyWorkspaceExplorer({ treePortalTarget, sessionTitle }) {
   const treeSection = h('section', { className: 'dsh-ws-tree' }, h(PanelHeader, { title: sessionTitle ?? translate('panel.workspaceFiles'), subtitle: translate('panel.noWorkspace') }), h('div', { className: 'dsh-ws-empty' }, translate('panel.chooseSession')))
@@ -161,6 +162,7 @@ export function ExplorerSettingsSection({ settingsStore }) {
   const customizedPresetCount = Object.keys(settings.highlightPresets ?? {}).length
   return h('div', { className: 'dsh-ws-explorer-settings' },
     h(UpdateSettingsGroup, null),
+    h(TokenStatsGroup, null),
     h('div', { className: 'dsh-ws-settings-group' },
       h('div', { className: 'dsh-ws-settings-group-title' }, translate('settings.group.session')),
       h('div', { className: 'dsh-ws-settings-row' },
