@@ -298,6 +298,9 @@ export const MINDMAP_TOOLBAR_ICONS = {
   restore: { d: 'M3 12a9 9 0 1 0 2.64-6.36L3 8M3 3v5h5', sw: 1.7 },
   /* Twin sparkles — "regenerate all summaries". */
   regen: { d: 'M8 2.5L9.22 6.78 13.5 8 9.22 9.22 8 13.5 6.78 9.22 2.5 8 6.78 6.78ZM13.4 3.2 13.9 4.6 15.3 5.1 13.9 5.6 13.4 7 12.9 5.6 11.5 5.1 12.9 4.6Z', sw: 1.4 },
+  /* Two session rows + one sparkle — "regenerate all SESSION summaries"
+     (deliberately distinct from the card batch's twin sparkles). */
+  regenSessions: { d: 'M2.2 4.4h8.6M2.2 8.2h4.8M12 5.6L12.62 7.68 14.7 8.3 12.62 8.92 12 11 11.38 8.92 9.3 8.3 11.38 7.68Z', sw: 1.5 },
   /* Archive box with slot — "archive entire mind map". */
   archive: { d: 'M2.5 4h11M3 4v8.5A1.5 1.5 0 0 0 4.5 14h7a1.5 1.5 0 0 0 1.5-1.5V4M6.5 8h3', sw: 1.5 },
 }

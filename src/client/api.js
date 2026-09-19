@@ -231,6 +231,15 @@ export const regenerateAllMindmapSummaries = (sessionId, config, signal) => mind
   },
   signal,
 })
+/* Toolbar → 重新生成所有会话总结: the Host parks every session's summary in its pending set (topping up the MISSING card summaries a session summary depends on; existing card summaries are never recalculated) and answers immediately — the per-session status arrives via the sync response's `sessionSummarizing`. Enqueue only, so this is NOT one of the long-timeout LLM endpoints. */
+export const regenerateAllSessionSummaries = (sessionId, config, signal) => mindmapRequest('/regenerate-session-summaries', {
+  method: 'POST',
+  body: {
+    sessionId: String(sessionId),
+    config: config === null || config === undefined ? null : config,
+  },
+  signal,
+})
 /* 右键会话头 → 总结当前会话: the Host summarizes the session from its card summaries only; missing ones are generated first (status 'waiting'). */
 export const summarizeMindmapSession = (sessionId, config, signal) => mindmapRequest('/summarize-session', {
   method: 'POST',

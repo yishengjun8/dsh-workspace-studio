@@ -225,7 +225,7 @@ html.dsh-ws-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal=
 .dsh-ws-update-state[data-new]{color:var(--dsw-alias-state-business-primary)}
 /* Mind-map conversation branching view ("导图") and the sidebar branch-row hider. */
 .dsh-ws-mindmap{height:100%;position:relative;box-sizing:border-box;padding:14px 16px;display:flex;flex-direction:column;overflow:hidden}
-.dsh-ws-mindmap-toolbar{flex:none;display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.dsh-ws-mindmap-toolbar{flex:none;display:flex;align-items:center;flex-wrap:wrap;gap:8px;row-gap:6px;margin-bottom:8px}
 .dsh-ws-mindmap-toolbar-button{flex:none;display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:16px;cursor:pointer;transition:background .12s ease,border-color .12s ease,color .12s ease}
 .dsh-ws-mindmap-toolbar-button:hover{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary)}
 /* Danger variant for the "archive entire mind map" button: red border + red text, hover gets a faint red fill. Rules sit after the base hover rule so the red wins. */

@@ -115,20 +115,27 @@ export function MindMapDialogs({
         h('button', { className: 'dsh-ws-text-button', disabled: archiveBranchBusy, onClick: onArchiveBranchCancel, type: 'button' }, translate('dialog.cancel')),
         h('button', { className: 'dsh-ws-text-button', disabled: archiveBranchBusy, onClick: onArchiveBranchConfirm, type: 'button' }, archiveBranchBusy ? translate('dialog.processing') : translate('mindmap.archiveBranch.action')))))
     : null
+  /* The regenerate confirm dialog serves BOTH toolbar batches: 'cards' (every
+     card summary) and 'sessions' (every session head summary). Only the copy
+     differs; the shell, focus trap and busy handling are shared. */
+  const regenerateSessionsMode = regenerateAllTarget !== null && regenerateAllTarget.mode === 'sessions'
+  const regenerateTitleKey = regenerateSessionsMode ? 'mindmap.sessionSummary.regenerateAll' : 'mindmap.summary.regenerateAll'
+  const regenerateMessageKey = regenerateSessionsMode ? 'mindmap.sessionSummary.regenerateAll.message' : 'mindmap.summary.regenerateAll.message'
+  const regenerateActionKey = regenerateSessionsMode ? 'mindmap.sessionSummary.regenerateAll.action' : 'mindmap.summary.regenerateAll.action'
   const regenerateAllView = regenerateAllTarget !== null ? h('div', {
     className: 'dsh-ws-dialog-backdrop',
     onMouseDown: event => { if (event.target === event.currentTarget && !regenerateAllBusy) onRegenerateAllCancel() },
   },
     h('div', { 'aria-modal': true, className: 'dsh-ws-dialog dsh-ws-mindmap-confirm-dialog', ref: regenerateAllRef, role: 'dialog' },
       h('div', { className: 'dsh-ws-dialog-header' },
-        h('div', { className: 'dsh-ws-dialog-title' }, translate('mindmap.summary.regenerateAll')),
+        h('div', { className: 'dsh-ws-dialog-title' }, translate(regenerateTitleKey)),
         h('button', { 'aria-label': translate('dialog.close'), className: 'dsh-ws-icon-button', disabled: regenerateAllBusy, onClick: onRegenerateAllCancel, title: translate('dialog.close'), type: 'button' }, '×')),
       h('div', { className: 'dsh-ws-dialog-body' },
-        h('div', { className: 'dsh-ws-dialog-message' }, translate('mindmap.summary.regenerateAll.message', { n: regenerateAllTarget.count })),
+        h('div', { className: 'dsh-ws-dialog-message' }, translate(regenerateMessageKey, { n: regenerateAllTarget.count })),
         regenerateAllError !== null ? h('div', { className: 'dsh-ws-dialog-error', role: 'alert' }, regenerateAllError) : null),
       h('div', { className: 'dsh-ws-dialog-footer' },
         h('button', { className: 'dsh-ws-text-button', disabled: regenerateAllBusy, onClick: onRegenerateAllCancel, type: 'button' }, translate('dialog.cancel')),
-        h('button', { className: 'dsh-ws-text-button', disabled: regenerateAllBusy, onClick: onRegenerateAllConfirm, type: 'button' }, regenerateAllBusy ? translate('dialog.processing') : translate('mindmap.summary.regenerateAll.action')))))
+        h('button', { className: 'dsh-ws-text-button', disabled: regenerateAllBusy, onClick: onRegenerateAllConfirm, type: 'button' }, regenerateAllBusy ? translate('dialog.processing') : translate(regenerateActionKey)))))
     : null
   return h(Fragment, null, renameView, archiveView, deleteView, archiveBranchView, regenerateAllView)
 }

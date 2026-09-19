@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { clampMountBulge, CONTEXT_MENU_WIDTH, MINDMAP_SUMMARY_DEFAULT_LENGTH, MINDMAP_SUMMARY_MAX_LENGTH, MINDMAP_SUMMARY_MIN_LENGTH, MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH, MINDMAP_SUMMARY_SESSION_MAX_LENGTH, MINDMAP_SUMMARY_SESSION_MIN_LENGTH, MINDMAP_SYNC_MS } from '../constants.js'
 import { translate } from '../locale/index.js'
 import { styles } from '../styles.js'
-import { regenerateAllMindmapSummaries, regenerateMindmapSummary, summarizeMindmapSession } from '../api.js'
+import { regenerateAllMindmapSummaries, regenerateAllSessionSummaries, regenerateMindmapSummary, summarizeMindmapSession } from '../api.js'
 import { mindmapRegistry, readMindmapLastSession, removeMindmapLastSession, useMindmapDocHandoff, writeMindmapLastSession } from './registry.js'
 import { useMindmapSummaryModels } from '../components/settings.js'
 import { mindmapCardClickAction, mindmapClip, mindmapDeletePlan, mindmapDocFingerprint, mindmapDocKey, mindmapDocLayout, mindmapDocSessionKey, mindmapDocStructureFingerprint, mindmapEmptyKey, mindmapFoldedRunOf, mindmapGradientId, mindmapStreamPalette, normalizeMindmapWorkspacePath, useMindmapSessionView } from './helpers.js'
@@ -184,7 +184,9 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [deleteError, setDeleteError] = useState(null)
-  /* Toolbar regenerate-all confirm dialog: { count } of turns to regenerate. */
+  /* Toolbar regenerate confirm dialog, shared by both batches: { mode, count }
+     where mode 'cards' = regenerate every CARD summary (turns to process) and
+     'sessions' = regenerate every SESSION summary (sessions to process). */
   const [regenerateAllTarget, setRegenerateAllTarget] = useState(null)
   const [regenerateAllBusy, setRegenerateAllBusy] = useState(false)
   const [regenerateAllError, setRegenerateAllError] = useState(null)
@@ -1685,7 +1687,27 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       return
     }
     setRegenerateAllError(null)
-    setRegenerateAllTarget({ count })
+    setRegenerateAllTarget({ mode: 'cards', count })
+  }, [doc, showNotice])
+  /* Toolbar → regenerate all SESSION summaries: count the sessions that have at
+     least one completed turn (the Host's own predicate), confirm, then let the
+     Host park every one of them in its pending set. No card summary is
+     recalculated and no stored session summary is cleared locally — the old
+     paragraph stays on each head card until its replacement lands, and the
+     per-session "正在总结中…" status arrives via the sync response. */
+  const startRegenerateAllSessions = useCallback(() => {
+    if (doc === null) return
+    let count = 0
+    for (const s of doc.sessions ?? []) {
+      const turns = s?.turns ?? []
+      if (turns.some(t => t !== null && t !== undefined && Number.isSafeInteger(t?.seq))) count += 1
+    }
+    if (count === 0) {
+      showNotice(translate('mindmap.sessionSummary.regenerateAll.empty'))
+      return
+    }
+    setRegenerateAllError(null)
+    setRegenerateAllTarget({ mode: 'sessions', count })
   }, [doc, showNotice])
   const closeRegenerateAll = useCallback(() => {
     if (regenerateAllBusy) return
@@ -1696,54 +1718,72 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     if (regenerateAllBusy || regenerateAllTarget === null) return
     const root = rootIdRef.current ?? rootId
     if (root === null) return
+    /* 'sessions' = session-level summaries only (no local doc write at all);
+       'cards' = every card summary, with the session summaries cleared. */
+    const sessionsMode = regenerateAllTarget.mode === 'sessions'
     setRegenerateAllBusy(true)
     setRegenerateAllError(null)
-    /* Arm the sync guard for the whole Host round-trip (the optimistic
-       session-summary clear below must not be rolled back by a stale sync). */
-    savingRef.current += 1
-    Promise.resolve(regenerateAllMindmapSummaries(root, summaryConfigRef.current))
+    /* Arm the sync guard for the whole Host round-trip in CARDS mode only: the
+       optimistic session-summary clear below must not be rolled back by a stale
+       sync. Sessions mode changes nothing locally, so a sync may land freely. */
+    if (!sessionsMode) savingRef.current += 1
+    Promise.resolve(sessionsMode
+      ? regenerateAllSessionSummaries(root, summaryConfigRef.current)
+      : regenerateAllMindmapSummaries(root, summaryConfigRef.current))
       .then((payload) => {
         if (payload?.ok === true) {
-          /* The Host cleared every session summary (they auto-regenerate after
-             the card batch); mirror that locally so the head cards drop their
-             stale paragraphs immediately. */
-          const currentDoc = docRef.current
-          if (currentDoc !== null) {
-            const next = {
-              ...currentDoc,
-              sessions: currentDoc.sessions.map(s => {
-                if (s === null || s === undefined) return s
-                if (typeof s.summary === 'string' && s.summary !== '') {
-                  const copy = { ...s }
-                  delete copy.summary
-                  return copy
-                }
-                return s
-              }),
+          if (!sessionsMode) {
+            /* The Host cleared every session summary (they auto-regenerate after
+               the card batch); mirror that locally so the head cards drop their
+               stale paragraphs immediately. */
+            const currentDoc = docRef.current
+            if (currentDoc !== null) {
+              const next = {
+                ...currentDoc,
+                sessions: currentDoc.sessions.map(s => {
+                  if (s === null || s === undefined) return s
+                  if (typeof s.summary === 'string' && s.summary !== '') {
+                    const copy = { ...s }
+                    delete copy.summary
+                    return copy
+                  }
+                  return s
+                }),
+              }
+              localWriteSeqRef.current += 1
+              setDoc(next)
+              lastFingerprintRef.current = mindmapDocFingerprint(next)
             }
-            localWriteSeqRef.current += 1
-            setDoc(next)
-            lastFingerprintRef.current = mindmapDocFingerprint(next)
           }
           const count = Number.isSafeInteger(payload.count) ? payload.count : regenerateAllTarget.count
-          showNotice(translate('mindmap.summary.regenerateAll.started', { n: count }))
+          showNotice(sessionsMode
+            ? translate('mindmap.sessionSummary.regenerateAll.started', { n: count })
+            : translate('mindmap.summary.regenerateAll.started', { n: count }))
         } else {
-          /* Defensive: the Host's regenerate-all normally throws (HTTP error)
-             instead of answering ok:false, but never show an empty message
-             when a code is absent. */
+          /* Defensive: the Host's regenerate endpoints normally throw (HTTP
+             error) instead of answering ok:false, but never show an empty
+             message when a code is absent. */
           const code = payload?.code === 'no-model'
             ? 'mindmap.summary.fail.noModel'
-            : payload?.code === 'turn-gone'
-              ? 'mindmap.summary.fail.turnGone'
-              : 'mindmap.summary.fail.generationFailed'
-          showNoticeError(translate('mindmap.summary.regenerateAll.failed', { message: translate(code) }))
+            : payload?.code === 'session-gone'
+              ? 'mindmap.sessionSummary.fail.sessionGone'
+              : payload?.code === 'turn-gone'
+                ? 'mindmap.summary.fail.turnGone'
+                : 'mindmap.summary.fail.generationFailed'
+          const message = translate(code)
+          showNoticeError(sessionsMode
+            ? translate('mindmap.sessionSummary.regenerateAll.failed', { message })
+            : translate('mindmap.summary.regenerateAll.failed', { message }))
         }
       })
       .catch((error) => {
-        showNoticeError(translate('mindmap.summary.regenerateAll.failed', { message: error?.message ?? String(error) }))
+        const message = error?.message ?? String(error)
+        showNoticeError(sessionsMode
+          ? translate('mindmap.sessionSummary.regenerateAll.failed', { message })
+          : translate('mindmap.summary.regenerateAll.failed', { message }))
       })
       .finally(() => {
-        savingRef.current -= 1
+        if (!sessionsMode) savingRef.current -= 1
         if (mountedRef.current) {
           setRegenerateAllBusy(false)
           setRegenerateAllTarget(null)
@@ -2329,7 +2369,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
 
   return h(Fragment, null,
     h('div', { className: 'dsh-ws-mindmap', 'data-conversation-composer-overlay': '' },
-      h(MindMapToolbar, { settings, restoreView, addRootSession, startArchiveAll, startRegenerateAll }),
+      h(MindMapToolbar, { settings, restoreView, addRootSession, startArchiveAll, startRegenerateAll, startRegenerateAllSessions }),
       h('div', { className: 'dsh-ws-mindmap-bar' },
         translate('mindmap.rootLabel'),
         h('span', { className: 'dsh-ws-mindmap-bar-title' }, rootTitle)),

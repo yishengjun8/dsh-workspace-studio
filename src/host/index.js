@@ -8,7 +8,7 @@ import { ENCODINGS } from './encodings.js'
 import { listTree, readExternalPreview, readPreview, readPreviewHead, readRawFile, revealInExplorer, searchWorkspace } from './fs.js'
 import { createEntry, fsOperation, renameEntry, saveFile } from './write.js'
 import { deleteDraftFile, draftTreeOperation, parseDraftGenerationQuery, readDraftFile, saveDraftFile, validateDraftOwner, validateDraftPayload, writeJsonAtomic } from './drafts.js'
-import { adoptMindmapOrphans, buildMindmapDoc, clearForkInheritedQueue, deleteMindmapDoc, findMindmapDocWithAncestors, indexMindmapDocs, isValidMindmapDoc, listMindmapModels, MINDMAP_DOC_MAX_BYTES, mindmapAnchorOf, mindmapDocPath, mindmapDrainPendingSessionSummaries, mindmapLock, mindmapLockedReanchorOp, mindmapSessionSummarizingOf, mindmapSummarizingOf, mindmapSyncCache, parseMindmapSummaryConfig, purgeArchivedMindmapDocs, readMindmapDocFile, refreshMindmapDocCore, regenerateAllMindmapSummaries, regenerateMindmapSummary, renameMindmapDoc, seedMindmapSyncCacheAfterLoad, summarizeMindmapSession, syncMindmapDoc, validateMindmapSession, writeMindmapDoc } from './mindmap.js'
+import { adoptMindmapOrphans, buildMindmapDoc, clearForkInheritedQueue, deleteMindmapDoc, findMindmapDocWithAncestors, indexMindmapDocs, isValidMindmapDoc, listMindmapModels, MINDMAP_DOC_MAX_BYTES, mindmapAnchorOf, mindmapDocPath, mindmapDrainPendingSessionSummaries, mindmapLock, mindmapLockedReanchorOp, mindmapSessionSummarizingOf, mindmapSummarizingOf, mindmapSyncCache, parseMindmapSummaryConfig, purgeArchivedMindmapDocs, readMindmapDocFile, refreshMindmapDocCore, regenerateAllMindmapSummaries, regenerateAllSessionSummaries, regenerateMindmapSummary, renameMindmapDoc, seedMindmapSyncCacheAfterLoad, summarizeMindmapSession, syncMindmapDoc, validateMindmapSession, writeMindmapDoc } from './mindmap.js'
 import { renderPromptContext } from './prompt-context.js'
 import { renderMarkdownDocument } from './markdown.js'
 import { checkForUpdate, downloadUpdate } from './update.js'
@@ -101,6 +101,7 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
     const mindmapDocModelsEndpoint = url.pathname === `${API_PREFIX}/mindmap-doc/models`
     const mindmapDocRegenerateEndpoint = url.pathname === `${API_PREFIX}/mindmap-doc/regenerate-summary`
     const mindmapDocRegenerateAllEndpoint = url.pathname === `${API_PREFIX}/mindmap-doc/regenerate-all`
+    const mindmapDocRegenerateSessionSummariesEndpoint = url.pathname === `${API_PREFIX}/mindmap-doc/regenerate-session-summaries`
     const mindmapDocSummarizeSessionEndpoint = url.pathname === `${API_PREFIX}/mindmap-doc/summarize-session`
     const mindmapForkCleanupEndpoint = url.pathname === `${API_PREFIX}/mindmap-doc/fork-cleanup`
     const updateCheckEndpoint = url.pathname === `${API_PREFIX}/update/check`
@@ -140,26 +141,28 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
                                     ? 'POST'
                                     : mindmapDocRegenerateAllEndpoint
                                       ? 'POST'
-                                      : mindmapDocSummarizeSessionEndpoint
+                                      : mindmapDocRegenerateSessionSummariesEndpoint
                                         ? 'POST'
-                                        : mindmapForkCleanupEndpoint
+                                        : mindmapDocSummarizeSessionEndpoint
                                           ? 'POST'
-                                          : updateCheckEndpoint
-                                            ? 'GET, HEAD'
-                                            : updateDownloadEndpoint
-                                              ? 'POST'
-                                              : tokenStatsEndpoint
-                                                ? 'GET, HEAD'
-                                                : mindmapDocEndpoint
-                                                  ? 'GET, HEAD, POST, DELETE'
-                                                  : draftEndpoint
-                                                    ? 'GET, HEAD, PUT, DELETE'
-                                                    : undefined
+                                          : mindmapForkCleanupEndpoint
+                                            ? 'POST'
+                                            : updateCheckEndpoint
+                                              ? 'GET, HEAD'
+                                              : updateDownloadEndpoint
+                                                ? 'POST'
+                                                : tokenStatsEndpoint
+                                                  ? 'GET, HEAD'
+                                                  : mindmapDocEndpoint
+                                                    ? 'GET, HEAD, POST, DELETE'
+                                                    : draftEndpoint
+                                                      ? 'GET, HEAD, PUT, DELETE'
+                                                      : undefined
     if (allowed !== undefined && !allowed.split(', ').includes(req.method ?? '')) {
       sendError(req, res, 405, 'method-not-allowed', `该接口只允许 ${allowed} 请求`, { allow: allowed })
       return
     }
-    if (!contextEndpoint && !encodingsEndpoint && !entryEndpoint && !externalFileEndpoint && !fileEndpoint && !rawEndpoint && !fsEndpoint && !treeEndpoint && !searchEndpoint && !revealEndpoint && !draftEndpoint && !draftTreeEndpoint && !mindmapDocEndpoint && !mindmapDocIndexEndpoint && !mindmapDocSyncEndpoint && !mindmapDocRenameEndpoint && !mindmapDocModelsEndpoint && !mindmapDocRegenerateEndpoint && !mindmapDocRegenerateAllEndpoint && !mindmapDocSummarizeSessionEndpoint && !mindmapForkCleanupEndpoint && !updateCheckEndpoint && !updateDownloadEndpoint && !tokenStatsEndpoint) {
+    if (!contextEndpoint && !encodingsEndpoint && !entryEndpoint && !externalFileEndpoint && !fileEndpoint && !rawEndpoint && !fsEndpoint && !treeEndpoint && !searchEndpoint && !revealEndpoint && !draftEndpoint && !draftTreeEndpoint && !mindmapDocEndpoint && !mindmapDocIndexEndpoint && !mindmapDocSyncEndpoint && !mindmapDocRenameEndpoint && !mindmapDocModelsEndpoint && !mindmapDocRegenerateEndpoint && !mindmapDocRegenerateAllEndpoint && !mindmapDocRegenerateSessionSummariesEndpoint && !mindmapDocSummarizeSessionEndpoint && !mindmapForkCleanupEndpoint && !updateCheckEndpoint && !updateDownloadEndpoint && !tokenStatsEndpoint) {
       sendError(req, res, 404, 'endpoint-not-found', '接口不存在')
       return
     }
@@ -226,6 +229,14 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
       const summaryConfig = parseMindmapSummaryConfig(payload?.config)
       if (summaryConfig === null) throw new HttpError(400, 'invalid-summary-config', '摘要模型配置无效')
       sendJson(req, res, 200, await regenerateAllMindmapSummaries(ctx, persistence, sessionId, summaryConfig))
+      return
+    }
+    if (mindmapDocRegenerateSessionSummariesEndpoint) {
+      const payload = await readJsonObject(req, config, MINDMAP_DOC_MAX_BYTES)
+      const sessionId = validateMindmapSession(url.searchParams.get('sessionId') ?? payload?.sessionId)
+      const summaryConfig = parseMindmapSummaryConfig(payload?.config)
+      if (summaryConfig === null) throw new HttpError(400, 'invalid-summary-config', '摘要模型配置无效')
+      sendJson(req, res, 200, await regenerateAllSessionSummaries(ctx, persistence, sessionId, summaryConfig))
       return
     }
     if (mindmapDocSummarizeSessionEndpoint) {

@@ -109,7 +109,7 @@
 - 点击卡片 = **切换优先、新建兜底**：停在某卡片的分支（链尾卡片）点击即**切换到该分支**（右侧聊天跟随切换，导图内高亮跟随，可自由切换）；没有分支停靠的中间轮次卡片（如分支 6-7 里的 6）点击则**在该处 fork 新分支**并进入对话，新轮次与兄弟轮并列（6 → 8、9 与 7 并列）。所有 fork 都归**同一个主导图**，绝不新增导图；新分支会话也不出现在侧栏会话列表。分支的新轮次由 Host 在同步时从分支会话的完整日志折叠回文档。
 - 右键分支可**重命名**；工具栏可「归档整个导图」（连同全部分支会话，归档后标签页自动关闭）。右键任意卡片（含根会话卡）可**删除卡片**（**真截断**）：从上一张卡 fork 出截断后的新会话并归档原会话——该卡片及其后的轮次、由此衍生的所有分支一并移除（原会话归档后当前无恢复入口），聊天与导图从此从截断点重新开始、编号一致。导图支持**抓手平移、滚轮缩放**与「还原视图」。
 - 分支正在**输出**时（输入问题、agent 生成中），导图会为家族中每个生成中的会话实时显示一张「**生成中…**」卡片（显示本轮问题文本）；每张流式卡与其**父卡片**带同色炫彩渐变流动光环，两者之间的连线显示同色流动虚线；输出完成后流式卡自动转为正常卡片，光环与流动边消失。**流式卡可点击 = 切换到正在生成的会话**（右侧聊天跟过去实时看输出、高亮跟随；未收尾轮没有 turn/end seq，不能作为分叉点，右键菜单也禁用）；生成中会话的最后一张已完成卡此时按**中间卡**处理，点击即在它处**分叉新分支**。
-- **AI 卡片摘要**（可选，默认关闭）：在「工作区设置 → 导图浏览设置 → AI 卡片摘要」中启用后，导图会用所选模型自动总结每轮提问（每轮一次小调用，产生少量 token 消耗；摘要为建议性总结，完整原文可悬浮卡片查看）。卡片右键「重新生成摘要」、工具栏「重新生成全部摘要」可随时重算；会话头右键「总结当前会话」为整个会话生成一段总结。摘要模型可选「跟随会话模型」或指定模型，摘要长度与会话总结长度可分别调整（20–200 字 / 20–500 字）。
+- **AI 卡片摘要**（可选，默认关闭）：在「工作区设置 → 导图浏览设置 → AI 卡片摘要」中启用后，导图会用所选模型自动总结每轮提问（每轮一次小调用，产生少量 token 消耗；摘要为建议性总结，完整原文可悬浮卡片查看）。卡片右键「重新生成摘要」、工具栏「重新生成全部摘要」可随时重算；工具栏「重新生成所有会话总结」只重算全部会话头卡片的总结（不重算已有卡片摘要，缺少卡片摘要的会话会先补齐缺失部分）；会话头右键「总结当前会话」为整个会话生成一段总结。摘要模型可选「跟随会话模型」或指定模型，摘要长度与会话总结长度可分别调整（20–200 字 / 20–500 字）。
 
 ### 外观与设置
 
@@ -129,7 +129,7 @@
 
 一个包内封装三个端面：
 
-- **Host 端**（`lib/index.js`）注册 `/workspace-studio/api`：按 Workspace ID 列目录、读取有上限的 UTF-8 文件，按 membership 或规范化 cwd 授权当前 Session；显式启用编辑时，通过修订版本校验、单段名称校验和原子替换保存已有普通文件、新建文件与文件夹、重命名已有条目，拒绝过期修订版本而不是静默覆盖。另提供 `/mindmap-doc`（读 / 写 / 删）与 `/mindmap-doc/sync`、`/mindmap-doc/index`、`/mindmap-doc/rename`、`/mindmap-doc/models`、`/mindmap-doc/regenerate-summary`、`/mindmap-doc/regenerate-all`、`/mindmap-doc/summarize-session` 接口：按会话持久化导图文档，反向解析完整事件日志折叠所有会话的轮次，重命名只更新导图标题而不整份往返，AI 摘要的生成 / 重算 / 会话总结由 Host 串行调度。再有 `/update/check`（比较已安装版本与 GitHub main 分支版本）与 `/update/download`（校验并原子替换自身安装目录），供设置页「插件更新」组使用；替换后需重启 dsh 生效。另有 `/token-stats`（按客户端给定的 `[from, to)` 毫秒窗口汇总所有会话日志的 `assistant/message` usage 记录，`archived=0` 排除已归档会话），供设置页「Token 统计」组使用；Host 端以 `~/.dsh-plugin/dsh-workspace-studio/token-stats/usage-index.json` 增量缓存按日按模型的汇总结果（以持久化索引的 stat 修订号为变更信号；读不出的会话缓存「不可读」结论，长扫描每 100 个会话落一次检查点，索引已就绪时请求立即返回部分结果并给出 `warming` / `progress`）。
+- **Host 端**（`lib/index.js`）注册 `/workspace-studio/api`：按 Workspace ID 列目录、读取有上限的 UTF-8 文件，按 membership 或规范化 cwd 授权当前 Session；显式启用编辑时，通过修订版本校验、单段名称校验和原子替换保存已有普通文件、新建文件与文件夹、重命名已有条目，拒绝过期修订版本而不是静默覆盖。另提供 `/mindmap-doc`（读 / 写 / 删）与 `/mindmap-doc/sync`、`/mindmap-doc/index`、`/mindmap-doc/rename`、`/mindmap-doc/models`、`/mindmap-doc/regenerate-summary`、`/mindmap-doc/regenerate-all`、`/mindmap-doc/regenerate-session-summaries`、`/mindmap-doc/summarize-session` 接口：按会话持久化导图文档，反向解析完整事件日志折叠所有会话的轮次，重命名只更新导图标题而不整份往返，AI 摘要的生成 / 重算 / 会话总结由 Host 串行调度。再有 `/update/check`（比较已安装版本与 GitHub main 分支版本）与 `/update/download`（校验并原子替换自身安装目录），供设置页「插件更新」组使用；替换后需重启 dsh 生效。另有 `/token-stats`（按客户端给定的 `[from, to)` 毫秒窗口汇总所有会话日志的 `assistant/message` usage 记录，`archived=0` 排除已归档会话），供设置页「Token 统计」组使用；Host 端以 `~/.dsh-plugin/dsh-workspace-studio/token-stats/usage-index.json` 增量缓存按日按模型的汇总结果（以持久化索引的 stat 修订号为变更信号；读不出的会话缓存「不可读」结论，长扫描每 100 个会话落一次检查点，索引已就绪时请求立即返回部分结果并给出 `warming` / `progress`）。
 - **Browser 端**（`lib/client.js`）提供兼容的 `ctx.layout` 服务与 `usePanelInfo` 标准 Hook（`panelInfo` 根贡献），占用根 Slot，声明 `sidebar`、`main`（keyed，承载新版 Harness 的会话面板）、`details` 与 `shell.overlay`，并加入文件树、CodeMirror 6 浏览器/编辑器、编辑器上下文行、工作区设置页、`/init` 命令与会话分支导图（预览标签页）。
 - **共享不变量**（`lib/invariant.js`）为每次 Host 请求提供路径包含与写入资格校验。
 

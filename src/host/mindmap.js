@@ -687,7 +687,7 @@ async function mindmapWriteSessionSummary(ctx, persistence, rootId, sessionId, s
   return result === null ? false : result
 }
 
-/* One pending session summary job: re-check readiness against the LATEST doc (a new turn may have arrived mid-wait), then generate + persist. */
+/* One pending session summary job: re-check readiness against the LATEST doc (a new turn may have arrived mid-wait), then generate + persist. Returns true ONLY when a new summary was persisted — the drain uses that to chain straight to the next pending session instead of waiting for the next sync tick; every other outcome (still waiting, failed, feature off, doc gone) must NOT chain, or the drain would spin on the readiness check without ever calling the model. An UNREADY session is rotated to the back of the pending map (see below) so it cannot starve the batch queued behind it. */
 async function mindmapRunSessionSummary(ctx, persistence, rootId, sessionId, config) {
   const key = mindmapSessionSummaryKey(rootId, sessionId)
   /* The user may have turned the AI-summary feature off for THIS root while this job was pending: never generate or write after a disable (same rule as the card jobs). */
@@ -700,7 +700,16 @@ async function mindmapRunSessionSummary(ctx, persistence, rootId, sessionId, con
     mindmapSessionSummaryPending.delete(key)
     return
   }
-  if (!mindmapSessionSummaryReady(doc, sessionId)) return /* still waiting */
+  if (!mindmapSessionSummaryReady(doc, sessionId)) {
+    /* Still waiting: RE-QUEUE AT THE END of the pending map (delete + set moves
+       the key to the back). The drain starts at most one job per call and picks
+       the first eligible entry in insertion order, so an unready session left at
+       the head would starve every session queued behind it — and the toolbar
+       batch parks all of them in one go. */
+    mindmapSessionSummaryPending.delete(key)
+    mindmapSessionSummaryPending.set(key, config)
+    return
+  }
   const session = (doc.sessions ?? []).find(s => s !== null && s !== undefined && String(s.sessionId) === String(sessionId))
   if (session === undefined) {
     mindmapSessionSummaryPending.delete(key)
@@ -726,6 +735,7 @@ async function mindmapRunSessionSummary(ctx, persistence, rootId, sessionId, con
   const written = await mindmapWriteSessionSummary(ctx, persistence, rootId, sessionId, summary)
   if (written) mindmapSessionSummaryFailedAt.delete(key)
   mindmapSessionSummaryPending.delete(key)
+  return written === true
 }
 
 /* The doc-family sessions whose SESSION summary is pending or running, for the client's head-card "正在总结中…" status. Sorted for stable identity. */
@@ -770,8 +780,9 @@ export function mindmapDrainPendingSessionSummaries(ctx, persistence) {
     mindmapSummaryWorkers += 1
     mindmapSessionSummaryRunning.add(key)
     void (async () => {
+      let wrote = false
       try {
-        await mindmapRunSessionSummary(ctx, persistence, rootId, sessionId, config)
+        wrote = (await mindmapRunSessionSummary(ctx, persistence, rootId, sessionId, config)) === true
       } catch (error) {
         try { ctx.logger.warn(`[workspace-studio] mindmap session summary job failed: ${String(error)}`) } catch { /* no logger */ }
         mindmapSessionSummaryFailedAt.set(key, Date.now())
@@ -779,6 +790,8 @@ export function mindmapDrainPendingSessionSummaries(ctx, persistence) {
       } finally {
         mindmapSummaryWorkers -= 1
         mindmapSessionSummaryRunning.delete(key)
+        /* Chain to the next pending session ONLY after a successful write: this drain starts at most ONE job per call, so a batch (toolbar 重新生成所有会话总结) would otherwise advance one session per 2.5 s sync tick and stall entirely once the map tab is closed. A still-waiting or failed job must not re-drain — its pending entry is unchanged, so chaining would spin on the readiness check. */
+        if (wrote) mindmapDrainPendingSessionSummaries(ctx, persistence)
       }
     })()
   }
@@ -893,6 +906,36 @@ export async function regenerateAllMindmapSummaries(ctx, persistence, sessionId,
     fresh => {
       if (mindmapDocIsDead(ctx, fresh)) throw new HttpError(404, 'mindmap-not-found', '导图文档不存在')
       return regenerateAllBody(ctx, persistence, fresh, config)
+    },
+  )
+  if (result === null) throw new HttpError(404, 'mindmap-not-found', '导图文档不存在')
+  mindmapDrainPendingSessionSummaries(ctx, persistence)
+  return { ok: true, count: result }
+}
+
+/* Toolbar "重新生成所有会话总结": regenerate ONLY the session-level (head-card) summaries of every session with turns. Unlike the card batch, NO existing card summary is recalculated and NO stored session summary is cleared — the old paragraph stays on the card until the new one lands. A session whose cards are incomplete has its MISSING card summaries force-enqueued (cooldown bypassed, scoped to that session) because a session summary is derived from card summaries only; the sync backfill would generate those anyway, this just does it immediately. */
+async function regenerateAllSessionSummariesBody(ctx, persistence, fresh, config) {
+  let count = 0
+  for (const session of fresh.sessions ?? []) {
+    if (session === null || session === undefined || typeof session.sessionId !== 'string') continue
+    const turns = Array.isArray(session.turns) ? session.turns : []
+    if (!turns.some(t => t !== null && t !== undefined && Number.isSafeInteger(t?.seq))) continue
+    count += 1
+    /* Per-session call so each session gets its own prerequisite budget (the single-session 总结当前会话 path uses the same cap). force 'missing' skips every turn that already carries a summary. */
+    mindmapEnqueueSummaries(ctx, persistence, fresh, config, MINDMAP_SUMMARY_SESSION_MISSING_CAP, 'missing', session.sessionId)
+    mindmapSessionSummaryPending.set(mindmapSessionSummaryKey(fresh.rootSessionId, session.sessionId), config)
+  }
+  return count
+}
+
+export async function regenerateAllSessionSummaries(ctx, persistence, sessionId, config) {
+  /* Same probe + lock + re-read discipline as regenerateAllMindmapSummaries: the batch must attach to whichever root the doc is anchored to NOW. */
+  const result = await mindmapLockedReanchorOp(
+    () => findMindmapDoc(ctx, persistence, sessionId),
+    root => readMindmapDocFile(root),
+    fresh => {
+      if (mindmapDocIsDead(ctx, fresh)) throw new HttpError(404, 'mindmap-not-found', '导图文档不存在')
+      return regenerateAllSessionSummariesBody(ctx, persistence, fresh, config)
     },
   )
   if (result === null) throw new HttpError(404, 'mindmap-not-found', '导图文档不存在')

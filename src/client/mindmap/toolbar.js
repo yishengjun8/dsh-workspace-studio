@@ -1,10 +1,10 @@
-/** Mind-map toolbar: new top-level session, restore view, regenerate-all
- *  summaries and archive the whole map. */
+/** Mind-map toolbar: new top-level session, restore view, regenerate-all card
+ *  summaries, regenerate-all SESSION summaries and archive the whole map. */
 import { createElement as h } from 'react'
 import { translate } from '../locale/index.js'
 import { MINDMAP_TOOLBAR_ICONS } from './cards.js'
 
-export function MindMapToolbar({ settings, restoreView, addRootSession, startArchiveAll, startRegenerateAll }) {
+export function MindMapToolbar({ settings, restoreView, addRootSession, startArchiveAll, startRegenerateAll, startRegenerateAllSessions }) {
   return h('div', { className: 'dsh-ws-mindmap-toolbar' },
         /* Create a new top-level empty session, same as clicking the virtual
            root node, exposed as a highlighted toolbar button. */
@@ -47,6 +47,24 @@ export function MindMapToolbar({ settings, restoreView, addRootSession, startArc
                   strokeWidth: MINDMAP_TOOLBAR_ICONS.regen.sw,
                 }))),
             translate('mindmap.summary.regenerateAll'))
+          : null,
+        /* Regenerate-all SESSION summaries: same gate as the card batch above,
+           but the target is the session head cards only — no card summary is
+           recalculated (sessions whose cards are incomplete have the MISSING
+           ones generated first, which the sync backfill would do anyway). */
+        settings.mindmapSummaryEnabled === true
+          ? h('button', { className: 'dsh-ws-mindmap-toolbar-button', onClick: startRegenerateAllSessions, title: translate('mindmap.sessionSummary.regenerateAll'), type: 'button' },
+            h('span', { 'aria-hidden': true, className: 'dsh-ws-mindmap-toolbar-badge' },
+              h('svg', { viewBox: '0 0 16 16' },
+                h('path', {
+                  d: MINDMAP_TOOLBAR_ICONS.regenSessions.d,
+                  fill: 'none',
+                  stroke: 'currentColor',
+                  strokeLinecap: 'round',
+                  strokeLinejoin: 'round',
+                  strokeWidth: MINDMAP_TOOLBAR_ICONS.regenSessions.sw,
+                }))),
+            translate('mindmap.sessionSummary.regenerateAll'))
           : null,
         /* Archive the whole map: pushed to the right end of the toolbar
            (margin-left:auto). Red = destructive warning. */
