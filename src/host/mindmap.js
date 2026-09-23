@@ -3,6 +3,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { readdir, stat, unlink } from 'node:fs/promises'
 import { HttpError, isPlainObject } from './errors.js'
+import { sessionRowFingerprint, sessionRowHeader, sessionRowId } from './session-rows.js'
 import { serializeWrite } from './write.js'
 import { DRAFT_DIR_NAME, draftWorkspacePart, readJsonFileOrNull, writeJsonAtomic } from './drafts.js'
 /* ---- Mind-map document (导图) ----
@@ -14,9 +15,9 @@ import { DRAFT_DIR_NAME, draftWorkspacePart, readJsonFileOrNull, writeJsonAtomic
  * doc-wide display number `n`, the session's own turn number `t`, and the
  * turn/end `seq` (the fork boundary). The Host re-parses each session's full
  * log on sync so new turns fold in regardless of the client's window; a cold
- * member is re-read only when its persistence revision moved (see
- * `mindmapParsedTurnsOf`), because a whole-family re-read costs seconds per
- * member on large families.
+ * member is served from the memory/disk parse cache while its per-session log
+ * fingerprint is unchanged (see `sessionRowFingerprint` / `mindmapParsedTurnsOf`),
+ * because a whole-family re-read costs tens of seconds on large families.
  */
 
 const MINDMAP_SUB_DIR = 'mindmap'
@@ -1013,9 +1014,9 @@ async function mindmapCwdOf(ctx, persistence, sessionId) {
     try {
       const headers = await mindmapPersistenceList(persistence)
       for (const row of headers) {
-        /* persistence.list() rows are { header, revision, sizeBytes } snapshots, NOT flat headers (a flat read silently matched nothing and forced live-only degradation everywhere). */
-        const header = row === null || row === undefined ? undefined : row.header
-        if (header === null || header === undefined || header.id === undefined) continue
+        /* Rows are { header, revision, sizeBytes } snapshots, NOT flat headers (a flat read silently matched nothing and forced live-only degradation everywhere); sessionRowHeader owns that rule. */
+        const header = sessionRowHeader(row)
+        if (header === undefined || header.id === undefined) continue
         if (String(header.id) === String(sessionId) && header.cwd !== undefined) return String(header.cwd)
       }
     } catch {
@@ -1025,7 +1026,8 @@ async function mindmapCwdOf(ctx, persistence, sessionId) {
   return undefined
 }
 
-/* Cold (non-attached) session read through the handle-based persistence seam: one read handle opened, read, closed. Returns { events, inheritedEventCount } — events is null when the handle could not be read — or null when the backend is absent or the session does not exist. */
+/* Cold (non-attached) session read through the handle-based persistence seam: one read handle opened, read, closed. Returns { events, inheritedEventCount } — events is null when the handle could not be read — or null when the backend is absent or the session does not exist.
+   `handle.read()` answers a RESULT OBJECT `{ eventState, events }` (session-persistence/handle.ts), not a bare array; a bare array is still tolerated so the reader survives either shape. **Accepting only an array silently turned EVERY cold read into "unavailable"** (the shape check failed after the full decode was already paid), which is why cold members never folded their new turns and why a whole-family refresh cost 40-55 s while caching nothing — keep both shapes here. */
 async function mindmapColdSessionRead(ctx, persistence, sessionId) {
   if (persistence === undefined || typeof persistence.open !== 'function') return null
   let handle
@@ -1035,9 +1037,14 @@ async function mindmapColdSessionRead(ctx, persistence, sessionId) {
     return null
   }
   try {
-    const events = await handle.read()
+    const result = await handle.read()
+    const events = Array.isArray(result)
+      ? result
+      : isPlainObject(result) && Array.isArray(result.events)
+        ? result.events
+        : null
     return {
-      events: Array.isArray(events) ? events : null,
+      events,
       inheritedEventCount: handle.inheritedEventCount,
     }
   } catch {
@@ -1113,23 +1120,27 @@ function parseMindmapTurnsCached(sessionId, events) {
   return parsed
 }
 
-/* Cold-log read cache keyed by the persistence REVISION of the cached
-   `persistence.list` row: the backend contract promises that an EQUAL revision —
-   same service instance, same session id — means an unchanged log. Without it
-   every full refresh re-read and re-decoded each cold family member's whole log,
-   and because a fork child's log carries the parent's inherited prefix the cost
-   scales with the family's total log volume (measured here: 23 sessions / 35 MB
-   of logs = ~37 s per refresh, which saturates the Host and pushes the client's
-   own open past its request timeout, so clicking a sidebar mind-map entry looked
-   like "loads nothing").
-   The revision comes from the SHARED list() scan (45 s TTL, already paid by the
-   adopt pass) and NOT from a per-session `persistence.stat()`: measured on this
-   deployment one stat costs ~1.9 s (it walks every project directory), so
-   stat-ing a whole family costs as much as reading it. The service `identity`
-   rides along so a replaced persistence service (HMR / reload) can never compare
-   revisions minted by a different instance. */
+/* ---- Cold-log parse cache (memory + disk) --------------------------------
+   Re-reading one cold log costs seconds, and because a fork child's log carries
+   its parent's whole inherited prefix the cost scales with the family's TOTAL log
+   volume (measured on this deployment: 23 sessions / 37 MB of logs = 40-55 s per
+   refresh, which saturates the Host and makes the client's own open look like
+   "loads nothing"). The cache therefore has two layers, BOTH keyed by the same
+   per-session fingerprint (see `sessionRowFingerprint`):
+
+   - memory: an LRU bounded at MINDMAP_COLD_PARSE_CACHE_MAX;
+   - disk: one small JSON per session under
+     ~/.dsh-plugin/dsh-workspace-studio/mindmap-cache/, so a dsh RESTART does not
+     re-read a family it has already parsed — the memory layer alone is lost on
+     every restart, which is exactly the reported "first open after starting the
+     program is slow". Same idea as the token-stats usage index.
+
+   Only COLD sessions reach this path with a disk write: a resident session's
+   parse is served from snapshot() memory (parseMindmapTurnsCached) and its log
+   changes on every append, so persisting it would rewrite one file per token
+   batch and never help a restart. */
 const MINDMAP_COLD_PARSE_CACHE_MAX = 256
-const mindmapColdParseCache = new Map() // sessionId -> { identity, revision, parsed, inheritedEventCount }
+const mindmapColdParseCache = new Map() // sessionId -> { identity, fingerprint, parsed, inheritedEventCount }
 
 function mindmapColdParseCacheStore(sessionId, entry) {
   mindmapColdParseCache.set(sessionId, entry)
@@ -1139,30 +1150,185 @@ function mindmapColdParseCacheStore(sessionId, entry) {
   }
 }
 
-/* sessionId -> revision projection of the CACHED list() rows, rebuilt only when
-   the rows array identity changes (the 45 s TTL and the in-flight share live in
-   mindmapPersistenceList). An id with no row (a log that does not exist) simply
-   has no fingerprint and keeps the always-read behavior. */
+/* Persisted parse cache (cross-restart layer). Bounded twice: by entry count and
+   by the directory's total bytes, pruned least-recently-written first. */
+const MINDMAP_PARSE_DISK_SUB_DIR = 'mindmap-cache'
+const MINDMAP_PARSE_DISK_VERSION = 1
+const MINDMAP_PARSE_DISK_MAX = 512
+const MINDMAP_PARSE_DISK_MAX_BYTES = 8 * 1024 * 1024
+/* An entry larger than this stays in memory only: a single monster session must
+   not dominate a cache whose whole point is a cheap, bounded restart path. */
+const MINDMAP_PARSE_DISK_ENTRY_MAX_BYTES = 512 * 1024
+/* Burst debounce: one family refresh stores ~20 entries, and the 2.5 s sync would
+   otherwise fsync-rename them one at a time. */
+const MINDMAP_PARSE_DISK_FLUSH_MS = 500
+
+function mindmapParseDiskRoot() {
+  return join(homedir(), '.dsh-plugin', DRAFT_DIR_NAME, MINDMAP_PARSE_DISK_SUB_DIR)
+}
+function mindmapParseDiskPath(sessionId) {
+  return join(mindmapParseDiskRoot(), `${draftWorkspacePart(sessionId)}.json`)
+}
+
+/* The cache key for a cold session's log is `sessionRowFingerprint(row)` — the row's per-session
+   PHYSICAL revision (a legacy row's corpus-wide suffix is stripped; see session-rows.js) plus
+   `sizeBytes`; it is shared with token-stats so both caches invalidate identically. */
+/* sessionId -> fingerprint projection of the CACHED list() rows, rebuilt only
+   when the rows array identity changes (the 45 s TTL and the in-flight share live
+   in mindmapPersistenceList). An id with no row (a log that does not exist) has
+   no fingerprint and keeps the always-read behavior. */
 let mindmapLogRevisionRows = { list: null, rows: null }
 async function mindmapLogRevisions(persistence) {
   const list = await mindmapPersistenceList(persistence)
   if (mindmapLogRevisionRows.list === list) return mindmapLogRevisionRows.rows
   const rows = new Map()
   for (const row of list) {
-    const id = row === null || row === undefined ? undefined : row.header?.id
-    if (id === undefined || id === null) continue
-    rows.set(String(id), row.revision)
+    const id = sessionRowId(row)
+    if (id === undefined) continue
+    rows.set(id, sessionRowFingerprint(row))
   }
   mindmapLogRevisionRows = { list, rows }
   return rows
 }
 
-/* Parsed completed turns of one session, served from memory whenever the log is
-   provably unchanged. `status: 'unavailable'` means the log could not be read at
-   all: callers keep their recorded turns instead of clearing them (the same
-   degrade rule as `eventsOf` returning null). Only an equal revision with a
-   known service identity may skip the read, so a backend without a usable list
-   index keeps today's always-read behavior. */
+/* Negative read verdicts, MEMORY ONLY and TTL-bounded: some legacy generations
+   cannot be read at all (this store has 121 of them), and one attempt costs the
+   full open + decode before it fails — a family polled every 2.5 s would pay it
+   forever. The verdict is keyed by the same fingerprint, expires after
+   MINDMAP_READ_FAIL_TTL_MS and is never persisted: a restart (e.g. a harness
+   upgrade that learned to read the format) always gets a fresh chance. */
+const MINDMAP_READ_FAIL_CACHE_MAX = 256
+const MINDMAP_READ_FAIL_TTL_MS = 10 * 60 * 1000
+const mindmapReadFailCache = new Map() // sessionId -> { fingerprint, at }
+
+/* Validate one persisted entry against the session and fingerprint we just read:
+   a mismatch (changed log, foreign file, truncated JSON) is a plain miss and the
+   caller falls back to the full read. Turns are stored as [t, seq, user] tuples —
+   the same three fields parseMindmapTurns produces. */
+function mindmapParseDiskEntry(value, sessionId, fingerprint) {
+  if (!isPlainObject(value) || value.version !== MINDMAP_PARSE_DISK_VERSION) return null
+  if (String(value.sessionId) !== String(sessionId) || value.fingerprint !== fingerprint) return null
+  if (!Array.isArray(value.turns)) return null
+  const parsed = []
+  for (const item of value.turns) {
+    if (!Array.isArray(item) || item.length < 3) return null
+    const t = Number(item[0])
+    const seq = Number(item[1])
+    const user = item[2]
+    if (!Number.isSafeInteger(t) || t <= 0 || !Number.isSafeInteger(seq) || seq < 0 || typeof user !== 'string') return null
+    parsed.push({ t, seq, user })
+  }
+  const inherited = Number(value.inheritedEventCount)
+  return { parsed, inheritedEventCount: Number.isSafeInteger(inherited) && inherited > 0 ? inherited : 0 }
+}
+
+/* Disk hydration: one small file read instead of a multi-megabyte log decode. The
+   hydrated entry is stamped with THIS service identity so the ordinary in-memory
+   hit test (and its HMR/reload guard) keeps working unchanged. */
+async function mindmapParseDiskLookup(sessionId, fingerprint, identity) {
+  let value
+  try {
+    value = await readJsonFileOrNull(mindmapParseDiskPath(sessionId))
+  } catch {
+    return null
+  }
+  const entry = mindmapParseDiskEntry(value, sessionId, fingerprint)
+  if (entry === null) return null
+  const stored = { identity, fingerprint, parsed: entry.parsed, inheritedEventCount: entry.inheritedEventCount }
+  mindmapColdParseCacheStore(String(sessionId), stored)
+  return stored
+}
+
+let mindmapParseDiskPending = new Map() // sessionId -> entry awaiting a debounced write
+let mindmapParseDiskTimer = null
+function mindmapParseDiskQueue(sessionId, entry) {
+  mindmapParseDiskPending.set(String(sessionId), entry)
+  if (mindmapParseDiskTimer !== null) return
+  mindmapParseDiskTimer = setTimeout(() => {
+    mindmapParseDiskTimer = null
+    void mindmapParseDiskFlush()
+  }, MINDMAP_PARSE_DISK_FLUSH_MS)
+  /* A pending cache write must never hold the process open. */
+  if (typeof mindmapParseDiskTimer?.unref === 'function') mindmapParseDiskTimer.unref()
+}
+async function mindmapParseDiskFlush() {
+  if (mindmapParseDiskPending.size === 0) return
+  const pending = mindmapParseDiskPending
+  mindmapParseDiskPending = new Map()
+  let wrote = false
+  for (const [sessionId, entry] of pending) {
+    const payload = {
+      version: MINDMAP_PARSE_DISK_VERSION,
+      sessionId,
+      fingerprint: entry.fingerprint,
+      inheritedEventCount: entry.inheritedEventCount,
+      turns: entry.parsed.map(turn => [turn.t, turn.seq, turn.user]),
+      savedAt: Date.now(),
+    }
+    let serialized
+    try {
+      serialized = JSON.stringify(payload)
+    } catch {
+      continue
+    }
+    if (new TextEncoder().encode(serialized).byteLength > MINDMAP_PARSE_DISK_ENTRY_MAX_BYTES) continue
+    try {
+      await writeJsonAtomic(mindmapParseDiskPath(sessionId), payload)
+      wrote = true
+    } catch {
+      /* Best-effort: a failed cache write only costs the next process a re-read. */
+    }
+  }
+  if (wrote) await mindmapParseDiskPrune()
+}
+
+/* Enforce both caps by least-recently-written order (mtime). readdir + one stat
+   per entry costs milliseconds, far below the log reads this cache avoids. */
+async function mindmapParseDiskPrune() {
+  let names
+  try {
+    names = await readdir(mindmapParseDiskRoot())
+  } catch {
+    return
+  }
+  const files = []
+  let total = 0
+  for (const name of names) {
+    if (!name.endsWith('.json')) continue
+    const path = join(mindmapParseDiskRoot(), name)
+    try {
+      const info = await stat(path)
+      files.push({ path, at: info.mtimeMs, size: info.size })
+      total += info.size
+    } catch {
+      /* Vanished between readdir and stat: nothing to prune. */
+    }
+  }
+  if (files.length <= MINDMAP_PARSE_DISK_MAX && total <= MINDMAP_PARSE_DISK_MAX_BYTES) return
+  files.sort((a, b) => a.at - b.at)
+  for (let index = 0; index < files.length; index += 1) {
+    if (files.length - index <= MINDMAP_PARSE_DISK_MAX && total <= MINDMAP_PARSE_DISK_MAX_BYTES) break
+    try {
+      await unlink(files[index].path)
+      total -= files[index].size
+    } catch {
+      /* Best-effort sweep; the caps are re-checked on the next flush. */
+    }
+  }
+}
+
+/* Store into both layers: the disk write is debounced and best-effort. */
+function mindmapColdParseStore(sessionId, entry) {
+  mindmapColdParseCacheStore(sessionId, entry)
+  mindmapParseDiskQueue(sessionId, entry)
+}
+
+/* Parsed completed turns of one session, served from memory or the persisted
+   cache whenever the log is provably unchanged. `status: 'unavailable'` means the
+   log could not be read at all: callers keep their recorded turns instead of
+   clearing them (the same degrade rule as `eventsOf` returning null). Without a
+   usable list index there is no fingerprint, so the read happens every time
+   (never a stale skip). */
 async function mindmapParsedTurnsOf(ctx, persistence, sessionId) {
   const id = String(sessionId)
   const live = ctx.sessions.get(id)
@@ -1177,30 +1343,175 @@ async function mindmapParsedTurnsOf(ctx, persistence, sessionId) {
     }
   }
   const identity = persistence === undefined ? undefined : persistence.identity
-  let revision
+  let fingerprint
   if (persistence !== undefined) {
     try {
-      revision = (await mindmapLogRevisions(persistence)).get(id)
+      fingerprint = (await mindmapLogRevisions(persistence)).get(id)
     } catch {
-      revision = undefined
+      fingerprint = undefined
     }
   }
   const hit = mindmapColdParseCache.get(id)
-  if (hit !== undefined && revision !== undefined && identity !== undefined
-    && hit.revision === revision && hit.identity === identity) {
+  if (hit !== undefined && fingerprint !== undefined && hit.fingerprint === fingerprint
+    && (hit.identity === undefined || hit.identity === identity)) {
     /* LRU touch: an actively reconciled family must not be the eviction victim. */
     mindmapColdParseCache.delete(id)
     mindmapColdParseCache.set(id, hit)
     return { status: 'ok', parsed: hit.parsed, inheritedEventCount: hit.inheritedEventCount }
   }
+  if (fingerprint !== undefined) {
+    const failed = mindmapReadFailCache.get(id)
+    if (failed !== undefined && failed.fingerprint === fingerprint && failed.at + MINDMAP_READ_FAIL_TTL_MS > Date.now()) {
+      return { status: 'unavailable' }
+    }
+    const stored = await mindmapParseDiskLookup(id, fingerprint, identity)
+    if (stored !== null) {
+      mindmapReadFailCache.delete(id)
+      return { status: 'ok', parsed: stored.parsed, inheritedEventCount: stored.inheritedEventCount }
+    }
+  }
   const readInfo = {}
   const events = await eventsOf(ctx, persistence, id, readInfo)
-  if (!Array.isArray(events)) return { status: 'unavailable' }
+  if (!Array.isArray(events)) {
+    if (fingerprint !== undefined) {
+      mindmapReadFailCache.set(id, { fingerprint, at: Date.now() })
+      if (mindmapReadFailCache.size > MINDMAP_READ_FAIL_CACHE_MAX) {
+        const oldest = mindmapReadFailCache.keys().next().value
+        if (oldest !== undefined) mindmapReadFailCache.delete(oldest)
+      }
+    }
+    return { status: 'unavailable' }
+  }
   const parsed = parseMindmapTurns(events)
-  if (revision !== undefined && identity !== undefined) {
-    mindmapColdParseCacheStore(id, { identity, revision, parsed, inheritedEventCount: readInfo.inheritedEventCount })
+  if (fingerprint !== undefined) {
+    mindmapReadFailCache.delete(id)
+    mindmapColdParseStore(id, { identity, fingerprint, parsed, inheritedEventCount: readInfo.inheritedEventCount })
   }
   return { status: 'ok', parsed, inheritedEventCount: readInfo.inheritedEventCount }
+}
+
+/* ---- Idle warm-up of the parse cache -------------------------------------
+   The disk layer makes a RESTART cheap once it exists, but the first family ever
+   seen still pays one full read, and every changed log pays it again. So after
+   startup — once the user has been quiet — walk the documented families (most
+   recently updated first) and parse their cold members in the background: one
+   session at a time, yielding between sessions, and stopping as soon as a real
+   open/sync arrives (the user is then paying for those reads themselves). Bounded
+   by session count, byte budget and wall clock so the warm-up can never become
+   the CPU hog it exists to prevent — the token-stats startup scan already runs in
+   parallel. */
+const MINDMAP_WARM_INITIAL_DELAY_MS = 20_000
+const MINDMAP_WARM_QUIET_MS = 15_000
+const MINDMAP_WARM_GAP_MS = 250
+const MINDMAP_WARM_MAX_SESSIONS = 256
+const MINDMAP_WARM_MAX_BYTES = 256 * 1024 * 1024
+const MINDMAP_WARM_BUDGET_MS = 120_000
+const MINDMAP_WARM_RETRY_MS = 2000
+const MINDMAP_WARM_RETRY_MAX = 30
+/* Timestamp of the last CLIENT-DRIVEN heavy read (open / sync): the warm-up backs
+   off while the user is actually using a map. */
+let mindmapLastRequestAt = 0
+
+/* Startup warm-up entry point (called from apply()). Returns the disposer the
+   cordis effect needs: a plugin unload cancels the timer and stops the scan. */
+export function warmMindmapParsedCache(ctx, options) {
+  const initialDelayMs = Number.isFinite(options?.initialDelayMs) ? options.initialDelayMs : MINDMAP_WARM_INITIAL_DELAY_MS
+  const retryMs = Number.isFinite(options?.retryMs) ? options.retryMs : MINDMAP_WARM_RETRY_MS
+  const maxAttempts = Number.isFinite(options?.maxAttempts) ? options.maxAttempts : MINDMAP_WARM_RETRY_MAX
+  const limits = {
+    quietMs: Number.isFinite(options?.quietMs) ? options.quietMs : MINDMAP_WARM_QUIET_MS,
+    gapMs: Number.isFinite(options?.gapMs) ? options.gapMs : MINDMAP_WARM_GAP_MS,
+    maxSessions: Number.isFinite(options?.maxSessions) ? options.maxSessions : MINDMAP_WARM_MAX_SESSIONS,
+    maxBytes: Number.isFinite(options?.maxBytes) ? options.maxBytes : MINDMAP_WARM_MAX_BYTES,
+    budgetMs: Number.isFinite(options?.budgetMs) ? options.budgetMs : MINDMAP_WARM_BUDGET_MS,
+  }
+  let cancelled = false
+  let timer = null
+  let attempts = 0
+  const cancelledNow = () => cancelled
+  const attempt = () => {
+    if (cancelled) return
+    attempts += 1
+    let persistence
+    try {
+      persistence = ctx.get('sessionPersistence')
+    } catch {
+      persistence = undefined
+    }
+    if (persistence !== undefined && typeof persistence.list === 'function' && typeof persistence.open === 'function') {
+      void mindmapWarmFamilyCache(ctx, persistence, limits, cancelledNow)
+      return
+    }
+    if (attempts < maxAttempts) timer = setTimeout(attempt, retryMs)
+  }
+  timer = setTimeout(attempt, initialDelayMs)
+  if (typeof timer?.unref === 'function') timer.unref()
+  return () => {
+    cancelled = true
+    if (timer !== null) clearTimeout(timer)
+  }
+}
+
+async function mindmapWarmFamilyCache(ctx, persistence, limits, isCancelled) {
+  const deadline = Date.now() + limits.budgetMs
+  let names
+  try {
+    names = await mindmapDocFileNames()
+  } catch {
+    return
+  }
+  const docs = []
+  for (const name of names) {
+    if (!name.endsWith('.json')) continue
+    const doc = await readJsonFileOrNull(join(mindmapRoot(), name))
+    if (isValidMindmapDoc(doc)) docs.push(doc)
+  }
+  /* Sidebar order: the map the user touched last is the one a click will open. */
+  docs.sort((a, b) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0))
+  let sizes = new Map()
+  try {
+    const rows = await mindmapPersistenceList(persistence)
+    sizes = new Map()
+    for (const row of rows) {
+      const id = sessionRowId(row)
+      const size = Number(row?.sizeBytes)
+      if (id === undefined || !Number.isSafeInteger(size) || size <= 0) continue
+      sizes.set(id, size)
+    }
+  } catch {
+    /* No listing: warm anyway, just without the byte budget. */
+  }
+  const pending = []
+  const seen = new Set()
+  for (const doc of docs) {
+    for (const session of doc.sessions ?? []) {
+      const id = session === null || session === undefined ? undefined : session.sessionId
+      if (typeof id !== 'string' || id === '' || seen.has(id)) continue
+      seen.add(id)
+      pending.push(id)
+    }
+  }
+  let warmed = 0
+  let bytes = 0
+  for (const id of pending) {
+    if (isCancelled() || Date.now() > deadline) break
+    if (warmed >= limits.maxSessions || bytes >= limits.maxBytes) break
+    /* The user is driving a map: stop instead of duplicating the reads they are
+       already paying for. Their own reads fill the cache anyway. */
+    if (mindmapLastRequestAt !== 0 && Date.now() - mindmapLastRequestAt < limits.quietMs) break
+    bytes += sizes.get(id) ?? 0
+    warmed += 1
+    await mindmapParsedTurnsOf(ctx, persistence, id)
+    await new Promise((resolve) => {
+      const gap = setTimeout(resolve, limits.gapMs)
+      if (typeof gap?.unref === 'function') gap.unref()
+    })
+  }
+  try {
+    ctx.logger?.debug?.(`[workspace-studio] mindmap parse cache warm-up: ${warmed}/${pending.length} sessions`)
+  } catch {
+    /* no logger */
+  }
 }
 
 /* Build a fresh v3 doc for a session that has never been converted: the session becomes the first TOP-LEVEL session with its completed turns. Empty sessions still convert (the root node is the creation hub). Null only when archived. workspaceCwd from the anchor's header is recorded so a root-node-created top-level session lands in the SAME workspace. */
@@ -1415,8 +1726,8 @@ async function mindmapParentOf(ctx, persistence, sessionId) {
       const headers = await mindmapPersistenceList(persistence)
       for (const row of headers) {
         /* Snapshot rows are { header, ... } — see mindmapCwdOf. */
-        const header = row === null || row === undefined ? undefined : row.header
-        if (header === null || header === undefined || header.id === undefined) continue
+        const header = sessionRowHeader(row)
+        if (header === undefined || header.id === undefined) continue
         if (String(header.id) === String(sessionId) && header.parentSession !== undefined) {
           return String(header.parentSession)
         }
@@ -1543,8 +1854,8 @@ async function mindmapSessionIndex(ctx, persistence) {
       const rows = await mindmapPersistenceList(persistence)
       for (const row of rows) {
         /* Snapshot rows are { header, revision, sizeBytes } — a flat read made every persisted row invisible (adopt degraded to live-only). */
-        const header = row === null || row === undefined ? undefined : row.header
-        if (header === null || header === undefined || header.id === undefined) continue
+        const header = sessionRowHeader(row)
+        if (header === undefined || header.id === undefined) continue
         merge(header.id, {
           parent: header.parentSession,
           /* Absent on the handle-based seam (kept for older backends); the adopt pass fills the cut from the child's read handle instead. */
@@ -1679,6 +1990,9 @@ export async function adoptMindmapOrphans(ctx, persistence, doc) {
 
 /* Fault-isolated reconcile + adopt, shared by the GET load path and POST sync: ONE outlier (a corrupt log, a persistence blip, an index race) must not take down an open or a periodic poll. Each step degrades to the RECORDED doc and is logged; the next sync retries. `skipAdopt` (sync path only) skips the full adoption scan when the orphan signal is unchanged since the last CLEAN refresh. Returns { adopted, changed, warnings }; `changed` is false on ANY degraded step so a partially-refreshed doc is never persisted. */
 export async function refreshMindmapDocCore(ctx, persistence, doc, skipAdopt = false) {
+  /* Open + sync both land here, so this is the "the user is looking at a map"
+     signal the idle warm-up backs off on (see warmMindmapParsedCache). */
+  mindmapLastRequestAt = Date.now()
   const warnings = []
   const before = JSON.stringify({ sessions: doc.sessions, next: doc.next, workspaceCwd: doc.workspaceCwd })
   let adopted = false
@@ -1711,6 +2025,10 @@ function mindmapLiveRequestKey(sessionIds) {
 }
 
 export async function syncMindmapDoc(ctx, persistence, sessionId, liveSessionIds, summaryConfig) {
+  /* A client-driven poll counts as activity even when it is answered from the
+     sync cache below (which never reaches refreshMindmapDocCore): the idle
+     warm-up must not compete with a map the user actually has open. */
+  mindmapLastRequestAt = Date.now()
   /* Body of the read-modify-write, executed under the CURRENT root's lock. */
   const syncBody = async (fresh) => {
     const docRoot = String(fresh.rootSessionId)

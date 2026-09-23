@@ -1,7 +1,8 @@
-/** Token usage statistics: aggregates assistant/message usage records from every session log into per-day buckets, cached per session behind the persistence list's stat-derived revision so repeated panel opens only re-read changed logs. A long cold scan runs in the background and checkpoints, and requests always answer from the cached index (partial results + progress) instead of waiting for it. */
+/** Token usage statistics: aggregates assistant/message usage records from every session log into per-day buckets, cached per session behind a STABLE per-session log fingerprint so repeated scans only re-read changed logs. A long cold scan runs in the background and checkpoints, and requests always answer from the cached index (partial results + progress) instead of waiting for it. */
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { isPlainObject } from './errors.js'
+import { sessionRowFingerprint, sessionRowId } from './session-rows.js'
 import { DRAFT_DIR_NAME, readJsonFileOrNull, writeJsonAtomic } from './drafts.js'
 
 const TOKEN_STATS_SUB_DIR = 'token-stats'
@@ -10,6 +11,11 @@ const USAGE_INDEX_VERSION = 1
 const CHECKPOINT_EVERY = 100
 /* A request arriving this soon after a settled sync answers from the index without starting another one; the client's progress poll would otherwise re-list the storage on every tick. */
 const SYNC_DEBOUNCE_MS = 2000
+/* How long a persisted "this log cannot be read" verdict is trusted. The verdict is keyed by the
+   per-session fingerprint (session-rows.js), so it survives restarts; without a bound a harness
+   upgrade that learned to read an older generation would keep serving the stale verdict forever.
+   Re-attempting is cheap: one open per such session, at most once per window. */
+const UNREADABLE_RETRY_MS = 7 * 24 * 60 * 60 * 1000
 
 function usageIndexPath() {
   return join(homedir(), '.dsh-plugin', DRAFT_DIR_NAME, TOKEN_STATS_SUB_DIR, 'usage-index.json')
@@ -161,9 +167,13 @@ async function refreshUsageIndex(ctx, persistence) {
   }
   const entries = []
   for (const row of listed) {
-    const id = row === null || row === undefined ? undefined : row.header?.id
+    const id = sessionRowId(row)
     if (id === undefined) continue
-    entries.push({ key: String(id), rev: row.revision })
+    /* Fingerprint (per-session physical revision, legacy corpus suffix stripped) instead of the
+       raw revision: a legacy row's revision embeds a hash over EVERY log in the store, so the old
+       key changed whenever any unrelated session appended — every sync then re-read the whole
+       legacy population (1100+ sessions here) and the Host never went idle. */
+    entries.push({ key: id, rev: sessionRowFingerprint(row) })
   }
   usageIndexProgress = { processed: 0, total: entries.length }
   let changed = false
@@ -181,19 +191,24 @@ async function refreshUsageIndex(ctx, persistence) {
   }
   for (const entry of entries) {
     const { key, rev } = entry
-    /* Attached sessions are read from memory, and their log may not be flushed yet: the snapshot length joins the revision so a live session still refreshes between two durable appends. */
+    /* Attached sessions are read from memory, and their log may not be flushed yet: the snapshot length joins the fingerprint so a live session still refreshes between two durable appends. */
     const live = liveUsageEvents(ctx, key)
     const identity = live === null ? String(rev) : `${rev}#${live.events.length}`
     const cached = sessions[key]
-    if (isPlainObject(cached) && cached.rev === identity && (Array.isArray(cached.rows) || cached.unreadable === true)) {
+    /* A cached "unreadable" verdict is trusted only for UNREADABLE_RETRY_MS: beyond that the
+       session is re-attempted once (see the constant), so a harness that learned to read the
+       format is not locked out by a verdict minted before the upgrade. */
+    const verdictExpired = isPlainObject(cached) && cached.unreadable === true
+      && !(Number(cached.at) > 0 && Date.now() - Number(cached.at) < UNREADABLE_RETRY_MS)
+    if (!verdictExpired && isPlainObject(cached) && cached.rev === identity && (Array.isArray(cached.rows) || cached.unreadable === true)) {
       usageIndexProgress.processed += 1
       continue
     }
     scanned += 1
     const read = live ?? await coldUsageEvents(persistence, key)
     if (read === null || read.events === null) {
-      /* A log the backend refuses (legacy or unsupported format) is a permanent verdict, not a transient fault: caching it keeps every later sync from paying for the same failed read. */
-      sessions[key] = { rev: identity, rows: [], unreadable: true }
+      /* A log the backend refuses (legacy or unsupported format) is a verdict, not a transient fault: caching it (with the fingerprint key and the attempt time) keeps every later sync from paying for the same failed read, while the timestamp bounds how long that verdict is trusted. */
+      sessions[key] = { rev: identity, rows: [], unreadable: true, at: Date.now() }
     } else {
       sessions[key] = { rev: identity, rows: usageRowsOfEvents(read.events, read.inheritedEventCount) }
     }

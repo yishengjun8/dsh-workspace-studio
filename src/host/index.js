@@ -8,7 +8,7 @@ import { ENCODINGS } from './encodings.js'
 import { listTree, readExternalPreview, readPreview, readPreviewHead, readRawFile, revealInExplorer, searchWorkspace } from './fs.js'
 import { createEntry, fsOperation, renameEntry, saveFile } from './write.js'
 import { deleteDraftFile, draftTreeOperation, parseDraftGenerationQuery, readDraftFile, saveDraftFile, validateDraftOwner, validateDraftPayload, writeJsonAtomic } from './drafts.js'
-import { adoptMindmapOrphans, buildMindmapDoc, clearForkInheritedQueue, deleteMindmapDoc, findMindmapDocWithAncestors, indexMindmapDocs, isValidMindmapDoc, listMindmapModels, MINDMAP_DOC_MAX_BYTES, mindmapAnchorOf, mindmapDocPath, mindmapDrainPendingSessionSummaries, mindmapInvalidatePersistenceList, mindmapLock, mindmapLockedReanchorOp, mindmapSessionSummarizingOf, mindmapSummarizingOf, mindmapSyncCache, parseMindmapSummaryConfig, purgeArchivedMindmapDocs, readMindmapDocFile, refreshMindmapDocCore, regenerateAllMindmapSummaries, regenerateAllSessionSummaries, regenerateMindmapSummary, renameMindmapDoc, seedMindmapSyncCacheAfterLoad, summarizeMindmapSession, syncMindmapDoc, validateMindmapSession, writeMindmapDoc } from './mindmap.js'
+import { adoptMindmapOrphans, buildMindmapDoc, clearForkInheritedQueue, deleteMindmapDoc, findMindmapDocWithAncestors, indexMindmapDocs, isValidMindmapDoc, listMindmapModels, MINDMAP_DOC_MAX_BYTES, mindmapAnchorOf, mindmapDocPath, mindmapDrainPendingSessionSummaries, mindmapInvalidatePersistenceList, mindmapLock, mindmapLockedReanchorOp, mindmapSessionSummarizingOf, mindmapSummarizingOf, mindmapSyncCache, parseMindmapSummaryConfig, purgeArchivedMindmapDocs, readMindmapDocFile, refreshMindmapDocCore, regenerateAllMindmapSummaries, regenerateAllSessionSummaries, regenerateMindmapSummary, renameMindmapDoc, seedMindmapSyncCacheAfterLoad, summarizeMindmapSession, syncMindmapDoc, validateMindmapSession, warmMindmapParsedCache, writeMindmapDoc } from './mindmap.js'
 import { renderPromptContext } from './prompt-context.js'
 import { renderMarkdownDocument } from './markdown.js'
 import { checkForUpdate, downloadUpdate } from './update.js'
@@ -524,5 +524,15 @@ export function apply(ctx, config) {
   ctx.effect(
     () => warmTokenStatsIndex(ctx),
     'workspace-studio: token stats warm-up',
+  )
+  /* Mind-map parse-cache warm-up: the first open of a family would otherwise decode
+     its whole log volume (tens of MB, tens of seconds) on the request path; this
+     parses the documented families in the background while the user is idle and
+     persists the result (mindmap-cache/), so both the first click after a restart
+     and later syncs are served from the cache. It backs off the moment a real
+     open/sync arrives and is bounded; see warmMindmapParsedCache. */
+  ctx.effect(
+    () => warmMindmapParsedCache(ctx),
+    'workspace-studio: mindmap parse cache warm-up',
   )
 }
