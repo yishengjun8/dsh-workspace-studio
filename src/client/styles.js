@@ -252,6 +252,11 @@ html.dsh-ws-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal=
 .dsh-ws-preview-body.dsh-ws-mindmap-dock .dsh-ws-mindmap{flex:1;min-height:0;height:auto}
 /* The global host's stable per-map container: the explorer parks this element into the dsh-ws-mindmap-dock placeholder, so the portal target never changes and the map body never remounts. */
 .dsh-ws-preview-body.dsh-ws-mindmap-dock>.dsh-ws-mindmap-host-body{flex:1;min-height:0;display:flex;flex-direction:column}
+/* A plan opened as a preview tab: the harness plan document scrolls inside the preview column, below the tab strip. */
+.dsh-ws-preview-body.dsh-ws-plan-dock{overflow:auto;box-sizing:border-box;padding:16px 18px 40px;background:var(--dsw-alias-bg-base)}
+.dsh-ws-plan-message{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:20px}
+.dsh-ws-preview-tab-plan{flex:none;display:inline-flex;align-items:center;justify-content:center;width:12px;height:12px;color:var(--dsw-alias-state-business-primary)}
+.dsh-ws-preview-tab-plan svg{width:12px;height:12px}
 /* Convert-to-mind-map confirm dialog: a roomier modal than the default with pill buttons. */
 .dsh-ws-mindmap-confirm-dialog{width:min(440px,100%)}
 .dsh-ws-mindmap-confirm-dialog .dsh-ws-dialog-body{padding:18px 20px}
@@ -384,6 +389,7 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-mindmap-bar{display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:12px;color:var(--dsw-alias-label-secondary)}
 .dsh-ws-mindmap-bar-title{font-weight:600;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dsh-ws-mindmap-status{display:flex;align-items:flex-start;justify-content:center;padding:48px 24px;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:20px;text-align:center}
+.dsh-ws-mindmap-loading-hint{margin-top:8px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
 .dsh-ws-mindmap-error{color:var(--dsw-alias-state-error-primary)}
 .dsh-ws-mindmap-fork-error{position:sticky;top:0;z-index:2;margin-bottom:10px;padding:6px 10px;border:1px solid var(--dsw-alias-state-error-primary);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:17px}
 .dsh-ws-mindmap-notice{margin-bottom:10px;padding:6px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:12px;line-height:17px}

@@ -5,7 +5,7 @@ import { revealInExplorer } from '../api.js'
 import { mindmapDescendantsOf } from '../mindmap/helpers.js'
 import { mindmapDockStore, mindmapRegistry, readMindmapLastSession } from '../mindmap/registry.js'
 
-export function useSessionMenu({ props, mountedRef }) {
+export function useSessionMenu({ props, mountedRef, currentSession }) {
   const [sessionContextMenu, setSessionContextMenu] = useState()
   const sessionContextRowRef = useRef(null)
   const sessionMenuRef = useRef(null)
@@ -50,7 +50,7 @@ export function useSessionMenu({ props, mountedRef }) {
       })
       if (candidates.length === 0) return
       let sessionId = candidates[0]
-      if (snapshot.current !== undefined && candidates.includes(snapshot.current)) sessionId = snapshot.current
+      if (currentSession !== undefined && candidates.includes(currentSession)) sessionId = currentSession
       const summary = snapshot.byId[sessionId]
       if (summary === undefined || summary.blank) return
       /* Duplicate titles are ambiguous: flag the menu so items show the target id and archive asks for confirmation. */
@@ -61,7 +61,7 @@ export function useSessionMenu({ props, mountedRef }) {
     }
     document.addEventListener('contextmenu', onContextMenu, true)
     return () => document.removeEventListener('contextmenu', onContextMenu, true)
-  }, [props.getSessionList])
+  }, [currentSession, props.getSessionList])
   // Close the session menu on outside pointer/context/scroll, Escape and resize.
   useEffect(() => {
     if (sessionContextMenu === undefined) return undefined

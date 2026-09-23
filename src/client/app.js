@@ -8,7 +8,7 @@ import { clamp, FILE_COLOR_GROUPS, fileColorOf } from './format.js'
 import { previewSnapshotFingerprint, selectStoredPreviewSession } from './preview-tabs.js'
 import { checkFileChange, createWorkspaceEntry, deleteDraft, deleteMindmapDoc, putFile, readDraft, renameWorkspaceEntry, requestDraftTree, requestJson, writeDraft } from './api.js'
 import { createExplorerPaneStore, createExplorerSettingsStore, createLayoutStore, createPreviewSessionStore, LayoutController } from './stores.js'
-import { EditorContextController, PromptContextBridge, selectWorkspaceForSession, workspaceOfSession } from './controllers.js'
+import { currentSessionOf, EditorContextController, openHarnessSession, PromptContextBridge, recentWorkspaceIdOf, selectWorkspaceForSession, workspaceOfSession } from './controllers.js'
 import { EditorContextPrefix, installEditorContextMessageCompactor } from './context-bridge.js'
 /* The session-row context menu is a fixed 3 items + separator; clamp its top
    edge against its real height so the last item stays reachable. */
@@ -34,6 +34,7 @@ import { useSidebarChrome } from './hooks/sidebar-chrome.js'
 import { useThinkCard } from './hooks/think-card.js'
 import { registerStudioFileMutationToolview } from './toolview.js'
 import { installOpenResourceRouter } from './open-resource.js'
+import { installPlanResources } from './plan-open.js'
 import { installRemoteFaces } from './renderers/remote.js'
 
 export function AppFrame(props) {
@@ -96,7 +97,8 @@ export function AppFrame(props) {
   }, [mobile.on, panels.sidebar, props.explorerPaneStore, sidebarMax, viewportWidth])
   // In mobile file-fullscreen the conversation header stays pinned above the
   // file browsing page; its live height feeds --dsh-ws-mobile-header-h.
-  const currentSession = props.useSessions(state => state.current)
+  const sessionsById = props.useSessions(state => state.byId)
+  const currentSession = currentSessionOf(sessionsById)
   const sessionIds = props.useSessions(state => state.ids)
   const [mobileHeaderHeight, setMobileHeaderHeight] = useState(MOBILE_HEADER_FALLBACK_H)
   useLayoutEffect(() => {
@@ -156,16 +158,17 @@ export function AppFrame(props) {
   const sessionId = currentSession
   // The workspace-files header names the current session (its durable title)
   // instead of a fixed label; fall back when none is selected.
-  const sessionTitle = props.useSessions(state => state.current === undefined
-    ? undefined
-    : state.byId[state.current]?.title)
-  const currentCwd = props.useSessions(state => state.current === undefined
-    ? undefined
-    : state.byId[state.current]?.cwd)
-  const detailsCapable = props.useSessions(state => state.current !== undefined
-    && state.byId[state.current]?.blank === false)
+  const currentSummary = currentSession === undefined ? undefined : sessionsById[currentSession]
+  const sessionTitle = currentSummary?.title
+  const currentCwd = currentSummary?.cwd
+  const detailsCapable = currentSession !== undefined && currentSummary?.blank === false
   const workspaces = props.useWorkspaces(state => state.items)
-  const recent = props.useWorkspaces(state => state.recentWorkspaceId)
+  /* No session selected → follow the workspace the harness itself would
+     reconnect (the same recent-workspace policy it applies to New Session). */
+  const recent = useMemo(
+    () => recentWorkspaceIdOf(workspaces, sessionsById),
+    [sessionsById, workspaces],
+  )
   // Right-click session-list menu, the in-place rename overlay, and
   // archive/reveal feedback are owned here because the target rows live in the
   // harness sidebar slot this component renders.
@@ -179,7 +182,7 @@ export function AppFrame(props) {
   useThinkCard({ chatSectionRef })
   useChatTailPin({ chatSectionRef, currentSession })
   const sidebarChromeState = useSidebarChrome()
-  const sessionMenu = useSessionMenu({ props, mountedRef })
+  const sessionMenu = useSessionMenu({ props, mountedRef, currentSession })
   const { asideRef, sidebarChrome } = sidebarChromeState
   const { chatDropActive, chatDropSuppressed, setChatDropActive } = chatDrop
   const {
@@ -383,17 +386,42 @@ export function mountStudio(ctx) {
     }, 'workspace-studio: locale dictionaries')
   })
   /* Standard workspace-files Remote faces for the renderer views (image bytes,
-     HTML relative assets, paged read-only browse): installed when the harness
-     Remote service is available; the views degrade to a failure line without
-     it. */
+     HTML relative assets, paged read-only browse, and the read-only preview of
+     paths OUTSIDE the workspace): installed when the harness Remote service is
+     available; the views degrade to a failure line without it.
+     DSH 0.1.7 merged the former `readAll` / `readRelated` into one
+     `readBytes(scope, path, { baseFile, range })` whose `data` is native bytes,
+     not base64 — calling a method that is not there throws SYNCHRONOUSLY inside
+     the renderer's effect, which the harness root error boundary answers by
+     replacing the whole layout. So: install no face at all when the methods are
+     absent (the views then report "unavailable"), and defer every call through a
+     promise so any other throw becomes a displayable Remote failure instead. */
   ctx.inject(['remote', 'remote.workspaceFiles'], scope => {
     scope.effect(() => {
       const remote = scope.get('remote')
       if (remote === undefined) return undefined
+      const files = remote.workspaceFiles
+      if (files === undefined || files === null) return undefined
+      if (typeof files.read !== 'function' || typeof files.readBytes !== 'function') return undefined
+      /* Aborts stay rejections (their callers already ignore them); everything
+         else — a renamed method, a transport fault — becomes the failure line
+         the renderer already knows how to draw. */
+      const safe = call => (...args) => Promise.resolve().then(() => call(...args)).catch((error) => {
+        if (error?.name === 'AbortError') throw error
+        return {
+          ok: false,
+          error: {
+            code: 'renderer-remote-failed',
+            message: error instanceof Error ? error.message : String(error),
+          },
+        }
+      })
       return installRemoteFaces({
-        readPage: (sessionId, path, offset, signal) => remote.workspaceFiles.read(sessionId, path, { offset }, signal),
-        readAll: (sessionId, path, signal) => remote.workspaceFiles.readAll(sessionId, path, signal),
-        readRelated: (sessionId, path, relativePath, signal) => remote.workspaceFiles.readRelated(sessionId, path, relativePath, signal),
+        readPage: safe((sessionId, path, offset, signal) => files.read(sessionId, path, { offset }, signal)),
+        readAll: safe((sessionId, path, signal) => files.readBytes(sessionId, path, {}, signal)),
+        /* A relative dependency resolves from the DOCUMENT's directory: the
+           document path travels as `baseFile`, the dependency as `path`. */
+        readRelated: safe((sessionId, basePath, relativePath, signal) => files.readBytes(sessionId, relativePath, { baseFile: basePath }, signal)),
       })
     }, 'workspace-studio: renderer remote faces')
   })
@@ -473,7 +501,7 @@ export function mountStudio(ctx) {
           getWorkspaceItems: () => ctx.workspaces.list.getSnapshot().items,
           // Mind-map sidebar entries open the root session and dock the mind
           // map as a preview tab.
-          openSession: sessionId => { ctx.sessions.open(sessionId) },
+          openSession: sessionId => { openHarnessSession(ctx, sessionId) },
           deleteMindmapDoc: (sessionId, signal) => deleteMindmapDoc(sessionId, signal),
           // The docked mind-map view's document/fork/archive action face.
           mindmapActions: buildMindmapActions(ctx),
@@ -555,10 +583,12 @@ export function mountStudio(ctx) {
   /* Chat edit/write rows: default-open Studio row with the merged diff view,
      shadowing the shipped FileMutationRow for the edit/write keys. */
   registerStudioFileMutationToolview(ctx)
-  /* Route the chat's file-open path (ctx.sidebarRight.openResource) into the
+  /* Route the chat's resource-open path (ctx.sidebarRight.openResource) into the
      plugin's own preview tabs, since the harness right-Sidebar seat never
-     mounts under this root layout. */
+     mounts under this root layout. A plan address resolves through the harness
+     `plan` resource provider, so the reader is installed alongside. */
   installOpenResourceRouter(ctx)
+  installPlanResources(ctx)
   ctx.effect(() => () => { editorContexts.dispose() }, 'workspace-studio: editor context state')
   /* Mobile mode entries: the sidebar-footer toggle, the session-header whale +
      file-content-browsing controls, and the hero-page whale. All contributions
@@ -570,11 +600,12 @@ export function mountStudio(ctx) {
     name: 'conversation.session.header.actions', id: 'workspace-mobile-controls', order: -300,
   }, MobileHeaderControls))
   // The session-switcher dropdown replaces the harness title crumb (CSS hides
-  // it; the trigger renders at -400, leftmost). Switching reuses
-  // ctx.sessions.open, so the whole layout follows the new current.
+  // it; the trigger renders at -400, leftmost). Switching goes through the
+  // harness's own session-opening path, so the whole layout follows the new
+  // current.
   ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
     name: 'conversation.session.header.actions', id: 'workspace-session-switcher', order: -400,
-    inject: () => ({ openSession: sessionId => { ctx.sessions.open(sessionId) }, isBranchDescendant: isMindmapBranchDescendant }),
+    inject: () => ({ openSession: sessionId => { openHarnessSession(ctx, sessionId) }, isBranchDescendant: isMindmapBranchDescendant }),
   }, SessionSwitcherDropdown))
   /* The session-header mind-map button: opens the current session's mind map
      as a preview tab. */

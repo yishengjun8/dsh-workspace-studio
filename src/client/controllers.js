@@ -158,6 +158,75 @@ export function workspaceOfSession(ctx, id) {
   const items = ctx.get('workspaces')?.list.getSnapshot().items ?? []
   return selectWorkspaceForSession(items, id, row.cwd)
 }
+
+/* The current session, derived the way DSH 0.1.7 itself derives it.
+   `SessionListState.current` was removed with the navigation move: the main
+   view's session is now the one retained by the `mainView` source
+   (ui-workspace selects it through ctx.sessions.retain), which is exactly what
+   ui-workspace's own browser reads off the list. Mirroring that read keeps the
+   plugin and the harness from disagreeing about "the current session" — the
+   field's absence silently emptied the whole explorer/preview chain. */
+export function currentSessionOf(sessionsById) {
+  if (sessionsById === null || sessionsById === undefined) return undefined
+  for (const id of Object.keys(sessionsById)) {
+    const row = sessionsById[id]
+    if (row !== null && row !== undefined && (row.retainedBy?.mainView ?? 0) > 0) {
+      return String(row.id ?? id)
+    }
+  }
+  return undefined
+}
+
+/* Recent-workspace fallback used while no session is selected: the harness's
+   own policy (newest session `updatedAt` per workspace, the workspace
+   `createdAt` when it holds none, Host order on ties — ui-workspace
+   navigation.recentWorkspace). The harness keeps that policy to itself and its
+   view store never carried a `recentWorkspaceId` field, so the plugin derives
+   the same answer from the two snapshots it already subscribes to. */
+export function recentWorkspaceIdOf(items, sessionsById) {
+  let selected
+  let selectedTime = Number.NEGATIVE_INFINITY
+  for (const workspace of items ?? []) {
+    let latest = Number.NEGATIVE_INFINITY
+    for (const sessionId of workspace?.sessionIds ?? []) {
+      const updatedAt = sessionsById?.[sessionId]?.updatedAt
+      if (typeof updatedAt === 'number' && updatedAt > latest) latest = updatedAt
+    }
+    if (latest === Number.NEGATIVE_INFINITY) {
+      /* A missing/malformed createdAt keeps the first workspace, like NaN would. */
+      const created = Date.parse(workspace?.createdAt ?? '')
+      latest = Number.isNaN(created) ? Number.NEGATIVE_INFINITY : created
+    }
+    if (selected === undefined || latest > selectedTime) {
+      selected = workspace?.workspaceId
+      selectedTime = latest
+    }
+  }
+  return selected
+}
+
+/* Show a session in the main view. DSH 0.1.7 removed `ctx.sessions.open` and
+   gave navigation to the view owner (ui-workspace's `uiWorkspace` service), so
+   the new path is tried first and the pre-0.1.7 service second; a build with
+   neither throws instead of leaving a silently dead click. `reflect.get` reads
+   a service without an inject declaration — `uiWorkspace` must stay optional,
+   since older harness builds do not provide it at all. */
+export function openHarnessSession(ctx, sessionId) {
+  const id = String(sessionId)
+  const uiWorkspace = ctx.reflect?.get?.('uiWorkspace', false)
+  if (uiWorkspace !== null && uiWorkspace !== undefined
+    && typeof uiWorkspace.openSession === 'function') {
+    uiWorkspace.openSession(id)
+    return
+  }
+  const sessions = ctx.get('sessions')
+  if (sessions !== null && sessions !== undefined && typeof sessions.open === 'function') {
+    sessions.open(id)
+    return
+  }
+  throw new Error(translate('error.noSessionOpenApi'))
+}
+
 export class PromptContextBridge {
   constructor(ctx, editorContexts) {
     this.ctx = ctx

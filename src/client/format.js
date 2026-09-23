@@ -146,6 +146,9 @@ export const READ_ONLY_REASON_KEYS = Object.freeze({
   'editing-disabled': 'readonly.editing-disabled',
   'symlink-path': 'readonly.symlink-path',
   'external-file': 'readonly.external-file',
+  /* A file outside the workspace renders read-only through the harness Remote:
+     the plugin's own editable API is workspace-confined by design. */
+  'outside-workspace': 'readonly.outside-workspace',
 })
 
 export function readOnlyReason(preview) {

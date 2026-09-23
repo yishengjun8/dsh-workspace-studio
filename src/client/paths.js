@@ -6,6 +6,15 @@ export function parentPath(path){const index=path.lastIndexOf('/');return index<
 export function joinAbsolutePath(root,relative){if(typeof root!=='string'||root==='')return relative;if(relative==='')return root;const separator=/^[A-Za-z]:[\\/]/.test(root)?'\\':'/';return `${root.replace(/[\\/]+$/,'')}${separator}${relative.split('/').join(separator)}`}
 export async function copyText(value){if(typeof navigator!=='undefined'&&typeof navigator.clipboard?.writeText==='function'){try{await navigator.clipboard.writeText(value);return true}catch{/* clipboard API rejects without a user gesture or outside secure contexts; fall back to execCommand */}}const textarea=document.createElement('textarea');textarea.value=value;textarea.style.position='fixed';textarea.style.opacity='0';document.body.append(textarea);textarea.select();let ok=false;try{ok=document.execCommand('copy')}catch{/* execCommand throws in unusual embedders; report failure */}textarea.remove();return ok}
 export function selectedLevelPath(entry){return entry?.kind==='directory'?entry.path:entry?parentPath(entry.path):''}
+/* Whether a `/`-separated path is absolute: a Windows drive (`C:/x`), a UNC
+   share (`//server/share/x`), or a rooted POSIX path (`/x`). DSH file addresses
+   may carry either spelling, so a caller that only knows the path — not the
+   address scope it came from — must ask here before treating it as
+   workspace-relative. */
+export function isAbsoluteWorkspacePath(path){
+  if(typeof path!=='string'||path==='')return false
+  return path.startsWith('/')||/^[A-Za-z]:/.test(path)
+}
 export function defaultEntryName(kind) { return kind === 'directory' ? translate('dialog.newFolder') : translate('dialog.newFileDefault') }
 export function entryNameError(value) {
   const name = value.trim()

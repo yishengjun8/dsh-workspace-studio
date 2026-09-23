@@ -4,7 +4,7 @@ import { CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MAX, CONFLICT_FONT_SIZE_
 import { translate } from '../../locale/index.js'
 import { clamp, fileLabel, formatBytes, readOnlyReason } from '../../format.js'
 import { copyText, defaultEntryName, entryNameError, entryPath, joinAbsolutePath, parentPath, pathBaseName, rewriteDirectoryMap, rewritePathMap, rewritePathSet, rewriteRelativePath, selectedLevelPath } from '../../paths.js'
-import { ancestorDirectoryPaths, dropIndexFromEvent, entryFromPreviewTab, isMindmapTab, mindmapRootIdOfTab, mindmapTabPath, normalizePreviewSession, orderPinnedFirst, rewritePreviewTabs, serializePreviewSession } from '../../preview-tabs.js'
+import { ancestorDirectoryPaths, dropIndexFromEvent, entryFromPreviewTab, isMindmapTab, isPlanTab, isSyntheticTab, mindmapRootIdOfTab, mindmapTabPath, normalizePreviewSession, orderPinnedFirst, planAddressOfTab, planTabPath, rewritePreviewTabs, serializePreviewSession } from '../../preview-tabs.js'
 import { IconFolder, IconNewFile, IconNewFolder, IconRefresh, IconSearch } from '../../icons.js'
 import { encodingLabel, fetchEncodings, rawFileUrl, requestFsOperation, revealInExplorer, uploadExternalFile, WorkspaceApiError } from '../../api.js'
 import { hasDraggedFiles, hasNormalFile } from '../../utils.js'
@@ -13,6 +13,7 @@ import { invalidateCachedSubtree, rewriteCachedPaths } from '../../file-cache.js
 import { mindmapDockStore } from '../../mindmap/registry.js'
 import { mindmapViewHost } from '../../mindmap/host.js'
 import { fileOpenRequestStore } from '../../open-request.js'
+import { planDocuments, planOpenStore } from '../../plan-open.js'
 import { EncodingMenu, PanelHeader, PreviewToast, TabContextMenu, TreeContextMenu } from '../menus.js'
 import { DeleteDialog, EncodingDialog, EntryDialog, SaveConflictDialog, SessionRenameDialog } from '../dialogs.js'
 import { DropOverlay } from './drop.js'
@@ -26,6 +27,15 @@ import { usePreviewScrollbar } from './hooks/scrollbar.js'
 import { useSearchState } from './hooks/search.js'
 import { useSessionRename } from './hooks/session-rename.js'
 import { isHtmlName, isImageName, isMarkdownName, VIEW_EDIT, VIEW_PREVIEW, viewerCandidates } from '../../renderers/registry.js'
+import { PlanView } from '../../renderers/plan-view.js'
+
+/* Whether a preview tab has no file-tree row: a docked mind map, an opened plan,
+   or a file OUTSIDE the workspace. Such a tab selects nothing in the tree and is
+   never revealed — revealing an outside path would ask the Host to list its
+   "ancestor" directories, which the workspace fence refuses (400 invalid-path). */
+function hasNoTreeRow(tab) {
+  return isSyntheticTab(tab) || tab?.outside === true
+}
 
 
 export function WorkspaceExplorer({
@@ -43,8 +53,8 @@ export function WorkspaceExplorer({
   const [selected, setSelected] = useState(() => {
     if (initialPreviewSession.activePath === null) return undefined
     const activeTab = initialPreviewSession.tabs.find(tab => tab.path === initialPreviewSession.activePath)
-    /* A restored mind-map tab selects nothing in the file tree. */
-    if (activeTab === undefined || isMindmapTab(activeTab)) return undefined
+    /* A restored tab with no tree row selects nothing in the file tree. */
+    if (activeTab === undefined || hasNoTreeRow(activeTab)) return undefined
     return entryFromPreviewTab(activeTab)
   })
   const [reloadToken, setReloadToken] = useState(0)
@@ -108,8 +118,8 @@ export function WorkspaceExplorer({
   // Live editor scroll positions, written per scroll event without touching React state or persistence.
   const scrollTopRef = useRef(new Map())
   const sessionEstablishedRef = useRef(false)
-  /* Whether a snapshot with real content (a non-external tab or a tree expansion) was ever persisted for this mount; the skip guard below only applies while nothing real was ever persisted. */
-  const persistedRealContentRef = useRef(initialPreviewSession.tabs.some(tab => !tab.external) || (initialPreviewSession.expanded ?? []).length > 0)
+  /* Whether a snapshot with real content (a persistable tab or a tree expansion) was ever persisted for this mount; the skip guard below only applies while nothing real was ever persisted. */
+  const persistedRealContentRef = useRef(initialPreviewSession.tabs.some(tab => !tab.external && !isPlanTab(tab)) || (initialPreviewSession.expanded ?? []).length > 0)
   // Paths confirmed missing while restoring persisted expansion; later restore passes skip them until the cleaned snapshot is persisted.
   const prunedPathsRef = useRef(new Set())
   const previewTabsBootstrapped = useRef(Boolean(initialPreviewSession.tabs.length > 0 || initialPreviewSession.activePath !== null))
@@ -124,14 +134,15 @@ export function WorkspaceExplorer({
   useLayoutEffect(() => { activePathRef.current = activePath }, [activePath])
   useLayoutEffect(() => { expandedRef.current = expanded }, [expanded])
   const activeTab = useMemo(() => activePath === null ? undefined : tabs.find(tab => tab.path === activePath), [activePath, tabs])
-  /* A mind-map tab hosts the global host's stable body container instead of a file: no file header, status bar, tree selection, or file read. */
+  /* A mind-map tab hosts the global host's stable body container instead of a file: no file header, status bar, tree selection, or file read. A plan tab renders a harness plan document instead of a file and is equally chrome-free. */
   const activeMindmap = activeTab !== undefined && isMindmapTab(activeTab)
+  const activePlan = activeTab !== undefined && isPlanTab(activeTab)
   /* A session switch inside the same mind map keeps this explorer mounted, so the editor context would stay bound to the previous session; clear it for the new session. */
   const lastSessionIdRef = useRef(sessionId)
   useEffect(() => {
     if (lastSessionIdRef.current === sessionId) return
     lastSessionIdRef.current = sessionId
-    if (activePath === null || isMindmapTab(activeTab)) publishEditorContext(undefined)
+    if (activePath === null || isSyntheticTab(activeTab)) publishEditorContext(undefined)
   }, [activePath, activeTab, publishEditorContext, sessionId])
   const hasDirtyTabs = useMemo(() => tabs.some(tab => tab.dirty || tab.saving), [tabs])
   const updateActiveTab = useCallback((patch) => {
@@ -154,8 +165,8 @@ export function WorkspaceExplorer({
     if (persistPreviewSession === undefined) return
     const hasTreeExpansion = Array.from(expandedRef.current).some(path => path !== '')
     const liveTabs = tabsRef.current
-    /* External files serialize to null; when only external tabs exist with no tree expansion, writing would delete the anchor keys that may hold another session's tabs. The skip must not apply once real content was ever persisted, or the closed tab would resurrect on refresh. */
-    const hasRealTabs = liveTabs.some(tab => !tab.external)
+    /* External and plan tabs serialize to null; when only such tabs exist with no tree expansion, writing would delete the anchor keys that may hold another session's tabs. The skip must not apply once real content was ever persisted, or the closed tab would resurrect on refresh. */
+    const hasRealTabs = liveTabs.some(tab => !tab.external && !isPlanTab(tab))
     const hasRealContent = hasRealTabs || hasTreeExpansion
     if (!hasRealContent && !persistedRealContentRef.current) return
     if (hasRealContent) persistedRealContentRef.current = true
@@ -234,8 +245,58 @@ export function WorkspaceExplorer({
     return mindmapDockStore.subscribe(applyDock)
   }, [activatePath, previewSessionId])
 
+  /* Open requests for harness plans (ui-plan's 「查看全文」 and the turn's plan card): the openResource router publishes them, and the explorer whose previewSessionId matches the request's family consumes one as a session-only plan tab. The tab carries the plan's dsh-resource address in its synthetic path; its body renders the temporary review document or the harness plan resource. */
+  const applyPlanTitle = useCallback((path, title) => {
+    const name = typeof title === 'string' ? title.trim() : ''
+    if (name === '') return
+    setTabs(current => {
+      const tab = current.find(item => item.path === path)
+      /* An unchanged name returns the same array, so a viewer reporting its title on every render cannot loop. */
+      if (tab === undefined || tab.name === name) return current
+      return current.map(item => item.path === path ? { ...item, name } : item)
+    })
+  }, [])
+  useEffect(() => {
+    const applyOpen = () => {
+      const { request } = planOpenStore.getSnapshot()
+      if (request === null) return
+      /* Consumed by the explorer showing the plan's own session — the chat's session, or the map root whose preview strip the chat shares. Any other mount leaves the request pending for the matching one. */
+      const family = request.expectFamily
+      if (family !== (previewSessionId ?? null) && family !== (sessionId ?? null)) return
+      const path = planTabPath(request.address)
+      setTabs(current => current.some(tab => tab.path === path)
+        ? current
+        : [...current, {
+          baseText: '',
+          dirty: false,
+          draft: '',
+          draftKnown: false,
+          editing: false,
+          encoding: 'utf-8',
+          external: false,
+          /* Session-only: a plan tab is never persisted (preview-tabs drops it), and its address lives in the synthetic path. */
+          kind: 'plan',
+          lineEnding: 'none',
+          name: request.name !== '' ? request.name : translate('plan.tab'),
+          path,
+          pinned: false,
+          revision: null,
+          saving: false,
+          scrollTop: 0,
+          sessionId: null,
+          size: null,
+          symlink: false,
+        }])
+      setSelected(undefined)
+      activatePath(path)
+      planOpenStore.consume()
+    }
+    if (planOpenStore.getSnapshot().request !== null) applyOpen()
+    return planOpenStore.subscribe(applyOpen)
+  }, [activatePath, previewSessionId, sessionId])
+
   const editorSession = useEditorSession({
-    workspace, draftScopeId, activePath, activeTab, tabsRef, activePathRef, updateTab, setTabs,
+    workspace, sessionId: previewSessionId, draftScopeId, activePath, activeTab, tabsRef, activePathRef, updateTab, setTabs,
     setSelected, publishEditorContext, loadDraft, readFile, saveFile, persistDraftFile,
     removeDraftFile, draftTree, checkFileChange, settings, mounted, editorRef,
     refreshPendingRef, cancelRestoreRef, requestedEncodingRef, reloadingPathsRef,
@@ -358,7 +419,11 @@ export function WorkspaceExplorer({
         })
         return next
       })
-      if (options?.pruneOnMissing && error instanceof WorkspaceApiError && error.code === 'path-not-found') {
+      if (options?.pruneOnMissing && error instanceof WorkspaceApiError
+        && (error.code === 'path-not-found' || error.code === 'invalid-path')) {
+        /* invalid-path too: a restored path the Host refuses as a tree path (an
+           absolute one, say) can never become valid, so the self-heal must drop
+           it instead of re-firing it on every load. */
         pruneExpandedPath(path)
       }
     } finally {
@@ -406,8 +471,8 @@ export function WorkspaceExplorer({
     activatePath(next.activePath)
     const nextTab = next.tabs.find(tab => tab.path === next.activePath)
     if (nextTab !== undefined) {
-      if (isMindmapTab(nextTab)) {
-        /* A restored mind-map tab selects nothing in the file tree. */
+      if (hasNoTreeRow(nextTab)) {
+        /* A tab with no tree row selects nothing in the file tree. */
         setSelected(undefined)
       } else {
         const entry = entryFromPreviewTab(nextTab)
@@ -463,13 +528,49 @@ export function WorkspaceExplorer({
     setSelected(entry)
     revealPath(entry)
   }, [revealPath])
+  /* Read-only preview of a file OUTSIDE the workspace (the chat's file-open path
+     can name one): the plugin's workspace-confined API cannot serve such a path,
+     so the tab is session-only and its content is read through the harness
+     workspace-files Remote instead. No tree selection (the tree has no row for
+     it) and no reveal — expanding its "ancestors" would fire directory reads the
+     Host refuses on sight, which is exactly the bug this path exists to avoid. */
+  const openOutsideFile = useCallback((entry) => {
+    previewTabsBootstrapped.current = true
+    setSelected(undefined)
+    activatePath(entry.path)
+    setTabs(current => current.some(tab => tab.path === entry.path)
+      ? current
+      : [...current, {
+          baseText: '',
+          bom: false,
+          dirty: false,
+          draft: '',
+          draftKnown: false,
+          editing: false,
+          external: true,
+          lineEnding: 'none',
+          name: entry.name,
+          outside: true,
+          path: entry.path,
+          pinned: false,
+          readOnlyReason: 'outside-workspace',
+          revision: null,
+          saving: false,
+          scrollTop: 0,
+          size: null,
+          status: undefined,
+          symlink: Boolean(entry.symlink),
+        }])
+  }, [activatePath])
   /* Open requests from the chat's file-open path: add/activate the file tab and optionally reveal a line. Consumed only when the request's workspace matches this mount's workspace. */
   useEffect(() => {
     const applyOpen = () => {
       const { request } = fileOpenRequestStore.getSnapshot()
       if (request === null) return
       if (request.workspaceId !== String(workspace.workspaceId)) return
-      chooseFile({ kind: 'file', name: request.name, path: request.path, symlink: false })
+      const entry = { kind: 'file', name: request.name, path: request.path, symlink: false }
+      if (request.outside === true) openOutsideFile(entry)
+      else chooseFile(entry)
       if (request.line !== undefined) {
         setSearchReveal({ line: request.line, column: 1, endColumn: 1, path: request.path })
       }
@@ -477,7 +578,7 @@ export function WorkspaceExplorer({
     }
     if (fileOpenRequestStore.getSnapshot().request !== null) applyOpen()
     return fileOpenRequestStore.subscribe(applyOpen)
-  }, [chooseFile, workspace.workspaceId])
+  }, [chooseFile, openOutsideFile, workspace.workspaceId])
   // Open a non-workspace file dropped into the preview pane: upload its raw bytes, decode them into a read-only preview payload, and add a session-only external tab.
   const openExternalFile = useCallback(async (file, encoding) => {
     try {
@@ -960,6 +1061,8 @@ export function WorkspaceExplorer({
       /* The tab is gone: the global host unmounts this map's body; a later re-dock mounts a fresh body. */
       mindmapViewHost.drop(mindmapRootIdOfTab(closing))
     }
+    /* A closed plan tab releases its temporary review document: the tab is the only holder, and the review strip re-publishes it on a later open. */
+    if (isPlanTab(closing)) planDocuments.drop(planAddressOfTab(closing))
     const nextTabs = current.filter(tab => tab.path !== path)
     const nextActivePath = activePathRef.current === path
       ? (nextTabs[index]?.path ?? nextTabs[index - 1]?.path ?? null)
@@ -980,8 +1083,8 @@ export function WorkspaceExplorer({
     }
     const nextTab = nextTabs.find(tab => tab.path === nextActivePath)
     if (nextTab !== undefined) {
-      if (isMindmapTab(nextTab)) {
-        /* A mind-map tab selects nothing in the file tree. */
+      if (hasNoTreeRow(nextTab)) {
+        /* A mind-map, plan, or outside-workspace tab selects nothing in the file tree. */
         setSelected(undefined)
       } else {
         const entry = entryFromPreviewTab(nextTab)
@@ -1013,11 +1116,13 @@ export function WorkspaceExplorer({
     for (const tab of closing) {
       /* A closed map tab must also unmount its global body (same rule as closeTab). */
       if (isMindmapTab(tab)) mindmapViewHost.drop(mindmapRootIdOfTab(tab))
+      /* A closed plan tab releases its temporary review document (same rule as closeTab). */
+      if (isPlanTab(tab)) planDocuments.drop(planAddressOfTab(tab))
       forgetPathRefs(tab.path)
     }
     activatePath(keep.path)
-    if (isMindmapTab(keep)) {
-      /* A mind-map tab selects nothing in the file tree. */
+    if (hasNoTreeRow(keep)) {
+      /* A mind-map, plan, or outside-workspace tab selects nothing in the file tree. */
       setSelected(undefined)
     } else {
       const entry = entryFromPreviewTab(keep)
@@ -1143,22 +1248,27 @@ export function WorkspaceExplorer({
   const isImage = preview.state === 'ready' && isImageName(preview.name)
   const isReadOnlyText = preview.state === 'ready' && preview.kind !== 'image'
     && (preview.editable === false || preview.readOnlyReason)
-  /* Browse mode = the paged full-file view; it replaces the editor for read-only text files, while HTML keeps the iframe overlay and external files have no workspace path the Remote could read. */
-  const showBrowse = viewMode === VIEW_PREVIEW && isReadOnlyText && !isHtmlFile && activeTab?.external !== true
+  /* Browse mode = the paged full-file view; it replaces the editor for read-only text files, while HTML keeps the iframe overlay. A dropped-in file has no path the Remote could read (its content lives only in memory), but a file OUTSIDE the workspace does — the Remote reads its absolute path — so that tab browses like any other read-only file. */
+  const showBrowse = viewMode === VIEW_PREVIEW && isReadOnlyText && !isHtmlFile
+    && (activeTab?.external !== true || activeTab?.outside === true)
   const browseKind = isMarkdown ? 'markdown' : 'code'
   const viewerItems = useMemo(() => {
-    if (preview.state !== 'ready' || activeTab === undefined || isMindmapTab(activeTab)) return []
-    return viewerCandidates(preview, activeTab.name, activeTab.external)
+    if (preview.state !== 'ready' || activeTab === undefined || isSyntheticTab(activeTab)) return []
+    /* A Remote-readable tab: an outside-workspace file is readable, a dropped-in one is not. */
+    return viewerCandidates(preview, activeTab.name, activeTab.external === true && activeTab.outside !== true)
   }, [activeTab, preview])
   const currentViewer = viewerItems.find(item => item.id === (isImage ? 'image' : viewMode)) ?? viewerItems[0]
   /* The toggle button's tooltip names the view it switches to. */
   const viewerToggleTitle = currentViewer?.id === VIEW_PREVIEW
     ? (isMarkdown ? translate('mdPreview.edit.title') : isHtmlFile ? translate('htmlPreview.edit.title') : translate('editor.edit.title'))
     : (isMarkdown ? translate('mdPreview.preview.title') : isHtmlFile ? translate('htmlPreview.preview.title') : translate('renderer.browse.title'))
-  /* A mind-map tab renders nothing here: this div is a placeholder the global host parks its stable map-body container into; parking is a plain appendChild move, so the doc, pan/zoom and highlight survive a session switch. */  const mindmapTabs = tabs.filter(isMindmapTab)
+  /* A mind-map tab renders nothing here: this div is a placeholder the global host parks its stable map-body container into; parking is a plain appendChild move, so the doc, pan/zoom and highlight survive a session switch. */
+  const mindmapTabs = tabs.filter(isMindmapTab)
+  /* A plan tab renders the harness plan document inline; every plan body stays mounted (hidden when inactive) so switching tabs keeps its scroll and resource hold. */
+  const planTabs = tabs.filter(isPlanTab)
   /* The active file's retained CodeMirror session; dropped when its name no longer matches the tab, so a rename builds the next view fresh. */
   const retainedForActive = (() => {
-    if (activePath === null || activeTab === undefined || isMindmapTab(activeTab)) return null
+    if (activePath === null || activeTab === undefined || isSyntheticTab(activeTab)) return null
     const session = retainedStatesRef.current.get(activePath)
     if (session === undefined) return null
     if (session.name !== activeTab.name) {
@@ -1167,7 +1277,7 @@ export function WorkspaceExplorer({
     }
     return session
   })()
-  const body = mindmapTabs.length > 0
+  const body = mindmapTabs.length > 0 || planTabs.length > 0
     ? h(Fragment, null,
         ...mindmapTabs.map(tab => h('div', {
           className: 'dsh-ws-preview-body dsh-ws-mindmap-dock',
@@ -1178,7 +1288,15 @@ export function WorkspaceExplorer({
           },
           style: tab.path === activePath ? undefined : { display: 'none' },
         })),
-        activeMindmap ? null : h(PreviewPane, {
+        ...planTabs.map(tab => h('div', {
+          className: 'dsh-ws-preview-body dsh-ws-plan-dock',
+          key: tab.path,
+          style: tab.path === activePath ? undefined : { display: 'none' },
+        }, h(PlanView, {
+          address: planAddressOfTab(tab),
+          onTitle: (title) => applyPlanTitle(tab.path, title),
+        }))),
+        activeMindmap || activePlan ? null : h(PreviewPane, {
     activePath,
     activeTab,
     browseKind,
@@ -1288,8 +1406,8 @@ export function WorkspaceExplorer({
   const reason = preview.state === 'ready' ? readOnlyReason(preview) : translate('editor.notLoaded')
   const size = preview.state === 'ready' ? formatBytes(preview.size) : ''
   const tabMenuTarget = tabContextMenu === undefined ? undefined : tabs.find(tab => tab.path === tabContextMenu.path)
-  /* "Open in new window" is limited to workspace file tabs: mind-map, external, and image tabs have no servable file content. */
-  const canOpenInNewWindow = tabMenuTarget !== undefined && !isMindmapTab(tabMenuTarget) && !tabMenuTarget.external
+  /* "Open in new window" is limited to workspace file tabs: mind-map, plan, external, and image tabs have no servable file content. */
+  const canOpenInNewWindow = tabMenuTarget !== undefined && !isSyntheticTab(tabMenuTarget) && !tabMenuTarget.external
     && !isImageName(tabMenuTarget.name)
   const openTabInNewWindow = () => {
     setTabContextMenu(undefined)
@@ -1390,8 +1508,8 @@ export function WorkspaceExplorer({
     treePortalTarget ? createPortal(treeSection, treePortalTarget) : null,
     h('section', { 'data-drop-active': dropActive || undefined, className: 'dsh-ws-preview', ref: previewSectionRef },
       tabs.length ? h(PreviewTabs, { activePath, containerRef: previewTabsRef, draggingPath, dropIndex, onChoose: tab => {
-        if (isMindmapTab(tab)) {
-          /* A mind-map tab activates directly: no tree selection/reveal. */
+        if (hasNoTreeRow(tab)) {
+          /* A tab with no tree row (mind map, plan, or an outside-workspace file) activates directly: no tree selection/reveal. */
           setSelected(undefined)
           activatePath(tab.path)
         } else {
@@ -1401,13 +1519,16 @@ export function WorkspaceExplorer({
       tabs.length ? h('div', { className: 'dsh-ws-preview-scrollbar', onMouseEnter: handleScrollbarMouseEnter, onMouseLeave: handleScrollbarMouseLeave, onPointerCancel: handleScrollbarPointerEnd, onPointerDown: handleScrollbarPointerDown, onPointerMove: handleScrollbarPointerMove, onPointerUp: handleScrollbarPointerEnd, ref: previewScrollbarRef }, h('div', { className: 'dsh-ws-preview-scrollbar-thumb', ref: previewScrollThumbRef })) : null,
       tabContextMenu ? h(TabContextMenu, { menuRef: tabMenuRef, onCloseOthers: () => { setTabContextMenu(undefined); closeOtherTabs(tabContextMenu.path) }, onTogglePin: () => { setTabContextMenu(undefined); if (tabMenuTarget?.pinned) unpinTab(tabContextMenu.path); else pinTab(tabContextMenu.path) }, onOpenInNewWindow: openTabInNewWindow, canOpenInNewWindow, pinned: Boolean(tabMenuTarget?.pinned), x: tabContextMenu.x, y: tabContextMenu.y }) : null,
       /* A mind-map tab hides the file header: the map draws its own toolbar
-         and title bar. */
-      activeMindmap ? null : h('header', { className: 'dsh-ws-panel-header dsh-ws-preview-file-header', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && preview.kind !== 'image' && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) }, ref: previewHeaderRef },
-        h('span', { className: 'dsh-ws-preview-file-path', title: activeTab === undefined ? undefined : (activeTab.external ? translate('external.externalFile.title') : activeTab.path) },
+         and title bar. A plan tab hides it too: the document carries its own
+         heading and has no file chrome to offer. */
+      activeMindmap || activePlan ? null : h('header', { className: 'dsh-ws-panel-header dsh-ws-preview-file-header', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && preview.kind !== 'image' && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) }, ref: previewHeaderRef },
+        h('span', { className: 'dsh-ws-preview-file-path', title: activeTab === undefined ? undefined : (activeTab.outside === true ? activeTab.path : activeTab.external ? translate('external.externalFile.title') : activeTab.path) },
           activeTab
-            ? (activeTab.external
-                ? translate('external.externalFile', { name: activeTab.name })
-                : activeTab.path)
+            ? (activeTab.outside === true
+                ? translate('external.outsideFile', { name: activeTab.name })
+                : activeTab.external
+                  ? translate('external.externalFile', { name: activeTab.name })
+                  : activeTab.path)
             : workspace.title),
         preview.state === 'ready'
           ? h(Fragment, null,
@@ -1425,7 +1546,8 @@ export function WorkspaceExplorer({
             h('button', {
               'aria-label': translate('editor.refresh'),
               className: 'dsh-ws-icon-button',
-              disabled: Boolean(activeTab?.external),
+              /* A dropped-in tab has no reread to offer; an outside-workspace tab re-reads through the Remote. */
+              disabled: Boolean(activeTab?.external && activeTab?.outside !== true),
               onClick: refreshFile,
               title: translate('editor.refresh.title'),
               type: 'button',
@@ -1434,8 +1556,8 @@ export function WorkspaceExplorer({
           : null,
       ),
       body,
-      // Merged bottom status bar: action buttons + file meta (left) and the transient status notice (right); a mind-map tab hides it.
-      activeMindmap ? null : h('div', { className: 'dsh-ws-status', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && preview.kind !== 'image' && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) } },
+      // Merged bottom status bar: action buttons + file meta (left) and the transient status notice (right); a mind-map or plan tab hides it.
+      activeMindmap || activePlan ? null : h('div', { className: 'dsh-ws-status', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && preview.kind !== 'image' && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) } },
         h('div', { className: 'dsh-ws-preview-status-actions' },
           preview.state === 'ready' && preview.kind !== 'image'
             ? h(Fragment, null,

@@ -1,10 +1,20 @@
 import { PREVIEW_SESSION_MAX } from './constants.js'
-import { rewriteRelativePath } from './paths.js'
+import { isAbsoluteWorkspacePath, rewriteRelativePath } from './paths.js'
 
 export function entryFromPreviewTab(tab) { return { kind: 'file', name: tab.name, path: tab.path, symlink: Boolean(tab.symlink) } }
 /* Synthetic tab path of a docked mind map (root session id): unique per map and never collides with a real workspace path. */
 export function mindmapTabPath(rootId) { return `mindmap:${String(rootId)}` }
 export function isMindmapTab(tab) { return tab !== null && tab !== undefined && tab.kind === 'mindmap' }
+/* Synthetic tab path of an opened plan (its dsh-resource address): unique per plan and never collides with a real workspace path. */
+export function planTabPath(address) { return `plan:${String(address)}` }
+/* The plan address a plan tab renders ('' for every other tab). */
+export function planAddressOfTab(tab) {
+  const path = tab === null || tab === undefined || typeof tab.path !== 'string' ? '' : tab.path
+  return path.startsWith('plan:') ? path.slice('plan:'.length) : ''
+}
+export function isPlanTab(tab) { return tab !== null && tab !== undefined && tab.kind === 'plan' }
+/* A tab that renders something other than a workspace file — a docked mind map or an opened plan. Such a tab has no file read, draft, editor state, or tree selection, and never enters the persisted snapshot. */
+export function isSyntheticTab(tab) { return isMindmapTab(tab) || isPlanTab(tab) }
 /* Family ROOT session id of a mind-map tab (the sessionId stamp, falling back to the synthetic path's root part). */
 export function mindmapRootIdOfTab(tab) {
   if (tab !== null && tab !== undefined && typeof tab.sessionId === 'string' && tab.sessionId !== '') return tab.sessionId
@@ -24,9 +34,14 @@ export function clonePreviewTab(tab) {
     editing: Boolean(tab.editing),
     encoding: typeof tab.encoding === 'string' && tab.encoding !== '' ? tab.encoding : 'utf-8',
     external: Boolean(tab.external),
-    /* A mind-map tab carries the map's ROOT session id and renders a placeholder for the global map host's body container instead of a file. dockedAt records the persistence family key the tab was docked on, so restore can tell a map opened in this session from one leaked in from another. */
+    /* A read-only preview of a file OUTSIDE the workspace: it carries BOTH
+       `external` (no draft, no save, no change poll, no persistence) and
+       `outside` (the Remote may read its absolute path), which is what lets its
+       text render at all. */
+    outside: Boolean(tab.outside),
+    /* A mind-map tab carries the map's ROOT session id and renders a placeholder for the global map host's body container instead of a file. dockedAt records the persistence family key the tab was docked on, so restore can tell a map opened in this session from one leaked in from another. A plan tab carries its dsh-resource address in the synthetic path. */
     dockedAt: typeof tab.dockedAt === 'string' && tab.dockedAt !== '' ? tab.dockedAt : null,
-    kind: tab.kind === 'mindmap' ? 'mindmap' : 'file',
+    kind: tab.kind === 'mindmap' ? 'mindmap' : tab.kind === 'plan' ? 'plan' : 'file',
     lineEnding: typeof tab.lineEnding === 'string' ? tab.lineEnding : 'none',
     name: typeof tab.name === 'string' && tab.name !== '' ? tab.name : tab.path.slice(tab.path.lastIndexOf('/') + 1),
     path: tab.path,
@@ -51,8 +66,10 @@ export function serializePreviewTab(tab) {
   if (tab.saving) clone.status = undefined
   // Error statuses are session-transient: replaying them would flash a stale error banner, so only the error flag is dropped.
   if (clone.status?.error === true) clone.status = undefined
-  // Dropped non-workspace files are session-only previews: content lives only in memory, so refresh drops them from every persisted snapshot.
+  // Dropped-in AND outside-workspace files are session-only previews: content lives only in memory, so refresh drops them from every persisted snapshot.
   if (clone.external) return null
+  /* A plan tab is a session-only rendering of a harness plan resource: its text is re-read from the session log (or expires), so persisting it would only store a path that must be re-resolved anyway. */
+  if (clone.kind === 'plan') return null
   // localStorage keeps only the dirty marker and tab metadata, never file content; the runtime-only marker tells a live tab apart from this content-free persisted representation.
   clone.baseText = ''
   clone.draft = ''
@@ -85,6 +102,13 @@ export function normalizePreviewSession(value, familyKey) {
   const tabs = Array.isArray(value?.tabs)
     ? value.tabs.map(clonePreviewTab).filter((tab) => {
         if (tab === null || seen.has(tab.path)) return false
+        /* Self-heal for snapshots written before workspace-relative paths were
+           enforced: an absolute path in a FILE tab is not a tree path, so
+           restoring it would fire a doomed directory read on every load. Such a
+           tab is dropped instead (the file stays reachable from the chat's own
+           open path). Synthetic tabs carry `mindmap:` / `plan:` / `external:`
+           prefixes and are never absolute. */
+        if (tab.kind === 'file' && tab.external !== true && isAbsoluteWorkspacePath(tab.path)) return false
         if (family !== null && tab.kind === 'mindmap'
           && (tab.dockedAt ?? tab.sessionId) !== family) return false
         seen.add(tab.path)
@@ -95,7 +119,11 @@ export function normalizePreviewSession(value, familyKey) {
     ? value.activePath
     : (tabs[0]?.path ?? null)
   const expanded = Array.isArray(value?.expanded)
-    ? [...new Set(value.expanded.filter(path => typeof path === 'string' && path !== ''))]
+    /* An absolute "directory" can never be a tree path: the Host refuses it (400
+       invalid-path), which also means the restore-time self-heal cannot prune it
+       — a snapshot written before workspace-relative paths were enforced would
+       re-fire those doomed reads on every load. Drop them here instead. */
+    ? [...new Set(value.expanded.filter(path => typeof path === 'string' && path !== '' && !isAbsoluteWorkspacePath(path)))]
     : []
   return { activePath, tabs, expanded }
 }

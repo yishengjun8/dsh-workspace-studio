@@ -1,11 +1,14 @@
 import { createElement as h } from 'react'
 import { translate } from '../../locale/index.js'
+import { isPlanTab, isSyntheticTab } from '../../preview-tabs.js'
 import { IconCloseWin10, IconPinVscode } from '../../icons.js'
 
 /* Preview tab strip: one tab per open file with pin/close, drag reordering, and context-menu trigger; all interactions are callbacks. */
 export function PreviewTabs({ tabs, activePath, draggingPath, dropIndex, containerRef, onChoose, onClose, onContextMenu, onDragEnd, onDragStart, onDragLeave, onDragOver, onDrop, onMouseEnter, onMouseLeave, onScroll, onUnpin }) {
   const nodes = []
   for (const [index, tab] of tabs.entries()) {
+    /* A synthetic tab's path addresses a map or a plan, not a file: its label is its name, never the path. */
+    const tabTitle = isSyntheticTab(tab) ? tab.name : tab.path
     if (draggingPath !== null && dropIndex === index) nodes.push(h('div', { 'aria-hidden': true, className: 'dsh-ws-preview-drop-indicator', key: `drop:${index}` }))
     nodes.push(h('div', {
       className: 'dsh-ws-preview-tab',
@@ -17,8 +20,7 @@ export function PreviewTabs({ tabs, activePath, draggingPath, dropIndex, contain
       onContextMenu: event => { event.preventDefault(); onContextMenu(tab.path, event.clientX, event.clientY) },
       onDragEnd: () => onDragEnd(),
       onDragStart: event => onDragStart(tab.path, event),
-      /* A mind-map tab's path is synthetic; its title is the map name. */
-      title: tab.kind === 'mindmap' ? tab.name : tab.path,
+      title: tabTitle,
     },
       /* Small tabbed-panel glyph marks a docked mind map. */
       tab.kind === 'mindmap'
@@ -33,12 +35,25 @@ export function PreviewTabs({ tabs, activePath, draggingPath, dropIndex, contain
               strokeWidth: 1.5,
             })))
         : null,
+      /* A document glyph marks an opened plan. */
+      isPlanTab(tab)
+        ? h('span', { 'aria-hidden': true, className: 'dsh-ws-preview-tab-plan' },
+          h('svg', { viewBox: '0 0 16 16' },
+            h('path', {
+              d: 'M3.5 2.5h6L13 6v7.5H3.5ZM9.5 2.5V6H13M5.5 8.5h5M5.5 11h5',
+              fill: 'none',
+              stroke: 'currentColor',
+              strokeLinecap: 'round',
+              strokeLinejoin: 'round',
+              strokeWidth: 1.5,
+            })))
+        : null,
       h('button', {
         className: 'dsh-ws-preview-tab-button',
         onClick: () => onChoose(tab),
         role: 'tab',
         'aria-selected': tab.path === activePath,
-        title: tab.kind === 'mindmap' ? tab.name : tab.path,
+        title: tabTitle,
         type: 'button',
       }, h('span', { className: 'dsh-ws-preview-tab-name' }, tab.name), tab.dirty ? h('span', { className: 'dsh-ws-dirty', title: translate('tab.dirty') }, '·') : null),
       tab.pinned

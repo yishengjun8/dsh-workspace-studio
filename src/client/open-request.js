@@ -11,7 +11,10 @@ export const fileOpenRequestStore = {
     return () => { this._listeners.delete(listener) }
   },
   getSnapshot() { return this._snapshot },
-  request(workspaceId, path, name, line) {
+  /* `outside` marks a path the workspace-confined plugin API cannot serve: the
+     explorer opens it as the session-only read-only preview instead of a tree
+     file, so it never becomes a tree selection, a draft, or a persisted tab. */
+  request(workspaceId, path, name, line, outside) {
     this._snapshot = {
       seq: this._snapshot.seq + 1,
       request: {
@@ -19,6 +22,7 @@ export const fileOpenRequestStore = {
         path,
         name: typeof name === 'string' && name !== '' ? name : path.slice(path.lastIndexOf('/') + 1),
         line: Number.isFinite(line) ? line : undefined,
+        outside: outside === true ? true : undefined,
       },
     }
     for (const listener of [...this._listeners]) listener()

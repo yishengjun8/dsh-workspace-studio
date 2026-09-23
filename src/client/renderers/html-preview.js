@@ -1,4 +1,4 @@
-/* Rendered HTML preview: the draft stays the iframe's source, with relative scripts/stylesheets packed in via the readRelated Remote; packing is debounced, and a pack failure falls back to the raw draft with a notice. */
+/* Rendered HTML preview: the draft stays the iframe's source, with relative scripts/stylesheets packed in via the readBytes(baseFile) Remote face (which also serves a document OUTSIDE the workspace); packing is debounced, and a pack failure falls back to the raw draft with a notice. */
 import { createElement as h } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { translate } from '../locale/index.js'
@@ -31,7 +31,8 @@ export function HtmlPreview({ sessionId, path, draft }) {
         }
         return faces.readRelated(String(sessionId), path, relativePath, signal).then((result) => {
           if (!result.ok) throw new Error(result.error.message)
-          return { data: Uint8Array.from(atob(result.value.data), character => character.charCodeAt(0)) }
+          /* Native bytes, not base64 (DSH 0.1.7 readBytes). */
+          return { data: result.value.data }
         })
       }
       void packHtml(draft ?? '', readRelative, controller.signal).then((bundle) => {

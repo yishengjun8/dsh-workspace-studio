@@ -1,4 +1,4 @@
-import { API_PREFIX, ENCODING_FALLBACK, ENCODING_LABEL_FALLBACK, MINDMAP_MODELS_CACHE_MS, TOKEN_STATS_TIMEOUT_MS, UPDATE_CHECK_TIMEOUT_MS, UPDATE_DOWNLOAD_TIMEOUT_MS } from './constants.js'
+import { API_PREFIX, ENCODING_FALLBACK, ENCODING_LABEL_FALLBACK, MINDMAP_LOAD_TIMEOUT_MS, MINDMAP_MODELS_CACHE_MS, MINDMAP_SYNC_TIMEOUT_MS, TOKEN_STATS_TIMEOUT_MS, UPDATE_CHECK_TIMEOUT_MS, UPDATE_DOWNLOAD_TIMEOUT_MS } from './constants.js'
 import { localeIsZh, translate } from './locale/index.js'
 
 /* Bounded request timeouts: a hung Host must not leave the UI in a permanent loading/saving state; merges the caller's signal with a timeout, falling back to the signal alone when the timeout APIs are unavailable. */
@@ -151,16 +151,19 @@ export async function putFile(workspaceId, path, content, revision, signal, enco
 }
 // Mind-map document API: the 导图 view is backed by a persisted per-root-session document the Host reverse-parses from the full session logs; the client only re-syncs and persists structural changes.
 export async function mindmapRequest(endpoint, options) {
-  const { method = 'GET', body, signal } = options ?? {}
-  /* The regenerate/summarize endpoints run a synchronous LLM call on the Host, so give them a longer timeout than the plain doc/sync traffic. */
+  const { method = 'GET', body, signal, timeoutMs } = options ?? {}
+  /* The regenerate/summarize endpoints run a synchronous LLM call on the Host, so give them a longer timeout than the plain doc/sync traffic. The doc read and the sync reconcile the WHOLE family (seconds on large maps) and pass an explicit timeoutMs; everything else keeps the generic bound. */
   const llmEndpoint = endpoint === '/regenerate-summary' || endpoint === '/regenerate-all' || endpoint === '/summarize-session'
+  const effectiveTimeout = Number.isFinite(timeoutMs)
+    ? timeoutMs
+    : (llmEndpoint ? MINDMAP_LLM_TIMEOUT_MS : REQUEST_TIMEOUT_MS)
   const response = await fetch(`${API_PREFIX}/mindmap-doc${endpoint}`, {
     method,
     headers: body === undefined
       ? { accept: 'application/json' }
       : { accept: 'application/json', 'content-type': 'application/json' },
     credentials: 'same-origin',
-    signal: withTimeout(signal, llmEndpoint ? MINDMAP_LLM_TIMEOUT_MS : REQUEST_TIMEOUT_MS),
+    signal: withTimeout(signal, effectiveTimeout),
     body: body === undefined ? undefined : JSON.stringify(body),
   })
   if (!response.ok) throw await responseFailure(response, 'request-failed', 'error.request-failed')
@@ -173,7 +176,7 @@ export async function mindmapRequest(endpoint, options) {
   }
   return payload
 }
-export const fetchMindmapDoc = (sessionId, signal) => mindmapRequest(`?sessionId=${encodeURIComponent(String(sessionId))}`, { method: 'GET', signal })
+export const fetchMindmapDoc = (sessionId, signal) => mindmapRequest(`?sessionId=${encodeURIComponent(String(sessionId))}`, { method: 'GET', signal, timeoutMs: MINDMAP_LOAD_TIMEOUT_MS })
 export const writeMindmapDoc = (sessionId, doc, signal, prevSessionId) => mindmapRequest(`?sessionId=${encodeURIComponent(String(sessionId))}`, {
   method: 'POST',
   body: prevSessionId === undefined || prevSessionId === null
@@ -192,6 +195,7 @@ export const syncMindmapDoc = (sessionId, liveSessionIds, signal, summaryConfig)
     method: 'POST',
     body,
     signal,
+    timeoutMs: MINDMAP_SYNC_TIMEOUT_MS,
   })
 }
 /* Configured models for the AI-summary picker, cached briefly. */

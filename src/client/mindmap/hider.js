@@ -1,4 +1,5 @@
 import { MINDMAP_HIDER_THROTTLE_MS } from '../constants.js'
+import { currentSessionOf } from '../controllers.js'
 import { isMindmapFamilySession } from './panel.js'
 import { mindmapRegistry } from './registry.js'
 
@@ -122,7 +123,7 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
        is a registry root/branch, resolves to one through the parent chain, or
        was created by this plugin's mind-map createSession (in-flight set). A
        plus-button blank session is none of those and stays visible. */
-    const currentId = list.current === undefined || list.current === null ? null : String(list.current)
+    const currentId = currentSessionOf(list.byId) ?? null
     const currentSummary = currentId !== null ? list.byId[currentId] : undefined
     const blankFamilyCurrent = currentSummary !== undefined && currentSummary.blank === true
       && (mindmapRegistry.isBranch(currentId)
@@ -137,7 +138,7 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
       if (summary === undefined) continue
       const title = typeof summary.displayTitle === 'string' ? summary.displayTitle.trim() : ''
       const isFamily = isMindmapFamilySession(list, id)
-      sessionSig.push(`${id}\u0001${title}\u0001${summary.blank ? 1 : 0}\u0001${summary.origin ?? ''}\u0001${archived.has(String(id)) ? 1 : 0}\u0001${isFamily ? 1 : 0}\u0001${String(id) === String(list.current) ? 1 : 0}`)
+      sessionSig.push(`${id}\u0001${title}\u0001${summary.blank ? 1 : 0}\u0001${summary.origin ?? ''}\u0001${archived.has(String(id)) ? 1 : 0}\u0001${isFamily ? 1 : 0}\u0001${String(id) === String(currentId) ? 1 : 0}`)
       /* Subagent rows TAKE PART in the title census (the row pass hides by
          title regardless of origin): a family subagent's unique title must
          produce a hidden vote, and a non-family subagent sharing a family
@@ -249,7 +250,7 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
         const summary = list.byId[id]
         if (summary === undefined) continue
         if (archived.has(String(id))) continue
-        if (summary.blank && String(id) !== String(list.current)) continue
+        if (summary.blank && String(id) !== String(currentId)) continue
         const title = typeof summary.displayTitle === 'string' ? summary.displayTitle.trim() : ''
         if (title === '' || hideTitles.has(title)) continue
         visibleCount += 1

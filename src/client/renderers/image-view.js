@@ -1,4 +1,4 @@
-/* Standalone image preview: complete bytes via the readAll Remote, rendered as a blob URL; re-fetches when the read epoch bumps. */
+/* Standalone image preview: complete bytes via the readBytes Remote face, rendered as a blob URL; re-fetches when the read epoch bumps. */
 import { createElement as h } from 'react'
 import { useEffect, useState } from 'react'
 import { translate } from '../locale/index.js'
@@ -33,8 +33,8 @@ export function ImageView({ sessionId, path, name, readEpoch }) {
         setState({ url: undefined, failure: result.error })
         return
       }
-      const bytes = Uint8Array.from(atob(result.value.data), character => character.charCodeAt(0))
-      url = URL.createObjectURL(new Blob([bytes], { type: mimeOf(name) }))
+      /* DSH 0.1.7's readBytes answers native bytes (`Uint8Array`), never base64. */
+      url = URL.createObjectURL(new Blob([result.value.data], { type: mimeOf(name) }))
       setState({ url, failure: undefined })
     })
     return () => {

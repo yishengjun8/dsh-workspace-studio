@@ -6,19 +6,24 @@ import { translate } from '../../../locale/index.js'
 import { readOnlyReason } from '../../../format.js'
 import { encodingLabel } from '../../../api.js'
 import { resolveMergeParts, threeWayMerge } from '../../../merge.js'
-import { entryFromPreviewTab } from '../../../preview-tabs.js'
+import { entryFromPreviewTab, isSyntheticTab } from '../../../preview-tabs.js'
 import { isImageName } from '../../../renderers/registry.js'
+import { useRemoteFaces } from '../../../renderers/remote.js'
+import { readRemoteText } from '../../../renderers/remote-text.js'
 import { rewriteRelativePath } from '../../../paths.js'
 import { deleteEmergencyDraft, readEmergencyDraft, writeEmergencyDraft } from '../../../drafts.js'
 import { diskSnapshot, getCachedPreview, invalidateCachedPath, refreshCachedSnapshot, sameDiskSnapshot, storeCachedPreview } from '../../../file-cache.js'
 
 export function useEditorSession({
-  workspace, draftScopeId, activePath, activeTab, tabsRef, activePathRef, updateTab, setTabs,
+  workspace, sessionId, draftScopeId, activePath, activeTab, tabsRef, activePathRef, updateTab, setTabs,
   setSelected, publishEditorContext, loadDraft, readFile, saveFile, persistDraftFile,
   removeDraftFile, draftTree, checkFileChange, settings, mounted, editorRef,
   refreshPendingRef, cancelRestoreRef, requestedEncodingRef, reloadingPathsRef,
   scrollTopRef, reloadToken, setReloadToken,
 }) {
+  /* Installing the workspace-files Remote faces later must re-run the read pass:
+     the read-only preview of an outside-workspace file has no other trigger. */
+  const faces = useRemoteFaces()
   const [preview, setPreview] = useState({ state: 'idle' })
   const [editing, setEditing] = useState(false)
   const [dirty, setDirty] = useState(false)
@@ -160,7 +165,7 @@ export function useEditorSession({
     const inflight = new Set()
     const tick = () => {
       if (controller.signal.aborted || !mounted.current) return
-      const open = tabsRef.current.filter(tab => !tab.external && tab.kind !== 'mindmap' && tab.path !== '')
+      const open = tabsRef.current.filter(tab => !tab.external && !isSyntheticTab(tab) && tab.path !== '')
       if (open.length === 0) return
       void Promise.all(open.map(async (tab) => {
         if (controller.signal.aborted) return
@@ -240,9 +245,9 @@ export function useEditorSession({
       baseText.current = ''
       return undefined
     }
-    // A mind-map tab carries no file: no read, no draft, no editor state; the map body is owned by the global host.
-    const mindmapTab = tabsRef.current.find(item => item.path === activePath && item.kind === 'mindmap')
-    if (mindmapTab !== undefined) {
+    // A mind-map tab carries no file (the map body is owned by the global host) and a plan tab renders a harness plan document: neither has a read, draft, or editor state.
+    const syntheticTab = tabsRef.current.find(item => item.path === activePath && isSyntheticTab(item))
+    if (syntheticTab !== undefined) {
       readController.current?.abort()
       publishEditorContext(undefined)
       setSelected(undefined)
@@ -254,6 +259,118 @@ export function useEditorSession({
       baseText.current = ''
       diskBaseRef.current = ''
       setPreview({ state: 'idle' })
+      return undefined
+    }
+    /* A file OUTSIDE the workspace: the tab is session-only and read-only, and its
+       content comes from the harness workspace-files Remote — the plugin's own
+       workspace-confined API would refuse the absolute path with a 400. No draft,
+       no save, no change poll, no persistence (all keyed off `external`). */
+    const outsideTab = tabsRef.current.find(item => item.path === activePath && item.outside === true)
+    if (outsideTab !== undefined) {
+      readController.current?.abort()
+      publishEditorContext(undefined)
+      setSelected(undefined)
+      setEditing(false)
+      setDirty(false)
+      setSaving(false)
+      setStatus(undefined)
+      setDraft('')
+      baseText.current = ''
+      diskBaseRef.current = ''
+      const name = outsideTab.name
+      const size = Number.isFinite(outsideTab.size) ? outsideTab.size : null
+      if (isImageName(name)) {
+        /* Images render from bytes, never through a text read. */
+        setPreview({
+          state: 'ready',
+          kind: 'image',
+          path: activePath,
+          name,
+          symlink: false,
+          size,
+          editable: false,
+          readOnlyReason: 'outside-workspace',
+        })
+        setReadEpoch(epoch => epoch + 1)
+        updateTab(activePath, {
+          editing: false,
+          dirty: false,
+          saving: false,
+          status: undefined,
+          loaded: true,
+          readOnlyReason: 'outside-workspace',
+          truncated: false,
+        })
+        return undefined
+      }
+      const remoteSessionId = sessionId === undefined || sessionId === null ? null : String(sessionId)
+      if (remoteSessionId === null || faces === undefined) {
+        /* No Session or no Remote faces: there is nothing this layout can read the
+           file with, and claiming so beats an empty editor. */
+        setPreview({ state: 'error', message: translate('renderer.unavailable') })
+        return undefined
+      }
+      const controller = new AbortController()
+      readController.current = controller
+      const readSeq = ++readSeqRef.current
+      setPreview({ state: 'loading' })
+      readRemoteText(remoteSessionId, activePath, controller.signal).then((result) => {
+        if (readSeq !== readSeqRef.current || controller.signal.aborted) return
+        if (result === null) {
+          setPreview({ state: 'error', message: translate('renderer.unavailable') })
+          return
+        }
+        const content = result.text
+        baseText.current = content
+        diskBaseRef.current = content
+        setDraft(content)
+        setPreview({
+          state: 'ready',
+          content,
+          path: activePath,
+          name,
+          symlink: false,
+          truncated: result.truncated,
+          /* The Remote decodes as UTF-8 and refuses anything else, so the preview
+             is always plain UTF-8 with no BOM and no line-ending rewrite. */
+          encoding: 'utf-8',
+          lineEnding: 'none',
+          bom: false,
+          size,
+          editable: false,
+          readOnlyReason: 'outside-workspace',
+          revision: null,
+          maxContextBytes: null,
+          mtimeMs: 0,
+        })
+        updateTab(activePath, {
+          baseText: content,
+          baseRevision: null,
+          bom: false,
+          dirty: false,
+          draft: content,
+          draftKnown: true,
+          editing: false,
+          encoding: 'utf-8',
+          lineEnding: 'none',
+          loaded: true,
+          maxContextBytes: null,
+          mtimeMs: 0,
+          name,
+          readOnlyReason: 'outside-workspace',
+          revision: null,
+          saving: false,
+          size,
+          status: undefined,
+          truncated: result.truncated,
+        })
+      }).catch((error) => {
+        if (readSeq !== readSeqRef.current || controller.signal.aborted || error?.name === 'AbortError') return
+        setPreview({
+          state: 'error',
+          message: translate('renderer.loadFailed', { message: error instanceof Error ? error.message : String(error) }),
+        })
+      })
       return undefined
     }
     // External (dropped) files already carry decoded content, so build the read-only preview synchronously without hitting the workspace API.
@@ -337,7 +454,7 @@ export function useEditorSession({
     const canFast = !refreshPending && !cancelRestore
       && requestedEncodingRef.current === undefined
       && !reloadingPathsRef.current.has(activePath)
-      && candidateTab !== undefined && candidateTab.kind !== 'mindmap'
+      && candidateTab !== undefined && !isSyntheticTab(candidateTab)
       && !candidateTab.external && !candidateTab.dirty && !candidateTab.saving
       /* draftKnown === false marks the two paths that force a loaded tab clean while a live staging draft may survive (read-failure preserve / clean-revert before its cleanup settles): the fast serve would stamp draft===baseText over that state and hide the draft (no dirty dot, save disabled), so such tabs must take the full pass and re-run draft restoration. */
       && (mountLoaded ? (candidateTab.draftKnown !== false && diskConfirmedClean) : cacheEntry !== undefined)
@@ -713,7 +830,7 @@ export function useEditorSession({
       // This path's read was abandoned (tab switched away or unmount): drop its reloading marker so a later visit can re-arm.
       if (activePathRef.current !== activePath) reloadingPathsRef.current.delete(activePath)
     }
-  }, [activePath, checkFileChange, draftScopeId, loadDraft, publishEditorContext, readFile, reloadToken, removeDraftFile, updateTab, workspace.workspaceId])
+  }, [activePath, checkFileChange, draftScopeId, faces, loadDraft, publishEditorContext, readFile, reloadToken, removeDraftFile, sessionId, updateTab, workspace.workspaceId])
   const nextDraftGeneration = useCallback((path) => {
     draftGenerationCounterRef.current += 1
     const next = draftGenerationCounterRef.current

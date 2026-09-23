@@ -13,7 +13,10 @@ import { DRAFT_DIR_NAME, draftWorkspacePart, readJsonFileOrNull, writeJsonAtomic
  * specific card of another session (a nested fork). Each turn carries a
  * doc-wide display number `n`, the session's own turn number `t`, and the
  * turn/end `seq` (the fork boundary). The Host re-parses each session's full
- * log on sync so new turns fold in regardless of the client's window.
+ * log on sync so new turns fold in regardless of the client's window; a cold
+ * member is re-read only when its persistence revision moved (see
+ * `mindmapParsedTurnsOf`), because a whole-family re-read costs seconds per
+ * member on large families.
  */
 
 const MINDMAP_SUB_DIR = 'mindmap'
@@ -1085,8 +1088,8 @@ async function mindmapPersistenceList(persistence) {
     if (mindmapPersistenceListInflight === inflight) mindmapPersistenceListInflight = null
   }
 }
-/* Doc writes change the family membership the index feeds, so a forked/created session must be visible to the very next adopt/orphan check. Only the rows cache is dropped — the sync cache has its own invalidation at every write site. */
-function mindmapInvalidatePersistenceList() {
+/* Doc writes change the family membership the index feeds, so a forked/created session must be visible to the very next adopt/orphan check. Only the rows cache is dropped — the sync cache has its own invalidation at every write site. Exported because a mind-map OPEN must also start from a fresh session index: the rows behind the cold-read fingerprint are cached for 45 s, and an open has to see a turn that completed while the map was closed. */
+export function mindmapInvalidatePersistenceList() {
   mindmapPersistenceListCache = { at: 0, value: null }
 }
 let mindmapPersistenceListCache = { at: 0, value: null }
@@ -1108,6 +1111,96 @@ function parseMindmapTurnsCached(sessionId, events) {
   }
   mindmapParseCache.set(sessionId, { events, length: events.length, parsed, at: now })
   return parsed
+}
+
+/* Cold-log read cache keyed by the persistence REVISION of the cached
+   `persistence.list` row: the backend contract promises that an EQUAL revision —
+   same service instance, same session id — means an unchanged log. Without it
+   every full refresh re-read and re-decoded each cold family member's whole log,
+   and because a fork child's log carries the parent's inherited prefix the cost
+   scales with the family's total log volume (measured here: 23 sessions / 35 MB
+   of logs = ~37 s per refresh, which saturates the Host and pushes the client's
+   own open past its request timeout, so clicking a sidebar mind-map entry looked
+   like "loads nothing").
+   The revision comes from the SHARED list() scan (45 s TTL, already paid by the
+   adopt pass) and NOT from a per-session `persistence.stat()`: measured on this
+   deployment one stat costs ~1.9 s (it walks every project directory), so
+   stat-ing a whole family costs as much as reading it. The service `identity`
+   rides along so a replaced persistence service (HMR / reload) can never compare
+   revisions minted by a different instance. */
+const MINDMAP_COLD_PARSE_CACHE_MAX = 256
+const mindmapColdParseCache = new Map() // sessionId -> { identity, revision, parsed, inheritedEventCount }
+
+function mindmapColdParseCacheStore(sessionId, entry) {
+  mindmapColdParseCache.set(sessionId, entry)
+  if (mindmapColdParseCache.size > MINDMAP_COLD_PARSE_CACHE_MAX) {
+    const oldest = mindmapColdParseCache.keys().next().value
+    if (oldest !== undefined) mindmapColdParseCache.delete(oldest)
+  }
+}
+
+/* sessionId -> revision projection of the CACHED list() rows, rebuilt only when
+   the rows array identity changes (the 45 s TTL and the in-flight share live in
+   mindmapPersistenceList). An id with no row (a log that does not exist) simply
+   has no fingerprint and keeps the always-read behavior. */
+let mindmapLogRevisionRows = { list: null, rows: null }
+async function mindmapLogRevisions(persistence) {
+  const list = await mindmapPersistenceList(persistence)
+  if (mindmapLogRevisionRows.list === list) return mindmapLogRevisionRows.rows
+  const rows = new Map()
+  for (const row of list) {
+    const id = row === null || row === undefined ? undefined : row.header?.id
+    if (id === undefined || id === null) continue
+    rows.set(String(id), row.revision)
+  }
+  mindmapLogRevisionRows = { list, rows }
+  return rows
+}
+
+/* Parsed completed turns of one session, served from memory whenever the log is
+   provably unchanged. `status: 'unavailable'` means the log could not be read at
+   all: callers keep their recorded turns instead of clearing them (the same
+   degrade rule as `eventsOf` returning null). Only an equal revision with a
+   known service identity may skip the read, so a backend without a usable list
+   index keeps today's always-read behavior. */
+async function mindmapParsedTurnsOf(ctx, persistence, sessionId) {
+  const id = String(sessionId)
+  const live = ctx.sessions.get(id)
+  if (live !== undefined && typeof live.snapshotEvents === 'function') {
+    try {
+      const events = live.snapshotEvents()
+      if (Array.isArray(events)) {
+        return { status: 'ok', parsed: parseMindmapTurnsCached(id, events), inheritedEventCount: live.inheritedEventCount }
+      }
+    } catch {
+      /* fall through to the durable read */
+    }
+  }
+  const identity = persistence === undefined ? undefined : persistence.identity
+  let revision
+  if (persistence !== undefined) {
+    try {
+      revision = (await mindmapLogRevisions(persistence)).get(id)
+    } catch {
+      revision = undefined
+    }
+  }
+  const hit = mindmapColdParseCache.get(id)
+  if (hit !== undefined && revision !== undefined && identity !== undefined
+    && hit.revision === revision && hit.identity === identity) {
+    /* LRU touch: an actively reconciled family must not be the eviction victim. */
+    mindmapColdParseCache.delete(id)
+    mindmapColdParseCache.set(id, hit)
+    return { status: 'ok', parsed: hit.parsed, inheritedEventCount: hit.inheritedEventCount }
+  }
+  const readInfo = {}
+  const events = await eventsOf(ctx, persistence, id, readInfo)
+  if (!Array.isArray(events)) return { status: 'unavailable' }
+  const parsed = parseMindmapTurns(events)
+  if (revision !== undefined && identity !== undefined) {
+    mindmapColdParseCacheStore(id, { identity, revision, parsed, inheritedEventCount: readInfo.inheritedEventCount })
+  }
+  return { status: 'ok', parsed, inheritedEventCount: readInfo.inheritedEventCount }
 }
 
 /* Build a fresh v3 doc for a session that has never been converted: the session becomes the first TOP-LEVEL session with its completed turns. Empty sessions still convert (the root node is the creation hub). Null only when archived. workspaceCwd from the anchor's header is recorded so a root-node-created top-level session lands in the SAME workspace. */
@@ -1395,14 +1488,15 @@ export async function reconcileMindmapDoc(ctx, persistence, doc) {
   }
   for (const session of doc.sessions ?? []) {
     if (session === null || session === undefined || typeof session?.sessionId !== 'string') continue
-    const events = await eventsOf(ctx, persistence, session.sessionId)
-    if (!Array.isArray(events)) continue
+    /* Resident sessions are parsed by snapshot identity + length; cold ones are read
+       only when their log revision changed, so an idle family reconciles from memory
+       instead of re-decoding every fork child's inherited log prefix. */
+    const read = await mindmapParsedTurnsOf(ctx, persistence, session.sessionId)
+    if (read.status !== 'ok') continue
     const forkTurn = Number(session.forkTurn)
-    /* Cached by events identity + length: idle family sessions skip the full-log walk on every sync; only the streaming session (length growing) re-parses. */
-    const parsedAll = parseMindmapTurnsCached(session.sessionId, events)
     const ownParsed = (Number.isSafeInteger(forkTurn) && forkTurn > 0
-      ? parsedAll.filter(turn => turn.t > forkTurn)
-      : parsedAll)
+      ? read.parsed.filter(turn => turn.t > forkTurn)
+      : read.parsed)
     const result = reconcileMindmapTurns(ownParsed, session.turns, next)
     session.turns = result.turns
     next = result.next
@@ -1510,13 +1604,12 @@ async function adoptMindmapOrphanPass(ctx, persistence, doc) {
     if (archived.has(sessionId)) continue
     const parent = info.parent
     if (parent === undefined || !known.has(String(parent))) continue
-    /* eventsOf reports the exact fork-inherited event count through `readInfo` (never a second open), so already-chatted children still get their exact boundary instead of being skipped by the un-chatted-only heuristic. */
-    const readInfo = {}
-    const events = await eventsOf(ctx, persistence, sessionId, readInfo)
-    if (!Array.isArray(events)) continue
-    const parsed = parseMindmapTurns(events)
+    /* The revision-guarded read reports the exact fork-inherited event count beside the parsed turns (never a second open), so already-chatted children still get their exact boundary instead of being skipped by the un-chatted-only heuristic. */
+    const read = await mindmapParsedTurnsOf(ctx, persistence, sessionId)
+    if (read.status !== 'ok') continue
+    const parsed = read.parsed
     if (parsed.length === 0) continue
-    const inheritedCount = readInfo.inheritedEventCount
+    const inheritedCount = read.inheritedEventCount
     const seedLength = Number.isSafeInteger(Number(inheritedCount)) && Number(inheritedCount) > 0
       ? Number(inheritedCount)
       : info.seedLength
@@ -1527,9 +1620,9 @@ async function adoptMindmapOrphanPass(ctx, persistence, doc) {
       }
     } else {
       /* No seed cut recorded (a child created outside the fork API): the last completed turn is the boundary only while the child's log is exactly the inherited seed — verified against the parent's turns, so an already-chatted child is skipped instead of mis-attached. */
-      const parentEvents = await eventsOf(ctx, persistence, String(parent))
-      if (Array.isArray(parentEvents)) {
-        const parentParsed = parseMindmapTurns(parentEvents)
+      const parentRead = await mindmapParsedTurnsOf(ctx, persistence, String(parent))
+      if (parentRead.status === 'ok') {
+        const parentParsed = parentRead.parsed
         if (parsed.length <= parentParsed.length
           && parsed.every((turn, index) => {
             const other = parentParsed[index]
@@ -1627,10 +1720,16 @@ export async function syncMindmapDoc(ctx, persistence, sessionId, liveSessionIds
     mindmapDrainPendingSessionSummaries(ctx, persistence)
     const cached = mindmapSyncCache.get(docRoot)
     const now = Date.now()
+    const liveKey = mindmapLiveRequestKey(liveSessionIds)
+    /* A change in the client-reported running set is the fold trigger: a run that
+       just ended leaves a new turn in that session's log, and the row revisions
+       behind the cold-read fingerprint are otherwise cached for 45 s — a stale row
+       would let the skip serve the pre-turn parse and hide the card. Drop the rows
+       so the signature below (and the reconcile) see a FRESH session index. */
+    if (cached !== undefined && cached.liveKey !== liveKey) mindmapInvalidatePersistenceList()
     /* Cheap change check: when the signature is unchanged, serve the cached doc without re-parsing logs or scanning the index — the poll is O(1) while the family is idle. The index-derived parts are computed ONCE and reused by the settle below. */
     const parts = await mindmapSyncSignatureParts(ctx, persistence)
     const { sig, refs } = mindmapSyncSignatureFromParts(ctx, fresh, cached?.refs, parts)
-    const liveKey = mindmapLiveRequestKey(liveSessionIds)
     if (cached !== undefined && cached.at + MINDMAP_SYNC_CACHE_TTL_MS > now
       && cached.sig === sig && cached.liveKey === liveKey) {
       /* Refresh the LRU order so an actively-polled doc is never the eviction victim (Map iteration order is insertion order). */

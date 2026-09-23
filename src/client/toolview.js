@@ -10,7 +10,7 @@
  */
 import { createElement as h, Fragment, useCallback, useMemo, useRef, useState } from 'react'
 import {
-  diffTotals, IconChevronDownOutline14, IconEditOutline16, StateDot, writeClipboard,
+  diffTotals, IconChevronDownOutlineRegular, IconEditOutlineRegular, StateDot, writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { inlineDiffSegments, myersDiff } from './merge.js'
 import { CONVERSATION_SCROLLPORT_SELECTOR, installScrollGate } from './scroll-gate.js'
@@ -353,7 +353,7 @@ function StudioToolCard({
       tabIndex: expandable ? 0 : undefined,
     },
       h('span', { className: 'dsh-ws-tool-chevron', 'aria-hidden': true },
-        h(IconChevronDownOutline14, { size: 14 })),
+        h(IconChevronDownOutlineRegular, { size: 14 })),
       h('span', { className: 'dsh-ws-tool-leading' }, leading),
       h('span', { className: 'dsh-ws-tool-title' }, title),
       h('span', { className: 'dsh-ws-tool-sep', 'aria-hidden': true }),
@@ -418,7 +418,7 @@ export function StudioFileMutationRow({ toolName, block, cwd, home, openFile, t 
   const title = t(model.titleKey)
   const leading = model.state === 'error' ? h(StateDot, { state: 'error' })
     : model.state === 'stopped' ? h(StateDot, { state: 'warning' })
-      : h(IconEditOutline16, { size: 14 })
+      : h(IconEditOutlineRegular, { size: 14 })
   const cards = []
   if (diffs !== null) {
     for (const group of groupDiffsByPath(diffs)) {

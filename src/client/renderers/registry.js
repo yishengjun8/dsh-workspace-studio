@@ -72,7 +72,7 @@ export function isImageName(name) {
   return matchingRenderers(name).some(renderer => renderer.id === RENDERER_IMAGE)
 }
 
-/* The viewer-menu items for the active file: 'edit' is always present for text files; 'preview' is the rendered view. Read-only text files offer a paged browse of the full file; external files never offer it; image files have a single auto-selected view. */
+/* The viewer-menu items for the active file: 'edit' is always present for text files; 'preview' is the rendered view. Read-only text files offer a paged browse of the full file; a tab the workspace-files Remote cannot read at all (a dropped-in file, whose content lives only in memory) never offers it — a file OUTSIDE the workspace is not such a tab (the Remote reads its absolute path), so its caller passes external=false. Image files have a single auto-selected view. */
 export function viewerCandidates(preview, name, external) {
   if (isImageName(name)) return [{ id: 'image', label: translate('renderer.image') }]
   if (isMarkdownName(name)) {

@@ -1,10 +1,15 @@
-/* Route the chat's file-open path into the plugin's own preview tabs.
+/* Route the chat's resource-open path into the plugin's own preview tabs.
  *
  * The shipped chat opens files through ctx.sidebarRight.openResource, which
  * requires the harness right-Sidebar seat this root layout never mounts. This
- * module patches openResource to resolve the address against the session's
+ * module patches openResource to resolve a FILE address against the session's
  * workspace and publish an open request to the mounted explorer
- * (fileOpenRequestStore), opening the file as a preview tab.
+ * (fileOpenRequestStore): a path inside the workspace opens as a normal preview
+ * tab, a path outside it as the session-only read-only preview. A PLAN address
+ * (ui-plan's 「查看全文」 and the turn's plan card) is routed to planOpenStore
+ * instead, and any other address is handed back to the harness implementation —
+ * its own registered tab types, or its honest "no seat mounted" failure. The
+ * patch only claims the addresses this layout can actually draw.
  *
  * The patch follows the sendSession bridge convention: a marker + recorded
  * original let an overlapping re-install unwrap a stale wrapper instead of
@@ -13,8 +18,10 @@
  */
 import { OPEN_RESOURCE_BRIDGE_MARKER, OPEN_RESOURCE_BRIDGE_ORIGINAL } from './constants.js'
 import { translate } from './locale/index.js'
-import { workspaceOfSession } from './controllers.js'
+import { currentSessionOf, workspaceOfSession } from './controllers.js'
 import { fileOpenRequestStore } from './open-request.js'
+import { isAbsoluteWorkspacePath } from './paths.js'
+import { normalizePlanDocument, parsePlanResourceAddress, planDocuments, planOpenStore } from './plan-open.js'
 
 /* The dsh-resource://file/… address grammar, mirrored locally from
    @deepseek-ai/dsh-util-workspace-path's file-address.ts so the bundle needs
@@ -23,7 +30,10 @@ const FILE_ADDRESS_PREFIX = 'dsh-resource://file/'
 
 /* Parse a file address into its parts; undefined when not a file address.
    - session scope: `dsh-resource://file/session/<sessionId>/<path>` — the
-     path is relative to that Session's workspace root (no leading `/`).
+     path is resolved against that Session's workspace root, and DSH spells it
+     RELATIVE only when the root is known and contains it; a Session with no
+     cwd, or a file outside the root, keeps the absolute spelling in this same
+     scope. Both spellings must therefore be handled here.
    - absolute scope: `dsh-resource://file/absolute/<path>` — the absolute
      path with the leading `/` dropped (`C:/x/y.txt` for a Windows drive; a
      UNC path keeps an empty first segment, `//server/share/x.txt`). */
@@ -80,17 +90,16 @@ function relativizeToRoot(root, path) {
   return normalized.slice(base.length + 1)
 }
 
-/* Resolve a file address to a workspace-relative path and publish the open
-   request; throws a user-facing error when the file cannot be opened. */
-function routeFileOpen(ctx, address, options) {
-  const parsed = parseFileAddress(address)
-  if (parsed === undefined) {
-    throw new Error(`sidebarRight: no registered tab type claims "${address}"`)
-  }
+/* Resolve a parsed file address and publish the open request. A path inside the
+   workspace opens as a normal (editable) preview tab; a path OUTSIDE it opens as
+   the session-only read-only preview — the plugin's own workspace-confined API
+   cannot serve such a file, while the harness `workspaceFiles` Remote reads it
+   through the Session's own filesystem authority. */
+function routeFileOpen(ctx, parsed, options) {
   const sessions = ctx.sessions.list.getSnapshot()
   const sessionId = parsed.scope === 'session'
     ? parsed.sessionId
-    : (sessions.current !== undefined ? String(sessions.current) : undefined)
+    : currentSessionOf(sessions.byId)
   if (sessionId === undefined) {
     throw new Error(translate('openResource.noWorkspace'))
   }
@@ -98,19 +107,26 @@ function routeFileOpen(ctx, address, options) {
   if (workspace === undefined) {
     throw new Error(translate('openResource.noWorkspace'))
   }
-  let relative = parsed.path
-  if (parsed.scope === 'absolute') {
-    if (!isPathInside(workspace.path, parsed.path)) {
-      throw new Error(translate('openResource.outsideWorkspace', { path: parsed.path }))
-    }
-    relative = relativizeToRoot(workspace.path, parsed.path)
-  }
   const line = options?.params?.line
+  const requestedLine = typeof line === 'number' && Number.isFinite(line) ? line : undefined
+  const nameOf = path => path.slice(path.lastIndexOf('/') + 1)
+  /* The scope alone does not decide this: a SESSION-scoped address may carry an
+     absolute path (see parseFileAddress), and an absolute tree path is refused
+     by the Host's workspace-confined API on sight. */
+  if (parsed.scope === 'absolute' || isAbsoluteWorkspacePath(parsed.path)) {
+    if (!isPathInside(workspace.path, parsed.path)) {
+      fileOpenRequestStore.request(String(workspace.workspaceId), parsed.path, nameOf(parsed.path), requestedLine, true)
+      return
+    }
+    const relative = relativizeToRoot(workspace.path, parsed.path)
+    fileOpenRequestStore.request(String(workspace.workspaceId), relative, nameOf(relative), requestedLine)
+    return
+  }
   fileOpenRequestStore.request(
     String(workspace.workspaceId),
-    relative,
-    relative.slice(relative.lastIndexOf('/') + 1),
-    typeof line === 'number' && Number.isFinite(line) ? line : undefined,
+    parsed.path,
+    nameOf(parsed.path),
+    requestedLine,
   )
 }
 
@@ -127,7 +143,22 @@ export function installOpenResourceRouter(ctx) {
         original = original[OPEN_RESOURCE_BRIDGE_ORIGINAL] ?? original
       }
       const patched = function openResourceRouted(address, options) {
-        routeFileOpen(ctx, address, options)
+        /* Only the addresses this layout can draw are claimed: a file address
+           opens a preview tab, a plan address opens a plan tab, and everything
+           else goes back to the harness implementation instead of this plugin
+           inventing a failure for a tab type it does not host. */
+        const file = parseFileAddress(address)
+        if (file !== undefined) { routeFileOpen(ctx, file, options); return }
+        const plan = parsePlanResourceAddress(address)
+        if (plan !== undefined) {
+          /* A temporary review carries its document in the navigation params;
+             the logged-plan path is read through the harness plan resource. */
+          const document = plan.kind === 'plan-review' ? normalizePlanDocument(options?.params?.planReview) : undefined
+          if (document !== undefined) planDocuments.set(address, document)
+          planOpenStore.open(address, document?.title ?? '', plan.sessionId)
+          return
+        }
+        if (typeof original === 'function') original.call(controller, address, options)
       }
       Object.defineProperty(patched, OPEN_RESOURCE_BRIDGE_MARKER, { value: true })
       Object.defineProperty(patched, OPEN_RESOURCE_BRIDGE_ORIGINAL, { value: original })

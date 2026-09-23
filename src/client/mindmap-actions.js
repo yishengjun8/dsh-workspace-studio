@@ -1,4 +1,5 @@
 import { clearMindmapForkQueue, deleteMindmapDoc, fetchMindmapDoc, renameMindmapDoc, syncMindmapDoc, writeMindmapDoc } from './api.js'
+import { openHarnessSession } from './controllers.js'
 import { withoutForeignForkWatch } from './mindmap/fork-watch.js'
 import { mindmapRootTitleOf, normalizeMindmapWorkspacePath } from './mindmap/helpers.js'
 import { mindmapBlankSessions } from './mindmap/hider.js'
@@ -85,7 +86,7 @@ export function buildMindmapActions(ctx) {
       return childId
     },
     loadDoc: (id, signal) => fetchMindmapDoc(String(id), signal),
-    openSession: id => { ctx.sessions.open(String(id)) },
+    openSession: id => { openHarnessSession(ctx, id) },
     renameSession: async (id, title) => {
       const session = ctx.sessions.binding(String(id))?.session
       if (session === undefined) throw new Error(`unknown session "${id}"`)

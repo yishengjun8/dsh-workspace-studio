@@ -176,6 +176,16 @@ export const MINDMAP_WHEEL_STEP = 0.0016
 export const MINDMAP_INDEX_REFRESH_MS = 30000
 /* Re-sync the doc this often while the map is mounted so a completed branch turn folds in live. */
 export const MINDMAP_SYNC_MS = 2500
+/* Mind-map request timeouts. The generic 30 s request timeout is far below the
+   Host's worst case: opening a map (or the first sync after the sync-cache TTL)
+   reconciles the WHOLE family, and each cold member's log carries its parent's
+   inherited prefix — measured 37 s for a 23-session / 35 MB family. Aborting
+   there left the map stuck on 「加载失败：signal timed out」 instead of opening.
+   These stay finite so a genuinely hung Host still surfaces an error. */
+export const MINDMAP_LOAD_TIMEOUT_MS = 180_000
+export const MINDMAP_SYNC_TIMEOUT_MS = 120_000
+/* Show the "first open may take a while" hint once a load has been pending this long. */
+export const MINDMAP_SLOW_LOAD_MS = 3000
 /* Min interval between branch-hider scans: it observes every body mutation, so throttle to a bounded rate. */
 export const MINDMAP_HIDER_THROTTLE_MS = 400
 /* DeepSeek fish logo path (ui-primitives FishLogo); padded viewBox keeps the 1.4-wide stroke unclipped. */
@@ -205,3 +215,7 @@ export const FILE_CACHE_MAX_BYTES = 12 * 1024 * 1024
 export const FILE_CACHE_MAX_ENTRY_BYTES = 4 * 1024 * 1024
 /* A fast activation serve skips its background change check only when the mount's poll confirmed the disk state equals the served content within this window. */
 export const FILE_CACHE_REVALIDATE_SKIP_MS = 2 * AUTO_SYNC_CHECK_MS + 1000
+/* Byte cap on the read-only preview of a file OUTSIDE the workspace (read through
+   the harness workspace-files Remote, page by page): past it the preview keeps
+   what it read and reports itself truncated, like the Host's own preview cap. */
+export const OUTSIDE_PREVIEW_MAX_BYTES = 2 * 1024 * 1024

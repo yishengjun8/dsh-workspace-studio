@@ -1,6 +1,6 @@
 import { createElement as h, Fragment, useRef, useState, useEffect, useLayoutEffect, useMemo, useCallback, memo, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
-import { clampMountBulge, CONTEXT_MENU_WIDTH, MINDMAP_SUMMARY_DEFAULT_LENGTH, MINDMAP_SUMMARY_MAX_LENGTH, MINDMAP_SUMMARY_MIN_LENGTH, MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH, MINDMAP_SUMMARY_SESSION_MAX_LENGTH, MINDMAP_SUMMARY_SESSION_MIN_LENGTH, MINDMAP_SYNC_MS } from '../constants.js'
+import { clampMountBulge, CONTEXT_MENU_WIDTH, MINDMAP_LOAD_TIMEOUT_MS, MINDMAP_SLOW_LOAD_MS, MINDMAP_SUMMARY_DEFAULT_LENGTH, MINDMAP_SUMMARY_MAX_LENGTH, MINDMAP_SUMMARY_MIN_LENGTH, MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH, MINDMAP_SUMMARY_SESSION_MAX_LENGTH, MINDMAP_SUMMARY_SESSION_MIN_LENGTH, MINDMAP_SYNC_MS } from '../constants.js'
 import { translate } from '../locale/index.js'
 import { styles } from '../styles.js'
 import { regenerateAllMindmapSummaries, regenerateAllSessionSummaries, regenerateMindmapSummary, summarizeMindmapSession } from '../api.js'
@@ -33,6 +33,19 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
      re-run (rootId is null while phase is 'error'). */
   const [loadEpoch, setLoadEpoch] = useState(0)
   const retryLoad = useCallback(() => { setLoadEpoch(epoch => epoch + 1) }, [])
+  /* A load that is still pending after MINDMAP_SLOW_LOAD_MS adds one explanatory
+     line: the first open of a large map reconciles every session log (measured
+     tens of seconds), so an unexplained spinner reads as "the map never loads". */
+  const [slowLoad, setSlowLoad] = useState(false)
+  useEffect(() => {
+    if (phase.status !== 'loading') {
+      setSlowLoad(false)
+      return undefined
+    }
+    let cancelled = false
+    const timer = window.setTimeout(() => { if (!cancelled) setSlowLoad(true) }, MINDMAP_SLOW_LOAD_MS)
+    return () => { cancelled = true; window.clearTimeout(timer) }
+  }, [phase.status])
   const [doc, setDoc] = useState(null)
   const [rootId, setRootId] = useState(null)
   // Latest root id as a ref: applySync guards against THIS (never the closure
@@ -146,6 +159,25 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
      and drop any response that is no longer current (the next periodic sync
      re-fetches and stays consistent). */
   const localWriteSeqRef = useRef(0)
+  /* Single-flight gate for THIS body's Host reads (periodic sync, run-edge sync,
+     empty-phase probe). The Host runs mind-map work under a per-root lock and one
+     full family refresh costs seconds, so the 2.5 s poll used to stack up to a
+     dozen requests behind that lock; the user's own "open this map from the
+     sidebar" click then queued behind the backlog and died at its request
+     timeout, which read as "the map never loads". At most ONE request per map
+     body may be in flight; a response that never settles cannot wedge the poll
+     because the gate reopens once the longest request timeout has passed.
+     Declared here (before every effect that reads it in a dependency array) so
+     no effect's deps evaluation hits the binding before initialization. */
+  const readInFlightRef = useRef(false)
+  const readStartedAtRef = useRef(0)
+  const beginRead = useCallback(() => {
+    if (readInFlightRef.current && Date.now() - readStartedAtRef.current <= MINDMAP_LOAD_TIMEOUT_MS) return false
+    readInFlightRef.current = true
+    readStartedAtRef.current = Date.now()
+    return true
+  }, [])
+  const endRead = useCallback(() => { readInFlightRef.current = false }, [])
   /* Synchronous gate for in-flight fork writes: the `forking` STATE guard only
      appears after a re-render, so a same-tick second trigger would pass it and
      fork twice (the loser's child gets adopted back as a duplicate branch). */
@@ -359,6 +391,9 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     if (phase.status !== 'empty') return undefined
     let cancelled = false
     const probe = () => {
+      /* Same single-flight rule as the two sync effects: this probe issues a full
+         GET, so a slow Host must not let 2.5 s ticks pile up behind it. */
+      if (!beginRead()) return
       const id = String(sessionId)
       Promise.resolve(loadDocRef.current(id))
         .then((payload) => {
@@ -398,10 +433,11 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
           }
         })
         .catch(() => { /* transient: keep polling */ })
+        .finally(endRead)
     }
     const timer = window.setInterval(probe, MINDMAP_SYNC_MS)
     return () => { cancelled = true; window.clearInterval(timer) }
-  }, [phase.status, restoreLastSession, sessionId, showNotice])
+  }, [beginRead, endRead, phase.status, restoreLastSession, sessionId, showNotice])
 
   /* Apply one sync payload: fold the refreshed doc (only when the structure
      changed) and keep the live-turn info for the streaming card (identity-
@@ -522,6 +558,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     if (rootId === null) return undefined
     const timer = window.setInterval(() => {
       if (savingRef.current) return
+      if (!beginRead()) return
       const root = rootIdRef.current ?? rootId
       /* A local doc write that starts after this sync is issued supersedes its
          response: applying it would momentarily wipe the optimistic card (the
@@ -536,9 +573,10 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
           applySync(payload, root)
         })
         .catch(() => { /* transient sync failure: keep the current doc */ })
+        .finally(endRead)
     }, MINDMAP_SYNC_MS)
     return () => { clearInterval(timer) }
-  }, [applySync, rootId])
+  }, [applySync, beginRead, endRead, rootId])
 
   /* Sync shortly after the doc-family running state changes: a run start brings
      in-flight questions back quickly; a run end folds the just-completed turn
@@ -556,6 +594,13 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         timer = window.setTimeout(run, 250)
         return
       }
+      /* Same single-flight rule as the periodic poll: a run-edge sync that cannot
+         be admitted is retried, never dropped, or a turn completing during a long
+         refresh would wait for the next periodic tick. */
+      if (!beginRead()) {
+        timer = window.setTimeout(run, 250)
+        return
+      }
       const root = rootIdRef.current ?? rootId
       const issuedSeq = localWriteSeqRef.current
       const issuedSync = syncSeqRef.current + 1
@@ -566,6 +611,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
           applySync(payload, root)
         })
         .catch(() => { /* transient */ })
+        .finally(endRead)
     }
     timer = window.setTimeout(run, 600)
     return () => { clearTimeout(timer) }
@@ -2169,7 +2215,8 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   }
   if (phase.status === 'loading') {
     return h('div', { className: 'dsh-ws-mindmap dsh-ws-mindmap-status' },
-      h('div', { className: 'dsh-ws-mindmap-loading' }, translate('mindmap.loading')))
+      h('div', { className: 'dsh-ws-mindmap-loading' }, translate('mindmap.loading')),
+      slowLoad ? h('div', { className: 'dsh-ws-mindmap-loading-hint' }, translate('mindmap.loadingSlow')) : null)
   }
   if (phase.status === 'empty' || layout.nodes.length === 0) {
     return h('div', { className: 'dsh-ws-mindmap dsh-ws-mindmap-status' },
