@@ -429,6 +429,12 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-renderer-browse{padding:16px 20px}
 .dsh-ws-renderer-status{display:flex;align-items:center;justify-content:center;flex:1;min-height:0;padding:16px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;text-align:center}
 .dsh-ws-renderer-status[data-error]{color:var(--dsw-alias-state-error-primary)}
+/* PDF / Office view: a banner (missing fonts) above a full-height native PDF frame. The frame is deliberately NOT sandboxed — a sandboxed frame has no PDF viewer in Chromium. */
+.dsh-ws-renderer-status-stack{display:flex;flex-direction:column;align-items:center;gap:8px}
+.dsh-ws-renderer-retry{padding:3px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:4px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:18px;cursor:pointer}
+.dsh-ws-renderer-retry:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.dsh-ws-renderer-converted{display:flex;flex-direction:column;overflow:hidden}
+.dsh-ws-renderer-converted .dsh-ws-pdf-frame{flex:1;min-height:0;width:100%;border:0;background:var(--dsw-alias-bg-base)}
 .dsh-ws-renderer-more{display:block;margin:10px auto;padding:4px 14px;border:0;border-radius:6px;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:16px;cursor:pointer}
 .dsh-ws-renderer-more:hover{color:var(--dsw-alias-label-primary)}
 .dsh-ws-renderer-more:disabled{cursor:not-allowed;opacity:.55}

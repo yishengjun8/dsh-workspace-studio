@@ -9,9 +9,16 @@ export const RENDERER_MARKDOWN = 'markdown'
 export const RENDERER_HTML = 'html'
 export const RENDERER_IMAGE = 'image'
 export const RENDERER_CODE = 'code'
+/* Byte renderers: their content never travels through the Host text preview,
+   which rejects binary files by design. `pdf` renders the file itself, `office`
+   renders a Host-converted PDF of a doc/docx/ppt/pptx/xls/xlsx source. */
+export const RENDERER_PDF = 'pdf'
+export const RENDERER_OFFICE = 'office'
 
 /* One renderer definition: id + recognized suffixes (no leading dot). */
 const RENDERERS = Object.freeze([
+  { id: RENDERER_OFFICE, extensions: ['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx'] },
+  { id: RENDERER_PDF, extensions: ['pdf'] },
   { id: RENDERER_MARKDOWN, extensions: ['md', 'markdown', 'mdx'] },
   { id: RENDERER_HTML, extensions: ['html', 'htm'] },
   { id: RENDERER_IMAGE, extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'svg'] },
@@ -71,10 +78,30 @@ export function isHtmlName(name) {
 export function isImageName(name) {
   return matchingRenderers(name).some(renderer => renderer.id === RENDERER_IMAGE)
 }
+export function isPdfName(name) {
+  return matchingRenderers(name).some(renderer => renderer.id === RENDERER_PDF)
+}
+export function isOfficeName(name) {
+  return matchingRenderers(name).some(renderer => renderer.id === RENDERER_OFFICE)
+}
+/* Whether a preview `kind` renders bytes instead of text (no draft, no editor,
+   no editor-context envelope). */
+export function isByteKind(kind) {
+  return kind === RENDERER_IMAGE || kind === RENDERER_PDF || kind === RENDERER_OFFICE
+}
+/* The byte renderer a file name selects, or undefined for a text file. */
+export function byteKindOf(name) {
+  if (isImageName(name)) return RENDERER_IMAGE
+  if (isPdfName(name)) return RENDERER_PDF
+  if (isOfficeName(name)) return RENDERER_OFFICE
+  return undefined
+}
 
-/* The viewer-menu items for the active file: 'edit' is always present for text files; 'preview' is the rendered view. Read-only text files offer a paged browse of the full file; a tab the workspace-files Remote cannot read at all (a dropped-in file, whose content lives only in memory) never offers it — a file OUTSIDE the workspace is not such a tab (the Remote reads its absolute path), so its caller passes external=false. Image files have a single auto-selected view. */
+/* The viewer-menu items for the active file: 'edit' is always present for text files; 'preview' is the rendered view. Read-only text files offer a paged browse of the full file; a tab the workspace-files Remote cannot read at all (a dropped-in file, whose content lives only in memory) never offers it — a file OUTSIDE the workspace is not such a tab (the Remote reads its absolute path), so its caller passes external=false. Byte-rendered files (image, PDF, Office) have a single auto-selected view. */
 export function viewerCandidates(preview, name, external) {
-  if (isImageName(name)) return [{ id: 'image', label: translate('renderer.image') }]
+  if (isImageName(name)) return [{ id: RENDERER_IMAGE, label: translate('renderer.image') }]
+  if (isPdfName(name)) return [{ id: RENDERER_PDF, label: translate('renderer.pdf') }]
+  if (isOfficeName(name)) return [{ id: RENDERER_OFFICE, label: translate('renderer.office') }]
   if (isMarkdownName(name)) {
     return [
       { id: VIEW_EDIT, label: translate('editor.edit') },

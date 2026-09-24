@@ -30,3 +30,33 @@ export function useRemoteFaces() {
     () => faces,
   )
 }
+
+/* Office conversion face, kept in its own store: the harness mounts it under a
+   different service (`remote.officeToPdf`) that activates independently of
+   `remote.workspaceFiles`, so one store per service keeps either install from
+   clobbering the other (and keeps `undefined` meaning exactly "not available",
+   which is what the views check before every call). */
+let officeFaces = undefined
+const officeListeners = new Set()
+
+/* Install the Office→PDF conversion face; returns the disposer. */
+export function installOfficeFaces(next) {
+  officeFaces = next
+  for (const listener of [...officeListeners]) listener()
+  return () => {
+    if (officeFaces !== next) return
+    officeFaces = undefined
+    for (const listener of [...officeListeners]) listener()
+  }
+}
+
+/* Reactive read for components: re-renders when the Office face installs. */
+export function useOfficeFaces() {
+  return useSyncExternalStore(
+    callback => {
+      officeListeners.add(callback)
+      return () => { officeListeners.delete(callback) }
+    },
+    () => officeFaces,
+  )
+}

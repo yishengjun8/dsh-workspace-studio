@@ -26,7 +26,7 @@ import { useEditorSession } from './hooks/editor-session.js'
 import { usePreviewScrollbar } from './hooks/scrollbar.js'
 import { useSearchState } from './hooks/search.js'
 import { useSessionRename } from './hooks/session-rename.js'
-import { isHtmlName, isImageName, isMarkdownName, VIEW_EDIT, VIEW_PREVIEW, viewerCandidates } from '../../renderers/registry.js'
+import { isByteKind, isHtmlName, isImageName, isMarkdownName, isOfficeName, isPdfName, VIEW_EDIT, VIEW_PREVIEW, viewerCandidates } from '../../renderers/registry.js'
 import { PlanView } from '../../renderers/plan-view.js'
 
 /* Whether a preview tab has no file-tree row: a docked mind map, an opened plan,
@@ -1242,11 +1242,12 @@ export function WorkspaceExplorer({
     for (const rootId of placedMapRootsRef.current.keys()) mindmapViewHost.unplace(rootId)
     placedMapRootsRef.current = new Map()
   }, [])
-  // Renderer dispatch (registry-driven): markdown/html offer a rendered preview, image files render standalone, and read-only text files offer a paged full-file browse.
+  // Renderer dispatch (registry-driven): markdown/html offer a rendered preview, byte renderers (image/pdf/office) render standalone, and read-only text files offer a paged full-file browse.
   const isMarkdown = preview.state === 'ready' && isMarkdownName(preview.name)
   const isHtmlFile = preview.state === 'ready' && isHtmlName(preview.name)
-  const isImage = preview.state === 'ready' && isImageName(preview.name)
-  const isReadOnlyText = preview.state === 'ready' && preview.kind !== 'image'
+  /* The active byte renderer (image/pdf/office), selected by the preview itself. */
+  const byteKind = preview.state === 'ready' && isByteKind(preview.kind) ? preview.kind : undefined
+  const isReadOnlyText = preview.state === 'ready' && !isByteKind(preview.kind)
     && (preview.editable === false || preview.readOnlyReason)
   /* Browse mode = the paged full-file view; it replaces the editor for read-only text files, while HTML keeps the iframe overlay. A dropped-in file has no path the Remote could read (its content lives only in memory), but a file OUTSIDE the workspace does — the Remote reads its absolute path — so that tab browses like any other read-only file. */
   const showBrowse = viewMode === VIEW_PREVIEW && isReadOnlyText && !isHtmlFile
@@ -1257,7 +1258,7 @@ export function WorkspaceExplorer({
     /* A Remote-readable tab: an outside-workspace file is readable, a dropped-in one is not. */
     return viewerCandidates(preview, activeTab.name, activeTab.external === true && activeTab.outside !== true)
   }, [activeTab, preview])
-  const currentViewer = viewerItems.find(item => item.id === (isImage ? 'image' : viewMode)) ?? viewerItems[0]
+  const currentViewer = viewerItems.find(item => item.id === (byteKind ?? viewMode)) ?? viewerItems[0]
   /* The toggle button's tooltip names the view it switches to. */
   const viewerToggleTitle = currentViewer?.id === VIEW_PREVIEW
     ? (isMarkdown ? translate('mdPreview.edit.title') : isHtmlFile ? translate('htmlPreview.edit.title') : translate('editor.edit.title'))
@@ -1406,9 +1407,9 @@ export function WorkspaceExplorer({
   const reason = preview.state === 'ready' ? readOnlyReason(preview) : translate('editor.notLoaded')
   const size = preview.state === 'ready' ? formatBytes(preview.size) : ''
   const tabMenuTarget = tabContextMenu === undefined ? undefined : tabs.find(tab => tab.path === tabContextMenu.path)
-  /* "Open in new window" is limited to workspace file tabs: mind-map, plan, external, and image tabs have no servable file content. */
+  /* "Open in new window" is limited to workspace file tabs the Host can serve as text: mind-map, plan, external, image, PDF, and Office tabs have no such content. */
   const canOpenInNewWindow = tabMenuTarget !== undefined && !isSyntheticTab(tabMenuTarget) && !tabMenuTarget.external
-    && !isImageName(tabMenuTarget.name)
+    && !isImageName(tabMenuTarget.name) && !isPdfName(tabMenuTarget.name) && !isOfficeName(tabMenuTarget.name)
   const openTabInNewWindow = () => {
     setTabContextMenu(undefined)
     if (!canOpenInNewWindow) return

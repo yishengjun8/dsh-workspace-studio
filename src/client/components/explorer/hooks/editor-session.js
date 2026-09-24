@@ -7,7 +7,7 @@ import { readOnlyReason } from '../../../format.js'
 import { encodingLabel } from '../../../api.js'
 import { resolveMergeParts, threeWayMerge } from '../../../merge.js'
 import { entryFromPreviewTab, isSyntheticTab } from '../../../preview-tabs.js'
-import { isImageName } from '../../../renderers/registry.js'
+import { byteKindOf, isByteKind } from '../../../renderers/registry.js'
 import { useRemoteFaces } from '../../../renderers/remote.js'
 import { readRemoteText } from '../../../renderers/remote-text.js'
 import { rewriteRelativePath } from '../../../paths.js'
@@ -118,7 +118,7 @@ export function useEditorSession({
     const activePathNow = activePathRef.current
     const activeNow = activePathNow === path
     const editableActive = activeNow && preview.state === 'ready'
-      && (preview.kind === 'image' || (preview.editable !== false && !preview.readOnlyReason))
+      && (isByteKind(preview.kind) || (preview.editable !== false && !preview.readOnlyReason))
     if (activeNow && !tab.dirty && !tab.saving) {
       const auto = (settings.autoSyncMode ?? AUTO_SYNC_MODE_AUTO) === AUTO_SYNC_MODE_AUTO
       if (auto) {
@@ -279,11 +279,12 @@ export function useEditorSession({
       diskBaseRef.current = ''
       const name = outsideTab.name
       const size = Number.isFinite(outsideTab.size) ? outsideTab.size : null
-      if (isImageName(name)) {
-        /* Images render from bytes, never through a text read. */
+      const outsideByteKind = byteKindOf(name)
+      if (outsideByteKind !== undefined) {
+        /* Images, PDFs and Office documents render from bytes, never through a text read. */
         setPreview({
           state: 'ready',
-          kind: 'image',
+          kind: outsideByteKind,
           path: activePath,
           name,
           symlink: false,
@@ -404,12 +405,12 @@ export function useEditorSession({
       setPreview(ready)
       return undefined
     }
-    /* Image files render through the standalone image view (the Host text preview rejects binary content); no draft, baselines, or editor state. */
-    const imageTab = tabsRef.current.find(item => item.path === activePath && isImageName(item.name))
-    if (imageTab !== undefined) {
+    /* Byte-rendered files (images, PDFs, Office documents) never take the text read path: the Host text preview rejects binary content by design. */
+    const byteTab = tabsRef.current.find(item => item.path === activePath && byteKindOf(item.name) !== undefined)
+    if (byteTab !== undefined) {
       readController.current?.abort()
       publishEditorContext(undefined)
-      const selection = entryFromPreviewTab(imageTab)
+      const selection = entryFromPreviewTab(byteTab)
       setSelected(selection)
       setEditing(false)
       setDirty(false)
@@ -420,11 +421,11 @@ export function useEditorSession({
       diskBaseRef.current = ''
       setPreview({
         state: 'ready',
-        kind: 'image',
+        kind: byteKindOf(byteTab.name),
         path: activePath,
         name: selection.name,
         symlink: Boolean(selection.symlink),
-        size: Number.isFinite(imageTab.size) ? imageTab.size : null,
+        size: Number.isFinite(byteTab.size) ? byteTab.size : null,
         editable: false,
       })
       setReadEpoch(epoch => epoch + 1)

@@ -33,7 +33,7 @@ import { useThinkCard } from './hooks/think-card.js'
 import { registerStudioFileMutationToolview } from './toolview.js'
 import { installOpenResourceRouter } from './open-resource.js'
 import { installPlanResources } from './plan-open.js'
-import { installRemoteFaces } from './renderers/remote.js'
+import { installOfficeFaces, installRemoteFaces } from './renderers/remote.js'
 
 export function AppFrame(props) {
   const panels = props.useStore(state => state)
@@ -422,6 +422,38 @@ export function mountStudio(ctx) {
         readRelated: safe((sessionId, basePath, relativePath, signal) => files.readBytes(sessionId, relativePath, { baseFile: basePath }, signal)),
       })
     }, 'workspace-studio: renderer remote faces')
+  })
+  /* Office → PDF conversion face for the document preview: the harness Host
+     provider owns LibreOffice, its bounded queue and its content cache; this
+     bundle only asks for the bytes. Installed under its own service, so the
+     face appears whenever `remote.officeToPdf` does (and stays absent — the view
+     then reports "unavailable" — when the Host does not mount it). A missing or
+     renamed method must resolve to no face at all: calling it would throw
+     SYNCHRONOUSLY inside the view's effect and the harness root error boundary
+     would replace the whole layout. */
+  ctx.inject(['remote', 'remote.officeToPdf'], scope => {
+    scope.effect(() => {
+      const remote = scope.get('remote')
+      if (remote === undefined) return undefined
+      const office = remote.officeToPdf
+      if (office === undefined || office === null) return undefined
+      if (typeof office.render !== 'function') return undefined
+      const safe = call => (...args) => Promise.resolve().then(() => call(...args)).catch((error) => {
+        if (error?.name === 'AbortError') throw error
+        return {
+          ok: false,
+          error: {
+            code: 'renderer-remote-failed',
+            message: error instanceof Error ? error.message : String(error),
+          },
+        }
+      })
+      return installOfficeFaces({
+        /* Foreground priority: this is a user-visible preview, so the Host's
+           conversion queue serves it ahead of speculative work. */
+        renderOffice: safe((sessionId, path, signal) => office.render(sessionId, path, 'foreground', signal)),
+      })
+    }, 'workspace-studio: office render face')
   })
   ctx.effect(() => {
     if (typeof document === 'undefined') return undefined

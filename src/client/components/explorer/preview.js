@@ -4,6 +4,7 @@ import { translate } from '../../locale/index.js'
 import { colorGroupOf, highlightPresetOf, readOnlyReason } from '../../format.js'
 import { CodeEditor } from '../editor.js'
 import { BrowseView } from '../../renderers/browse-view.js'
+import { ConvertedView } from '../../renderers/converted-view.js'
 import { HtmlPreview } from '../../renderers/html-preview.js'
 import { ImageView } from '../../renderers/image-view.js'
 import { useMarkdownLabels } from '../../renderers/registry.js'
@@ -25,6 +26,12 @@ export function PreviewPane({ preview, settings, editing, activeTab, draft, view
   if (preview.kind === 'image') {
     return h('div', { className: 'dsh-ws-preview-body', onClick: onBodyClick },
       h(ImageView, { name: preview.name, path: preview.path, readEpoch, sessionId }))
+  }
+  /* PDF and Office documents render from bytes too: a PDF as it is, an Office
+     source as the Host-converted PDF of it (see ConvertedView). */
+  if (preview.kind === 'pdf' || preview.kind === 'office') {
+    return h('div', { className: 'dsh-ws-preview-body', onClick: onBodyClick },
+      h(ConvertedView, { kind: preview.kind, name: preview.name, path: preview.path, readEpoch, sessionId }))
   }
   /* Read-only browse: paged full-file view for non-editable text files. */
   if (isBrowse) {
