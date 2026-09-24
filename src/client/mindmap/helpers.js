@@ -1,20 +1,5 @@
 import { createElement as h, useRef, memo } from 'react'
 import { clampMountBulge, MINDMAP_DEPTH_GAP, MINDMAP_HEAD_H, MINDMAP_HEAD_W, MINDMAP_MOUNT_BULGE_DEFAULT_X, MINDMAP_NODE_H, MINDMAP_NODE_W, MINDMAP_PAN_MARGIN, MINDMAP_PAN_OUT_MAX, MINDMAP_ROOT_H, MINDMAP_ROOT_W, MINDMAP_ROW_GAP, MINDMAP_ZOOM_MIN } from '../constants.js'
-import { mindmapRegistry } from './registry.js'
-
-export function isMindmapBranchDescendant(list, id) {
-  let cursor = list.byId[String(id)]?.parentId
-  const seen = new Set()
-  while (cursor !== undefined && !seen.has(cursor)) {
-    seen.add(cursor)
-    if (mindmapRegistry.isRoot(cursor) || mindmapRegistry.isBranch(cursor)) return true
-    const summary = list.byId[cursor]
-    if (summary === undefined) break
-    if (summary.origin === 'subagent') { cursor = summary.parentId; continue }
-    cursor = summary.parentId
-  }
-  return false
-}
 
 /* Walk fork lineage to the ordinary root; subagent hops are transparent. */
 export function mindmapRootTitleOf(list, id) {

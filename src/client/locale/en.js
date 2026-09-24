@@ -606,9 +606,5 @@ export const en = {
   'mindmap.confirm.title': 'Create Mind Map Session',
   'mindmap.confirm.message': 'This will convert the current session into a mind-map session and hide it from the sidebar session list. Convert now?',
   'mindmap.confirm.action': 'Convert',
-  'switcher.aria': 'Switch session',
-  'switcher.trigger.title': 'Click to switch session',
-  'switcher.subagent': 'subagent',
-  'switcher.noSessions': 'No other sessions',
   'openResource.noWorkspace': 'The current session has no workspace; cannot open the file in preview',
 }

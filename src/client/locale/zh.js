@@ -606,9 +606,5 @@ export const zh = {
   'mindmap.confirm.title': '创建导图会话',
   'mindmap.confirm.message': '将当前会话转换为导图会话，并从左侧会话列表隐藏。确定转换吗？',
   'mindmap.confirm.action': '转换',
-  'switcher.aria': '切换会话',
-  'switcher.trigger.title': '点击切换会话',
-  'switcher.subagent': '子代理',
-  'switcher.noSessions': '暂无其他会话',
   'openResource.noWorkspace': '当前会话没有关联的工作区，无法在预览中打开文件',
 }

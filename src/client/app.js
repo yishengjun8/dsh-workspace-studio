@@ -19,10 +19,8 @@ import { installForeignForkWatch } from './mindmap/fork-watch.js'
 import { installMindmapBranchHider } from './mindmap/hider.js'
 import { MindmapSessionsPanel } from './mindmap/panel.js'
 import { MindmapHeaderButton } from './mindmap/overlay.js'
-import { isMindmapBranchDescendant } from './mindmap/helpers.js'
 import { ResizeHandle, SessionInlineRename, SidebarTopActions } from './components/menus.js'
 import { EmptyWorkspaceExplorer, ExplorerSettingsSection } from './components/settings.js'
-import { SessionSwitcherDropdown } from './components/switcher.js'
 import { MobileHeaderControls, MobileHeroControls, MobileModeToggle } from './components/mobile.js'
 import { WorkspaceExplorer } from './components/explorer/index.js'
 import { MindMapHost } from './mindmap/host.js'
@@ -599,14 +597,6 @@ export function mountStudio(ctx) {
   ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
     name: 'conversation.session.header.actions', id: 'workspace-mobile-controls', order: -300,
   }, MobileHeaderControls))
-  // The session-switcher dropdown replaces the harness title crumb (CSS hides
-  // it; the trigger renders at -400, leftmost). Switching goes through the
-  // harness's own session-opening path, so the whole layout follows the new
-  // current.
-  ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
-    name: 'conversation.session.header.actions', id: 'workspace-session-switcher', order: -400,
-    inject: () => ({ openSession: sessionId => { openHarnessSession(ctx, sessionId) }, isBranchDescendant: isMindmapBranchDescendant }),
-  }, SessionSwitcherDropdown))
   /* The session-header mind-map button: opens the current session's mind map
      as a preview tab. */
   ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({

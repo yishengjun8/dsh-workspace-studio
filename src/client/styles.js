@@ -129,32 +129,6 @@ body > [role="status"]:has(svg){display:none!important}
 @keyframes dsh-ws-toast-in{from{opacity:0;transform:translate(-50%,-6px)}to{opacity:1;transform:translate(-50%,0)}}
 @keyframes dsh-ws-toast-fade{to{opacity:0}}
 @media (prefers-reduced-motion: reduce){.dsh-ws-toast{animation:dsh-ws-toast-fade 1000ms ease 3000ms forwards}}
-/* ── Session switcher (header title → quick-switch dropdown) ────────────
-   The conversation header's current-title crumb is hidden so the switcher
-   trigger becomes the visible session title; subagent parent breadcrumbs
-   stay. When the crumb is the nav's only segment the whole nav is hidden
-   too, since a display:none crumb still occupies its flex slot. The panel is
-   portalled to body with fixed positioning, so the chat column's overflow
-   never clips it. */
-/* KNOWN FRAGILITY: these structural selectors couple to the harness
-   conversation-header DOM; a restructure silently breaks them. Re-check on
-   every harness upgrade. */
-[data-slot="conversation.session.header"] > header > div:first-child > div:first-child > nav > span:last-child{display:none}
-[data-slot="conversation.session.header"] > header > div:first-child > div:first-child > nav:has(> span:last-child:only-child){display:none}
-.dsh-ws-session-switcher{display:inline-flex;align-items:center;min-width:0;flex:0 0 auto}
-.dsh-ws-session-switcher-trigger{display:inline-flex;align-items:center;gap:4px;max-width:min(320px,60vw);min-width:0;padding:2px 6px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);font-family:inherit;font-size:14px;font-weight:500;line-height:22px;cursor:pointer;box-sizing:border-box}
-.dsh-ws-session-switcher-trigger:hover{background:var(--dsw-alias-interactive-bg-hover)}
-.dsh-ws-session-switcher-trigger:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
-.dsh-ws-session-switcher-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dsh-ws-session-switcher .dsh-ws-chevron{flex:none;font-size:10px;line-height:1;color:var(--dsw-alias-label-secondary)}
-.dsh-ws-session-switcher-panel{position:fixed;z-index:60;max-height:min(60vh,420px);overflow-y:auto;padding:4px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-elevated,0 10px 28px rgba(0,0,0,.2))}
-.dsh-ws-session-switcher-row{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;box-sizing:border-box;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font-family:inherit;font-size:13px;line-height:20px;text-align:left;cursor:pointer}
-.dsh-ws-session-switcher-row:hover{background:var(--dsw-alias-interactive-bg-hover)}
-.dsh-ws-session-switcher-row.dsh-ws-session-switcher-current{color:var(--dsw-alias-brand-primary);font-weight:600}
-.dsh-ws-session-switcher-row-main{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dsh-ws-session-switcher-badge{flex:none;margin-left:4px;padding:0 5px;border-radius:6px;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);font-size:11px;line-height:16px;font-weight:400}
-.dsh-ws-session-switcher-row-ws{flex:none;max-width:40%;margin-left:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-caption);font-size:12px;line-height:20px}
-.dsh-ws-session-switcher-empty{padding:8px 10px;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:20px}
 /* ── Mobile (phone-column) mode ─────────────────────────────────────────
    Mirror of dsh-mobile-preview: the document-class gate (dsh-ws-mobile-on)
    drives every override; the floating sidebar drawer and the file-fullscreen
