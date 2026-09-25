@@ -13,8 +13,24 @@ export function planAddressOfTab(tab) {
   return path.startsWith('plan:') ? path.slice('plan:'.length) : ''
 }
 export function isPlanTab(tab) { return tab !== null && tab !== undefined && tab.kind === 'plan' }
-/* A tab that renders something other than a workspace file — a docked mind map or an opened plan. Such a tab has no file read, draft, editor state, or tree selection, and never enters the persisted snapshot. */
-export function isSyntheticTab(tab) { return isMindmapTab(tab) || isPlanTab(tab) }
+/* Synthetic tab path of an opened change review (its dsh-resource address): unique per turn and never collides with a real workspace path. */
+export function reviewTabPath(address) { return `review:${String(address)}` }
+/* The review address a review tab renders ('' for every other tab). */
+export function reviewAddressOfTab(tab) {
+  const path = tab === null || tab === undefined || typeof tab.path !== 'string' ? '' : tab.path
+  return path.startsWith('review:') ? path.slice('review:'.length) : ''
+}
+export function isReviewTab(tab) { return tab !== null && tab !== undefined && tab.kind === 'review' }
+/* A tab that renders something other than a workspace file — a docked mind map, an opened plan, or a turn's change review. Such a tab has no file read, draft, editor state, or tree selection, and never enters the persisted snapshot. */
+export function isSyntheticTab(tab) { return isMindmapTab(tab) || isPlanTab(tab) || isReviewTab(tab) }
+/* Whether a tab is dropped from every persisted snapshot: an external (dropped-in
+   or outside-workspace) tab whose content lives only in memory, an opened plan, or
+   a turn's change review. A caller deciding "is there real content to persist"
+   must ask here, or a session-only tab would count as content and write an empty
+   snapshot over the anchor keys that may hold another session's saved tabs. */
+export function isUnpersistedTab(tab) {
+  return tab === null || tab === undefined || tab.external === true || isPlanTab(tab) || isReviewTab(tab)
+}
 /* Family ROOT session id of a mind-map tab (the sessionId stamp, falling back to the synthetic path's root part). */
 export function mindmapRootIdOfTab(tab) {
   if (tab !== null && tab !== undefined && typeof tab.sessionId === 'string' && tab.sessionId !== '') return tab.sessionId
@@ -41,7 +57,7 @@ export function clonePreviewTab(tab) {
     outside: Boolean(tab.outside),
     /* A mind-map tab carries the map's ROOT session id and renders a placeholder for the global map host's body container instead of a file. dockedAt records the persistence family key the tab was docked on, so restore can tell a map opened in this session from one leaked in from another. A plan tab carries its dsh-resource address in the synthetic path. */
     dockedAt: typeof tab.dockedAt === 'string' && tab.dockedAt !== '' ? tab.dockedAt : null,
-    kind: tab.kind === 'mindmap' ? 'mindmap' : tab.kind === 'plan' ? 'plan' : 'file',
+    kind: tab.kind === 'mindmap' ? 'mindmap' : tab.kind === 'plan' ? 'plan' : tab.kind === 'review' ? 'review' : 'file',
     lineEnding: typeof tab.lineEnding === 'string' ? tab.lineEnding : 'none',
     name: typeof tab.name === 'string' && tab.name !== '' ? tab.name : tab.path.slice(tab.path.lastIndexOf('/') + 1),
     path: tab.path,
@@ -70,6 +86,10 @@ export function serializePreviewTab(tab) {
   if (clone.external) return null
   /* A plan tab is a session-only rendering of a harness plan resource: its text is re-read from the session log (or expires), so persisting it would only store a path that must be re-resolved anyway. */
   if (clone.kind === 'plan') return null
+  /* A review tab renders one turn's changes read from the Host while that turn's
+     Session lives: its tab is a live view, so persisting the synthetic path
+     would only restore a tab that must re-read (or has nothing left to read). */
+  if (clone.kind === 'review') return null
   // localStorage keeps only the dirty marker and tab metadata, never file content; the runtime-only marker tells a live tab apart from this content-free persisted representation.
   clone.baseText = ''
   clone.draft = ''

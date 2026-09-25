@@ -7,9 +7,11 @@
  * (fileOpenRequestStore): a path inside the workspace opens as a normal preview
  * tab, a path outside it as the session-only read-only preview. A PLAN address
  * (ui-plan's 「查看全文」 and the turn's plan card) is routed to planOpenStore
- * instead, and any other address is handed back to the harness implementation —
- * its own registered tab types, or its honest "no seat mounted" failure. The
- * patch only claims the addresses this layout can actually draw.
+ * instead, a CHANGE-REVIEW address (ui-deliverables' changed-files card) to
+ * reviewOpenStore, and any other address is handed back to the harness
+ * implementation — its own registered tab types, or (because this layout mounts
+ * no right-Sidebar seat) one notice instead of an uncaught throw. The patch only
+ * claims the addresses this layout can actually draw.
  *
  * The patch follows the sendSession bridge convention: a marker + recorded
  * original let an overlapping re-install unwrap a stale wrapper instead of
@@ -21,6 +23,8 @@ import { translate } from './locale/index.js'
 import { currentSessionOf, workspaceOfSession } from './controllers.js'
 import { fileOpenRequestStore } from './open-request.js'
 import { isAbsoluteWorkspacePath } from './paths.js'
+import { parseChangesReviewAddress, reviewOpenStore } from './changes-review.js'
+import { showResourceNotice } from './ui-notice.js'
 import { normalizePlanDocument, parsePlanResourceAddress, planDocuments, planOpenStore } from './plan-open.js'
 
 /* The dsh-resource://file/… address grammar, mirrored locally from
@@ -90,11 +94,38 @@ function relativizeToRoot(root, path) {
   return normalized.slice(base.length + 1)
 }
 
-/* Resolve a parsed file address and publish the open request. A path inside the
-   workspace opens as a normal (editable) preview tab; a path OUTSIDE it opens as
-   the session-only read-only preview — the plugin's own workspace-confined API
-   cannot serve such a file, while the harness `workspaceFiles` Remote reads it
-   through the Session's own filesystem authority. */
+/* The final path segment, the fallback tab label for a file open request. */
+function nameOf(path) { return path.slice(path.lastIndexOf('/') + 1) }
+
+/**
+ * Publish one file-open request for a path the caller already resolved: an
+ * absolute path inside the workspace opens as its workspace-relative preview
+ * (the plugin's workspace-confined API refuses the absolute spelling), one
+ * outside it as the session-only read-only preview the harness Remote reads
+ * through the Session's own filesystem authority. Shared by the chat's
+ * file-address route and the change-review tab's open action, so both decide
+ * identically.
+ * @param workspaceId - the workspace whose explorer consumes the request.
+ * @param rootPath - that workspace's native root path.
+ * @param path - an absolute path, or a workspace-relative one.
+ * @param name - optional tab label; the final segment is used when empty.
+ * @param line - optional line to reveal.
+ */
+export function requestFileOpen(workspaceId, rootPath, path, name, line) {
+  const label = typeof name === 'string' && name !== '' ? name : nameOf(path)
+  if (isAbsoluteWorkspacePath(path)) {
+    if (isPathInside(rootPath, path)) {
+      const relative = relativizeToRoot(rootPath, path)
+      fileOpenRequestStore.request(String(workspaceId), relative, nameOf(relative), line)
+      return
+    }
+    fileOpenRequestStore.request(String(workspaceId), path, label, line, true)
+    return
+  }
+  fileOpenRequestStore.request(String(workspaceId), path, label, line)
+}
+
+/* Resolve a parsed file address and publish the open request. */
 function routeFileOpen(ctx, parsed, options) {
   const sessions = ctx.sessions.list.getSnapshot()
   const sessionId = parsed.scope === 'session'
@@ -109,25 +140,11 @@ function routeFileOpen(ctx, parsed, options) {
   }
   const line = options?.params?.line
   const requestedLine = typeof line === 'number' && Number.isFinite(line) ? line : undefined
-  const nameOf = path => path.slice(path.lastIndexOf('/') + 1)
   /* The scope alone does not decide this: a SESSION-scoped address may carry an
      absolute path (see parseFileAddress), and an absolute tree path is refused
-     by the Host's workspace-confined API on sight. */
-  if (parsed.scope === 'absolute' || isAbsoluteWorkspacePath(parsed.path)) {
-    if (!isPathInside(workspace.path, parsed.path)) {
-      fileOpenRequestStore.request(String(workspace.workspaceId), parsed.path, nameOf(parsed.path), requestedLine, true)
-      return
-    }
-    const relative = relativizeToRoot(workspace.path, parsed.path)
-    fileOpenRequestStore.request(String(workspace.workspaceId), relative, nameOf(relative), requestedLine)
-    return
-  }
-  fileOpenRequestStore.request(
-    String(workspace.workspaceId),
-    parsed.path,
-    nameOf(parsed.path),
-    requestedLine,
-  )
+     by the Host's workspace-confined API on sight. `requestFileOpen` makes that
+     call in one place. */
+  requestFileOpen(workspace.workspaceId, workspace.path, parsed.path, undefined, requestedLine)
 }
 
 /* Install the openResource patch for the lifetime of the plugin via a
@@ -144,9 +161,10 @@ export function installOpenResourceRouter(ctx) {
       }
       const patched = function openResourceRouted(address, options) {
         /* Only the addresses this layout can draw are claimed: a file address
-           opens a preview tab, a plan address opens a plan tab, and everything
-           else goes back to the harness implementation instead of this plugin
-           inventing a failure for a tab type it does not host. */
+           opens a preview tab, a plan address opens a plan tab, a change-review
+           address opens the review tab, and everything else goes back to the
+           harness implementation instead of this plugin inventing a failure for
+           a tab type it does not host. */
         const file = parseFileAddress(address)
         if (file !== undefined) { routeFileOpen(ctx, file, options); return }
         const plan = parsePlanResourceAddress(address)
@@ -158,7 +176,25 @@ export function installOpenResourceRouter(ctx) {
           planOpenStore.open(address, document?.title ?? '', plan.sessionId)
           return
         }
-        if (typeof original === 'function') original.call(controller, address, options)
+        const review = parseChangesReviewAddress(address)
+        if (review !== undefined) {
+          /* The chat's changed-files card carries the file index it was clicked
+             on in the navigation params; the tab starts on it. */
+          reviewOpenStore.open(address, options?.params?.index, review.sessionId)
+          return
+        }
+        if (typeof original === 'function') {
+          /* The harness implementation requires the right-Sidebar seat this root
+             layout never mounts, so it throws for every address of a type this
+             bundle does not host (ui-subagent's subagent chat, for one). An
+             uncaught throw inside a React event handler loses the interaction
+             with no visible reason, so the failure becomes one notice. */
+          try {
+            original.call(controller, address, options)
+          } catch {
+            showResourceNotice(translate('openResource.unsupported'))
+          }
+        }
       }
       Object.defineProperty(patched, OPEN_RESOURCE_BRIDGE_MARKER, { value: true })
       Object.defineProperty(patched, OPEN_RESOURCE_BRIDGE_ORIGINAL, { value: original })

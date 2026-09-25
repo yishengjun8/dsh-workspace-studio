@@ -1,6 +1,6 @@
 import { createElement as h } from 'react'
 import { translate } from '../../locale/index.js'
-import { isPlanTab, isSyntheticTab } from '../../preview-tabs.js'
+import { isPlanTab, isReviewTab, isSyntheticTab } from '../../preview-tabs.js'
 import { IconCloseWin10, IconPinVscode } from '../../icons.js'
 
 /* Preview tab strip: one tab per open file with pin/close, drag reordering, and context-menu trigger; all interactions are callbacks. */
@@ -45,6 +45,18 @@ export function PreviewTabs({ tabs, activePath, draggingPath, dropIndex, contain
               stroke: 'currentColor',
               strokeLinecap: 'round',
               strokeLinejoin: 'round',
+              strokeWidth: 1.5,
+            })))
+        : null,
+      /* A comparison glyph marks an opened change review. */
+      isReviewTab(tab)
+        ? h('span', { 'aria-hidden': true, className: 'dsh-ws-preview-tab-review' },
+          h('svg', { viewBox: '0 0 16 16' },
+            h('path', {
+              d: 'M3 4.5h6M3 8h10M7 11.5h6',
+              fill: 'none',
+              stroke: 'currentColor',
+              strokeLinecap: 'round',
               strokeWidth: 1.5,
             })))
         : null,

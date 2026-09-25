@@ -15,6 +15,34 @@ export function isAbsoluteWorkspacePath(path){
   if(typeof path!=='string'||path==='')return false
   return path.startsWith('/')||/^[A-Za-z]:/.test(path)
 }
+/* Collapse `.` / `..` segments of an absolute path, keeping a Windows drive or
+   UNC prefix. A path handed to this plugin by a harness surface (a turn's
+   changed-file list) may be spelled relative to the SESSION's cwd, so `..` has to
+   be resolved before the workspace fence can judge it; the plugin's own API never
+   accepts a `..` segment. */
+export function normalizeAbsolutePath(path) {
+  if (typeof path !== 'string' || path === '') return ''
+  const normalized = path.replace(/\\/g, '/')
+  const unc = normalized.startsWith('//')
+  const drive = !unc && /^[A-Za-z]:/.test(normalized) ? normalized.slice(0, 2) : ''
+  const absolute = unc || drive !== '' || normalized.startsWith('/')
+  const body = drive !== '' ? normalized.slice(2) : unc ? normalized.slice(2) : normalized
+  const kept = []
+  for (const segment of body.split('/')) {
+    if (segment === '' || segment === '.') continue
+    if (segment === '..') {
+      // Above the root there is nowhere to go: an absolute path drops the segment.
+      if (kept.length > 0 && kept[kept.length - 1] !== '..') kept.pop()
+      else if (!absolute) kept.push('..')
+      continue
+    }
+    kept.push(segment)
+  }
+  const joined = kept.join('/')
+  if (unc) return `//${joined}`
+  if (drive !== '') return `${drive}/${joined}`
+  return absolute ? `/${joined}` : joined
+}
 export function defaultEntryName(kind) { return kind === 'directory' ? translate('dialog.newFolder') : translate('dialog.newFileDefault') }
 export function entryNameError(value) {
   const name = value.trim()

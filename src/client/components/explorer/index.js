@@ -4,7 +4,7 @@ import { CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MAX, CONFLICT_FONT_SIZE_
 import { translate } from '../../locale/index.js'
 import { clamp, fileLabel, formatBytes, readOnlyReason } from '../../format.js'
 import { copyText, defaultEntryName, entryNameError, entryPath, joinAbsolutePath, parentPath, pathBaseName, rewriteDirectoryMap, rewritePathMap, rewritePathSet, rewriteRelativePath, selectedLevelPath } from '../../paths.js'
-import { ancestorDirectoryPaths, dropIndexFromEvent, entryFromPreviewTab, isMindmapTab, isPlanTab, isSyntheticTab, mindmapRootIdOfTab, mindmapTabPath, normalizePreviewSession, orderPinnedFirst, planAddressOfTab, planTabPath, rewritePreviewTabs, serializePreviewSession } from '../../preview-tabs.js'
+import { ancestorDirectoryPaths, dropIndexFromEvent, entryFromPreviewTab, isMindmapTab, isPlanTab, isReviewTab, isSyntheticTab, isUnpersistedTab, mindmapRootIdOfTab, mindmapTabPath, normalizePreviewSession, orderPinnedFirst, planAddressOfTab, planTabPath, reviewAddressOfTab, reviewTabPath, rewritePreviewTabs, serializePreviewSession } from '../../preview-tabs.js'
 import { IconFolder, IconNewFile, IconNewFolder, IconRefresh, IconSearch } from '../../icons.js'
 import { encodingLabel, fetchEncodings, rawFileUrl, requestFsOperation, revealInExplorer, uploadExternalFile, WorkspaceApiError } from '../../api.js'
 import { hasDraggedFiles, hasNormalFile } from '../../utils.js'
@@ -13,6 +13,7 @@ import { invalidateCachedSubtree, rewriteCachedPaths } from '../../file-cache.js
 import { mindmapDockStore } from '../../mindmap/registry.js'
 import { mindmapViewHost } from '../../mindmap/host.js'
 import { fileOpenRequestStore } from '../../open-request.js'
+import { parseChangesReviewAddress, reviewOpenStore } from '../../changes-review.js'
 import { planDocuments, planOpenStore } from '../../plan-open.js'
 import { EncodingMenu, PanelHeader, PreviewToast, TabContextMenu, TreeContextMenu } from '../menus.js'
 import { DeleteDialog, EncodingDialog, EntryDialog, SaveConflictDialog, SessionRenameDialog } from '../dialogs.js'
@@ -28,6 +29,7 @@ import { useSearchState } from './hooks/search.js'
 import { useSessionRename } from './hooks/session-rename.js'
 import { isByteKind, isHtmlName, isImageName, isMarkdownName, isOfficeName, isPdfName, VIEW_EDIT, VIEW_PREVIEW, viewerCandidates } from '../../renderers/registry.js'
 import { PlanView } from '../../renderers/plan-view.js'
+import { ReviewView } from '../../renderers/review-view.js'
 
 /* Whether a preview tab has no file-tree row: a docked mind map, an opened plan,
    or a file OUTSIDE the workspace. Such a tab selects nothing in the tree and is
@@ -39,7 +41,7 @@ function hasNoTreeRow(tab) {
 
 
 export function WorkspaceExplorer({
-  workspace, treePortalTarget, sessionTitle, sessionId, previewSessionId, renameSession, publishEditorContext, listDirectory, readFile, saveFile, createEntry, renameEntry, storedPreviewSession, persistPreviewSession, settingsStore, loadDraft, persistDraftFile, removeDraftFile, draftTree, checkFileChange, mindmapActions,
+  workspace, treePortalTarget, sessionTitle, sessionId, previewSessionId, renameSession, publishEditorContext, listDirectory, readFile, saveFile, createEntry, renameEntry, storedPreviewSession, persistPreviewSession, settingsStore, loadDraft, persistDraftFile, removeDraftFile, draftTree, checkFileChange, mindmapActions, sessionCwdOf,
 }) {
   const settings = useSyncExternalStore(settingsStore.subscribe, settingsStore.getSnapshot)
   /* Draft scope follows the shared persistence key: inside a mind map every member session shares one draft scope (the map's root), since the tab strip and its in-memory draft are shared. */
@@ -119,7 +121,7 @@ export function WorkspaceExplorer({
   const scrollTopRef = useRef(new Map())
   const sessionEstablishedRef = useRef(false)
   /* Whether a snapshot with real content (a persistable tab or a tree expansion) was ever persisted for this mount; the skip guard below only applies while nothing real was ever persisted. */
-  const persistedRealContentRef = useRef(initialPreviewSession.tabs.some(tab => !tab.external && !isPlanTab(tab)) || (initialPreviewSession.expanded ?? []).length > 0)
+  const persistedRealContentRef = useRef(initialPreviewSession.tabs.some(tab => !isUnpersistedTab(tab)) || (initialPreviewSession.expanded ?? []).length > 0)
   // Paths confirmed missing while restoring persisted expansion; later restore passes skip them until the cleaned snapshot is persisted.
   const prunedPathsRef = useRef(new Set())
   const previewTabsBootstrapped = useRef(Boolean(initialPreviewSession.tabs.length > 0 || initialPreviewSession.activePath !== null))
@@ -137,6 +139,9 @@ export function WorkspaceExplorer({
   /* A mind-map tab hosts the global host's stable body container instead of a file: no file header, status bar, tree selection, or file read. A plan tab renders a harness plan document instead of a file and is equally chrome-free. */
   const activeMindmap = activeTab !== undefined && isMindmapTab(activeTab)
   const activePlan = activeTab !== undefined && isPlanTab(activeTab)
+  /* A review tab draws its own body, header, and file list: the file header and
+     the bottom status bar belong to a file tab and are hidden with it. */
+  const activeReview = activeTab !== undefined && isReviewTab(activeTab)
   /* A session switch inside the same mind map keeps this explorer mounted, so the editor context would stay bound to the previous session; clear it for the new session. */
   const lastSessionIdRef = useRef(sessionId)
   useEffect(() => {
@@ -165,8 +170,8 @@ export function WorkspaceExplorer({
     if (persistPreviewSession === undefined) return
     const hasTreeExpansion = Array.from(expandedRef.current).some(path => path !== '')
     const liveTabs = tabsRef.current
-    /* External and plan tabs serialize to null; when only such tabs exist with no tree expansion, writing would delete the anchor keys that may hold another session's tabs. The skip must not apply once real content was ever persisted, or the closed tab would resurrect on refresh. */
-    const hasRealTabs = liveTabs.some(tab => !tab.external && !isPlanTab(tab))
+    /* External, plan, and review tabs serialize to null; when only such tabs exist with no tree expansion, writing would delete the anchor keys that may hold another session's tabs. The skip must not apply once real content was ever persisted, or the closed tab would resurrect on refresh. */
+    const hasRealTabs = liveTabs.some(tab => !isUnpersistedTab(tab))
     const hasRealContent = hasRealTabs || hasTreeExpansion
     if (!hasRealContent && !persistedRealContentRef.current) return
     if (hasRealContent) persistedRealContentRef.current = true
@@ -293,6 +298,59 @@ export function WorkspaceExplorer({
     }
     if (planOpenStore.getSnapshot().request !== null) applyOpen()
     return planOpenStore.subscribe(applyOpen)
+  }, [activatePath, previewSessionId, sessionId])
+
+  /* Open requests for change reviews (the chat's changed-files card): the
+     openResource router publishes them, and the explorer whose previewSessionId
+     matches the request's family consumes one as a session-only review tab. The
+     tab carries the review's dsh-resource address in its synthetic path plus the
+     file index the card was clicked on; a later click on another row re-seeds
+     that index on the SAME tab instead of opening a second one. */
+  useEffect(() => {
+    const applyOpen = () => {
+      const { request } = reviewOpenStore.getSnapshot()
+      if (request === null) return
+      /* Consumed by the explorer showing the review's own session — the chat's
+         session, or the map root whose preview strip the chat shares. Any other
+         mount leaves the request pending for the matching one. */
+      const family = request.expectFamily
+      if (family !== (previewSessionId ?? null) && family !== (sessionId ?? null)) return
+      const path = reviewTabPath(request.address)
+      const coordinates = parseChangesReviewAddress(request.address)
+      setTabs(current => current.some(tab => tab.path === path)
+        ? current.map(tab => tab.path === path
+          ? { ...tab, reviewIndex: request.index, reviewNav: (tab.reviewNav ?? 0) + 1 }
+          : tab)
+        : [...current, {
+          baseText: '',
+          dirty: false,
+          draft: '',
+          draftKnown: false,
+          editing: false,
+          encoding: 'utf-8',
+          external: false,
+          /* Session-only: a review tab is never persisted (preview-tabs drops
+             it), and its address lives in the synthetic path. */
+          kind: 'review',
+          lineEnding: 'none',
+          name: translate('review.tabName', { turn: String(coordinates?.turn ?? 1) }),
+          path,
+          pinned: false,
+          revision: null,
+          reviewIndex: request.index,
+          reviewNav: 1,
+          saving: false,
+          scrollTop: 0,
+          sessionId: null,
+          size: null,
+          symlink: false,
+        }])
+      setSelected(undefined)
+      activatePath(path)
+      reviewOpenStore.consume()
+    }
+    if (reviewOpenStore.getSnapshot().request !== null) applyOpen()
+    return reviewOpenStore.subscribe(applyOpen)
   }, [activatePath, previewSessionId, sessionId])
 
   const editorSession = useEditorSession({
@@ -1267,6 +1325,10 @@ export function WorkspaceExplorer({
   const mindmapTabs = tabs.filter(isMindmapTab)
   /* A plan tab renders the harness plan document inline; every plan body stays mounted (hidden when inactive) so switching tabs keeps its scroll and resource hold. */
   const planTabs = tabs.filter(isPlanTab)
+  /* A review tab renders one turn's change review inline; like a plan body it
+     stays mounted (hidden when inactive), so switching tabs keeps the selected
+     file, its scroll, and the comparisons already read. */
+  const reviewTabs = tabs.filter(isReviewTab)
   /* The active file's retained CodeMirror session; dropped when its name no longer matches the tab, so a rename builds the next view fresh. */
   const retainedForActive = (() => {
     if (activePath === null || activeTab === undefined || isSyntheticTab(activeTab)) return null
@@ -1278,7 +1340,7 @@ export function WorkspaceExplorer({
     }
     return session
   })()
-  const body = mindmapTabs.length > 0 || planTabs.length > 0
+  const body = mindmapTabs.length > 0 || planTabs.length > 0 || reviewTabs.length > 0
     ? h(Fragment, null,
         ...mindmapTabs.map(tab => h('div', {
           className: 'dsh-ws-preview-body dsh-ws-mindmap-dock',
@@ -1297,7 +1359,18 @@ export function WorkspaceExplorer({
           address: planAddressOfTab(tab),
           onTitle: (title) => applyPlanTitle(tab.path, title),
         }))),
-        activeMindmap || activePlan ? null : h(PreviewPane, {
+        ...reviewTabs.map(tab => h('div', {
+          className: 'dsh-ws-preview-body dsh-ws-review-dock',
+          key: tab.path,
+          style: tab.path === activePath ? undefined : { display: 'none' },
+        }, h(ReviewView, {
+          address: reviewAddressOfTab(tab),
+          initialIndex: tab.reviewIndex ?? 0,
+          navSeq: tab.reviewNav ?? 1,
+          sessionCwdOf,
+          workspace,
+        }))),
+        activeMindmap || activePlan || activeReview ? null : h(PreviewPane, {
     activePath,
     activeTab,
     browseKind,
@@ -1521,8 +1594,9 @@ export function WorkspaceExplorer({
       tabContextMenu ? h(TabContextMenu, { menuRef: tabMenuRef, onCloseOthers: () => { setTabContextMenu(undefined); closeOtherTabs(tabContextMenu.path) }, onTogglePin: () => { setTabContextMenu(undefined); if (tabMenuTarget?.pinned) unpinTab(tabContextMenu.path); else pinTab(tabContextMenu.path) }, onOpenInNewWindow: openTabInNewWindow, canOpenInNewWindow, pinned: Boolean(tabMenuTarget?.pinned), x: tabContextMenu.x, y: tabContextMenu.y }) : null,
       /* A mind-map tab hides the file header: the map draws its own toolbar
          and title bar. A plan tab hides it too: the document carries its own
-         heading and has no file chrome to offer. */
-      activeMindmap || activePlan ? null : h('header', { className: 'dsh-ws-panel-header dsh-ws-preview-file-header', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && preview.kind !== 'image' && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) }, ref: previewHeaderRef },
+         heading and has no file chrome to offer. A review tab hides it as
+         well: its own header names the turn and the selected file. */
+      activeMindmap || activePlan || activeReview ? null : h('header', { className: 'dsh-ws-panel-header dsh-ws-preview-file-header', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && preview.kind !== 'image' && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) }, ref: previewHeaderRef },
         h('span', { className: 'dsh-ws-preview-file-path', title: activeTab === undefined ? undefined : (activeTab.outside === true ? activeTab.path : activeTab.external ? translate('external.externalFile.title') : activeTab.path) },
           activeTab
             ? (activeTab.outside === true
@@ -1557,8 +1631,8 @@ export function WorkspaceExplorer({
           : null,
       ),
       body,
-      // Merged bottom status bar: action buttons + file meta (left) and the transient status notice (right); a mind-map or plan tab hides it.
-      activeMindmap || activePlan ? null : h('div', { className: 'dsh-ws-status', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && preview.kind !== 'image' && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) } },
+      // Merged bottom status bar: action buttons + file meta (left) and the transient status notice (right); a mind-map, plan, or review tab hides it.
+      activeMindmap || activePlan || activeReview ? null : h('div', { className: 'dsh-ws-status', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && preview.kind !== 'image' && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) } },
         h('div', { className: 'dsh-ws-preview-status-actions' },
           preview.state === 'ready' && preview.kind !== 'image'
             ? h(Fragment, null,

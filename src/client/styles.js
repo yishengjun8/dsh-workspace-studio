@@ -88,6 +88,35 @@ body[data-ds-dark-theme] .dsh-ws-editor-host{--dsh-ws-token-directive:#c586c0}
 /* The sidebar shell hides nested scrollbars until hover; the file list is scroll-heavy, so its scrollbar stays visible. The files panel is inset 12px both sides. */
 .dsh-ws-frame[data-sidebar-files] .dsh-ws-sidebar-files{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;margin-right:12px;--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2)}
 .dsh-ws-frame[data-sidebar-files] .dsh-ws-sidebar-files .dsh-ws-tree{flex:1;min-height:0;height:auto;border-right:0}
+/* Sidebar foot: the global panel list (the Plugins seat ui-plugin-manager
+   registers into sidebar.panellist) leaves the top of the column and joins the
+   foot stack — below the Mobile-mode row, above the Settings row. The shell
+   draws the foot as ONE box wrapping the two footer seats, so that box is
+   dissolved (display:contents) and the three become column flex items of the
+   shell root, ordered explicitly. The list node itself never leaves its
+   React-owned position: relocating it would make React's own uninstall path
+   call removeChild on a parent it no longer has (NotFoundError).
+   The three box hooks are the shell's class names (no data-slot of their own). */
+.dsh-ws-frame [data-slot="sidebar"] > div > div[class*="footArea"]{display:contents}
+.dsh-ws-frame [data-slot="sidebar"] > div > div[class*="footArea"] > div[class*="footerActions"]{order:10}
+.dsh-ws-frame [data-slot="sidebar"] > div > nav{order:20}
+.dsh-ws-frame [data-slot="sidebar"] > div > div[class*="footArea"] > div[class*="settingsArea"]{order:30}
+/* Wide sidebar: each panel row takes the Mobile-mode row's box (34px, 12px
+   radius, the same 6px glyph inset and 4px/-4px margins, no list gap), so the
+   rows read as one stack at an 8px rhythm; the Settings row keeps its own 42px
+   box and the collapsed rail keeps the shell's 36px rows. */
+.dsh-ws-frame:not([data-sidebar-collapsed]) [data-slot="sidebar"] > div > nav{gap:0;margin:0 0 4px}
+.dsh-ws-frame:not([data-sidebar-collapsed]) [data-slot="sidebar"] > div > nav > button{height:34px;min-height:34px;margin:4px -4px;padding:6px 2px 6px 10px;gap:8px;border-radius:12px;color:var(--dsw-alias-label-primary);font-size:14px;line-height:22px}
+.dsh-ws-frame:not([data-sidebar-collapsed]) [data-slot="sidebar"] > div > nav > button[aria-current="page"]{color:var(--dsw-alias-brand-primary)}
+/* The foot box paints nothing as display:contents, so the shell's rail entry
+   fade (.railIn .footArea) is carried on the two seats it used to wrap.
+   [class*=railIn] is the shell's own rail flag: the only selector here not
+   anchored to a data-slot attribute. */
+@keyframes dsh-ws-foot-rail-in{from{opacity:0}}
+.dsh-ws-frame [data-slot="sidebar"] > div[class*="railIn"] > div[class*="footArea"] > div{animation:dsh-ws-foot-rail-in 150ms var(--ds-ease-in-out) backwards}
+/* The desktop shell hides the whole foot in its collapsed rail; dissolving the
+   box above must not resurrect it there. */
+html[data-windows-titlebar] .dsh-ws-frame[data-sidebar-collapsed] [data-slot="sidebar"] > div > div[class*="footArea"]{display:none}
 /* CodeMirror search panel (Ctrl+F) renders into .dsh-ws-preview-search, so the panel rules stay scoped to that container; !important keeps the controls legible under the harness's global styles. */
 .dsh-ws-preview-search{flex:none;min-width:0;background:var(--dsw-alias-bg-layer-1);user-select:none}
 .dsh-ws-preview-search .cm-panels.cm-panels-top{background:var(--dsw-alias-bg-layer-1)!important;color:var(--dsw-alias-label-primary)!important;border-bottom:1px solid var(--dsw-alias-border-l2)!important}
@@ -128,7 +157,7 @@ body > [role="status"]:has(svg){display:none!important}
 .dsh-ws-toast-text{min-width:0}
 @keyframes dsh-ws-toast-in{from{opacity:0;transform:translate(-50%,-6px)}to{opacity:1;transform:translate(-50%,0)}}
 @keyframes dsh-ws-toast-fade{to{opacity:0}}
-@media (prefers-reduced-motion: reduce){.dsh-ws-toast{animation:dsh-ws-toast-fade 1000ms ease 3000ms forwards}}
+@media (prefers-reduced-motion: reduce){.dsh-ws-toast{animation:dsh-ws-toast-fade 1000ms ease 3000ms forwards}.dsh-ws-frame [data-slot="sidebar"] > div[class*="railIn"] > div[class*="footArea"] > div{animation:none}}
 /* ── Mobile (phone-column) mode ─────────────────────────────────────────
    Mirror of dsh-mobile-preview: the document-class gate (dsh-ws-mobile-on)
    drives every override; the floating sidebar drawer and the file-fullscreen
@@ -231,6 +260,48 @@ html.dsh-ws-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal=
 .dsh-ws-plan-message{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:20px}
 .dsh-ws-preview-tab-plan{flex:none;display:inline-flex;align-items:center;justify-content:center;width:12px;height:12px;color:var(--dsw-alias-state-business-primary)}
 .dsh-ws-preview-tab-plan svg{width:12px;height:12px}
+/* A turn's change review opened as a preview tab: the file list sits beside the
+   comparison inside the preview column, below the tab strip. The tab is
+   session-only and has no file chrome, so it owns its own header. */
+.dsh-ws-preview-body.dsh-ws-review-dock{display:flex;flex-direction:column;overflow:hidden;background:var(--dsw-alias-bg-base)}
+.dsh-ws-preview-tab-review{flex:none;display:inline-flex;align-items:center;justify-content:center;width:12px;height:12px;color:var(--dsw-alias-state-business-primary)}
+.dsh-ws-preview-tab-review svg{width:12px;height:12px}
+.dsh-ws-review{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.dsh-ws-review-header{flex:none;display:flex;align-items:center;gap:8px;min-width:0;padding:6px 10px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-specific-sidebar-fill)}
+.dsh-ws-review-title{flex:none;color:var(--dsw-alias-label-primary);font-size:12px;line-height:18px;font-weight:600}
+.dsh-ws-review-path{flex:0 1 auto;min-width:0;overflow:hidden;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:16px;text-overflow:ellipsis;white-space:nowrap}
+.dsh-ws-review-spacer{flex:1;min-width:0}
+.dsh-ws-review-counts{flex:none;display:inline-flex;gap:6px;font-size:11px;line-height:16px}
+.dsh-ws-review-added{color:var(--dsw-alias-state-success-primary)}
+.dsh-ws-review-deleted{color:var(--dsw-alias-state-error-primary)}
+.dsh-ws-review-label{flex:none;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}
+/* The review body is the split's positioning context: the separator is absolutely
+   placed at the list's width, and while it is dragged the whole split stops
+   selecting text (the same rule the frame applies to its own splitters). */
+.dsh-ws-review-body{position:relative;flex:1;min-height:0;display:flex;overflow:hidden}
+.dsh-ws-review-body[data-resizing]{user-select:none;cursor:col-resize}
+.dsh-ws-review-list{flex:0 0 var(--dsh-ws-review-list,180px);min-width:0;overflow:auto;padding:6px;border-right:1px solid var(--dsw-alias-border-l1);box-sizing:border-box}
+.dsh-ws-review-row{display:flex;align-items:center;gap:6px;width:100%;padding:4px 6px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:16px;text-align:left;cursor:pointer;box-sizing:border-box}
+.dsh-ws-review-row:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dsh-ws-review-row[data-active]{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary)}
+.dsh-ws-review-row-path{flex:1;min-width:0;overflow:hidden;direction:rtl;text-align:left;text-overflow:ellipsis;white-space:nowrap}
+.dsh-ws-review-diff{flex:1;min-width:0;overflow:auto;background:var(--dsw-alias-markdown-code-block);font:var(--dsw-font-markdown-code-block)}
+.dsh-ws-review-diff-body{padding:8px 0 16px}
+.dsh-ws-review-note{margin:6px 12px;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:11px;line-height:16px}
+.dsh-ws-review-hunk{display:block;padding:0}
+.dsh-ws-review-hunk-header{padding:2px 12px;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:18px;white-space:pre}
+.dsh-ws-review-line{display:flex;align-items:flex-start;min-height:20px;white-space:pre}
+.dsh-ws-review-line-add{background:var(--dsw-alias-file-diff-added-bg)}
+.dsh-ws-review-line-del{background:var(--dsw-alias-file-diff-deleted-bg)}
+.dsh-ws-review-line-add .dsh-ws-review-number{background:var(--dsw-alias-file-diff-added-gutter);color:var(--dsw-alias-file-diff-added-marker)}
+.dsh-ws-review-line-del .dsh-ws-review-number{background:var(--dsw-alias-file-diff-deleted-gutter);color:var(--dsw-alias-file-diff-deleted-marker)}
+.dsh-ws-review-line-add .dsh-ws-review-sign{color:var(--dsw-alias-file-diff-added-marker)}
+.dsh-ws-review-line-del .dsh-ws-review-sign{color:var(--dsw-alias-file-diff-deleted-marker)}
+.dsh-ws-review-number{flex:none;width:42px;padding:0 6px;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:20px;text-align:right;user-select:none}
+.dsh-ws-review-sign{flex:none;width:12px;color:var(--dsw-alias-label-tertiary);line-height:20px;text-align:center;user-select:none}
+.dsh-ws-review-text{flex:1;min-width:0;padding-right:12px;line-height:20px}
+.dsh-ws-review-message{padding:12px 12px 0;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:20px}
+.dsh-ws-review-message .dsh-ws-text-button{margin-left:8px}
 /* Convert-to-mind-map confirm dialog: a roomier modal than the default with pill buttons. */
 .dsh-ws-mindmap-confirm-dialog{width:min(440px,100%)}
 .dsh-ws-mindmap-confirm-dialog .dsh-ws-dialog-body{padding:18px 20px}

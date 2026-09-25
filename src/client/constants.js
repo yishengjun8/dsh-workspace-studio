@@ -20,6 +20,10 @@ export const SIDEBAR_DEFAULT = 280, SIDEBAR_COLLAPSED = 56, SIDEBAR_MIN = 240, S
 export const EXPLORER_MAX_RATIO = 0.8
 export const TREE_DEFAULT = 280, TREE_MIN = 220, TREE_MAX = 520
 export const PREVIEW_DEFAULT = 420, PREVIEW_MIN = 280, PREVIEW_MAX = 760, RESIZE_STEP = 12
+/* The change-review tab's inner split: the file list beside the comparison. The
+   list width is user-draggable in memory only (it is never persisted), so the
+   bounds are what keeps the comparison readable inside any preview-column width. */
+export const REVIEW_LIST_DEFAULT = 180, REVIEW_LIST_MIN = 140, REVIEW_DIFF_MIN = 220, REVIEW_LIST_MAX_FALLBACK = 520
 export const CONTEXT_MENU_WIDTH = 176, CONTEXT_MENU_HEIGHT = 280, COMPACT_MENU_HEIGHT = 72
 export const ROW_HEIGHT_DEFAULT = 20, ROW_HEIGHT_MIN = 12, ROW_HEIGHT_MAX = 36
 /* Save-conflict dialog comparison text size (px); default matches .dsh-ws-conflict-code. */
