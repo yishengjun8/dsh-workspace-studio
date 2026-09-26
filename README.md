@@ -55,6 +55,7 @@
 
 - 编辑器上下文经现有输入 dock 显示为输入框外的不可编辑前缀：启用发送时冻结上下文，文件模式渲染 `<opened_file>...</opened_file>`、选中文本模式渲染 `<selection>...</selection>`（无选区时不携带文件字节），灰色发送不附加上下文。
 - Host 校验并把它拼接到直接用户提示前；对话页把该封套折叠成气泡上方显示文件名与行列范围的一行摘要（悬浮可看完整注入 XML），历史只渲染已记录的用户消息。
+- **以命令开头的提示同样携带上下文**：`/plan <消息>` 这类「参数就是提示文本」的斜杠命令走的是 harness 的命令提交事务（`claim.submit` → `commands.execute`，不经过 `sendSession`），插件在该事务上把封套拼到命令参数前；**手输整行回车、或从 `/` 菜单选中命令后再输入参数，两条路径都会注入**（后者由 harness 在选命令时就把 token 写进草稿、回车时不再裁决，所以插件在 claim 生成处就完成包装）。因此模型看到的仍是「文件/选区 + 你写的消息」，气泡折叠与标题守卫同样生效；`/plan off` 这类控制词与裸命令不注入。`/goal` 目前不在注入清单内（其参数会持久化为目标文本，不适合塞 XML）。
 - **标题守卫**在客户端自动净化泄漏进会话标题的封套前缀。
 - Token 与 KV 缓存影响见下文「模型体验」。
 
@@ -174,7 +175,7 @@ bash ./uninstall.sh
 
 layout 提供方有意不硬注入 `conversation`：conversation 插件本身消费 `layout`。因此 bundle 在激活后通过子注入包裹若干个具体 seam，避免形成激活依赖环：
 
-- `sendSession` 与 `conversation.input.dock`：注册编辑器上下文行并把渲染后的上下文拼到直接提示前。
+- `sendSession` 与 `conversation.input.dock`：注册编辑器上下文行并把渲染后的上下文拼到直接提示前；提示型斜杠命令（`/plan <消息>`）另包会话的斜杠裁决器（`inputTriggers` 常驻 controller 的 `adjudicate`，覆盖「手输整行回车」）与 composer shell 的 `beginCommand`（覆盖「菜单选命令 / 空格成 claim 后再回车」），两条 claim 入口都接进上下文注入。
 - `ctx.sidebarRight.openResource`：把聊天打开资源的路径接管到本插件的预览标签页（文件 / 计划 / 变更审查三类地址）；其余地址交还 harness，其「无右栏座位」的失败转成一条提示而不是未捕获异常。
 - `ctx.sessions.fork`：监听 harness 自带的 fork 入口，做收件箱清理与导图家族同步。
 

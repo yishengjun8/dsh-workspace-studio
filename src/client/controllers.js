@@ -3,6 +3,7 @@ import { ENSURE_RETRY_MAX, SEND_SESSION_BRIDGE_MARKER, SEND_SESSION_BRIDGE_ORIGI
 import { translate } from './locale/index.js'
 import { formatBytes } from './format.js'
 import { renderContext } from './api.js'
+import { wrapPromptClaim, wrapPromptClaimOutcome } from './command-context.js'
 import { clearEditorContextDisplays, describeEditorContext, rememberEditorContextDisplay } from './context-bridge.js'
 import { cleanedSessionTitle, installTitleGuard } from './title-guard.js'
 
@@ -227,6 +228,15 @@ export function openHarnessSession(ctx, sessionId) {
   throw new Error(translate('error.noSessionOpenApi'))
 }
 
+/* Attachment ids live under a harness-owned field name (0.1.7 renamed
+   InputState.imageIds to attachmentIds). An unrecognized shape answers null so
+   the empty-draft gate hands the gesture back to the harness seam instead of
+   guessing — never let a drifted snapshot shape throw inside a submit. */
+function attachmentIdsOf(state) {
+  const ids = state?.attachmentIds ?? state?.imageIds
+  return Array.isArray(ids) ? ids : null
+}
+
 export class PromptContextBridge {
   constructor(ctx, editorContexts) {
     this.ctx = ctx
@@ -337,22 +347,7 @@ export class PromptContextBridge {
         if (text === '' && imageIds.length === 0) return
         return this.originalSendSession.call(this.conversation, session, text, imageIds, mode)
       }
-      let rendered
-      try {
-        rendered = await renderContext(session.sessionId, context, signal)
-      } catch (error) {
-        /* A TIMEOUT is a real failure, not a cancellation: surface it in the
-           input dock instead of silently dropping the context send. */
-        const timedOut = error?.name === 'AbortError' && error?.reason?.name === 'TimeoutError'
-        if (timedOut) {
-          const wrapped = new Error(translate('editor.requestTimeout'))
-          wrapped.name = 'ContextTimeout'
-          this.notify(sessionId, wrapped)
-        } else if (error?.name !== 'AbortError') {
-          this.notify(sessionId, error)
-        }
-        throw error
-      }
+      const rendered = await this.renderEnvelope(sessionId, context, signal)
       const combined = text === '' ? rendered : `${rendered}\n\n${text}`
       const display = describeEditorContext(context, rendered)
       /* The handle lets a failed send discard exactly this entry, since
@@ -376,6 +371,24 @@ export class PromptContextBridge {
         throw error
       }
     })
+  }
+  /* Render one editor-context envelope. A TIMEOUT is a real failure, not a
+     cancellation: surface it in the input dock instead of silently dropping the
+     context attachment. */
+  async renderEnvelope(sessionId, context, signal) {
+    try {
+      return await renderContext(sessionId, context, signal)
+    } catch (error) {
+      const timedOut = error?.name === 'AbortError' && error?.reason?.name === 'TimeoutError'
+      if (timedOut) {
+        const wrapped = new Error(translate('editor.requestTimeout'))
+        wrapped.name = 'ContextTimeout'
+        this.notify(sessionId, wrapped)
+      } else if (error?.name !== 'AbortError') {
+        this.notify(sessionId, error)
+      }
+      throw error
+    }
   }
   /* The /init command (Claude Code style): resolve the session's workspace and
      instruct the model to analyze it and write AGENTS.md at its root. */
@@ -460,38 +473,182 @@ export class PromptContextBridge {
       const input = this.conversation.input.for(binding.ctx)
       const original = input.submit
       const originalSteerQueue = input.steerQueue
+      const originalBeginCommand = input.beginCommand
       if (typeof original !== 'function' || typeof originalSteerQueue !== 'function') {
         console.error(`workspace-studio: session ${id} input submit/steer seams unavailable; editor context will not attach`)
         return
       }
       const bridge = this
-      const wrapper = function submitWithEditorContext(mode = 'queue') {
-        const state = input.state.getSnapshot()
-        if (bridge.directSession(id) && state.draft.trim() === '' && state.imageIds.length === 0 && bridge.editorContexts.active(id)) {
+      /* Every claim wrapper funnels here; whether the envelope goes in is
+         decided inside, at submission time, from the live editor context. */
+      const submitClaim = (claim, args, actx, attachments) => bridge.submitClaimWithEditorContext(id, claim, args, actx, attachments)
+      /* One record per patched seam: input wrappers, the session scope the slash
+         controller resolves from, and the claim/adjudicator patches this install
+         added (restoreInput only rolls back what is still ours). */
+      const patch = {
+        input,
+        original,
+        originalSteerQueue,
+        originalBeginCommand: undefined,
+        beginCommandWrapper: undefined,
+        submitClaim,
+        actx: binding.ctx,
+        controller: undefined,
+        originalAdjudicate: undefined,
+        wrappedAdjudicate: undefined,
+        adjudicatorUnavailable: false,
+        wrapper: undefined,
+        steerWrapper: undefined,
+      }
+      /* Empty-draft sends carry context only: the harness submit machine
+         rejects an empty draft, so this bridge owns that gesture (⌘/Ctrl+Enter
+         steering included). A drifted snapshot shape must hand the gesture back
+         to the harness instead of throwing inside the submit. */
+      const sendContextOnlyIfIdle = (mode) => {
+        try {
+          const state = input.state.getSnapshot()
+          if (typeof state?.draft !== 'string' || state.draft.trim() !== '') return false
+          const attachments = attachmentIdsOf(state)
+          if (attachments === null || attachments.length > 0) return false
+          if (!bridge.directSession(id) || !bridge.editorContexts.active(id)) return false
           void bridge.sendContextOnly(id, mode)
-          return
+          return true
+        } catch (error) {
+          console.warn(`workspace-studio: editor-context empty-draft gate failed for session ${id}: ${error instanceof Error ? error.message : String(error)}`)
+          return false
         }
+      }
+      const wrapper = function submitWithEditorContext(mode = 'queue') {
+        if (sendContextOnlyIfIdle(mode)) return
+        /* A slash command's claim transaction bypasses sendSession, so the
+           adjudicator is patched here — the one moment the composer is
+           certainly mounted, so resolving the resident controller cannot force
+           a session prewarm for a session the user never opened. */
+        if (bridge.editorContexts.active(id)) bridge.patchCommandAdjudication(id, patch)
         return original.call(input, mode)
       }
       const steerWrapper = function steerQueueWithEditorContext() {
-        const state = input.state.getSnapshot()
-        if (bridge.directSession(id) && state.draft.trim() === '' && state.imageIds.length === 0 && bridge.editorContexts.active(id)) {
-          void bridge.sendContextOnly(id, 'steer')
-          return
-        }
-        return originalSteerQueue.call(input)
+        return sendContextOnlyIfIdle('steer') ? undefined : originalSteerQueue.call(input)
       }
+      /* A claim reaches the submit machine by two routes, and this one must be
+         wrapped eagerly rather than lazily at submit time: a slash-menu pick or
+         the Space gesture applies the claim immediately
+         (slash/input-begin-command -> shell.beginCommand) and the machine then
+         STORES it — Enter submits that stored claim without ever adjudicating, so
+         a patch installed at Enter would come too late. The wrapper is inert for
+         claims that carry no prompt (wrapPromptClaim answers the original). */
+      if (typeof originalBeginCommand === 'function') {
+        const beginCommandWrapper = function beginCommandWithEditorContext(claim, span) {
+          return originalBeginCommand.call(input, wrapPromptClaim(claim, submitClaim), span)
+        }
+        patch.originalBeginCommand = originalBeginCommand
+        patch.beginCommandWrapper = beginCommandWrapper
+        input.beginCommand = beginCommandWrapper
+      }
+      patch.wrapper = wrapper
+      patch.steerWrapper = steerWrapper
       input.submit = wrapper
       input.steerQueue = steerWrapper
-      this.inputPatches.set(id, { input, original, wrapper, originalSteerQueue, steerWrapper })
+      this.inputPatches.set(id, patch)
+      /* Reported after registration, so the notice reaches this session's dock. */
+      if (typeof originalBeginCommand !== 'function') this.reportCommandSeam(id, 'beginCommand')
     } catch (error) {
       console.error(`workspace-studio: failed to patch input seams for session ${id}:`, error)
     }
   }
+  /* A harness build that stops exposing one of the claim seams silently drops
+     the editor context on command messages; make that capability loss visible
+     once (composer notice) instead of only logging it to a console nobody reads. */
+  reportCommandSeam(id, seam) {
+    this.notify(id, new Error(translate('context.commandSeamUnavailable', { seam })))
+  }
   restoreInput(id, patch) {
     if (patch.input.submit === patch.wrapper) patch.input.submit = patch.original
     if (patch.input.steerQueue === patch.steerWrapper) patch.input.steerQueue = patch.originalSteerQueue
+    if (patch.beginCommandWrapper !== undefined && patch.input.beginCommand === patch.beginCommandWrapper) {
+      patch.input.beginCommand = patch.originalBeginCommand
+    }
+    if (patch.controller !== undefined && patch.controller.adjudicate === patch.wrappedAdjudicate) {
+      patch.controller.adjudicate = patch.originalAdjudicate
+    }
     this.inputPatches.delete(id)
+  }
+  /* Patch the session's slash adjudicator (ui-input-trigger's resident
+     InputTriggerController) so a prompt-bearing command claim can carry the
+     editor context. Idempotent; a missing slash pipeline — or a harness that
+     stops exposing adjudicate — degrades to "no command context" without
+     touching the submit seam patched above. */
+  patchCommandAdjudication(id, patch) {
+    if (patch.wrappedAdjudicate !== undefined || patch.adjudicatorUnavailable === true) return
+    let controller
+    try {
+      const inputTriggers = this.ctx.get('inputTriggers')
+      /* Not composed (yet): stay silent and try again on the next submit. */
+      if (inputTriggers === undefined) return
+      controller = inputTriggers.sessionOf(patch.actx)
+    } catch (error) {
+      /* A vanished scope or an unexpected throw is diagnosed once; the flag
+         stops the warning from repeating on every later submit. */
+      patch.adjudicatorUnavailable = true
+      console.warn(`workspace-studio: command-context adjudicator patch failed for session ${id}: ${error instanceof Error ? error.message : String(error)}`)
+      return
+    }
+    const originalAdjudicate = controller?.adjudicate
+    if (typeof originalAdjudicate !== 'function') {
+      /* The slash pipeline exists but no longer exposes adjudicate: the typed
+         line loses its context, so report the loss once. */
+      patch.adjudicatorUnavailable = true
+      this.reportCommandSeam(id, 'adjudicate')
+      return
+    }
+    const bridge = this
+    const wrappedAdjudicate = function adjudicateWithEditorContext(line, signal, envelope) {
+      const outcome = originalAdjudicate.call(controller, line, signal, envelope)
+      if (!bridge.editorContexts.active(id)) return outcome
+      return Promise.resolve(outcome).then(result => wrapPromptClaimOutcome(result, patch.submitClaim))
+    }
+    controller.adjudicate = wrappedAdjudicate
+    patch.controller = controller
+    patch.originalAdjudicate = originalAdjudicate
+    patch.wrappedAdjudicate = wrappedAdjudicate
+  }
+  /* Submit one prompt-bearing command claim with the editor-context envelope
+     prepended to its argument text. The harness logs the submitted line as the
+     command's `command/run.args` and `/plan` steers exactly that text as the
+     user message, so the envelope reaches the model through the command's own
+     prompt — the existing bubble folding and session-title guard apply
+     unchanged. Failures follow the plain-prompt path: notify, then reject so
+     the harness keeps the draft and the command does not run. */
+  async submitClaimWithEditorContext(id, claim, args, actx, attachments) {
+    let context
+    try {
+      context = this.editorContexts.snapshot(id)
+    } catch (error) {
+      this.notify(id, error)
+      throw error
+    }
+    /* No context attached (or one that cannot be snapshotted): the command runs
+       exactly as the harness would have submitted it. */
+    if (context === undefined) return claim.submit(args, actx, attachments)
+    const prompt = args.trim()
+    return this.enqueue(id, async (signal) => {
+      if (signal.aborted) throw new Error(translate('context.canceled'))
+      const rendered = await this.renderEnvelope(id, context, signal)
+      const combined = `${rendered}\n\n${prompt}`
+      const display = describeEditorContext(context, rendered)
+      const displayHandle = rememberEditorContextDisplay(combined, display)
+      this.cleanedTitles.set(id, cleanedSessionTitle({
+        remainder: prompt,
+        fileName: display.fileName,
+        range: display.range,
+      }))
+      try {
+        return await claim.submit(combined, actx, attachments)
+      } catch (error) {
+        discardEditorContextDisplay(displayHandle)
+        throw error
+      }
+    })
   }
   async sendContextOnly(id, mode) {
     if (!this.directSession(id) || this.contextOnlyInFlight.has(id)) return

@@ -55,6 +55,7 @@ It preserves the existing sidebar, conversation, details, and global-overlay Slo
 
 - The editor context appears as a non-editable prefix outside the textarea through the existing input dock: active sends freeze the context and render `<opened_file>...</opened_file>` or, for selected text, `<selection>...</selection>` (no file bytes without a selection); gray sends attach nothing.
 - The Host validates it and prepends it to the direct user prompt; the conversation view folds that envelope into a one-line summary above the bubble showing the file name and range (hover to reveal the full injected XML), and history renders the logged user message only.
+- **A prompt that starts with a command carries the context too**: a slash command whose argument IS the prompt (such as `/plan <message>`) submits through the harness's command-claim transaction (`claim.submit` → `commands.execute`), which never reaches `sendSession`; the plugin prepends the envelope to the command's argument text. **Both entry routes inject** — typing the whole line and pressing Enter, and picking the command from the `/` menu (or the Space gesture) before typing the argument; on the second route the harness writes the claim token into the draft and Enter submits that stored claim without adjudicating, so the plugin wraps the claim where it is created. The model therefore still sees "file/selection + your message", and the bubble folding and title guard keep working. Control words (`/plan off`) and bare commands inject nothing. `/goal` is currently outside the injection list (its argument is persisted as the durable objective, where an XML envelope does not belong).
 - A **title guard** in the client cleans envelope prefixes that leak into session titles.
 - See **Model Experience** below for the token and KV-cache effect.
 
@@ -175,7 +176,7 @@ One package ships three faces:
 
 The layout provider intentionally does not hard-inject `conversation`: the conversation plugin itself consumes `layout`. The bundle therefore uses child injections after activation to wrap several concrete seams, avoiding an activation cycle:
 
-- `sendSession` and `conversation.input.dock`: register the editor-context row and prepend the rendered context to the direct prompt.
+- `sendSession` and `conversation.input.dock`: register the editor-context row and prepend the rendered context to the direct prompt. Prompt-bearing slash commands (`/plan <message>`) get two more wrappers: the session's slash adjudicator (the resident `inputTriggers` controller's `adjudicate`, for a line typed and submitted in one go) and the composer shell's `beginCommand` (for a claim established earlier by the `/` menu or the Space gesture) — both claim entry routes feed the same injection.
 - `ctx.sidebarRight.openResource`: take over the chat's resource-open path into this plugin's preview tabs (file, plan, and change-review addresses); every other address is handed back to the harness, whose "no right-Sidebar seat" failure becomes one notice instead of an uncaught throw.
 - `ctx.sessions.fork`: watch the harness's own fork entry points to clear the fork inbox and sync the mind-map family.
 

@@ -415,6 +415,7 @@ export const en = {
   'context.symlinkError': 'Symlink files cannot be added to this conversation context.',
   'context.tooLarge': 'Selected text is {size}, over the {limit} context limit.',
   'context.canceled': 'Editor context send canceled',
+  'context.commandSeamUnavailable': 'The editor context cannot attach to command messages: this Harness build does not expose the {seam} seam.',
   'context.active': 'This send includes file context: {path}. Click to deactivate.',
   'context.inactive': 'This send does not include file context: {path}. Click to re-enable.',
   'error.invalid-request': 'Invalid request',

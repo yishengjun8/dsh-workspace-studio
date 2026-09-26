@@ -415,6 +415,7 @@ export const zh = {
   'context.symlinkError': '符号链接文件不能加入此次对话上下文。',
   'context.tooLarge': '选中文本为 {size}，超过 {limit} 的上下文上限。',
   'context.canceled': '编辑器上下文发送已取消',
+  'context.commandSeamUnavailable': '编辑器上下文无法附着到命令消息：当前 Harness 未提供 {seam} 接口。',
   'context.active': '此次发送将包含文件上下文：{path}。点击停用。',
   'context.inactive': '此次发送不包含文件上下文：{path}。点击重新启用。',
   'error.invalid-request': '请求参数无效',
