@@ -53,7 +53,7 @@ const MINDMAP_DOC_READ_CACHE_TTL_MS = 30_000
 const mindmapDocReadCache = new Map() // path -> { ino, size, mtimeMs, ctimeMs, at, doc }
 
 /* ---- AI card summaries (optional; model chosen in 设置 → 导图浏览设置) ----
-   The Host only ENQUEUES generation as a side effect of sync; background workers call ctx.llm. A finished summary is persisted as turn.summary and survives reconcile by seq (like `n`). Failures cool down so a broken model never re-hammers the provider every 2.5 s; manual regeneration bypasses the queue. */
+   The Host only ENQUEUES generation as a side effect of sync; background workers call the `llm` service through ctx.get('llm'). A finished summary is persisted as turn.summary and survives reconcile by seq (like `n`). Failures cool down so a broken model never re-hammers the provider every 2.5 s; manual regeneration bypasses the queue. */
 const MINDMAP_SUMMARY_DEFAULT_LENGTH = 48
 const MINDMAP_SUMMARY_MAX_LENGTH = 500
 const MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH = 64
@@ -1514,7 +1514,7 @@ async function mindmapWarmFamilyCache(ctx, persistence, limits, isCancelled) {
   }
 }
 
-/* Build a fresh v3 doc for a session that has never been converted: the session becomes the first TOP-LEVEL session with its completed turns. Empty sessions still convert (the root node is the creation hub). Null only when archived. workspaceCwd from the anchor's header is recorded so a root-node-created top-level session lands in the SAME workspace. */
+/* Build a fresh v3 doc for a session that has never been converted: the ANCHOR (mindmapAnchorOf) becomes the root session with its completed turns, and the requested session is attached to it as a branch by the caller's adopt pass (see the ancestor-aware note below). Empty sessions still convert (the root node is the creation hub). Null only when archived. workspaceCwd from the anchor's header is recorded so a root-node-created top-level session lands in the SAME workspace. */
 /* The oldest reachable, UNARCHIVED session up the ancestry bloodline of `sessionId` — the anchor a freshly built doc roots at, and therefore the correct lock key for a first conversion. Shared with the GET load path so a first build and its lock can never disagree about the root. */
 export async function mindmapAnchorOf(ctx, persistence, sessionId) {
   let anchor = String(sessionId)
@@ -1532,7 +1532,7 @@ export async function buildMindmapDoc(ctx, persistence, sessionId) {
   if (mindmapArchivedSet(ctx).has(String(sessionId))) return null
   /* Ancestor-aware first build: a fork descendant opened BEFORE any documented ancestor must never become a root on its own, or opening the ancestor later would mint a SECOND root for the same family. Anchor the fresh doc at the oldest REACHABLE, UNARCHIVED session up the bloodline; the caller's adopt pass then attaches the requested session as a branch. */
   const anchor = await mindmapAnchorOf(ctx, persistence, sessionId)
-  /* ONE log read per conversion: parse the turns AND derive the root title from the same decoded events (mindmapTitleOf used to re-open the anchor's log). */
+  /* ONE log read per conversion: parse the turns AND derive the root title from the same decoded events. */
   const events = await eventsOf(ctx, persistence, anchor)
   const turns = parseMindmapTurns(events)
   const sessionTurns = turns.map((turn, index) => ({ ...turn, n: index + 1 }))

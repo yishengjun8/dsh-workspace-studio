@@ -277,8 +277,8 @@ export const MindMapSessionHead = memo(function MindMapSessionHead({
       h('svg', { className: 'dsh-ws-mindmap-head-icon', fill: 'none', viewBox: '0 0 24 24' },
         h('path', { d: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z', stroke: 'currentColor', strokeWidth: '1.7', strokeLinejoin: 'round' })),
       h('span', { className: 'dsh-ws-mindmap-head-title' }, title)),
-    /* Row 2: turn count + completion status merged (the old count/status rows
-       collapsed into one line so the summary gets the remaining space). */
+    /* Row 2: turn count + completion status merged into one line so the
+       summary gets the remaining space. */
     h('div', { className: 'dsh-ws-mindmap-head-meta' + (statusLive ? ' dsh-ws-mindmap-head-meta-live' : '') },
       statusLive ? h('span', { className: 'dsh-ws-mindmap-node-streaming-dot' }) : null,
       h('span', null, `${countLabel} · ${statusLabel}`)),

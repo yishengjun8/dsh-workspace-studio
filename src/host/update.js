@@ -34,7 +34,7 @@ const CHECK_TIMEOUT_MS = 30_000
 const DOWNLOAD_TIMEOUT_MS = 120_000
 const MAX_TARBALL_BYTES = 50 * 1024 * 1024
 const SEMVER_RE = /^\d+\.\d+\.\d+$/
-/* Reuse window for the cached check payload: the settings group's mount auto-check skips the (~MB) re-download while the cache is fresh; every explicit user action (检查更新 / 重试) forces a fresh download. */
+/* Reuse window for the cached check payload: an unforced check whose cached metadata is younger than this skips the (~MB) tarball download; 重新检查 / 重试 pass force=true and always fetch. */
 const CHECK_CACHE_TTL_MS = 15 * 60_000
 const CHECK_BASE = join(homedir(), '.dsh-plugin', 'dsh-workspace-studio', 'updates')
 const CHECKED_META = 'checked.json'

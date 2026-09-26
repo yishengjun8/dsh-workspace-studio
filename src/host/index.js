@@ -411,7 +411,7 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
             })
             return
           }
-          /* Undecodable as the detected encoding: fall through to the raw bytes (the pre-rendering behavior). */
+          /* Undecodable as the detected encoding: fall through to the raw bytes. */
         }
         sendRaw(req, res, 200, raw.bytes, `${raw.isHtml ? 'text/html' : 'text/plain'}; charset=${raw.charset}`, {
           'content-security-policy': 'sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms allow-modals allow-downloads',

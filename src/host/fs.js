@@ -422,8 +422,7 @@ export async function readRawFile(workspace, relativePath, config) {
  *
  * The browsing pane is snapshot-based, so the client polls a cheap change-check
  * endpoint on a fixed cadence; this helper compares stat fields first and hashes
- * only when they moved. A legacy fs.watch push path was removed as dead code
- * that only leaked handles. Read-only and scoped to paths already opened in the
+ * only when they moved. Read-only and scoped to paths already opened in the
  * preview; no directory tree is watched.
  * ---------------------------------------------------------------------- */
 

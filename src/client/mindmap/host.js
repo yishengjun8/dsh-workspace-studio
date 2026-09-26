@@ -50,7 +50,7 @@ export const mindmapViewHost = {
   _strip: null,
   /* rootId -> last map-internal session id: the current-highlight fallback when
      the harness current session is not a family member (hero page /
-     transient), mirroring the old per-explorer mapSessionByPath. */
+     transient). */
   _sessions: new Map(),
   /* Registered by MindMapHost (AppFrame) so away-case snapshot fixups can
      write through the preview-sessions store (see docGone/titleChange). */
@@ -270,7 +270,7 @@ function MindMapBody({ rootId, currentSession, useSessions, mindmapActions, sett
   /* The map's session follows the HARNESS current session whenever it is a
      member of this family (a sidebar-entry / switcher switch drives the chat
      directly and the highlight must follow); otherwise the last map-internal
-     selection, falling back to the root. Mirrors the old per-explorer logic. */
+     selection, falling back to the root. */
   const sessionId = useMemo(() => {
     const current = currentSession === undefined || currentSession === null
       ? undefined

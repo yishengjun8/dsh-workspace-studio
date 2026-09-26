@@ -27,7 +27,7 @@
 - **查看方式菜单**（渲染器注册表驱动，与 Harness 右侧栏文档预览同源）：Markdown 在「源码编辑 / 渲染预览」间切换并**默认渲染预览**（GFM：表格、任务列表、删除线）；HTML 在「源码编辑 / 页面预览」间切换并**默认页面预览**，相对脚本与样式表经标准工作区文件接口打包进沙箱 iframe（编辑内容实时生效，打包防抖 400 ms）；图片（png / jpg / jpeg / gif / webp / bmp / ico / svg）直接预览；只读文本可分页浏览完整文件。查看方式按文件切换时重置为该文件的默认视图、不持久化。
 - **PDF 与 Office 文档预览**（渲染器注册表新增 `pdf` / `office` 两类）：`.pdf` 经标准工作区文件接口取原始字节直接预览；`.doc / .docx / .ppt / .pptx / .xls / .xlsx` 交给 Harness Host 的 `officeToPdf` 服务在**本机用 LibreOffice 转成 PDF** 后预览（有界队列 + 按内容摘要缓存，重复打开不再重转）。两者都以 blob URL 交给**浏览器自带 PDF 阅读器**渲染，因此缩放、翻页、文字选择与打印都可用，且不向产物里塞 PDF 引擎；转换缺字体时在顶部横幅列出字体名。这类标签与图片一样**只读、无草稿、不进编辑器上下文**，磁盘变更时自动重新转换。Host 未挂载转换服务时给出「当前 dsh 未提供文档转换服务」提示而不是空白。
 - **编码**：自动检测 14 种编码（UTF-8 / UTF-8 BOM / UTF-16 LE / BE / GBK / GB18030 / Big5 / Shift_JIS / EUC-JP / EUC-KR / ISO-8859-1 / Windows-1252 / Windows-1251 / ASCII）；右键预览头可「以编码打开…」重新解码或「另存为编码…」写回磁盘，面板头显示编码徽标；编码清单以 Host `/workspace-studio/api/encodings` 为准，请求失败回退内置清单，操作不会中断。
-- **聊天里的文件直达预览**：聊天中打开工作区文件（`dsh-resource://file/...` 地址）不再落到 Harness 右侧栏，而是解析为当前会话工作区内的路径，直接在本插件的预览标签页中打开；文件不在工作区内或会话无工作区时给出明确提示，而不是静默失败。
+- **聊天里的文件直达预览**：聊天中打开工作区文件（`dsh-resource://file/...` 地址）不再落到 Harness 右侧栏，而是解析为当前会话工作区内的路径，直接在本插件的预览标签页中打开；**工作区外的文件**转为会话内的只读外部预览标签（标签名标注「工作区外文件」，不写工作区、不落盘），只有「会话没有关联的工作区」才给出明确提示。
 - **计划直达预览**：计划审批条带的「查看全文」与回合末尾「计划」卡片的「打开」（`dsh-resource://plan/...` 与 `dsh-resource://plan-review/...` 地址）同样落在本插件的预览标签页里，以渲染后的 Markdown 显示完整计划；已记录的计划经 Harness 的 plan 资源读取会话历史，临时审阅文本只存在于本次页面（刷新后标签不再恢复）。计划标签是会话内的临时标签，不写入预览持久化。
 - **变更审查直达预览**：回合末尾「变更文件」卡片（头部或任一文件行，`dsh-resource://changes-review/session/...` 地址）在本插件的预览标签页里打开该轮的**变更审查**：左侧列出该轮所有变更文件（含 +/− 行数，二进制与超大文件以标签标注），右侧按 Harness 的 `api/changes.summary` / `api/changes.diff` 路由渲染逐文件统一 diff（行号、`@@` 段头、新增 / 删除着色，超过 5000 行截断提示），头部可「在编辑器中打开」当前文件（工作区外走只读预览）。标签按索引定位到点击的那一行，同一轮重复点击只会跳转而不新开标签；审查标签是会话内的临时标签，不写入预览持久化。标签内左右两栏（文件列表 / 内容对比）之间可**拖拽调宽**（也支持键盘 ←/→ 步进），宽度是**页面内的临时状态**：切换预览标签、切换会话或工作区再切回都不变，刷新后回到默认（与审查标签本身一样不落盘）。
 - 可将外部文件拖入预览面板以只读标签查看（会话内有效，不写入工作区）；仅文本类文件可预览，图片属聊天输入区，此为有意行为。
@@ -145,7 +145,7 @@ bash ./uninstall.sh
 | `maxPromptContextBytes` | `69632` | Host 对完整渲染上下文（含封套与选中文本）的上限（4096–2097152）。 |
 | `maxContextSourceBytes` | `10485760` | clean 修订校验最多读取的原始文件字节（1024–104857600）。 |
 | `maxSearchQueryLength` | `1024` | 搜索内容最大字符数（1–4096）；含换行或控制字符的查询一律拒绝。 |
-| `enableUpdateCheck` | `true` | 是否启用「插件更新」的检查与下载（设为 `false` 时检查返回禁用态、下载接口拒绝，设置页该组在首次检查后隐藏）。 |
+| `enableUpdateCheck` | `true` | 是否启用「插件更新」的检查与下载（设为 `false` 时检查返回禁用态、下载接口拒绝，设置页的该组在用户点过一次「检查更新」后隐藏）。 |
 
 搜索相关上限另有一组可调项：`searchExcludeDirs`（默认 `['.git', 'node_modules']`）、`maxSearchFileBytes`（1 MiB）、`maxSearchFiles`（10000）、`maxSearchMatches`（2000）、`maxMatchesPerFile`（100）、`searchConcurrency`（16）。
 
@@ -167,9 +167,9 @@ bash ./uninstall.sh
 
 一个包内封装三个端面：
 
-- **Host 端**（`lib/index.js`）注册 `/workspace-studio/api`，按 Workspace ID 授权当前 Session（membership projection 或规范化 cwd），并分为五组接口：**读**（`/tree`、`/search`、`/file` GET/HEAD、`/raw`、`/external-file`、`/encodings`、`/reveal`）；**写**（仅在显式启用编辑时接受：`/file` PUT 保存、`/entry` 新建与重命名、`/fs` 复制 / 移动 / 删除，全部经修订版本校验、单段名称校验与原子替换，过期修订返回冲突而不静默覆盖）；**草稿**（`/draft`、`/draft-tree`，持久化到工作区之外的暂存盘，带 owner 校验、generation fence 与 tombstone）；**导图**（`/mindmap-doc` 读 / 写 / 删与 `/mindmap-doc/sync`、`/index`、`/rename`、`/models`、`/fork-cleanup`、`/regenerate-summary`、`/regenerate-all`、`/regenerate-session-summaries`、`/summarize-session`，按会话持久化导图文档、反向解析完整事件日志折叠所有会话的轮次，重命名只更新导图标题而不整份往返，AI 摘要的生成 / 重算 / 会话总结由 Host 串行调度）；**插件级**（`/update/check` 与 `/update/download` 支撑「插件更新」组，替换后需重启 dsh 生效；`/token-stats` 按客户端给定的 `[from, to)` 毫秒窗口汇总所有会话日志的 `assistant/message` usage 记录，`archived=0` 排除已归档会话，Host 以 `~/.dsh-plugin/dsh-workspace-studio/token-stats/usage-index.json` 增量缓存按日按模型的汇总结果并以持久化索引的 stat 修订号为变更信号）。
+- **Host 端**（`lib/index.js`）注册 `/workspace-studio/api`，按 Workspace ID 授权当前 Session（membership projection 或规范化 cwd），并分为六组接口：**读**（`/tree`、`/search`、`/file` GET/HEAD、`/raw`、`/external-file`、`/encodings`、`/reveal`）；**写**（仅在显式启用编辑时接受：`/file` PUT 保存、`/entry` 新建与重命名、`/fs` 复制 / 移动 / 删除，全部经修订版本校验、单段名称校验与原子替换，过期修订返回冲突而不静默覆盖）；**上下文**（`/context` 按磁盘修订校验 clean 选区并渲染 `<opened_file>` / `<selection>` 封套，发送前调用）；**草稿**（`/draft`、`/draft-tree`，持久化到工作区之外的暂存盘，带 owner 校验、generation fence 与 tombstone）；**导图**（`/mindmap-doc` 读 / 写 / 删与 `/mindmap-doc/sync`、`/index`、`/rename`、`/models`、`/fork-cleanup`、`/regenerate-summary`、`/regenerate-all`、`/regenerate-session-summaries`、`/summarize-session`，按会话持久化导图文档、反向解析完整事件日志折叠所有会话的轮次，重命名只更新导图标题而不整份往返，AI 摘要的生成 / 重算 / 会话总结由 Host 串行调度）；**插件级**（`/update/check` 与 `/update/download` 支撑「插件更新」组，替换后需重启 dsh 生效；`/token-stats` 按客户端给定的 `[from, to)` 毫秒窗口汇总所有会话日志的 `assistant/message` usage 记录，`archived=0` 排除已归档会话，Host 以 `~/.dsh-plugin/dsh-workspace-studio/token-stats/usage-index.json` 增量缓存按日按模型的汇总结果并以持久化索引的 stat 修订号为变更信号）。
 - **Browser 端**（`lib/client.js`）提供兼容的 `ctx.layout` 服务与 `usePanelInfo` 标准 Hook（`panelInfo` 根贡献），占用根 Slot，声明 `sidebar`、`main`（keyed，承载新版 Harness 的会话面板）、`details` 与 `shell.overlay`，并加入文件树、CodeMirror 6 浏览器 / 编辑器、编辑器上下文行、工作区设置页、`/init` 命令、渲染视图与会话分支导图（预览标签页）。
-- **共享不变量**（`lib/invariant.js`）为每次 Host 请求提供路径包含与写入资格校验。
+- **共享不变量**（`lib/invariant.js`）：只向 Harness 的 invariant 注册表登记本包的归属，当前**为空实现**；每次 Host 请求的路径包含、符号链接与写入资格校验都在 `src/host/paths.js` 与 `src/host/write.js` 里完成。
 
 ### 激活模型
 
@@ -187,7 +187,7 @@ layout 提供方有意不硬注入 `conversation`：conversation 插件本身消
 
 预览覆盖 Markdown、HTML、图片、只读文本分页、代码高亮，以及 PDF 与 Office 文档（Word / PowerPoint / Excel 经 Host 转 PDF）。Office 预览**依赖 Harness 的 `officeToPdf` 服务与本地 LibreOffice kit**：服务缺失时该标签给出配置提示；转换受 Host 的输入 / 输出体积、并发与超时限制约束，超出时报错可重试。表格预览是转换后的静态 PDF，不做浏览器内可编辑表格；`.csv / .tsv` 仍按文本打开。
 
-布局状态、展开目录、编辑器选区与工作区暂存盘草稿状态均属页面内存状态；预览标签页及其各自的垂直滚动位置在重载后、以及返回原 Session 或 Workspace 时恢复（未保存内容本身存于暂存盘文件，见上文的暂存盘说明）。
+编辑器选区等瞬态状态属页面内存；预览标签、展开目录、侧栏 / 预览列宽度、预览标签的垂直滚动位置与暂存盘草稿状态都会恢复——标签、展开目录与宽度在重载后、以及返回原 Session 或 Workspace 时从本地持久化恢复（未保存内容本身存于暂存盘文件，见上文的暂存盘说明）。
 
 ### 模型体验
 
@@ -206,7 +206,7 @@ Browser 发送桥把渲染后的文本拼接到直接用户提示前，因此普
 ├── package.json                         # 单包 manifest：bundle patch + client inject + exports
 ├── cordis.patch.yml                     # 禁用内置根布局并挂载本插件（自引用单包名）
 ├── install.sh / uninstall.sh
-├── src/client/                           # 浏览器源码（多模块：入口壳 + 25 个顶层模块 + 5 个子目录）
+├── src/client/                           # 浏览器源码（多模块：入口壳 + 29 个顶层模块 + 5 个子目录）
 │   ├── index.js / app.js                 # 纯入口 + AppFrame 组装与 mountStudio
 │   ├── components/explorer/              # 文件树 / 预览 / 标签页 / 搜索 / 编辑器会话
 │   ├── components/                       # 编辑器、设置页、菜单、对话框、手机模式
@@ -217,10 +217,11 @@ Browser 发送桥把渲染后的文本拼接到直接用户提示前，因此普
 ├── src/host/                             # Host 源码（多模块，构建为 lib/index.js）
 │   ├── index.js                          # Config schema + 路由分发
 │   ├── http.js / paths.js / workspace.js # 信任围栏、路径校验、归属查询
+│   ├── errors.js / session-rows.js       # 结构化错误原语、persistence.list 行原语
 │   ├── fs.js / write.js / encodings.js   # 读侧、写侧与编解码
 │   └── drafts.js / prompt-context.js / markdown.js / mindmap.js / token-stats.js / update.js
 ├── lib/index.js                         # Host：有界的 Workspace 读、保存、新建、重命名、草稿、导图、统计与自更新 API
-├── lib/invariant.js                     # Host 共用不变量断言
+├── lib/invariant.js                     # 向 Harness invariant 注册表登记本包（空实现，见「双面实现」）
 └── lib/client.js                        # 预构建三栏布局、文件树、编辑器、渲染视图与导图
 ```
 

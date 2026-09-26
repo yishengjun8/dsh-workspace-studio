@@ -565,4 +565,3 @@ export function ExplorerSettingsSection({ settingsStore }) {
     h('div', { className: 'dsh-ws-settings-hint' }, translate('settings.hint')),
   )
 }
-/* Session-switcher dropdown: the trigger opens a portalled panel listing every session (most recently updated first, current highlighted); clicking a row switches session via ctx.sessions.open. */

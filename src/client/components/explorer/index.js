@@ -987,15 +987,6 @@ export function WorkspaceExplorer({
       setDeleteBusy(false)
       for (const item of affected) {
         if (!item.dirty) continue
-        // Use the tab's CURRENT draft, not the stale `affected` snapshot: the
-        // delete dialog keeps editor focus, so the user may have typed after
-        // capture, and a failed delete must not roll the staging draft back.
-        // force=true also re-writes staging drafts of NON-editable dirty tabs
-        // (their scheduleAutosave gate would skip them), so a failed delete
-        // never destroys an orphaned draft. Drop the autosave dedup FIRST:
-        // draftTree already tombstoned these drafts, yet lastWriteRef still
-        // records the same text, so scheduleAutosave's content-dedup would
-        // skip the re-write and the orphaned draft would stay lost.
         const fresh = tabsRef.current.find(tab => tab.path === item.path)
         lastWriteRef.current.delete(item.path)
         scheduleAutosave(item.path, fresh?.draft ?? item.draft, true)
