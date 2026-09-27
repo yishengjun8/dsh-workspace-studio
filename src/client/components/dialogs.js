@@ -72,7 +72,7 @@ export function DeleteDialog({entry,busy,dirtyWarning,onCancel,onConfirm}){const
   const [choices, setChoices] = useState([])
   /* Synchronous mirror of `choices` so two rapid clicks on the last region can't both resolve with only their own choice. */
   const choicesRef = useRef([])
-  // Escape cancels the whole save, same as backdrop / ×; it must not leak to the mind-map overlay's Escape-to-close.
+  // Escape cancels the whole save, same as backdrop / ×.
   useEffect(() => {
     const onKeyDown = event => {
       if (event.key === 'Escape') onResolve('cancel')

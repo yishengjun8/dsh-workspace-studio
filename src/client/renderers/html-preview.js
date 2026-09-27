@@ -31,7 +31,7 @@ export function HtmlPreview({ sessionId, path, draft }) {
         }
         return faces.readRelated(String(sessionId), path, relativePath, signal).then((result) => {
           if (!result.ok) throw new Error(result.error.message)
-          /* Native bytes, not base64 (DSH 0.1.7 readBytes). */
+          /* Native bytes, not base64 (the readBytes Remote). */
           return { data: result.value.data }
         })
       }

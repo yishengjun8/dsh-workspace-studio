@@ -7,7 +7,7 @@ import { mindmapClip } from './helpers.js'
 /* One absolutely-positioned map card, extracted so `memo` only rebuilds cards
    whose props actually changed on a doc-triggered re-render. */
 
-/* The hover fold pill (scheme C): a text capsule that sits exactly where the
+/* The hover fold pill: a text capsule that sits exactly where the
    status row was (see styles.js) and cross-fades with it while the card is
    hovered. It is rendered ONLY on cards that own a foldable completed turn —
    empty placeholder, streaming, head and root nodes never get one — so the
@@ -375,7 +375,7 @@ export const MindMapSessionHead = memo(function MindMapSessionHead({
         : null))
 })
 
-/* Toolbar badge icons (scheme D): 16-viewBox stroke glyphs matching the
+/* Toolbar badge icons: 16-viewBox stroke glyphs matching the
    plus badge's line style, rendered inside .dsh-ws-mindmap-toolbar-badge.
    One path (possibly several M/Z sub-segments) + one stroke width each. */
 export const MINDMAP_TOOLBAR_ICONS = {

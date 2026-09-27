@@ -6,8 +6,7 @@ import { mindmapBlankSessions } from './mindmap/hider.js'
 
   /* The mind-map action face shared by the docked mind-map view: document IO,
      fork, rename and archive. forkAt does not open the child — the view opens
-     it only after the doc write completes. The child is renamed to the
-     family-root title plus " ›" so its header never collides with the root. */
+     it only after the doc write completes. */
 export function buildMindmapActions(ctx) {
     /* Resolve the workspace whose canonical path matches a cwd string, so a root-node-created session can be created with its workspaceId. */
     const mindmapWorkspaceIdForCwd = (cwd) => {

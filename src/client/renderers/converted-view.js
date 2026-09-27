@@ -69,7 +69,7 @@ export function ConvertedView({ kind, sessionId, path, name, readEpoch }) {
           return
         }
         const fonts = Array.isArray(result.value?.missingFonts) ? result.value.missingFonts : []
-        /* Native bytes, never base64 (DSH 0.1.7 readBytes / the Office Remote). */
+        /* Native bytes, never base64 (the readBytes Remote / the Office Remote). */
         url = URL.createObjectURL(new Blob([result.value.data], { type: 'application/pdf' }))
         setState({ url, failure: undefined, fonts })
       })

@@ -7,7 +7,7 @@ import { IconCloseWin10, IconPinVscode } from '../../icons.js'
 export function PreviewTabs({ tabs, activePath, draggingPath, dropIndex, containerRef, onChoose, onClose, onContextMenu, onDragEnd, onDragStart, onDragLeave, onDragOver, onDrop, onMouseEnter, onMouseLeave, onPromote, onScroll, onUnpin }) {
   const nodes = []
   for (const [index, tab] of tabs.entries()) {
-    /* A synthetic tab's path addresses a map or a plan, not a file: its label is its name, never the path. */
+    /* A synthetic tab's path addresses a map, a plan, or a change review, not a file: its label is its name, never the path. */
     const tabTitle = isSyntheticTab(tab) ? tab.name : tab.path
     if (draggingPath !== null && dropIndex === index) nodes.push(h('div', { 'aria-hidden': true, className: 'dsh-ws-preview-drop-indicator', key: `drop:${index}` }))
     nodes.push(h('div', {

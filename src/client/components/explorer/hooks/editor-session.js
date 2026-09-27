@@ -245,7 +245,7 @@ export function useEditorSession({
       baseText.current = ''
       return undefined
     }
-    // A mind-map tab carries no file (the map body is owned by the global host) and a plan tab renders a harness plan document: neither has a read, draft, or editor state.
+    // A mind-map tab carries no file (the map body is owned by the global host), a plan tab renders a harness plan document, and a review tab draws one turn's change comparison: none of them has a file read, draft, or editor state.
     const syntheticTab = tabsRef.current.find(item => item.path === activePath && isSyntheticTab(item))
     if (syntheticTab !== undefined) {
       readController.current?.abort()

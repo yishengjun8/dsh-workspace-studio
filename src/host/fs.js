@@ -165,7 +165,7 @@ function findMatches(content, query, caseSensitive, cap) {
         line: lineIndex + 1,
         text: `${from > 0 ? '…' : ''}${text.slice(from, to)}${to < text.length ? '…' : ''}`,
         // Columns relative to the displayed snippet window (hit highlighting);
-        // …absolute 1-based columns within the full line so the client can select the true match even when the snippet is truncated.
+        // startLineColumn/endLineColumn are absolute 1-based columns within the full line so the client can select the true match even when the snippet is truncated.
         startColumn: start - from + 1,
         endColumn: start - from + length + 1,
         startLineColumn: start + 1,

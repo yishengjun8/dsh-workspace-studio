@@ -33,7 +33,7 @@ export function ImageView({ sessionId, path, name, readEpoch }) {
         setState({ url: undefined, failure: result.error })
         return
       }
-      /* DSH 0.1.7's readBytes answers native bytes (`Uint8Array`), never base64. */
+      /* The readBytes Remote answers native bytes (`Uint8Array`), never base64. */
       url = URL.createObjectURL(new Blob([result.value.data], { type: mimeOf(name) }))
       setState({ url, failure: undefined })
     })

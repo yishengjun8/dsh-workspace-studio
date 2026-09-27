@@ -1841,7 +1841,7 @@ async function mindmapSessionIndex(ctx, persistence) {
       const header = session.header
       merge(session.id ?? header?.id, {
         parent: header?.parentSession,
-        /* The fork cut lives on the session/handle as inheritedEventCount since the handle-based seam (header.seedLength no longer exists). */
+        /* The fork cut lives on the session/handle as inheritedEventCount (header.seedLength no longer exists). */
         seedLength: session.inheritedEventCount,
         subagent: header?.origin === 'subagent',
       })
@@ -2212,7 +2212,7 @@ export async function writeMindmapDoc(ctx, persistence, sessionId, doc, prevSess
       const title = await mindmapTitleOf(ctx, persistence, doc.rootSessionId)
       if (title !== undefined) doc.rootTitle = title
     }
-    /* ---- stale-overwrite guards (2026-08 incident: a stale in-memory doc wiped two live fork branches and rewound the counter) ----
+    /* ---- stale-overwrite guards: a stale in-memory doc must never wipe live fork branches or rewind the counter ----
        a) The display-number counter never rewinds below the largest recorded n.
        b) A NON-replacement write must not silently drop a session the previous doc recorded, unless that session is already archived. Root replacements retire the old root by definition, so they skip (b). */
     doc.next = Math.max(

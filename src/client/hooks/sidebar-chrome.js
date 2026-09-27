@@ -3,9 +3,10 @@ import { useLayoutEffect, useRef, useState } from 'react'
 export function useSidebarChrome() {
   const asideRef = useRef(null)
   // The harness sidebar shell owns the New Session button and the browsing
-  // region, so this plugin creates two DOM containers inside it — the top
-  // actions row and the files region seat — and renders its own React content
-  // into them via portals.
+  // region, so this plugin creates its own DOM containers inside it — the top
+  // actions row, the files region seat, and one mind-map seat per workspace
+  // group (or a single fallback seat) — and renders its own React content into
+  // them via portals.
   const [sidebarChrome, setSidebarChrome] = useState(null)
   useLayoutEffect(() => {
     const aside = asideRef.current

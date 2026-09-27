@@ -317,8 +317,7 @@ export function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_M
      pass: consecutive folded turns collapse into one slot unless the run is
      being peeked, and every turn maps to its rendered node key/index. */
   const chainMaps = new Map()
-  /* Per-peeked-run node-key groups: one amber outline box per run (a single
-     union box would span the whole map when several runs are peeked at once). */
+  /* Per-peeked-run node-key groups: one amber outline box per run. */
   const peekedRunBoxes = []
   for (const s of order) {
     const sid = String(s.sessionId)

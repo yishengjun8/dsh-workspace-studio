@@ -8,7 +8,7 @@
 
 ## 📸 界面预览
 
-| ![三栏布局总览](image/image-1.png) | ![文件视图与编辑器](image/image-2.png) |
+| ![三栏布局总览](image/image-1.png) | ![手机模式的对话列](image/image-2.png) |
 |---|---|
 
 ## ⭐ 四大核心能力
@@ -22,7 +22,7 @@
 
 ### 1️⃣ 工作区文件浏览与预览标签页
 
-- 文件树融合在**左侧栏**：顶部按钮在「会话列表 / 文件浏览」间互切；当前会话属于某 Workspace 时自动显示其文件树（会话 `cwd` 与 Workspace 路径一致时同样识别），目录优先、逐级展开、可手动刷新。展开状态与垂直滚动位置**按会话持久化**，刷新后自动恢复。
+- 文件树融合在**左侧栏**：顶部按钮在「会话列表 / 文件浏览」间互切；当前会话属于某 Workspace 时自动显示其文件树（会话 `cwd` 与 Workspace 路径一致时同样识别），目录优先、逐级展开、可手动刷新。展开状态**按会话持久化**，刷新后自动恢复；点击「刷新」重新列目录后树的滚动位置也会还原（预览标签的垂直滚动位置同样随会话恢复）。
 - **预览标签页按 Session 保存**：可关闭、拖拽重排、滚轮横向滚动、跨重载恢复；右键可**固定**（图钉图标、自动排前，「关闭其他标签页」只关未固定）或**在新窗口内打开**。存在未保存修改时，标签名与面板标题的文件名末尾显示 `·`。
 - **文件树单击 = 临时标签（斜体），双击 = 正式标签**：单击文件只是**临时预览**——再单击其它文件时**不新增标签**，而是在原位置把斜体标签换成为新文件；**双击**（或双击标签栏里的斜体标签、右键固定、在该标签里开始编辑）才转成正式标签。任何时点最多一个临时标签；替换永不吞掉未保存内容（有编辑就先转正式），刷新后恢复出来的标签一律为正式标签。搜索结果与聊天里的文件直达仍按原语义打开正式标签。
 - **查看方式菜单**（渲染器注册表驱动，与 Harness 右侧栏文档预览同源）：Markdown 在「源码编辑 / 渲染预览」间切换并**默认渲染预览**（GFM：表格、任务列表、删除线）；HTML 在「源码编辑 / 页面预览」间切换并**默认页面预览**，相对脚本与样式表经标准工作区文件接口打包进沙箱 iframe（编辑内容实时生效，打包防抖 400 ms）；图片（png / jpg / jpeg / gif / webp / bmp / ico / svg）直接预览；只读文本可分页浏览完整文件。查看方式按文件切换时重置为该文件的默认视图、不持久化。
@@ -108,7 +108,7 @@ bash ./install.sh web      # 也可显式指定 profile
 > **推荐把插件放在 Harness 根目录下两层的插件目录中**（与示例一致）；若 PATH 中已有 `dsh`，
 > 插件放在任何位置都可安装。
 
-脚本优先使用 PATH 中的 `dsh`；当前目录属于 Harness checkout 且 PATH 无 `dsh` 时自动使用 `pnpm --dir <harness-root> dsh`，也可用 `DSH_BIN` 指定可执行文件。安装完成后**停止并重启原有 Web 进程**（先停止再启动，让插件随 Web 进程重新加载生效），然后刷新 `http://127.0.0.1:3080`；脚本不会启动第二个服务器。
+脚本按 `DSH_BIN`（若设置）→ PATH 中的 `dsh` → 当前 checkout 的 `pnpm --dir <harness-root> dsh` 依次选择可执行文件。安装完成后**停止并重启原有 Web 进程**（先停止再启动，让插件随 Web 进程重新加载生效），然后刷新 `http://127.0.0.1:3080`；脚本不会启动第二个服务器。
 
 ### 从 Git 直接安装
 
@@ -169,7 +169,7 @@ bash ./uninstall.sh
 
 一个包内封装三个端面：
 
-- **Host 端**（`lib/index.js`）注册 `/workspace-studio/api`，按 Workspace ID 授权当前 Session（membership projection 或规范化 cwd），并分为六组接口：**读**（`/tree`、`/search`、`/file` GET/HEAD、`/raw`、`/external-file`、`/encodings`、`/reveal`）；**写**（仅在显式启用编辑时接受：`/file` PUT 保存、`/entry` 新建与重命名、`/fs` 复制 / 移动 / 删除，全部经修订版本校验、单段名称校验与原子替换，过期修订返回冲突而不静默覆盖）；**上下文**（`/context` 按磁盘修订校验 clean 选区并渲染 `<opened_file>` / `<selection>` 封套，发送前调用）；**草稿**（`/draft`、`/draft-tree`，持久化到工作区之外的暂存盘，带 owner 校验、generation fence 与 tombstone）；**导图**（`/mindmap-doc` 读 / 写 / 删与 `/mindmap-doc/sync`、`/index`、`/rename`、`/models`、`/fork-cleanup`、`/regenerate-summary`、`/regenerate-all`、`/regenerate-session-summaries`、`/summarize-session`，按会话持久化导图文档、反向解析完整事件日志折叠所有会话的轮次，重命名只更新导图标题而不整份往返，AI 摘要的生成 / 重算 / 会话总结由 Host 串行调度）；**插件级**（`/update/check` 与 `/update/download` 支撑「插件更新」组，替换后需重启 dsh 生效；`/token-stats` 按客户端给定的 `[from, to)` 毫秒窗口汇总所有会话日志的 `assistant/message` usage 记录，`archived=0` 排除已归档会话，Host 以 `~/.dsh-plugin/dsh-workspace-studio/token-stats/usage-index.json` 增量缓存按日按模型的汇总结果并以持久化索引的 stat 修订号为变更信号）。
+- **Host 端**（`lib/index.js`）注册 `/workspace-studio/api`，按 Workspace ID 授权当前 Session（membership projection 或规范化 cwd），并分为六组接口：**读**（`/tree`、`/search`、`/file` GET/HEAD、`/raw`、`/external-file`、`/encodings`、`/reveal`）；**写**（仅在显式启用编辑时接受：`/file` PUT 保存、`/entry` 新建与重命名、`/fs` 复制 / 移动 / 删除，全部经修订版本校验、单段名称校验与原子替换，过期修订返回冲突而不静默覆盖）；**上下文**（`/context` 按磁盘修订校验 clean 选区并渲染 `<opened_file>` / `<selection>` 封套，发送前调用）；**草稿**（`/draft`、`/draft-tree`，持久化到工作区之外的暂存盘，带 owner 校验、generation fence 与 tombstone）；**导图**（`/mindmap-doc` 读 / 写 / 删与 `/mindmap-doc/sync`、`/index`、`/rename`、`/models`、`/fork-cleanup`、`/regenerate-summary`、`/regenerate-all`、`/regenerate-session-summaries`、`/summarize-session`，按会话持久化导图文档、反向解析完整事件日志折叠所有会话的轮次，重命名只更新导图标题而不整份往返，AI 摘要的生成 / 重算 / 会话总结由 Host 串行调度）；**插件级**（`/update/check` 与 `/update/download` 支撑「插件更新」组，替换后需重启 dsh 生效；`/token-stats` 按客户端给定的 `[from, to)` 毫秒窗口汇总所有会话日志的 `assistant/message` usage 记录，`archived=0` 排除已归档会话，Host 以 `~/.dsh-plugin/dsh-workspace-studio/token-stats/usage-index.json` 增量缓存按日按模型的汇总结果，并以 `sessionRowFingerprint`（单会话物理修订 + `sizeBytes`，legacy 行的全库语料尾串已剥离）为变更信号）。
 - **Browser 端**（`lib/client.js`）提供兼容的 `ctx.layout` 服务与 `usePanelInfo` 标准 Hook（`panelInfo` 根贡献），占用根 Slot，声明 `sidebar`、`main`（keyed，承载新版 Harness 的会话面板）、`details` 与 `shell.overlay`，并加入文件树、CodeMirror 6 浏览器 / 编辑器、编辑器上下文行、工作区设置页、`/init` 命令、渲染视图与会话分支导图（预览标签页）。
 - **共享不变量**（`lib/invariant.js`）：只向 Harness 的 invariant 注册表登记本包的归属，当前**为空实现**；每次 Host 请求的路径包含、符号链接与写入资格校验都在 `src/host/paths.js` 与 `src/host/write.js` 里完成。
 

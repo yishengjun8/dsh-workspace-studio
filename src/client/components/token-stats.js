@@ -261,7 +261,7 @@ function TokenStatsDialog({ onClose }) {
   const setCurrency = useCallback((text) => {
     setPriceState(prev => ({ ...prev, currency: String(text).slice(0, TOKEN_CURRENCY_MAX_LENGTH) }))
   }, [])
-  /* An empty cell removes the override for that one field; a row whose four cells are all empty drops out of the override map entirely, so the stored object stays as small as what the user actually typed. */
+  /* An empty cell removes the override for that one field; a row whose three cells are all empty drops out of the override map entirely, so the stored object stays as small as what the user actually typed. */
   const setRowPrice = useCallback((key, field, text) => {
     setPriceState(prev => {
       const clean = sanitizePriceInput(text)
@@ -502,7 +502,7 @@ function TokenStatsDialog({ onClose }) {
             h('th', { className: 'dsh-ws-token-model' }, translate('tokens.col.model')),
             TOKEN_PRICE_FIELDS.map(field => h('th', { key: `token-${field}` }, translate(`tokens.col.${field}`))),
             h('th', null, translate('tokens.cost.amount')))),
-          /* One <tbody> per model: the token/money line and, only when revealed, the price line. Six columns total, so this table never needs a horizontal scrollbar, and hovering a model highlights both of its lines. */
+          /* One <tbody> per model: the token/money line and, only when revealed, the price line. Five columns total, so this table never needs a horizontal scrollbar, and hovering a model highlights both of its lines. */
           costRows.map(row => {
             const key = costKeyOf(row)
             const override = priceState.overrides[key] ?? {}

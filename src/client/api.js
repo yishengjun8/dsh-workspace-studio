@@ -152,7 +152,7 @@ export async function putFile(workspaceId, path, content, revision, signal, enco
 // Mind-map document API: the 导图 view is backed by a persisted per-root-session document the Host reverse-parses from the full session logs; the client only re-syncs and persists structural changes.
 export async function mindmapRequest(endpoint, options) {
   const { method = 'GET', body, signal, timeoutMs } = options ?? {}
-  /* The regenerate/summarize endpoints run a synchronous LLM call on the Host, so give them a longer timeout than the plain doc/sync traffic. The doc read and the sync reconcile the WHOLE family (seconds on large maps) and pass an explicit timeoutMs; everything else keeps the generic bound. */
+  /* The regenerate/summarize endpoints run a synchronous LLM call on the Host, so they get MINDMAP_LLM_TIMEOUT_MS instead of the generic REQUEST_TIMEOUT_MS. The doc read and the sync reconcile the WHOLE family (seconds on large maps) and pass their own explicit timeoutMs. */
   const llmEndpoint = endpoint === '/regenerate-summary' || endpoint === '/regenerate-all' || endpoint === '/summarize-session'
   const effectiveTimeout = Number.isFinite(timeoutMs)
     ? timeoutMs

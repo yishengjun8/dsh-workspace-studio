@@ -238,10 +238,9 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
       }
       /* Count the group's sessions the way the harness renders them, minus
          titles this hider hides. Subagent sessions ARE rendered as rows (the
-         session list shows them), so they must count here — the old code
-         excluded them from visibleCount while `sectionRows` still contained
-         them, which made `remaining` negative in mixed groups and wrongly hid
-         the overflow button (its hidden mindmap rows became unreachable).
+         session list shows them), so they must count here — excluding them
+         would make `remaining` negative in mixed groups and wrongly hide the
+         overflow button (its hidden mindmap rows became unreachable).
          Archived sessions and blank non-current sessions are not rendered by
          the harness, so they stay excluded (sectionRows does not contain
          them). */

@@ -143,9 +143,9 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   archiveSessionRef.current = archiveSession
   const menuRef = useRef(null)
   const mountedRef = useRef(true)
-  /* Docked mode (map shown as a preview tab): the floating window's close
-     paths must instead tell the explorer to drop the tab. Read at call time
-     so async continuations always see the latest callback. */
+  /* The map is a preview tab: its close paths must tell the explorer to drop
+     the tab. Read at call time so async continuations always see the latest
+     callback. */
   const onDocGoneRef = useRef(onDocGone)
   onDocGoneRef.current = onDocGone
   /* The map's own title (doc.rootTitle) reported to the explorer so the tab
@@ -332,10 +332,10 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
        was only ever set, never reset, so switches kept the old pan/zoom). */
     viewport.resetView()
     const id = String(sessionId)
-    /* Defensive: a transient null/undefined overlay session (hero page,
-       session switch) must never reach loadDoc as the literal 'undefined' —
-       that would run a full GET for a nonexistent session and flash the empty
-       state. Render the empty phase instead. */
+    /* Defensive: a transient null/undefined sessionId (hero page, session
+       switch) must never reach loadDoc as the literal 'undefined' — that would
+       run a full GET for a nonexistent session and flash the empty state.
+       Render the empty phase instead. */
     if (id === '' || id === 'undefined' || id === 'null') {
       setPhase({ status: 'empty' })
       return undefined
@@ -351,8 +351,8 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         }
         /* Root archived OUTSIDE the map (harness/sidebar): the Host answers
            { exists: false } and never builds a doc for an archived session —
-           close the floating window immediately instead of flashing the empty
-           state for a full probe interval (the empty-state poll does the same). */
+           drop the tab immediately instead of flashing the empty state for a
+           full probe interval (the empty-state poll does the same). */
         if (payload?.exists === false) {
           mindmapConvertedSessions.delete(id)
           if (cancelled) return
@@ -363,7 +363,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         if (loaded === null || loaded === undefined || (loaded.sessions ?? []).length === 0) {
           /* A failed/empty conversion must not leave the converted-set entry
              behind (the button would never re-offer the dialog). Delete even
-             when the overlay was closed before the load settled (cancelled). */
+             when the map was closed before the load settled (cancelled). */
           mindmapConvertedSessions.delete(id)
           if (cancelled) return
           setPhase({ status: 'empty' })
@@ -390,7 +390,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       })
       .catch((error) => {
         /* Same rule as the empty path: a failed conversion must not leave the
-           converted-set entry behind, even when the overlay closed early. */
+           converted-set entry behind, even when the map closed early. */
         mindmapConvertedSessions.delete(id)
         if (cancelled) return
         setPhase({ status: 'error', message: error instanceof Error ? error.message : String(error) })
@@ -418,8 +418,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
           }
           /* Root archived OUTSIDE the map (harness/sidebar): the Host answers
              { exists: false } and never builds a doc for an archived session —
-             close the floating window like the sync path does instead of
-             polling forever. */
+             drop the tab (like the sync path does) instead of polling forever. */
           if (payload?.exists === false) {
             mindmapConvertedSessions.delete(String(sessionId))
             /* The map is gone: the explorer drops the tab. */
@@ -439,9 +438,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
             if (payload.created === true) showNotice(translate('mindmap.created'))
             /* Same single-switch rule as the load path (fresh-dock gated): once
                the probe's conversion makes the doc authoritative, land the chat
-               on the remembered session (root fallback) — without this,
-               opening an EMPTY map from the sidebar never switches the chat
-               (the old openMindmapSession pre-switch covered it). */
+               on the remembered session (root fallback). */
             if (String(sessionId) === String(loaded.rootSessionId) && freshDockRef.current) {
               restoreLastSession(loaded, String(loaded.rootSessionId))
             }
@@ -471,8 +468,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       console.warn('[workspace-studio] mindmap sync warnings:', payload.warnings)
     }
     /* Root archived outside the map (harness/sidebar): the Host answers
-       { exists: false } — close the floating window instead of leaving a
-       stale map. */
+       { exists: false } — drop the tab instead of leaving a stale map. */
     if (payload?.exists === false) {
       /* The map is gone: the explorer drops the tab. */
       onDocGoneRef.current?.()
@@ -890,7 +886,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   }, [peekedRuns, doc])
 
   /* Open a session inside the map: openSession switches the right-side chat to
-     it and moves the current highlight here; the overlay itself stays open. */
+     it and moves the current highlight here; the map itself stays open. */
   const openBranch = useCallback((id) => {
     switchToSession(String(id))
   }, [switchToSession])
@@ -1067,8 +1063,8 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   }, [])
 
   /* Right-click a node: remember WHICH node so the menu can rename a session
-     (head / card) or delete a card; the root node offers no menu (the toolbar
-     has archive-all). */
+     (head / card), delete a card, or open the root menu (workspace choice +
+     archive the whole map). */
   const openCardMenu = useCallback((entry, x, y) => {
     if (entry.kind === 'root') {
       /* Root menu: choose the workspace new sessions land in (from the doc's
@@ -1569,9 +1565,9 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         }
         setArchiveBranchTarget(null)
         const adoptRoot = String(saveRoot)
-        /* Family-generation guard: the reload is async and the overlay stays
+        /* Family-generation guard: the reload is async and the map body stays
            mounted across family switches (mountedRef is always true while the
-           overlay is open), so a stale reload could overwrite the NEW family's
+           body is open), so a stale reload could overwrite the NEW family's
            view and pollute rootIdRef — stranding the periodic sync on the old
            family. Apply the loaded doc only when the family is unchanged. */
         const reloadFamily = String(rootIdRef.current ?? rootId)
@@ -1974,10 +1970,9 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     }, 5 * 60 * 1000)
     return () => clearTimeout(timer)
   }, [doc, sessionSummaryWaiting, showNoticeError])
-  /* Escape closes the archive / delete dialogs (rename and the context menu
-     handle their own). The overlay's own Escape handler defers while a
-     .dsh-ws-dialog-backdrop is in the DOM, so without this the key does
-     nothing while one of these dialogs is open. */
+  /* Escape closes the archive / delete / archive-branch / regenerate-all
+     confirm dialogs (rename and the context menu handle their own). Those four
+     have no Escape handling of their own, so the view supplies it. */
   useEffect(() => {
     if (archiveTarget === null && deleteTarget === null && archiveBranchTarget === null && regenerateAllTarget === null) return undefined
     const onKeyDown = event => {
@@ -2152,9 +2147,9 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         }
         setDeleteTarget(null)
         const adoptRoot = String(saveRoot)
-        /* Family-generation guard: the reload is async and the overlay stays
+        /* Family-generation guard: the reload is async and the map body stays
            mounted across family switches (mountedRef is always true while the
-           overlay is open), so a stale reload could overwrite the NEW family's
+           body is open), so a stale reload could overwrite the NEW family's
            view and pollute rootIdRef — stranding the periodic sync on the old
            family. Apply the loaded doc only when the family is unchanged. */
         const reloadFamily = String(rootIdRef.current ?? rootId)

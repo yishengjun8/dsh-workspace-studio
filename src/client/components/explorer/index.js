@@ -32,9 +32,10 @@ import { PlanView } from '../../renderers/plan-view.js'
 import { ReviewView } from '../../renderers/review-view.js'
 
 /* Whether a preview tab has no file-tree row: a docked mind map, an opened plan,
-   or a file OUTSIDE the workspace. Such a tab selects nothing in the tree and is
-   never revealed — revealing an outside path would ask the Host to list its
-   "ancestor" directories, which the workspace fence refuses (400 invalid-path). */
+   an opened change review, or a file OUTSIDE the workspace. Such a tab selects
+   nothing in the tree and is never revealed — revealing an outside path would ask
+   the Host to list its "ancestor" directories, which the workspace fence refuses
+   (400 invalid-path). */
 function hasNoTreeRow(tab) {
   return isSyntheticTab(tab) || tab?.outside === true
 }
@@ -1184,7 +1185,7 @@ export function WorkspaceExplorer({
     const nextTab = nextTabs.find(tab => tab.path === nextActivePath)
     if (nextTab !== undefined) {
       if (hasNoTreeRow(nextTab)) {
-        /* A mind-map, plan, or outside-workspace tab selects nothing in the file tree. */
+        /* A mind-map, plan, review, or outside-workspace tab selects nothing in the file tree. */
         setSelected(undefined)
       } else {
         const entry = entryFromPreviewTab(nextTab)
@@ -1222,7 +1223,7 @@ export function WorkspaceExplorer({
     }
     activatePath(keep.path)
     if (hasNoTreeRow(keep)) {
-      /* A mind-map, plan, or outside-workspace tab selects nothing in the file tree. */
+      /* A mind-map, plan, review, or outside-workspace tab selects nothing in the file tree. */
       setSelected(undefined)
     } else {
       const entry = entryFromPreviewTab(keep)
@@ -1522,7 +1523,7 @@ export function WorkspaceExplorer({
   const reason = preview.state === 'ready' ? readOnlyReason(preview) : translate('editor.notLoaded')
   const size = preview.state === 'ready' ? formatBytes(preview.size) : ''
   const tabMenuTarget = tabContextMenu === undefined ? undefined : tabs.find(tab => tab.path === tabContextMenu.path)
-  /* "Open in new window" is limited to workspace file tabs the Host can serve as text: mind-map, plan, external, image, PDF, and Office tabs have no such content. */
+  /* "Open in new window" is limited to workspace file tabs the Host can serve as text: mind-map, plan, review, external, image, PDF, and Office tabs have no such content. */
   const canOpenInNewWindow = tabMenuTarget !== undefined && !isSyntheticTab(tabMenuTarget) && !tabMenuTarget.external
     && !isImageName(tabMenuTarget.name) && !isPdfName(tabMenuTarget.name) && !isOfficeName(tabMenuTarget.name)
   const openTabInNewWindow = () => {
