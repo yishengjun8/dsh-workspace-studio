@@ -56,6 +56,13 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
      optimistic updates from the LATEST doc, not the render-time closure. */
   const docRef = useRef(null)
   docRef.current = doc
+  /* The session currently shown in the chat (the `sessionId` prop) as a ref:
+     the head card's stable hover-action callbacks must not change identity when
+     the prop changes (every memoized head card would re-render), yet the
+     archive confirm needs to know whether the archived session is the open one
+     (its "current session" warning). */
+  const sessionIdRef = useRef(sessionId)
+  sessionIdRef.current = sessionId
   /* Doc family ids, kept current before the narrowed sessions subscription
      below runs and memoized per (doc, rootId) so useMindmapSessionView can key
      its family-string by array identity. */
@@ -213,6 +220,10 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   const [archiveBranchTarget, setArchiveBranchTarget] = useState(null)
   const [archiveBranchBusy, setArchiveBranchBusy] = useState(false)
   const [archiveBranchError, setArchiveBranchError] = useState(null)
+  /* Busy mirror for the STABLE card callbacks below (they cannot depend on this
+     state without losing their identity on every dialog open/close). */
+  const archiveBranchBusyRef = useRef(false)
+  archiveBranchBusyRef.current = archiveBranchBusy
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [deleteError, setDeleteError] = useState(null)
@@ -228,6 +239,10 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
      the outcome. */
   const [sessionSummaryWaiting, setSessionSummaryWaiting] = useState(null)
   const [sessionSummaryBusyId, setSessionSummaryBusyId] = useState(null)
+  /* Busy mirror for the stable head-card summarize callback (same reason as
+     archiveBranchBusyRef above). */
+  const sessionSummaryBusyIdRef = useRef(null)
+  sessionSummaryBusyIdRef.current = sessionSummaryBusyId
   const [sessionSummarizing, setSessionSummarizing] = useState([])
   /* Live-turn info from the latest sync payload: one { sessionId, turn,
      question } per doc-family session with a turn in flight — drives the
@@ -1313,21 +1328,53 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       .finally(() => { savingRef.current -= 1; forkingRef.current = false })
   }, [doc, forking, rootId, showNotice, showNoticeError])
 
-  /* Fold-now: end the temporary expand of the peeked run under the menu card —
-     pure view state, the folded attribute is untouched (no doc write). */
-  const foldNow = useCallback(() => {
-    if (menu === null || menu.kind !== 'card') return
-    setMenu(null)
-    const run = mindmapFoldedRunOf(docRef.current, String(menu.sessionId), Number(menu.turnSeq))
+  /* Fold-now: end the temporary expand (peek) of the folded run that owns
+     `seq` — pure view state, the folded attribute is untouched (no doc write).
+     Parameterised so the right-click menu item and the card's hover pill share
+     ONE implementation (the pill passes the card's own session/seq). */
+  const foldRunNow = useCallback((sessionId, seq) => {
+    const run = mindmapFoldedRunOf(docRef.current, String(sessionId), Number(seq))
     if (run === null) { setPeekedRuns(new Set()); return }
-    const key = `${String(menu.sessionId)}:${run.firstSeq}`
+    const key = `${String(sessionId)}:${run.firstSeq}`
     setPeekedRuns(prev => {
       if (!prev.has(key)) return prev
       const next = new Set(prev)
       next.delete(key)
       return next
     })
-  }, [menu])
+  }, [])
+  const foldNow = useCallback(() => {
+    if (menu === null || menu.kind !== 'card' || !Number.isSafeInteger(menu.turnSeq)) return
+    const sessionId = String(menu.sessionId)
+    const turnSeq = Number(menu.turnSeq)
+    setMenu(null)
+    foldRunNow(sessionId, turnSeq)
+  }, [menu, foldRunNow])
+
+  /* Fold-pill wiring for the memoized branch cards (hover 折叠 on a normal card,
+     取消折叠 + 立刻折叠 on a peeking card). The pills need STABLE callback
+     identities — a changing prop would defeat the card memo and rebuild every
+     card on each render — so the real actions are reached through refs, exactly
+     like openCard/openCardMenu above. The ref lives HERE, after the
+     doc-writing action it wraps: a useRef(toggleFold) further up would be a TDZ
+     error. */
+  const toggleFoldRef = useRef(toggleFold)
+  toggleFoldRef.current = toggleFold
+  const foldRunNowRef = useRef(foldRunNow)
+  foldRunNowRef.current = foldRunNow
+  const foldCardPill = useCallback((sessionId, seq) => {
+    toggleFoldRef.current(String(sessionId), Number(seq), true)
+  }, [])
+  /* Permanently unfold ONE peeking card — the exact path of unchecking the
+     menu's fold box on a peeked card: the run's other turns keep their folded
+     marks (they collapse again), and the stale peek key is pruned by the
+     peek-cleanup effect once the run no longer starts at the remembered seq. */
+  const unfoldOneCardPill = useCallback((sessionId, seq) => {
+    toggleFoldRef.current(String(sessionId), Number(seq), false)
+  }, [])
+  const foldNowCardPill = useCallback((sessionId, seq) => {
+    foldRunNowRef.current(String(sessionId), Number(seq))
+  }, [])
 
   /* Blank-area menu items — pure view state, the folded markers are never
      touched (no doc write, no sync): fold-all folds back every temporarily
@@ -1378,14 +1425,18 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     }
   }, [menu, toggleFold, unfoldRun])
 
-  /* Archive ONE session branch (right-click a session head): archive the
-     session + its whole subtree and remove it from the doc. Re-anchors when
-     the archived session was the anchor; blocked when it would empty the map
-     (use archive-all instead). */
-  const startArchiveBranch = useCallback(() => {
-    if (menu === null || menu.kind !== 'head') return
-    const plan = mindmapDeletePlan(doc, String(menu.sessionId), undefined, true)
-    setMenu(null)
+  /* Archive ONE session branch: archive the session + its whole subtree and
+     remove it from the doc. Re-anchors when the archived session was the
+     anchor; blocked when it would empty the map (use archive-all instead).
+     Shared by the session head's hover "archive" button and the right-click
+     menu item: the confirm dialog (and the whole confirm flow) is the same
+     state, so the second confirmation can never drift between the two
+     entries. STABLE identity — refs only — so the memoized head cards keep
+     their memo (a changing prop would rebuild every card on each render). */
+  const requestArchiveBranch = useCallback((sessionId) => {
+    if (forkingRef.current || archiveBranchBusyRef.current) return
+    const target = String(sessionId)
+    const plan = mindmapDeletePlan(docRef.current, target, undefined, true)
     setArchiveBranchError(null)
     if (plan === null) {
       /* The session is not in the doc (a concurrent sync removed it): say so
@@ -1398,11 +1449,18 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       return
     }
     setArchiveBranchTarget({
-      sessionId: String(menu.sessionId),
-      label: menu.sessionTitle || translate('mindmap.session.untitled'),
-      willArchiveCurrent: plan !== null && (plan.archiveIds ?? []).includes(String(sessionId)),
+      sessionId: target,
+      label: (listRef.current.titles[target] ?? '') || translate('mindmap.session.untitled'),
+      willArchiveCurrent: (plan.archiveIds ?? []).includes(String(sessionIdRef.current)),
     })
-  }, [doc, menu, sessionId, showNoticeError])
+  }, [showNoticeError])
+  /* Right-click menu entry: close the menu first, then the shared open. */
+  const startArchiveBranch = useCallback(() => {
+    if (menu === null || menu.kind !== 'head') return
+    const target = String(menu.sessionId)
+    setMenu(null)
+    requestArchiveBranch(target)
+  }, [menu, requestArchiveBranch])
   const closeArchiveBranch = useCallback(() => {
     if (archiveBranchBusy) return
     setArchiveBranchTarget(null)
@@ -1836,22 +1894,22 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         }
       })
   }, [regenerateAllBusy, regenerateAllTarget, rootId, showNotice, showNoticeError])
-  /* Right-click a session head → summarize session: ready sessions return
-     synchronously ('done' — optimistic doc update); sessions with missing or
-     in-flight card summaries return 'waiting' — the Host generates the missing
-     ones and finishes the session summary in the background, which the waiting
-     effect below picks up from a later sync. */
-  const startSummarizeSession = useCallback(() => {
-    if (menu === null || menu.kind !== 'head') return
-    const sessionId = String(menu.sessionId)
-    setMenu(null)
-    if (sessionSummaryBusyId !== null) return
-    setSessionSummaryBusyId(sessionId)
+  /* Summarize ONE session: ready sessions return synchronously ('done' —
+     optimistic doc update); sessions with missing or in-flight card summaries
+     return 'waiting' — the Host generates the missing ones and finishes the
+     session summary in the background, which the waiting effect below picks up
+     from a later sync. Shared by the session head's hover "summarize" button
+     and the right-click menu item; STABLE identity (refs only) so the memoized
+     head cards keep their memo. */
+  const requestSummarizeSession = useCallback((sessionId) => {
+    if (sessionSummaryBusyIdRef.current !== null) return
+    const target = String(sessionId)
+    setSessionSummaryBusyId(target)
     showNotice(translate('mindmap.sessionSummary.generating'))
     /* Arm the sync guard for the whole LLM round-trip (up to 25 s): a sync
        resolving mid-call must not roll back the optimistic session summary. */
     savingRef.current += 1
-    Promise.resolve(summarizeMindmapSession(sessionId, summaryConfigRef.current))
+    Promise.resolve(summarizeMindmapSession(target, summaryConfigRef.current))
       .then((payload) => {
         if (payload?.ok === true && payload.status === 'done' && typeof payload.summary === 'string') {
           /* No result dialog (user decision): the head card shows the summary
@@ -1861,7 +1919,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
             const next = {
               ...currentDoc,
               sessions: currentDoc.sessions.map(s =>
-                String(s?.sessionId) !== sessionId
+                String(s?.sessionId) !== target
                   ? s
                   : { ...s, summary: payload.summary }),
             }
@@ -1870,7 +1928,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
             lastFingerprintRef.current = mindmapDocFingerprint(next)
           }
         } else if (payload?.ok === true && payload.status === 'waiting') {
-          setSessionSummaryWaiting(sessionId)
+          setSessionSummaryWaiting(target)
           showNotice(translate('mindmap.sessionSummary.waiting'))
         } else if (payload?.ok === true && payload.status === 'empty') {
           showNotice(translate('mindmap.sessionSummary.empty'))
@@ -1890,7 +1948,14 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         savingRef.current -= 1
         if (mountedRef.current) setSessionSummaryBusyId(null)
       })
-  }, [menu, sessionSummaryBusyId, showNotice, showNoticeError])
+  }, [showNotice, showNoticeError])
+  /* Right-click menu entry: close the menu first, then the shared call. */
+  const startSummarizeSession = useCallback(() => {
+    if (menu === null || menu.kind !== 'head') return
+    const target = String(menu.sessionId)
+    setMenu(null)
+    requestSummarizeSession(target)
+  }, [menu, requestSummarizeSession])
   /* Waiting completion: a later sync brings the session's summary — the head
      card updates by itself (no dialog). A 5-minute stall (generation failed and
      cooled down, or the map was closed) surfaces as a timeout notice. */
@@ -2288,6 +2353,16 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         onMenu: openCardMenu,
         summary: sessionSummaryByKey.get(String(entry.sessionId)),
         isSummarizing: sessionSummarizingSet.has(String(entry.sessionId)),
+        /* Hover action row (bottom-left archive / bottom-right summarize).
+           Both callbacks are STABLE (refs only) so the memo above still holds;
+           the summarize button only renders while the AI-summary feature is on
+           and is disabled with nothing to summarize or while one is in
+           flight. */
+        onArchive: requestArchiveBranch,
+        onSummarize: requestSummarizeSession,
+        summaryEnabled: settings.mindmapSummaryEnabled === true,
+        canSummarize: settings.mindmapSummaryEnabled === true
+          && lastTurnSeqBySession.get(String(entry.sessionId)) !== undefined,
       })
     }
     if (entry.folded === true) {
@@ -2316,6 +2391,13 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
          compares it by value, so a question arriving mid-stream re-renders
          only this card. */
       streamingQuestion: isStreaming ? streamingQuestionByKey.get(String(entry.sessionId)) : undefined,
+      /* Hover fold pills (STABLE callbacks): 折叠 this card; on a peeking card
+         取消折叠 this single card + 立刻折叠 the temporary run expansion back.
+         Only real completed turns get one — the card itself decides, so the
+         props are always passed. */
+      onFoldPill: foldCardPill,
+      onFoldNowPill: foldNowCardPill,
+      onUnfoldCardPill: unfoldOneCardPill,
       onMenu: openCardMenu,
     })
   })
@@ -2366,11 +2448,10 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         : menu.kind === 'head' ? h(Fragment, null,
           h('button', { className: 'dsh-ws-context-item', onClick: startRename, role: 'menuitem', title: translate('mindmap.menu.rename'), type: 'button' }, translate('mindmap.menu.rename')),
           /* Summarize session: only with the AI-summary feature on AND a session
-             that has at least one turn to summarize. */
-          settings.mindmapSummaryEnabled === true
-            && (doc?.sessions ?? []).some(s => s !== null && s !== undefined
-              && String(s.sessionId) === String(menu.sessionId)
-              && Array.isArray(s.turns) && s.turns.length > 0)
+             that has at least one turn to summarize (the same predicate — and
+             the same O(1) precomputed table — the head card's hover button
+             uses, so the two entries can never disagree). */
+          settings.mindmapSummaryEnabled === true && lastTurnSeqBySession.get(String(menu.sessionId)) !== undefined
             ? h('button', { className: 'dsh-ws-context-item', onClick: startSummarizeSession, role: 'menuitem', title: translate('mindmap.menu.summarizeSession'), type: 'button' }, translate('mindmap.menu.summarizeSession'))
             : null,
           h('div', { className: 'dsh-ws-context-separator', role: 'separator' }),

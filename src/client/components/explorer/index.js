@@ -4,7 +4,7 @@ import { CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MAX, CONFLICT_FONT_SIZE_
 import { translate } from '../../locale/index.js'
 import { clamp, fileLabel, formatBytes, readOnlyReason } from '../../format.js'
 import { copyText, defaultEntryName, entryNameError, entryPath, joinAbsolutePath, parentPath, pathBaseName, rewriteDirectoryMap, rewritePathMap, rewritePathSet, rewriteRelativePath, selectedLevelPath } from '../../paths.js'
-import { ancestorDirectoryPaths, dropIndexFromEvent, entryFromPreviewTab, isMindmapTab, isPlanTab, isReviewTab, isSyntheticTab, isUnpersistedTab, mindmapRootIdOfTab, mindmapTabPath, normalizePreviewSession, orderPinnedFirst, planAddressOfTab, planTabPath, reviewAddressOfTab, reviewTabPath, rewritePreviewTabs, serializePreviewSession } from '../../preview-tabs.js'
+import { ancestorDirectoryPaths, dropIndexFromEvent, entryFromPreviewTab, isMindmapTab, isPlanTab, isReviewTab, isSyntheticTab, isTemporaryTab, isUnpersistedTab, mindmapRootIdOfTab, mindmapTabPath, normalizePreviewSession, openPermanentTab, openPreviewTab, orderPinnedFirst, planAddressOfTab, planTabPath, promoteTemporaryTab, reviewAddressOfTab, reviewTabPath, rewritePreviewTabs, serializePreviewSession } from '../../preview-tabs.js'
 import { IconFolder, IconNewFile, IconNewFolder, IconRefresh, IconSearch } from '../../icons.js'
 import { encodingLabel, fetchEncodings, rawFileUrl, requestFsOperation, revealInExplorer, uploadExternalFile, WorkspaceApiError } from '../../api.js'
 import { hasDraggedFiles, hasNormalFile } from '../../utils.js'
@@ -37,6 +37,30 @@ import { ReviewView } from '../../renderers/review-view.js'
    "ancestor" directories, which the workspace fence refuses (400 invalid-path). */
 function hasNoTreeRow(tab) {
   return isSyntheticTab(tab) || tab?.outside === true
+}
+
+/* The tab a file-tree entry opens. `temporary` is the single-click preview slot; the
+   permanent and preview paths share this one shape so they cannot drift apart. */
+function fileTabFromEntry(entry, temporary) {
+  return {
+    baseText: '',
+    dirty: false,
+    draft: '',
+    draftKnown: false,
+    editing: false,
+    name: entry.name,
+    path: entry.path,
+    pinned: false,
+    saving: false,
+    revision: null,
+    scrollTop: 0,
+    size: null,
+    status: undefined,
+    symlink: Boolean(entry.symlink),
+    bom: false,
+    lineEnding: 'none',
+    temporary: temporary === true,
+  }
 }
 
 
@@ -555,33 +579,60 @@ export function WorkspaceExplorer({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storedPreviewSession])
+  /* Permanent open (a tree double-click, the chat's file-open path, a search result):
+     an already-open temporary tab is promoted in place instead of duplicated. */
   const chooseFile = useCallback((entry) => {
     previewTabsBootstrapped.current = true
     setSelected(entry)
     activatePath(entry.path)
     // A re-open re-runs the read pass, which re-seeds the change snapshot baseline so the polling tick never re-reports the just-loaded content.
-    setTabs(current => current.some(tab => tab.path === entry.path)
-      ? current
-      : [...current, {
-          baseText: '',
-          dirty: false,
-          draft: '',
-          draftKnown: false,
-          editing: false,
-          name: entry.name,
-          path: entry.path,
-          pinned: false,
-          saving: false,
-          revision: null,
-          scrollTop: 0,
-          size: null,
-          status: undefined,
-          symlink: Boolean(entry.symlink),
-          bom: false,
-          lineEnding: 'none',
-        }])
+    setTabs(current => openPermanentTab(current, fileTabFromEntry(entry, false)))
     revealPath(entry)
   }, [revealPath])
+  /* Single-click open: the temporary preview slot. A click on an already-open file only
+     activates it (re-clicking the italic tab must not make it permanent), otherwise the
+     existing temporary tab is displaced IN PLACE — the strip never reorders — and its
+     runtime refs are dropped. A temporary tab holding unsaved work is never displaced:
+     openPreviewTab promotes it and hands back a fresh slot for the new file. */
+  const chooseFilePreview = useCallback((entry) => {
+    previewTabsBootstrapped.current = true
+    setSelected(entry)
+    activatePath(entry.path)
+    if (tabsRef.current.some(tab => tab.path === entry.path)) return
+    const { tabs: nextTabs, replacedPath } = openPreviewTab(tabsRef.current, fileTabFromEntry(entry, true))
+    setTabs(nextTabs)
+    if (replacedPath !== null) forgetPathRefs(replacedPath)
+    revealPath(entry)
+  }, [activatePath, forgetPathRefs, revealPath])
+  /* Activating a tab in the strip never touches the tab list: a single click on an italic
+     preview tab must not promote it (that is the strip's double-click), and routing this
+     through chooseFile would silently do exactly that. */
+  const activateTab = useCallback((tab) => {
+    if (hasNoTreeRow(tab)) {
+      setSelected(undefined)
+      activatePath(tab.path)
+      return
+    }
+    const entry = entryFromPreviewTab(tab)
+    previewTabsBootstrapped.current = true
+    setSelected(entry)
+    activatePath(tab.path)
+    revealPath(entry)
+  }, [activatePath, revealPath])
+  /* The strip's double-click / a pin makes a preview tab permanent. */
+  const promoteTab = useCallback((path) => {
+    setTabs(current => promoteTemporaryTab(current, path))
+  }, [])
+  /* Editing a preview tab pins it, the same way an editor does: the italic marker drops
+     as soon as the tab holds unsaved work, so the next single click cannot displace a tab
+     whose debounced staging write has not landed yet. Idempotent — once promoted no tab
+     matches again — and free of extra persistence, since `temporary` is outside
+     previewSnapshotFingerprint. */
+  useLayoutEffect(() => {
+    const edited = tabs.filter(tab => isTemporaryTab(tab) && (tab.dirty === true || tab.saving === true))
+    if (edited.length === 0) return
+    setTabs(current => edited.reduce((acc, tab) => promoteTemporaryTab(acc, tab.path), current))
+  }, [tabs])
   const chooseDirectory = useCallback((entry) => {
     setSelected(entry)
     revealPath(entry)
@@ -1183,7 +1234,7 @@ export function WorkspaceExplorer({
     setTabs(current => {
       const tab = current.find(item => item.path === path)
       if (tab === undefined || tab.pinned) return current
-      const pinned = { ...tab, pinned: true }
+      const pinned = { ...tab, pinned: true, /* Pinning makes it a real tab: the italic preview marker goes with it. */ temporary: false }
       return orderPinnedFirst([pinned, ...current.filter(item => item.path !== path)])
     })
     if (activePathRef.current === path) scrollTabIntoView(path)
@@ -1540,7 +1591,7 @@ export function WorkspaceExplorer({
             subtitle: workspace.path,
             title: sessionTitle ?? translate('panel.workspaceFiles'),
           }),
-          h(ExplorerTree, { clipboard, containerRef: treeScrollRef, directories, entryBusy, entryDialog, entryDialogError, entryDraft, expanded, onCloseEntryDialog: closeEntryDialog, onConfirmEntryDialog: submitEntryDialog, onContextMenu: openContextMenu, onDirectory: toggleDirectory, onDraftEntry: value => { setEntryDraft(value); setEntryError(undefined) }, onFile: chooseFile, onSelect: setSelected, onRename: beginRename, selected }),
+          h(ExplorerTree, { clipboard, containerRef: treeScrollRef, directories, entryBusy, entryDialog, entryDialogError, entryDraft, expanded, onCloseEntryDialog: closeEntryDialog, onConfirmEntryDialog: submitEntryDialog, onContextMenu: openContextMenu, onDirectory: toggleDirectory, onDraftEntry: value => { setEntryDraft(value); setEntryError(undefined) }, onFile: chooseFilePreview, onFilePermanent: chooseFile, onSelect: setSelected, onRename: beginRename, selected }),
           contextMenu ? h(TreeContextMenu, { entry: contextMenu.entry, menuRef, onRename: entry => { setContextMenu(undefined); beginRename(entry) }, onCopyName: copyEntryName, onCopyPath: copyEntryPath, onReveal: openInExplorer, onCopy: entry => copyEntryToClipboard(entry, false), onPaste: pasteEntry, onCut: entry => copyEntryToClipboard(entry, true), onDelete: openDeleteConfirm, pasteDisabled: clipboard === undefined || clipboard.workspaceId !== workspace.workspaceId, pasteTitle: clipboard === undefined ? translate('context.paste.titleEmpty') : clipboard.workspaceId !== workspace.workspaceId ? translate('context.paste.titleForeign') : translate('context.paste.title'), x: contextMenu.x, y: contextMenu.y }) : null,
           titleContextMenu ? h('div', { className: 'dsh-ws-context-menu', ref: titleMenuRef, role: 'menu', style: { left: Math.max(4, Math.min(titleContextMenu.x, window.innerWidth - CONTEXT_MENU_WIDTH - 4)), top: Math.max(4, Math.min(titleContextMenu.y, window.innerHeight - 52)) } }, h('button', { className: 'dsh-ws-context-item', onClick: openSessionRename, role: 'menuitem', title: translate('dialog.renameSession'), type: 'button' }, translate('dialog.renameSession'))) : null,
           copyNotice ? h('div', { className: 'dsh-ws-copy-notice', role: 'status' }, copyNotice) : null,
@@ -1572,15 +1623,7 @@ export function WorkspaceExplorer({
     }) : null,
     treePortalTarget ? createPortal(treeSection, treePortalTarget) : null,
     h('section', { 'data-drop-active': dropActive || undefined, className: 'dsh-ws-preview', ref: previewSectionRef },
-      tabs.length ? h(PreviewTabs, { activePath, containerRef: previewTabsRef, draggingPath, dropIndex, onChoose: tab => {
-        if (hasNoTreeRow(tab)) {
-          /* A tab with no tree row (mind map, plan, or an outside-workspace file) activates directly: no tree selection/reveal. */
-          setSelected(undefined)
-          activatePath(tab.path)
-        } else {
-          chooseFile(entryFromPreviewTab(tab))
-        }
-      }, onClose: closeTab, onContextMenu: (path, x, y) => setTabContextMenu({ path, x, y }), onDragEnd: () => { setDraggingPath(null); setDropIndex(null) }, onDragLeave: handleTabsDragLeave, onDragOver: updateDropIndex, onDragStart: (path, event) => { setDraggingPath(path); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', path) }, onDrop: handleTabsDrop, onMouseEnter: handleTabsMouseEnter, onMouseLeave: handleTabsMouseLeave, onScroll: handleTabsScroll, onUnpin: unpinTab, tabs }) : null,
+      tabs.length ? h(PreviewTabs, { activePath, containerRef: previewTabsRef, draggingPath, dropIndex, onChoose: activateTab, onClose: closeTab, onContextMenu: (path, x, y) => setTabContextMenu({ path, x, y }), onDragEnd: () => { setDraggingPath(null); setDropIndex(null) }, onDragLeave: handleTabsDragLeave, onDragOver: updateDropIndex, onDragStart: (path, event) => { setDraggingPath(path); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', path) }, onDrop: handleTabsDrop, onMouseEnter: handleTabsMouseEnter, onMouseLeave: handleTabsMouseLeave, onPromote: promoteTab, onScroll: handleTabsScroll, onUnpin: unpinTab, tabs }) : null,
       tabs.length ? h('div', { className: 'dsh-ws-preview-scrollbar', onMouseEnter: handleScrollbarMouseEnter, onMouseLeave: handleScrollbarMouseLeave, onPointerCancel: handleScrollbarPointerEnd, onPointerDown: handleScrollbarPointerDown, onPointerMove: handleScrollbarPointerMove, onPointerUp: handleScrollbarPointerEnd, ref: previewScrollbarRef }, h('div', { className: 'dsh-ws-preview-scrollbar-thumb', ref: previewScrollThumbRef })) : null,
       tabContextMenu ? h(TabContextMenu, { menuRef: tabMenuRef, onCloseOthers: () => { setTabContextMenu(undefined); closeOtherTabs(tabContextMenu.path) }, onTogglePin: () => { setTabContextMenu(undefined); if (tabMenuTarget?.pinned) unpinTab(tabContextMenu.path); else pinTab(tabContextMenu.path) }, onOpenInNewWindow: openTabInNewWindow, canOpenInNewWindow, pinned: Boolean(tabMenuTarget?.pinned), x: tabContextMenu.x, y: tabContextMenu.y }) : null,
       /* A mind-map tab hides the file header: the map draws its own toolbar

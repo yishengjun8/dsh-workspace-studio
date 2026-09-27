@@ -3,7 +3,7 @@ import { translate } from '../../locale/index.js'
 import { TreeRenameRow, TreeRow, TreeStatus } from '../menus.js'
 
 /* Pure render of the explorer's tree state; all interactions are callbacks. */
-export function ExplorerTree({ directories, expanded, entryDialog, entryBusy, entryDraft, entryDialogError, clipboard, selected, onCloseEntryDialog, onConfirmEntryDialog, onDraftEntry, onContextMenu, onDirectory, onFile, onSelect, onRename, containerRef }) {
+export function ExplorerTree({ directories, expanded, entryDialog, entryBusy, entryDraft, entryDialogError, clipboard, selected, onCloseEntryDialog, onConfirmEntryDialog, onDraftEntry, onContextMenu, onDirectory, onFile, onFilePermanent, onSelect, onRename, containerRef }) {
   const renderDirectory = (path, depth) => {
     const dir = directories.get(path)
     if (!dir || dir.state === 'loading') return h(TreeStatus, { key: `${path}:loading` }, translate('tree.loading'))
@@ -15,7 +15,7 @@ export function ExplorerTree({ directories, expanded, entryDialog, entryBusy, en
         renaming
           ? h(TreeRenameRow, { busy: entryBusy, depth, entry, error: entryDraft.trim() === entry.name ? undefined : entryDialogError, expanded: open, onCancel: onCloseEntryDialog, onConfirm: onConfirmEntryDialog, onDraft: onDraftEntry, value: entryDraft })
           /* Focus follows selection so a Tab-reached row becomes the keyboard target (Delete/Copy/Cut/Paste act on `selected`). */
-          : h(TreeRow, { cut: clipboard?.cut && clipboard?.path === entry.path, depth, entry, expanded: open, onContextMenu: onContextMenu, onDirectory: onDirectory, onFile: onFile, onFocus: onSelect === undefined ? undefined : () => onSelect(entry), onRename: onRename, selected: selected?.path === entry.path }),
+          : h(TreeRow, { cut: clipboard?.cut && clipboard?.path === entry.path, depth, entry, expanded: open, onContextMenu: onContextMenu, onDirectory: onDirectory, onFile: onFile, onFilePermanent: onFilePermanent, onFocus: onSelect === undefined ? undefined : () => onSelect(entry), onRename: onRename, selected: selected?.path === entry.path }),
         entry.kind === 'directory' && open ? renderDirectory(entry.path, depth + 1) : null)
     })
     if (!rows.length) rows.push(h(TreeStatus, { key: `${path}:empty` }, translate('tree.empty')))

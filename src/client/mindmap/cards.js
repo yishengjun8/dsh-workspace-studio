@@ -1,4 +1,4 @@
-import { createElement as h, memo } from 'react'
+import { createElement as h, Fragment, memo } from 'react'
 import { MINDMAP_TEXT_MAX } from '../constants.js'
 import { translate } from '../locale/index.js'
 import { clamp } from '../format.js'
@@ -7,8 +7,27 @@ import { mindmapClip } from './helpers.js'
 /* One absolutely-positioned map card, extracted so `memo` only rebuilds cards
    whose props actually changed on a doc-triggered re-render. */
 
+/* The hover fold pill (scheme C): a text capsule that sits exactly where the
+   status row was (see styles.js) and cross-fades with it while the card is
+   hovered. It is rendered ONLY on cards that own a foldable completed turn —
+   empty placeholder, streaming, head and root nodes never get one — so the
+   element's presence is constant per card kind and `memo` keeps working.
+   Appearance is pure CSS (card :hover), no per-hover React state. A pill click
+   must never reach the card (that would fork / switch / peek the run), hence
+   the propagation stop before the action runs. `side` picks the corner: the
+   bottom-left slot (default, where the status text sits) or the bottom-right
+   one, which a peeked card lends to 立刻折叠 instead of the hint chip. */
+const foldPill = ({ label, title, tone, side, run }) => h('button', {
+  className: 'dsh-ws-mindmap-node-foldpill' + (side === 'right' ? ' dsh-ws-mindmap-node-foldpill-right' : ''),
+  'data-tone': tone,
+  onClick: (event) => { event.preventDefault(); event.stopPropagation(); run() },
+  tabIndex: -1,
+  title,
+  type: 'button',
+}, label)
+
 export const MindMapCard = memo(function MindMapCard({
-  entry, title, isCurrent, isStreaming, isSummarizing, summary, streamingQuestion, isAncestor, isHover, isHoverAncestor, hintAction, isEnd, ringPalette, onOpen, onMenu, onHover, peeked,
+  entry, title, isCurrent, isStreaming, isSummarizing, summary, streamingQuestion, isAncestor, isHover, isHoverAncestor, hintAction, isEnd, ringPalette, onOpen, onMenu, onHover, peeked, onFoldPill, onFoldNowPill, onUnfoldCardPill,
 }) {
   /* Ring cards (the streaming card + its parent) are the pair's single visual
      signal: selection/hover border/glow classes are suppressed on both so a
@@ -124,10 +143,48 @@ export const MindMapCard = memo(function MindMapCard({
           : peeked
             ? h('div', { className: 'dsh-ws-mindmap-node-status dsh-ws-mindmap-node-peeked-status' }, translate('mindmap.fold.status'))
             : h('div', { className: 'dsh-ws-mindmap-node-status dsh-ws-mindmap-node-done' }, translate('mindmap.done')),
+    /* Hover fold pill: only for a real, completed turn (the empty placeholder
+       and the streaming card carry no foldable turn). A PEEKED card — a
+       folded-marked turn temporarily expanded — carries TWO pills instead:
+       bottom-LEFT 取消折叠 permanently unfolds THIS single card (the exact path
+       of unchecking the menu's fold box on a peeked card: the run's other turns
+       keep their folded marks and collapse again), bottom-RIGHT 立刻折叠 folds
+       the whole temporary expansion back into the folded card (pure view state,
+       no doc write) and keeps the amber tone, so the peek signal survives the
+       status row's cross-fade. */
+    entry.empty || isStreaming || !Number.isSafeInteger(entry.turn?.seq)
+      ? null
+      : peeked
+        ? h(Fragment, null,
+          onUnfoldCardPill === undefined
+            ? null
+            : foldPill({
+              label: translate('mindmap.card.unfold'),
+              title: translate('mindmap.card.unfold.title'),
+              run: () => { onUnfoldCardPill(entry.sessionId, entry.turn.seq) },
+            }),
+          onFoldNowPill === undefined
+            ? null
+            : foldPill({
+              label: translate('mindmap.menu.foldNow'),
+              title: translate('mindmap.card.foldNow.title'),
+              tone: 'peek',
+              side: 'right',
+              run: () => { onFoldNowPill(entry.sessionId, entry.turn.seq) },
+            }))
+        : (onFoldPill === undefined
+          ? null
+          : foldPill({
+            label: translate('mindmap.card.fold'),
+            title: translate('mindmap.card.fold.title'),
+            run: () => { onFoldPill(entry.sessionId, entry.turn.seq) },
+          })),
     /* Hover-only hint chip: tells the user what a click will do. pointer-events
        none so it never intercepts hover/click; absolute so it never shifts
-       the layout. */
-    isHover && hintAction !== undefined
+       the layout. A peeked card does NOT render it: its bottom-right corner is
+       taken by the 立刻折叠 pill (the same "action wins the bottom-right corner"
+       rule the session head card follows). */
+    isHover && hintAction !== undefined && peeked !== true
       ? h('span', { className: 'dsh-ws-mindmap-node-hint' }, translate(`mindmap.hint.${hintAction}`))
       : null)
 })
@@ -135,7 +192,9 @@ export const MindMapCard = memo(function MindMapCard({
 /* A FOLDED card: one compact card standing in for a maximal run of consecutive
    folded turns, showing the run's count badge + the first turn's text (or its
    AI summary). Clicking temporarily expands the run (peek); right-click offers
-   fold (uncheck = permanently unfold the run) and delete. */
+   fold (uncheck = permanently unfold the run) and delete. It deliberately
+   carries NO hover pill: the single-card unfold belongs to the PEEKED cards the
+   click produces, and the run-wide unfold stays on the menu's fold box. */
 export const MindMapFoldedCard = memo(function MindMapFoldedCard({
   entry, title, isCurrent, isAncestor, isHover, isHoverAncestor, hintAction, ringPalette, onOpen, onMenu, onHover, summary,
 }) {
@@ -224,9 +283,12 @@ export const MindMapRootNode = memo(function MindMapRootNode({ entry, isAncestor
 
 /* A session's HEAD node: the identity card at the left of its question chain.
    Shows the session title / round count / status; clicking switches to the
-   session (the current badge sits here); right-click renames it. */
+   session (the current badge sits here); right-click renames it. On hover (or
+   keyboard focus) a bottom action row appears: archive this session + its
+   branches on the left, summarize this session on the right. */
 export const MindMapSessionHead = memo(function MindMapSessionHead({
-  entry, title, isCurrent, isRunning, isAncestor, isHover, isHoverAncestor, hintAction, ringPalette, onOpen, onMenu, onHover, summary, isSummarizing,
+  entry, title, isCurrent, isRunning, isAncestor, isHover, isHoverAncestor, ringPalette, onOpen, onMenu, onHover, summary, isSummarizing,
+  onArchive, onSummarize, canSummarize, summaryEnabled,
 }) {
   const ringed = ringPalette !== undefined
   const classes = 'dsh-ws-mindmap-node dsh-ws-mindmap-head'
@@ -285,9 +347,32 @@ export const MindMapSessionHead = memo(function MindMapSessionHead({
     /* Remaining space: the session summary, smaller font, 4-line clamp. */
     h('div', { className: 'dsh-ws-mindmap-head-summary' + (hasSummary ? '' : ' dsh-ws-mindmap-head-summary-empty') },
       hasSummary ? summary : (turns.length > 0 ? translate('mindmap.head.summaryEmpty') : '')),
-    isHover && hintAction !== undefined
-      ? h('span', { className: 'dsh-ws-mindmap-node-hint' }, translate(`mindmap.hint.${hintAction}`))
-      : null)
+    /* Hover-only action row (bottom-left archive / bottom-right summarize):
+       revealed by CSS on card hover or focus-within, so it never shifts the
+       fixed card box and stays keyboard reachable. Both buttons stop the
+       bubbling of click/keydown — the card's own handlers would otherwise
+       switch the session on the same event. Summarize is only offered while
+       the AI-summary feature is on (with it off the Host rejects the request). */
+    h('div', { className: 'dsh-ws-mindmap-head-actions' },
+      h('button', {
+        className: 'dsh-ws-mindmap-head-action dsh-ws-mindmap-head-action-danger',
+        onClick: (event) => { event.stopPropagation(); onArchive(String(entry.sessionId)) },
+        onKeyDown: (event) => { event.stopPropagation() },
+        title: translate('mindmap.menu.archiveBranch'),
+        type: 'button',
+      }, translate('mindmap.head.archive')),
+      summaryEnabled === true
+        ? h('button', {
+          className: 'dsh-ws-mindmap-head-action',
+          disabled: canSummarize !== true || isSummarizing === true,
+          onClick: (event) => { event.stopPropagation(); onSummarize(String(entry.sessionId)) },
+          onKeyDown: (event) => { event.stopPropagation() },
+          title: isSummarizing === true
+            ? translate('mindmap.sessionSummary.summarizing')
+            : translate('mindmap.menu.summarizeSession'),
+          type: 'button',
+        }, translate('mindmap.head.summarize'))
+        : null))
 })
 
 /* Toolbar badge icons (scheme D): 16-viewBox stroke glyphs matching the

@@ -1,10 +1,10 @@
 import { createElement as h } from 'react'
 import { translate } from '../../locale/index.js'
-import { isPlanTab, isReviewTab, isSyntheticTab } from '../../preview-tabs.js'
+import { isPlanTab, isReviewTab, isSyntheticTab, isTemporaryTab } from '../../preview-tabs.js'
 import { IconCloseWin10, IconPinVscode } from '../../icons.js'
 
 /* Preview tab strip: one tab per open file with pin/close, drag reordering, and context-menu trigger; all interactions are callbacks. */
-export function PreviewTabs({ tabs, activePath, draggingPath, dropIndex, containerRef, onChoose, onClose, onContextMenu, onDragEnd, onDragStart, onDragLeave, onDragOver, onDrop, onMouseEnter, onMouseLeave, onScroll, onUnpin }) {
+export function PreviewTabs({ tabs, activePath, draggingPath, dropIndex, containerRef, onChoose, onClose, onContextMenu, onDragEnd, onDragStart, onDragLeave, onDragOver, onDrop, onMouseEnter, onMouseLeave, onPromote, onScroll, onUnpin }) {
   const nodes = []
   for (const [index, tab] of tabs.entries()) {
     /* A synthetic tab's path addresses a map or a plan, not a file: its label is its name, never the path. */
@@ -15,6 +15,8 @@ export function PreviewTabs({ tabs, activePath, draggingPath, dropIndex, contain
       'data-active': tab.path === activePath || undefined,
       'data-dragging': draggingPath === tab.path || undefined,
       'data-path': tab.path,
+      /* A single-click preview tab is italic (styled in styles.js) until it is made permanent by a double-click, an edit, or a pin. */
+      'data-temporary': isTemporaryTab(tab) || undefined,
       draggable: true,
       key: tab.path,
       onContextMenu: event => { event.preventDefault(); onContextMenu(tab.path, event.clientX, event.clientY) },
@@ -63,6 +65,7 @@ export function PreviewTabs({ tabs, activePath, draggingPath, dropIndex, contain
       h('button', {
         className: 'dsh-ws-preview-tab-button',
         onClick: () => onChoose(tab),
+        onDoubleClick: () => onPromote(tab.path),
         role: 'tab',
         'aria-selected': tab.path === activePath,
         title: tabTitle,

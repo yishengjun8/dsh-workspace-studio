@@ -16,6 +16,12 @@ export const OPEN_RESOURCE_BRIDGE_ORIGINAL = Symbol('workspace-studio.open-resou
 export const ENSURE_RETRY_MAX = 20
 export const PREVIEW_SESSION_STORE_KEY = 'dsh.workspace.studio.preview-sessions.v1'
 export const PREVIEW_SESSION_MAX = 25
+/* Quick-calculator unit prices in the token-stats panel (shared defaults, per-model overrides and the currency symbol); tiny, local-only and never sent anywhere. */
+export const TOKEN_PRICES_STORE_KEY = 'dsh.workspace.studio.token-prices.v1'
+/* Currency symbols are one or two glyphs; the input is capped so a paste cannot bloat the persisted value. */
+export const TOKEN_CURRENCY_MAX_LENGTH = 3
+/* Sanity cap per price field: 7 integer digits plus a 6-digit fraction is far beyond any real per-million price. */
+export const TOKEN_PRICE_MAX_LENGTH = 14
 export const SIDEBAR_DEFAULT = 280, SIDEBAR_COLLAPSED = 56, SIDEBAR_MIN = 240, SIDEBAR_MAX_RATIO = 0.8, SIDEBAR_MAX_FALLBACK = 420
 export const EXPLORER_MAX_RATIO = 0.8
 export const TREE_DEFAULT = 280, TREE_MIN = 220, TREE_MAX = 520

@@ -108,6 +108,51 @@ export function prunePreviewSessions(draft) {
   entries.sort((a, b) => stampOf(b) - stampOf(a))
   for (const [key] of entries.slice(PREVIEW_SESSION_MAX)) delete draft.previewSessions[key]
 }
+/* A temporary ("preview") tab: the slot a single file-tree click opens, displaced
+   IN PLACE by the next single click on another file. It is runtime-only —
+   clonePreviewTab never carries the flag, so a restored tab is always permanent —
+   and a pinned tab is never a temporary slot. */
+export function isTemporaryTab(tab) {
+  return tab !== null && tab !== undefined && tab.temporary === true && tab.pinned !== true
+}
+/* Make the named tab permanent. Returns the SAME array when nothing changes, so a
+   no-op promotion cannot re-render or rewrite the preview snapshot. */
+export function promoteTemporaryTab(tabs, path) {
+  const current = Array.isArray(tabs) ? tabs : []
+  if (!current.some(tab => tab.path === path && tab.temporary === true)) return current
+  return current.map(tab => tab.path === path ? { ...tab, temporary: false } : tab)
+}
+/* Permanent open (a double-click, the chat's file-open path, a search result): the
+   target is promoted in place when it is already open, appended otherwise. */
+export function openPermanentTab(tabs, tab) {
+  const current = Array.isArray(tabs) ? tabs : []
+  return current.some(item => item.path === tab.path) ? promoteTemporaryTab(current, tab.path) : [...current, tab]
+}
+/* Single-click preview open. A target that is already open is returned untouched
+   (the caller only activates it: re-clicking a temporary tab must not promote it,
+   and the existing temporary slot is not closed). Otherwise the temporary slot is
+   replaced IN PLACE, so the strip never reorders. A temporary tab holding unsaved
+   work is never displaced: it is promoted to permanent and the new file opens in a
+   fresh temporary slot instead (a click must not bin edits that the 1s debounced
+   staging write may not have persisted yet).
+   Returns { tabs, replacedPath }: replacedPath is the displaced tab, whose runtime
+   refs the caller drops. It is clean by construction, so nothing is flushed. */
+export function openPreviewTab(tabs, tab) {
+  const current = Array.isArray(tabs) ? tabs : []
+  if (current.some(item => item.path === tab.path)) return { tabs: current, replacedPath: null }
+  const index = current.findIndex(isTemporaryTab)
+  if (index < 0) return { tabs: [...current, tab], replacedPath: null }
+  const displaced = current[index]
+  if (displaced.dirty === true || displaced.saving === true) {
+    return {
+      tabs: [...current.map(item => item.path === displaced.path ? { ...item, temporary: false } : item), tab],
+      replacedPath: null,
+    }
+  }
+  const next = current.slice()
+  next[index] = tab
+  return { tabs: next, replacedPath: displaced.path }
+}
 /* Partition keeping every pinned tab ahead of all unpinned ones. */
 export function orderPinnedFirst(tabs) {
   const pinned = []
