@@ -1719,27 +1719,27 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     setDeleteTarget(null)
     setDeleteError(null)
   }, [deleteBusy])
-  /* Right-click a card → regenerate summary: the Host runs the LLM call
+  /* Summarize / regenerate ONE card's AI summary: the Host runs the LLM call
      synchronously and persists the new summary; the card updates optimistically
      here. In-flight sync responses issued before the write are dropped so the
-     fresh summary cannot flicker away. */
-  const regenerateSummary = useCallback(() => {
-    if (menu === null || menu.kind !== 'card' || !Number.isSafeInteger(menu.turnSeq)) return
-    const sessionId = String(menu.sessionId)
-    const seq = Number(menu.turnSeq)
-    setMenu(null)
+     fresh summary cannot flicker away. Shared by the right-click menu entry and
+     the card's own bottom-right 总结卡片 hover pill — STABLE identity (refs only)
+     so the memoized cards keep their memo. */
+  const requestSummarizeCard = useCallback((sessionId, seq) => {
+    const target = String(sessionId)
+    const turnSeq = Number(seq)
     /* Local in-flight marker: the Host's synchronous regenerate never enters
        its background in-flight set, so the status row tracks it here (removed
        on settle below). */
-    setManualSummarizing(prev => prev.some(p => String(p.sessionId) === sessionId && Number(p.seq) === seq)
+    setManualSummarizing(prev => prev.some(p => String(p.sessionId) === target && Number(p.seq) === turnSeq)
       ? prev
-      : [...prev, { sessionId, seq }])
+      : [...prev, { sessionId: target, seq: turnSeq }])
     showNotice(translate('mindmap.summary.regenerating'))
     /* Arm the sync guard for the whole LLM round-trip (up to 25 s): a periodic
        sync resolving mid-call must not roll back the optimistic summary. No
        forkingRef gate here — blocking forks for the whole call would be worse. */
     savingRef.current += 1
-    Promise.resolve(regenerateMindmapSummary(sessionId, seq, summaryConfigRef.current))
+    Promise.resolve(regenerateMindmapSummary(target, turnSeq, summaryConfigRef.current))
       .then((payload) => {
         if (payload?.ok === true && typeof payload.summary === 'string') {
           /* The Host persisted the summary. Apply the optimistic update only
@@ -1749,14 +1749,14 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
              flash). Built from the CURRENT doc (docRef) so a sync that landed
              during the call is never rolled back. */
           const currentDoc = docRef.current
-          if (currentDoc !== null && familyIdsRef.current.includes(sessionId)) {
+          if (currentDoc !== null && familyIdsRef.current.includes(target)) {
             const next = {
               ...currentDoc,
               sessions: currentDoc.sessions.map(s =>
-                String(s?.sessionId) !== sessionId
+                String(s?.sessionId) !== target
                   ? s
                   : { ...s, turns: (s?.turns ?? []).map(t =>
-                    t !== null && t !== undefined && Number(t?.seq) === seq
+                    t !== null && t !== undefined && Number(t?.seq) === turnSeq
                       ? { ...t, summary: payload.summary }
                       : t) }),
             }
@@ -1780,10 +1780,18 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       .finally(() => {
         savingRef.current -= 1
         if (mountedRef.current) {
-          setManualSummarizing(prev => prev.filter(p => !(String(p.sessionId) === sessionId && Number(p.seq) === seq)))
+          setManualSummarizing(prev => prev.filter(p => !(String(p.sessionId) === target && Number(p.seq) === turnSeq)))
         }
       })
-  }, [menu, showNotice, showNoticeError])
+  }, [showNotice, showNoticeError])
+  /* Right-click a card → 重新生成摘要: close the menu, then the shared call. */
+  const regenerateSummary = useCallback(() => {
+    if (menu === null || menu.kind !== 'card' || !Number.isSafeInteger(menu.turnSeq)) return
+    const target = String(menu.sessionId)
+    const turnSeq = Number(menu.turnSeq)
+    setMenu(null)
+    requestSummarizeCard(target, turnSeq)
+  }, [menu, requestSummarizeCard])
   /* Toolbar → regenerate all summaries: count the doc's turns, confirm (token
      cost is transparent), then ask the Host to force-enqueue every turn. Old
      summaries stay until the new ones land; the per-card generating status
@@ -2505,6 +2513,11 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       onFoldPill: foldCardPill,
       onFoldNowPill: foldNowCardPill,
       onUnfoldCardPill: unfoldOneCardPill,
+      /* Bottom-right 总结卡片 pill on ordinary completed cards (the same
+         synchronous Host call as the menu's 重新生成摘要). STABLE callback, and
+         the boolean only flips with the setting, so card memos survive. */
+      onSummarizeCard: requestSummarizeCard,
+      summaryEnabled: settings.mindmapSummaryEnabled === true,
       onMenu: openCardMenu,
     })
   })

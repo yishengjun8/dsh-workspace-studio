@@ -490,6 +490,12 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 /* The right-hand peek pill (fold the temporary expansion back) keeps the amber tone, so the peek
    signal is not lost when the amber status text cross-fades into the left pill. */
 .dsh-ws-mindmap-node-foldpill[data-tone="peek"]:hover{border-color:var(--dsw-alias-state-warn-primary);color:var(--dsw-alias-state-warn-primary);background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 14%,var(--dsw-alias-bg-layer-1))}
+/* A disabled pill (the card's summary is already being generated) stays visible but muted. The
+   selector must outrank the reveal rule above (which pins opacity:1) AND reset the hover colors
+   the base :hover rule would otherwise apply; it deliberately keeps pointer-events, so a click
+   lands on the disabled pill instead of falling through to the card and forking — the same
+   behavior as the session head's disabled summarize button. */
+.dsh-ws-mindmap-node:hover>.dsh-ws-mindmap-node-foldpill:disabled{opacity:.55;cursor:default;border-color:var(--dsw-alias-border-l2);color:var(--dsw-alias-label-tertiary);background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 92%,transparent)}
 .dsh-ws-settings-color{flex:none;width:40px;height:26px;padding:2px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);cursor:pointer;box-sizing:border-box}
 .dsh-ws-settings-color::-webkit-color-swatch-wrapper{padding:0}
 .dsh-ws-settings-color::-webkit-color-swatch{border:0;border-radius:3px}

@@ -7,19 +7,24 @@ import { mindmapClip } from './helpers.js'
 /* One absolutely-positioned map card, extracted so `memo` only rebuilds cards
    whose props actually changed on a doc-triggered re-render. */
 
-/* The hover fold pill: a text capsule that sits exactly where the
-   status row was (see styles.js) and cross-fades with it while the card is
-   hovered. It is rendered ONLY on cards that own a foldable completed turn —
-   empty placeholder, streaming, head and root nodes never get one — so the
-   element's presence is constant per card kind and `memo` keeps working.
-   Appearance is pure CSS (card :hover), no per-hover React state. A pill click
-   must never reach the card (that would fork / switch / peek the run), hence
-   the propagation stop before the action runs. `side` picks the corner: the
-   bottom-left slot (default, where the status text sits) or the bottom-right
-   one, which a peeked card lends to 立刻折叠 instead of the hint chip. */
-const foldPill = ({ label, title, tone, side, run }) => h('button', {
+/* The hover action pill: a text capsule that sits exactly where the status row
+   was (see styles.js) and cross-fades with it while the card is hovered. It
+   carries the card's three hover actions — 折叠 / 立刻折叠 (peeked cards) and
+   总结卡片 — and is rendered ONLY on cards whose element presence is constant
+   per card kind (empty placeholder, streaming, head and root nodes never get
+   one), so `memo` keeps working. Appearance is pure CSS (card :hover), no
+   per-hover React state. A pill click must never reach the card (that would
+   fork / switch / peek the run), hence the propagation stop before the action
+   runs. `side` picks the corner: the bottom-left slot (default, where the
+   status text sits) or the bottom-right one, which a peeked card lends to
+   立刻折叠 and an ordinary completed card to 总结卡片 instead of the hint chip.
+   A disabled pill (the card is already generating its summary) keeps its
+   pointer events, so clicking it cannot fall through to the card and fork —
+   the same behavior as the session head's disabled summarize button. */
+const cardPill = ({ label, title, tone, side, disabled, run }) => h('button', {
   className: 'dsh-ws-mindmap-node-foldpill' + (side === 'right' ? ' dsh-ws-mindmap-node-foldpill-right' : ''),
   'data-tone': tone,
+  disabled: disabled === true ? true : undefined,
   onClick: (event) => { event.preventDefault(); event.stopPropagation(); run() },
   tabIndex: -1,
   title,
@@ -27,7 +32,7 @@ const foldPill = ({ label, title, tone, side, run }) => h('button', {
 }, label)
 
 export const MindMapCard = memo(function MindMapCard({
-  entry, title, isCurrent, isStreaming, isSummarizing, summary, streamingQuestion, isAncestor, isHover, isHoverAncestor, hintAction, isEnd, ringPalette, onOpen, onMenu, onHover, peeked, onFoldPill, onFoldNowPill, onUnfoldCardPill,
+  entry, title, isCurrent, isStreaming, isSummarizing, summary, streamingQuestion, isAncestor, isHover, isHoverAncestor, hintAction, isEnd, ringPalette, onOpen, onMenu, onHover, peeked, onFoldPill, onFoldNowPill, onUnfoldCardPill, onSummarizeCard, summaryEnabled,
 }) {
   /* Ring cards (the streaming card + its parent) are the pair's single visual
      signal: selection/hover border/glow classes are suppressed on both so a
@@ -45,6 +50,14 @@ export const MindMapCard = memo(function MindMapCard({
     + (isHoverAncestor && !ringed ? ' dsh-ws-mindmap-node-hover-ancestor' : '')
     + (isHover && !ringed ? ' dsh-ws-mindmap-node-hover' : '')
   const turn = entry.turn
+  /* Bottom-right 总结卡片 pill: offered only for a real, completed turn while
+     the AI-summary feature is on (with it off the Host rejects every summary
+     request, so the corner falls back to the click hint chip below). A peeked
+     card lends its bottom-right corner to 立刻折叠 instead — same "action wins
+     the corner" rule. */
+  const cardSummarizable = summaryEnabled === true && onSummarizeCard !== undefined
+    && entry.empty !== true && isStreaming !== true && peeked !== true
+    && Number.isSafeInteger(turn?.seq)
   /* The AI summary arrives as a plain string prop from the current doc; the
      full original text stays one hover away via the title attribute. */
   const style = { left: entry.x, top: entry.y, width: entry.width, height: entry.height }
@@ -143,48 +156,66 @@ export const MindMapCard = memo(function MindMapCard({
           : peeked
             ? h('div', { className: 'dsh-ws-mindmap-node-status dsh-ws-mindmap-node-peeked-status' }, translate('mindmap.fold.status'))
             : h('div', { className: 'dsh-ws-mindmap-node-status dsh-ws-mindmap-node-done' }, translate('mindmap.done')),
-    /* Hover fold pill: only for a real, completed turn (the empty placeholder
-       and the streaming card carry no foldable turn). A PEEKED card — a
-       folded-marked turn temporarily expanded — carries TWO pills instead:
+    /* Hover action pills: only for a real, completed turn (the empty placeholder
+       and the streaming card carry no foldable/summarizable turn). A PEEKED card
+       — a folded-marked turn temporarily expanded — carries TWO pills instead:
        bottom-LEFT 取消折叠 permanently unfolds THIS single card (the exact path
        of unchecking the menu's fold box on a peeked card: the run's other turns
        keep their folded marks and collapse again), bottom-RIGHT 立刻折叠 folds
        the whole temporary expansion back into the folded card (pure view state,
        no doc write) and keeps the amber tone, so the peek signal survives the
-       status row's cross-fade. */
+       status row's cross-fade. An ORDINARY completed card carries bottom-LEFT
+       折叠 plus, while the AI-summary feature is on, bottom-RIGHT 总结卡片. */
     entry.empty || isStreaming || !Number.isSafeInteger(entry.turn?.seq)
       ? null
       : peeked
         ? h(Fragment, null,
           onUnfoldCardPill === undefined
             ? null
-            : foldPill({
+            : cardPill({
               label: translate('mindmap.card.unfold'),
               title: translate('mindmap.card.unfold.title'),
               run: () => { onUnfoldCardPill(entry.sessionId, entry.turn.seq) },
             }),
           onFoldNowPill === undefined
             ? null
-            : foldPill({
+            : cardPill({
               label: translate('mindmap.menu.foldNow'),
               title: translate('mindmap.card.foldNow.title'),
               tone: 'peek',
               side: 'right',
               run: () => { onFoldNowPill(entry.sessionId, entry.turn.seq) },
             }))
-        : (onFoldPill === undefined
-          ? null
-          : foldPill({
-            label: translate('mindmap.card.fold'),
-            title: translate('mindmap.card.fold.title'),
-            run: () => { onFoldPill(entry.sessionId, entry.turn.seq) },
-          })),
+        : h(Fragment, null,
+          onFoldPill === undefined
+            ? null
+            : cardPill({
+              label: translate('mindmap.card.fold'),
+              title: translate('mindmap.card.fold.title'),
+              run: () => { onFoldPill(entry.sessionId, entry.turn.seq) },
+            }),
+          /* 总结卡片: the card's own AI summary, the exact action of the
+             right-click 重新生成摘要 entry. Disabled (never hidden, so the
+             corner never flickers mid-generation) while this card's summary is
+             being generated. */
+          cardSummarizable
+            ? cardPill({
+              label: translate('mindmap.card.summarize'),
+              title: isSummarizing === true
+                ? translate('mindmap.summary.generating')
+                : translate('mindmap.card.summarize.title'),
+              side: 'right',
+              disabled: isSummarizing === true,
+              run: () => { onSummarizeCard(entry.sessionId, entry.turn.seq) },
+            })
+            : null),
     /* Hover-only hint chip: tells the user what a click will do. pointer-events
        none so it never intercepts hover/click; absolute so it never shifts
-       the layout. A peeked card does NOT render it: its bottom-right corner is
-       taken by the 立刻折叠 pill (the same "action wins the bottom-right corner"
-       rule the session head card follows). */
-    isHover && hintAction !== undefined && peeked !== true
+       the layout. It yields the bottom-right corner to an action pill: a peeked
+       card lends it to 立刻折叠, an ordinary completed card to 总结卡片 (the same
+       "action wins the bottom-right corner" rule the session head card follows),
+       and it comes back whenever no action is offered (AI-summary feature off). */
+    isHover && hintAction !== undefined && peeked !== true && !cardSummarizable
       ? h('span', { className: 'dsh-ws-mindmap-node-hint' }, translate(`mindmap.hint.${hintAction}`))
       : null)
 })

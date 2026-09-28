@@ -629,6 +629,8 @@ export const zh = {
   'mindmap.head.summarize': '总结会话',
   'mindmap.card.fold': '折叠',
   'mindmap.card.fold.title': '折叠这张卡片',
+  'mindmap.card.summarize': '总结卡片',
+  'mindmap.card.summarize.title': '总结这张卡片',
   'mindmap.card.unfold': '取消折叠',
   'mindmap.card.unfold.title': '取消折叠（只展开这一张卡片）',
   'mindmap.card.foldNow.title': '立刻折叠（放回折叠卡里）',

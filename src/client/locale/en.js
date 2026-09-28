@@ -629,6 +629,8 @@ export const en = {
   'mindmap.head.summarize': 'Summarize',
   'mindmap.card.fold': 'Fold',
   'mindmap.card.fold.title': 'Fold this card',
+  'mindmap.card.summarize': 'Summarize card',
+  'mindmap.card.summarize.title': 'Summarize this card',
   'mindmap.card.unfold': 'Unfold',
   'mindmap.card.unfold.title': 'Unfold this single card',
   'mindmap.card.foldNow.title': 'Fold now (put it back into the folded card)',
