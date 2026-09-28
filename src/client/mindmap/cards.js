@@ -7,9 +7,46 @@ import { mindmapClip } from './helpers.js'
 /* One absolutely-positioned map card, extracted so `memo` only rebuilds cards
    whose props actually changed on a doc-triggered re-render. */
 
+/* 11px leading glyphs for the in-card hover pills and the session-head buttons.
+   Same stroked line language as MINDMAP_TOOLBAR_ICONS; the archive box is
+   deliberately the SAME shape the toolbar uses for "archive whole map" and the
+   sparkle is the one the 总结卡片 pill uses, so the two archive entry points and
+   the two summarize entry points each read as one family. `box` is the viewBox
+   edge, `fill` picks a solid glyph (the sparkle) over a stroked one and `sw`
+   overrides the stroke width. */
+export const MINDMAP_ACTION_ICONS = {
+  /* Top rule + down chevron: collapse INTO a line (this card joins a folded run). */
+  fold: { box: 14, d: 'M2 3.2h10M4.2 7.4 7 10.2 9.8 7.4' },
+  /* Bottom rule + up chevron: expand back OUT of the fold (permanent unfold). */
+  unfold: { box: 14, d: 'M2 10.8h10M4.2 6.6 7 3.8 9.8 6.6' },
+  /* Double down chevron: fold the temporary expansion back, fast. */
+  foldNow: { box: 14, d: 'M4 3.4 7 6.2 10 3.4M4 7.8 7 10.6 10 7.8' },
+  /* Four-point sparkle: an AI-generated action (summarize). */
+  spark: { box: 14, d: 'M7 2.2 8.05 5.95 11.8 7 8.05 8.05 7 11.8 5.95 8.05 2.2 7 5.95 5.95Z', fill: true },
+  /* Archive box with a slot — the toolbar's "archive entire map" shape. */
+  archive: { box: 16, d: 'M2.5 4h11M3 4v8.5A1.5 1.5 0 0 0 4.5 14h7a1.5 1.5 0 0 0 1.5-1.5V4M6.5 8h3', sw: 1.5 },
+}
+/* Renders one MINDMAP_ACTION_ICONS glyph at 11px; unknown names render nothing. */
+const mindmapActionIcon = (name) => {
+  const icon = MINDMAP_ACTION_ICONS[name]
+  if (icon === undefined) return null
+  const edge = String(icon.box)
+  return h('svg', { 'aria-hidden': true, height: '11', viewBox: `0 0 ${edge} ${edge}`, width: '11' },
+    h('path', icon.fill === true
+      ? { d: icon.d, fill: 'currentColor' }
+      : {
+        d: icon.d,
+        fill: 'none',
+        stroke: 'currentColor',
+        strokeLinecap: 'round',
+        strokeLinejoin: 'round',
+        strokeWidth: icon.sw ?? 1.5,
+      }))
+}
+
 /* The hover action pill: a text capsule that sits exactly where the status row
    was (see styles.js) and cross-fades with it while the card is hovered. It
-   carries the card's three hover actions — 折叠 / 立刻折叠 (peeked cards) and
+   carries the card's hover actions — 折叠 / 取消折叠 / 立刻折叠 (peeked cards) and
    总结卡片 — and is rendered ONLY on cards whose element presence is constant
    per card kind (empty placeholder, streaming, head and root nodes never get
    one), so `memo` keeps working. Appearance is pure CSS (card :hover), no
@@ -18,10 +55,13 @@ import { mindmapClip } from './helpers.js'
    runs. `side` picks the corner: the bottom-left slot (default, where the
    status text sits) or the bottom-right one, which a peeked card lends to
    立刻折叠 and an ordinary completed card to 总结卡片 instead of the hint chip.
+   `tone` picks the semantic color (fold / unfold / peek / ai, see styles.js —
+   all four used to share ONE neutral gray) and `icon` its 11px leading glyph,
+   so the four buttons differ by color AND shape, not by label text alone.
    A disabled pill (the card is already generating its summary) keeps its
    pointer events, so clicking it cannot fall through to the card and fork —
    the same behavior as the session head's disabled summarize button. */
-const cardPill = ({ label, title, tone, side, disabled, run }) => h('button', {
+const cardPill = ({ label, title, tone, icon, side, disabled, run }) => h('button', {
   className: 'dsh-ws-mindmap-node-foldpill' + (side === 'right' ? ' dsh-ws-mindmap-node-foldpill-right' : ''),
   'data-tone': tone,
   disabled: disabled === true ? true : undefined,
@@ -29,7 +69,7 @@ const cardPill = ({ label, title, tone, side, disabled, run }) => h('button', {
   tabIndex: -1,
   title,
   type: 'button',
-}, label)
+}, icon === undefined ? null : mindmapActionIcon(icon), label)
 
 export const MindMapCard = memo(function MindMapCard({
   entry, title, isCurrent, isStreaming, isSummarizing, summary, streamingQuestion, isAncestor, isHover, isHoverAncestor, hintAction, isEnd, ringPalette, onOpen, onMenu, onHover, peeked, onFoldPill, onFoldNowPill, onUnfoldCardPill, onSummarizeCard, summaryEnabled,
@@ -175,6 +215,8 @@ export const MindMapCard = memo(function MindMapCard({
             : cardPill({
               label: translate('mindmap.card.unfold'),
               title: translate('mindmap.card.unfold.title'),
+              tone: 'unfold',
+              icon: 'unfold',
               run: () => { onUnfoldCardPill(entry.sessionId, entry.turn.seq) },
             }),
           onFoldNowPill === undefined
@@ -183,6 +225,7 @@ export const MindMapCard = memo(function MindMapCard({
               label: translate('mindmap.menu.foldNow'),
               title: translate('mindmap.card.foldNow.title'),
               tone: 'peek',
+              icon: 'foldNow',
               side: 'right',
               run: () => { onFoldNowPill(entry.sessionId, entry.turn.seq) },
             }))
@@ -192,6 +235,8 @@ export const MindMapCard = memo(function MindMapCard({
             : cardPill({
               label: translate('mindmap.card.fold'),
               title: translate('mindmap.card.fold.title'),
+              tone: 'fold',
+              icon: 'fold',
               run: () => { onFoldPill(entry.sessionId, entry.turn.seq) },
             }),
           /* 总结卡片: the card's own AI summary, the exact action of the
@@ -204,6 +249,8 @@ export const MindMapCard = memo(function MindMapCard({
               title: isSummarizing === true
                 ? translate('mindmap.summary.generating')
                 : translate('mindmap.card.summarize.title'),
+              tone: 'ai',
+              icon: 'spark',
               side: 'right',
               disabled: isSummarizing === true,
               run: () => { onSummarizeCard(entry.sessionId, entry.turn.seq) },
@@ -386,7 +433,9 @@ export const MindMapSessionHead = memo(function MindMapSessionHead({
        fixed card box and stays keyboard reachable. Both buttons stop the
        bubbling of click/keydown — the card's own handlers would otherwise
        switch the session on the same event. Summarize is only offered while
-       the AI-summary feature is on (with it off the Host rejects the request). */
+       the AI-summary feature is on (with it off the Host rejects the request).
+       Both carry an 11px glyph (archive box / sparkle) so the two heaviest
+       actions on a head card are not text-only. */
     h('div', { className: 'dsh-ws-mindmap-head-actions' },
       h('button', {
         className: 'dsh-ws-mindmap-head-action dsh-ws-mindmap-head-action-danger',
@@ -394,7 +443,7 @@ export const MindMapSessionHead = memo(function MindMapSessionHead({
         onKeyDown: (event) => { event.stopPropagation() },
         title: translate('mindmap.menu.archiveBranch'),
         type: 'button',
-      }, translate('mindmap.head.archive')),
+      }, mindmapActionIcon('archive'), translate('mindmap.head.archive')),
       summaryEnabled === true
         ? h('button', {
           className: 'dsh-ws-mindmap-head-action',
@@ -407,7 +456,15 @@ export const MindMapSessionHead = memo(function MindMapSessionHead({
               ? translate('mindmap.sessionSummary.queued')
               : translate('mindmap.menu.summarizeSession'),
           type: 'button',
-        }, translate('mindmap.head.summarize'))
+        },
+          /* "In flight" signal: while this session's summary is running (or queued behind another
+             one) the sparkle becomes the same pulsing dot the streaming status row uses. The button
+             stays disabled either way, but "already running" no longer looks like "nothing to
+             summarize" (0 rounds). */
+          isSummarizing === true || isQueued === true
+            ? h('span', { 'aria-hidden': true, className: 'dsh-ws-mindmap-head-action-dot' })
+            : mindmapActionIcon('spark'),
+          translate('mindmap.head.summarize'))
         : null))
 })
 

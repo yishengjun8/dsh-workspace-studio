@@ -227,7 +227,15 @@ html.dsh-ws-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal=
 .dsh-ws-update-state[data-error]{color:var(--dsw-alias-state-error-primary)}
 .dsh-ws-update-state[data-new]{color:var(--dsw-alias-state-business-primary)}
 /* Mind-map conversation branching view ("导图") and the sidebar branch-row hider. */
-.dsh-ws-mindmap{height:100%;position:relative;box-sizing:border-box;padding:14px 16px;display:flex;flex-direction:column;overflow:hidden}
+/* Mind-map conversation branching view ("导图") and the sidebar branch-row hider.
+   Semantic tones for everything that is NOT one of the four user-pickable accents
+   (hover / selected / head / end): the folded-run slate and the AI pink. Base values
+   are the LIGHT theme ones; the dark block further down overrides them (same
+   convention as the shiki highlight presets). --dsh-ws-mm-fold also tints the fold
+   card's wash, its dashed border, its ×N badge and the 折叠 pill, so "folded" is one
+   axis; --dsh-ws-mm-ai tints both summarize entry points (card pill + head button). */
+.dsh-ws-mindmap{--dsh-ws-mm-fold:#64748b;--dsh-ws-mm-ai:#db2777;height:100%;position:relative;box-sizing:border-box;padding:14px 16px;display:flex;flex-direction:column;overflow:hidden}
+body[data-ds-dark-theme] .dsh-ws-mindmap{--dsh-ws-mm-fold:#94a3b8;--dsh-ws-mm-ai:#f472b6}
 .dsh-ws-mindmap-toolbar{flex:none;display:flex;align-items:center;flex-wrap:wrap;gap:8px;row-gap:6px;margin-bottom:8px}
 .dsh-ws-mindmap-toolbar-button{flex:none;display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:16px;cursor:pointer;transition:background .12s ease,border-color .12s ease,color .12s ease}
 .dsh-ws-mindmap-toolbar-button:hover{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary)}
@@ -341,9 +349,12 @@ html.dsh-ws-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal=
 html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-mindmap-canvas{position:absolute;left:0;top:0;transform-origin:0 0}
 .dsh-ws-mindmap-edges{position:absolute;inset:0;pointer-events:none;overflow:visible}
-.dsh-ws-mindmap-edge:not(.dsh-ws-mindmap-edge-flow){fill:none;stroke:var(--dsw-alias-border-l2,#8a8f98);stroke-width:1.5;opacity:.85}
-/* V3 mount edges (root → top-level session head, parent card → nested session head): primary dashed, weaker than the ancestor-trace classes above. */
-.dsh-ws-mindmap-edge-mount{stroke:var(--dsw-alias-state-business-primary);stroke-width:1.6;opacity:.55;stroke-dasharray:4 4}
+.dsh-ws-mindmap-edge:not(.dsh-ws-mindmap-edge-flow){fill:none;stroke:var(--dsw-alias-border-l2,#8a8f98);stroke-width:1.5;opacity:.62}
+/* V3 mount edges (root → top-level session head, parent card → nested session head): the IDENTITY
+   violet, dashed and weaker than the ancestor-trace classes below. Deliberately NOT the primary
+   blue any more: the blue dashed edge means "the selected card's chain", so a structural edge and
+   a state edge must not share a color. */
+.dsh-ws-mindmap-edge-mount{stroke:var(--dsh-ws-mindmap-head,var(--dsw-alias-state-business-primary));stroke-width:1.6;opacity:.55;stroke-dasharray:4 4}
 .dsh-ws-mindmap-edge.dsh-ws-mindmap-edge-flow-under{fill:none;stroke-width:3;stroke-linecap:round;opacity:.9}
 .dsh-ws-mindmap-edge-flow{fill:none;stroke-width:3;stroke-linecap:round;stroke-dasharray:10 8;opacity:1;animation:dsh-ws-mindmap-edge-flow 1.1s linear infinite}
 @keyframes dsh-ws-mindmap-edge-flow{to{stroke-dashoffset:-18}}
@@ -355,7 +366,7 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-mindmap-node-q{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;font-weight:600;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--dsw-alias-label-primary);flex:1;min-height:0}.dsh-ws-mindmap-node-q-summarizing{color:var(--dsw-alias-label-tertiary,var(--dsw-alias-label-secondary));font-style:italic;font-weight:500}
 .dsh-ws-mindmap-node-status{flex:none;font-size:11px;line-height:15px}
 .dsh-ws-mindmap-node-thinking{color:var(--dsw-alias-state-business-primary)}
-.dsh-ws-mindmap-node-done{color:var(--dsw-alias-label-tertiary,var(--dsw-alias-label-secondary))}
+.dsh-ws-mindmap-node-done{color:var(--dsw-alias-label-secondary)}
 .dsh-ws-mindmap-node-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px}
 .dsh-ws-mindmap-branch{flex:none;padding:2px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:16px;cursor:pointer}
 .dsh-ws-mindmap-branch:hover{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary)}
@@ -363,7 +374,7 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-mindmap-node-current-badge{position:absolute;top:3px;right:8px;padding:1px 7px;border-radius:999px;background:var(--dsh-ws-mindmap-selected,var(--dsw-alias-state-business-primary));color:var(--dsw-alias-label-primary-inverted);font-size:10px;line-height:14px}
 /* Branch cards: fork children that cannot overlap the shared chain window render as their own card, with a head row and, when the branch has visible rounds, a per-round preview list. */
 .dsh-ws-mindmap-pending{border-style:dashed;cursor:pointer;justify-content:flex-start;align-items:stretch}
-.dsh-ws-mindmap-branchcard{border-style:dashed;cursor:pointer;justify-content:flex-start;align-items:stretch;gap:6px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 88%,var(--dsw-alias-state-business-primary) 6%)}
+.dsh-ws-mindmap-branchcard{border-style:dashed;cursor:pointer;justify-content:flex-start;align-items:stretch;gap:6px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 93%,var(--dsw-alias-label-primary) 7%)}
 /* End-of-branch card ("末端"): the whole card wears the accent tint — border, background wash and the "末端" capsule all resolve --dsh-ws-mindmap-end (default success green). The selected / hover ancestor rules still override the border, so the trace highlight stays visible. */
 .dsh-ws-mindmap-node.dsh-ws-mindmap-endcard{border-color:var(--dsh-ws-mindmap-end,var(--dsw-alias-state-success-primary));background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 86%,var(--dsh-ws-mindmap-end,var(--dsw-alias-state-success-primary)) 14%)}
 /* V3 nodes: the virtual root node (click it to create a new top-level session) and each session's head node (its identity card at the left of the question chain). */
@@ -386,15 +397,37 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-mindmap-head-meta-live{color:var(--dsw-alias-state-business-primary)}
 .dsh-ws-mindmap-head-summary{flex:1;min-height:0;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;overflow:hidden;font-size:10px;line-height:14px;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}
 .dsh-ws-mindmap-head-summary-empty{color:var(--dsw-alias-label-tertiary,var(--dsw-alias-label-secondary));font-style:italic}
-/* Session-head hover actions: bottom-left "archive" + bottom-right "summarize", revealed on card hover or keyboard focus. The row is a transparent absolute overlay (no scrim: a filled strip would paint a solid band across the card's tinted bottom edge) — the fixed card box never shifts, the summary's last line is only overlaid while the buttons show, and the full text stays in the card tooltip. Hidden via opacity + pointer-events:none so it never intercepts a click meant for the card. */
+/* Session-head hover actions: bottom-left 归档 + bottom-right 总结会话, revealed on card hover or
+   keyboard focus. The row is a transparent absolute overlay (no scrim: a filled strip would paint
+   a solid band across the card's tinted bottom edge) — the fixed card box never shifts, the
+   summary's last line is only overlaid while the buttons show, and the full text stays in the card
+   tooltip. Hidden via opacity + pointer-events:none so it never intercepts a click meant for the
+   card. Both buttons share the in-card pill tone system but sit one size UP (11px / 20px): they
+   carry the heaviest consequences on the map (an irreversible branch archive, a paid model call)
+   and used to be the SMALLEST buttons on the canvas at 10px. */
 .dsh-ws-mindmap-head-actions{position:absolute;left:0;right:0;bottom:0;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:6px;padding:4px 6px 5px;box-sizing:border-box;opacity:0;pointer-events:none;transition:opacity .12s ease}
 .dsh-ws-mindmap-head:hover .dsh-ws-mindmap-head-actions,.dsh-ws-mindmap-head:focus-within .dsh-ws-mindmap-head-actions{opacity:1;pointer-events:auto}
-.dsh-ws-mindmap-head-action{flex:none;padding:1px 8px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 45%,transparent);border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 24%,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-state-business-primary);font:inherit;font-size:10px;line-height:15px;white-space:nowrap;cursor:pointer}
-.dsh-ws-mindmap-head-action:hover{border-color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 36%,var(--dsw-alias-bg-layer-1))}
-.dsh-ws-mindmap-head-action:disabled{opacity:.5;cursor:not-allowed}
-.dsh-ws-mindmap-head-action:disabled:hover{border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 24%,var(--dsw-alias-bg-layer-1))}
-.dsh-ws-mindmap-head-action-danger{border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 42%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 12%,transparent);color:var(--dsw-alias-state-error-primary)}
-.dsh-ws-mindmap-head-action-danger:hover{border-color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 20%,transparent)}
+.dsh-ws-mindmap-head-action{--dsh-ws-mm-tone:var(--dsh-ws-mm-ai);--dsh-ws-mm-tone-bg:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 88%,var(--dsh-ws-mm-tone) 12%);--dsh-ws-mm-tone-border:color-mix(in srgb,var(--dsh-ws-mm-tone) 45%,transparent);flex:none;display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 9px;box-sizing:border-box;border:1px solid var(--dsh-ws-mm-tone-border);border-radius:999px;background:var(--dsh-ws-mm-tone-bg);color:var(--dsh-ws-mm-tone);font:inherit;font-size:11px;line-height:15px;white-space:nowrap;cursor:pointer;transition:background .12s ease,border-color .12s ease,color .12s ease}
+.dsh-ws-mindmap-head-action svg{display:block;flex:none}
+/* ARCHIVE rests in the neutral fold slate and only turns red while pointed at: it is the one
+   destructive action here, it already sits behind a type-"yes" confirmation dialog, and a red
+   capsule on every head card the pointer crosses reads as an error state. Its partner keeps the AI
+   pink at rest — that one is the useful action of the pair, and red/pink are ~70° apart in hue so
+   the two never blur together. */
+.dsh-ws-mindmap-head-action-danger{--dsh-ws-mm-tone:var(--dsh-ws-mm-fold)}
+.dsh-ws-mindmap-head-action:hover{--dsh-ws-mm-tone-bg:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 74%,var(--dsh-ws-mm-tone) 26%);--dsh-ws-mm-tone-border:var(--dsh-ws-mm-tone)}
+.dsh-ws-mindmap-head-action-danger:hover{--dsh-ws-mm-tone:var(--dsw-alias-state-error-primary);--dsh-ws-mm-tone-border:var(--dsw-alias-state-error-primary)}
+.dsh-ws-mindmap-head-action:active{--dsh-ws-mm-tone-bg:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 64%,var(--dsh-ws-mm-tone) 36%)}
+.dsh-ws-mindmap-head-action-danger:active{--dsh-ws-mm-tone:var(--dsw-alias-state-error-primary)}
+/* Disabled (0 rounds / summarizing / queued): colorless + dashed, the same "state, not a lighter
+   button" treatment the in-card pills use. Declared last, and for the hovered case too, so neither
+   a tone or the red hover tint can leak back in. */
+.dsh-ws-mindmap-head-action:disabled,.dsh-ws-mindmap-head-action:disabled:hover{--dsh-ws-mm-tone:var(--dsw-alias-label-tertiary);--dsh-ws-mm-tone-bg:transparent;--dsh-ws-mm-tone-border:color-mix(in srgb,var(--dsw-alias-label-tertiary) 45%,transparent);border-style:dashed;cursor:not-allowed}
+/* "Summary in flight" marker, replacing the sparkle: the same pulsing dot the streaming status row
+   uses, in the primary blue. It deliberately survives the disabled (dashed, colorless) capsule —
+   "already running" must stay distinguishable from "nothing to summarize" (0 rounds). */
+.dsh-ws-mindmap-head-action-dot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--dsw-alias-state-business-primary);animation:dsh-ws-mindmap-dot-pulse 1s ease-in-out infinite}
+@media (prefers-reduced-motion: reduce){.dsh-ws-mindmap-head-action-dot{animation:none}}
 /* Live streaming pair: the STREAMING CARD keeps the rotating conic ring (border plus a
    full-colour conic interior spinning through --dsw-ws-mm-angle). Its PARENT node — a question
    card, a folded card or a session head — instead wears a LEFT-TO-RIGHT iridescent flow on both
@@ -450,10 +483,13 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-mindmap-notice-error{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}
 .dsh-ws-mindmap-node[data-branch]{border-style:solid}
 /* Folded card: one compact card standing in for a maximal run of consecutive folded turns — dashed border + muted wash, fold icon + count badge in the title row, first-turn text in the body. Placed after the [data-branch] solid rule and before the ancestor/hover rules so the traces keep their border-color overrides. A RING card is exempt: this rule's background shorthand would otherwise wipe the streaming pair's flow layers (a folded card can be a streaming card's parent), and its dashed border would replace the flow border. */
-.dsh-ws-mindmap-node.dsh-ws-mindmap-folded:not(.dsh-ws-mindmap-node-ring){border-style:dashed;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 90%,var(--dsw-alias-label-tertiary,var(--dsw-alias-label-secondary)) 10%)}
-.dsh-ws-mindmap-fold-count{flex:none;padding:0 6px;border-radius:999px;background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-primary-inverted);font-size:10px;line-height:15px;font-weight:600}
+.dsh-ws-mindmap-node.dsh-ws-mindmap-folded:not(.dsh-ws-mindmap-node-ring){border-style:dashed;border-color:color-mix(in srgb,var(--dsh-ws-mm-fold) 42%,transparent);background-color:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 90%,var(--dsh-ws-mm-fold) 10%);background-image:repeating-linear-gradient(135deg,color-mix(in srgb,var(--dsh-ws-mm-fold) 26%,transparent) 0 5px,transparent 5px 11px)}
+/* Folded-run count badge: a neutral OUTLINED capsule on the fold slate. It used to be a solid
+   business-blue pill — the same shape and color as the "当前" badge and the hint chip — which read
+   as "primary action" for what is only a count of collapsed turns. */
+.dsh-ws-mindmap-fold-count{flex:none;padding:0 6px;border:1px solid color-mix(in srgb,var(--dsh-ws-mm-fold) 55%,transparent);border-radius:999px;background:transparent;color:var(--dsw-alias-label-secondary);font-size:10px;line-height:14px;font-weight:600}
 .dsh-ws-mindmap-node-q-folded{color:var(--dsw-alias-label-secondary);font-style:italic;font-weight:500}
-.dsh-ws-mindmap-node-folded-status{color:var(--dsw-alias-state-business-primary)}
+.dsh-ws-mindmap-node-folded-status{color:var(--dsh-ws-mm-fold)}
 /* Peeked card status: a folded-marked turn temporarily expanded (click on the folded card); the folded attribute is untouched, so the status row says 已折叠 in amber. */
 .dsh-ws-mindmap-node-peeked-status{color:var(--dsw-alias-state-warn-primary)}
 /* Temporary-expand (peek) outline around the run: amber dashed box, never intercepts pointer events. */
@@ -465,37 +501,43 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-mindmap-edge.dsh-ws-mindmap-edge-hover-active{stroke:var(--dsh-ws-mindmap-hover,var(--dsw-alias-state-warn-primary));stroke-dasharray:6 5;stroke-width:2;opacity:1}
 .dsh-ws-mindmap-node.dsh-ws-mindmap-node-hover-ancestor{border-style:dashed;border-color:var(--dsh-ws-mindmap-hover,var(--dsw-alias-state-warn-primary));box-shadow:0 0 0 1px color-mix(in srgb,var(--dsh-ws-mindmap-hover,var(--dsw-alias-state-warn-primary)) 22%,transparent)}
 .dsh-ws-mindmap-node.dsh-ws-mindmap-node-hover:not(.dsh-ws-mindmap-node-ring){border-style:solid;border-color:var(--dsh-ws-mindmap-hover,var(--dsw-alias-state-warn-primary));box-shadow:0 0 0 1px color-mix(in srgb,var(--dsh-ws-mindmap-hover,var(--dsw-alias-state-warn-primary)) 35%,transparent),0 0 14px color-mix(in srgb,var(--dsh-ws-mindmap-hover,var(--dsw-alias-state-warn-primary)) 22%,transparent)}
-/* Settings color swatch for the mind-map highlight pickers. */
-.dsh-ws-mindmap-node-hint{position:absolute;right:5px;bottom:5px;z-index:1;max-width:calc(100% - 10px);padding:1px 7px;border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 24%,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-state-business-primary);border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 45%,transparent);font-size:10px;line-height:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;box-sizing:border-box}
-/* Hover fold pills (scheme C, text capsules) on the branch cards. The left pill sits exactly where
-   the status row was — left-aligned with the card body (the 10px padding edge) and optically centred
-   on the 15px status line (status centre 15.5px above the card bottom, pill centre 15px) — while the
-   status row cross-fades out on card hover, so the bottom-left corner swaps text for text: zero
-   shift, zero squeeze, card box and typography untouched. A PEEKING card (a folded run temporarily
-   expanded) additionally lends its bottom-right corner to 立刻折叠: it mirrors the left pill's 10px
-   inset, and that card renders no hover hint chip (the same "action wins the bottom-right corner"
-   rule the session head card follows). Rendered only on cards that own a foldable completed turn
-   (see cards.js), so the element's presence is constant per card kind and the card memo stays
-   effective. pointer-events stays none while hidden, so an invisible pill can never steal the card's
-   own click (fork / switch / peek); :has() is the same selector shape the sidebar rules below
-   already rely on. */
+/* Hover hint chip: tells the user what a click on this card will do. It is NOT a button
+   (pointer-events:none), so it must not LOOK like one — it used to be a blue capsule with a solid
+   border, indistinguishable from the real action pills, and it sits in the very corner the
+   colored 总结卡片 / 立刻折叠 pill uses. Neutral text on a faint wash with a DASHED border says
+   "this is a caption"; the colorless corner also lets the action pill stay dominant. */
+.dsh-ws-mindmap-node-hint{position:absolute;right:5px;bottom:5px;z-index:1;max-width:calc(100% - 10px);padding:1px 7px;border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 94%,transparent);color:var(--dsw-alias-label-secondary);border:1px dashed color-mix(in srgb,var(--dsw-alias-label-secondary) 50%,transparent);font-size:10px;line-height:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;box-sizing:border-box}
+/* In-card hover pills — the card's four buttons: 折叠 / 取消折叠 / 立刻折叠 / 总结卡片. They share ONE
+   tone system (--dsh-ws-mm-tone + a 12% opaque wash, a 45% border and the tone as text) and only
+   [data-tone] picks the hue: 折叠 = fold slate, 取消折叠 = primary blue, 立刻折叠 = warn amber,
+   总结卡片 = AI pink. Two deliberate departures from the old single gray capsule: (1) the tone is
+   STATIC — the old rule was neutral until :hover, so all four buttons looked identical until you
+   were already pointing at one; (2) the wash is OPAQUE — a folded card carries 135° stripes and a
+   streaming parent a moving light band, and a 92%-transparent capsule let those patterns show
+   through the 11px label. The behavior contract is untouched: the hidden state keeps opacity:0 +
+   pointer-events:none (an invisible pill must never steal the card's own click: fork / switch /
+   peek) and the status row cross-fades out underneath, which now happens between SAME-hue values
+   (已折叠 slate ↔ 折叠 slate, peek amber ↔ 立刻折叠 amber) instead of gray-to-color. The pills sit
+   exactly where the status row was, so the fixed card box never shifts. */
 .dsh-ws-mindmap-node-status{transition:opacity .12s ease}
-.dsh-ws-mindmap-node-foldpill{position:absolute;left:10px;bottom:5px;z-index:2;height:20px;padding:0 9px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 92%,transparent);color:var(--dsw-alias-label-secondary);cursor:pointer;font:inherit;font-size:11px;line-height:15px;white-space:nowrap;opacity:0;transform:translateY(2px);pointer-events:none;transition:opacity .12s ease,transform .12s ease,border-color .12s ease,color .12s ease,background .12s ease}
+.dsh-ws-mindmap-node-foldpill{--dsh-ws-mm-tone:var(--dsh-ws-mm-fold);--dsh-ws-mm-tone-bg:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 88%,var(--dsh-ws-mm-tone) 12%);--dsh-ws-mm-tone-border:color-mix(in srgb,var(--dsh-ws-mm-tone) 45%,transparent);position:absolute;left:10px;bottom:5px;z-index:2;height:20px;padding:0 8px;box-sizing:border-box;display:inline-flex;align-items:center;gap:4px;border:1px solid var(--dsh-ws-mm-tone-border);border-radius:999px;background:var(--dsh-ws-mm-tone-bg);color:var(--dsh-ws-mm-tone);cursor:pointer;font:inherit;font-size:11px;line-height:15px;white-space:nowrap;opacity:0;transform:translateY(2px);pointer-events:none;transition:opacity .12s ease,transform .12s ease,border-color .12s ease,color .12s ease,background .12s ease}
+.dsh-ws-mindmap-node-foldpill svg{display:block;flex:none}
 .dsh-ws-mindmap-node-foldpill-right{left:auto;right:10px}
+.dsh-ws-mindmap-node-foldpill[data-tone="unfold"]{--dsh-ws-mm-tone:var(--dsw-alias-state-business-primary)}
+.dsh-ws-mindmap-node-foldpill[data-tone="peek"]{--dsh-ws-mm-tone:var(--dsw-alias-state-warn-primary)}
+.dsh-ws-mindmap-node-foldpill[data-tone="ai"]{--dsh-ws-mm-tone:var(--dsh-ws-mm-ai)}
 .dsh-ws-mindmap-node:hover>.dsh-ws-mindmap-node-foldpill{opacity:1;transform:none;pointer-events:auto}
-.dsh-ws-mindmap-node-foldpill:hover{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,var(--dsw-alias-bg-layer-1))}
-.dsh-ws-mindmap-node-foldpill:active{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 20%,var(--dsw-alias-bg-layer-1))}
-.dsh-ws-mindmap-node-foldpill:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}
+.dsh-ws-mindmap-node-foldpill:hover{--dsh-ws-mm-tone-bg:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 76%,var(--dsh-ws-mm-tone) 24%);--dsh-ws-mm-tone-border:var(--dsh-ws-mm-tone)}
+.dsh-ws-mindmap-node-foldpill:active{--dsh-ws-mm-tone-bg:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 66%,var(--dsh-ws-mm-tone) 34%)}
+.dsh-ws-mindmap-node-foldpill:focus-visible{outline:2px solid var(--dsh-ws-mm-tone);outline-offset:1px}
 .dsh-ws-mindmap-node:has(>.dsh-ws-mindmap-node-foldpill):hover>.dsh-ws-mindmap-node-status{opacity:0}
-/* The right-hand peek pill (fold the temporary expansion back) keeps the amber tone, so the peek
-   signal is not lost when the amber status text cross-fades into the left pill. */
-.dsh-ws-mindmap-node-foldpill[data-tone="peek"]:hover{border-color:var(--dsw-alias-state-warn-primary);color:var(--dsw-alias-state-warn-primary);background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 14%,var(--dsw-alias-bg-layer-1))}
-/* A disabled pill (the card's summary is already being generated) stays visible but muted. The
-   selector must outrank the reveal rule above (which pins opacity:1) AND reset the hover colors
-   the base :hover rule would otherwise apply; it deliberately keeps pointer-events, so a click
-   lands on the disabled pill instead of falling through to the card and forking — the same
-   behavior as the session head's disabled summarize button. */
-.dsh-ws-mindmap-node:hover>.dsh-ws-mindmap-node-foldpill:disabled{opacity:.55;cursor:default;border-color:var(--dsw-alias-border-l2);color:var(--dsw-alias-label-tertiary);background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 92%,transparent)}
+/* A disabled pill (the card's summary is already being generated) drops its color and switches to a
+   DASHED border instead of fading the whole capsule, so "not clickable right now" reads as a state
+   rather than as a lighter button. The reveal rules keep pointer events on: a click must land here
+   instead of falling through to the card and forking (same contract as the head's disabled button). */
+.dsh-ws-mindmap-node-foldpill:disabled{opacity:0;cursor:default;border-style:dashed;--dsh-ws-mm-tone:var(--dsw-alias-label-tertiary);--dsh-ws-mm-tone-bg:transparent;--dsh-ws-mm-tone-border:color-mix(in srgb,var(--dsw-alias-label-tertiary) 45%,transparent)}
+.dsh-ws-mindmap-node:hover>.dsh-ws-mindmap-node-foldpill:disabled{opacity:.9}
+/* Settings color swatch for the mind-map highlight pickers. */
 .dsh-ws-settings-color{flex:none;width:40px;height:26px;padding:2px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);cursor:pointer;box-sizing:border-box}
 .dsh-ws-settings-color::-webkit-color-swatch-wrapper{padding:0}
 .dsh-ws-settings-color::-webkit-color-swatch{border:0;border-radius:3px}

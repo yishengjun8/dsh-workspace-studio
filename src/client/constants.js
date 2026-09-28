@@ -88,10 +88,10 @@ export const MINDMAP_HOVER_THEME_VAR = '--dsw-alias-state-warn-primary'
 export const MINDMAP_SELECTED_THEME_VAR = '--dsw-alias-state-business-primary'
 export const MINDMAP_HOVER_COLOR_FALLBACK = '#f59e0b'
 export const MINDMAP_SELECTED_COLOR_FALLBACK = '#4176e6'
-/* Session-head card accent color, published as --dsh-ws-mindmap-head; defaults to violet #a78bfa to stay distinct from the blue root/selection and green "末端" chips. */
-export const MINDMAP_HEAD_COLOR_DEFAULT = '#a78bfa'
-/* End-of-branch card accent (border + wash + "末端" capsule), published as --dsh-ws-mindmap-end; defaults to success green #22c55e so terminal-point meaning stays green. */
-export const MINDMAP_END_COLOR_DEFAULT = '#22c55e'
+/* Session-head card accent color, published as --dsh-ws-mindmap-head; defaults to violet #8b5cf6 — saturated enough to read as an identity card, and deliberately NOT one of the streaming-ring palette values (the old #a78bfa WAS the ring's third stop, so a streaming session's head card and its ring were the same color). */
+export const MINDMAP_HEAD_COLOR_DEFAULT = '#8b5cf6'
+/* End-of-branch card accent (border + wash + "末端" capsule), published as --dsh-ws-mindmap-end; defaults to #16a34a so the terminal-point meaning stays green while the 10px capsule keeps ~3:1 contrast on a LIGHT theme (the old #22c55e was ~2:1 there). */
+export const MINDMAP_END_COLOR_DEFAULT = '#16a34a'
 export const cssColorToHex = (color) => {
   if (typeof color !== 'string') return null
   const text = color.trim()

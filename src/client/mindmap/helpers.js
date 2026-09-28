@@ -230,13 +230,18 @@ export function mindmapDocStructureFingerprint(doc) {
    flowing edge): a hash of the session id seeds a PRNG picking ONE 3-color scheme from the
    curated pool, stable across renders. Returns a FLAT 3-color array (c1, c2, c3); cached by
    session id so the array identity survives layout recomputes and React.memo comparisons. */
+/* RED LINE for this pool: streaming is the ONLY animated accent in the map, so every entry must stay
+   inside the cold "aurora" family (cyan / blue / indigo / violet / magenta). Never add a warm hue
+   (amber / orange / red — they mean hover and danger), never a green (the "末端" terminal accent),
+   and never reuse a semantic color's exact value: identity violet MINDMAP_HEAD_COLOR_DEFAULT,
+   terminal green MINDMAP_END_COLOR_DEFAULT, the fold slate (#94a3b8 / #64748b), the AI pink
+   (#f472b6 / #db2777) or the theme's business / warn / error primaries. Four schemes are enough:
+   two streaming sessions in one map now read as one family instead of two clashing rainbows. */
 export const MINDMAP_STREAM_PALETTE = [
-  ['#22d3ee', '#818cf8', '#a78bfa'],
-  ['#fb923c', '#f472b6', '#e11d48'],
-  ['#a3e635', '#34d399', '#2dd4bf'],
-  ['#fde047', '#f97316', '#ef4444'],
-  ['#38bdf8', '#2dd4bf', '#a3e635'],
-  ['#e879f9', '#818cf8', '#38bdf8'],
+  ['#22d3ee', '#3b82f6', '#a855f7'],
+  ['#2dd4bf', '#0ea5e9', '#818cf8'],
+  ['#60a5fa', '#c084fc', '#d946ef'],
+  ['#38bdf8', '#6366f1', '#e879f9'],
 ]
 export const mindmapStreamPaletteCache = new Map()
 export const mindmapStreamHash = (text) => {
