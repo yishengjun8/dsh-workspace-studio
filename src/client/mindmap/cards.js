@@ -287,7 +287,7 @@ export const MindMapRootNode = memo(function MindMapRootNode({ entry, isAncestor
    keyboard focus) a bottom action row appears: archive this session + its
    branches on the left, summarize this session on the right. */
 export const MindMapSessionHead = memo(function MindMapSessionHead({
-  entry, title, isCurrent, isRunning, isAncestor, isHover, isHoverAncestor, ringPalette, onOpen, onMenu, onHover, summary, isSummarizing,
+  entry, title, isCurrent, isRunning, isAncestor, isHover, isHoverAncestor, ringPalette, onOpen, onMenu, onHover, summary, isSummarizing, isQueued,
   onArchive, onSummarize, canSummarize, summaryEnabled,
 }) {
   const ringed = ringPalette !== undefined
@@ -301,13 +301,16 @@ export const MindMapSessionHead = memo(function MindMapSessionHead({
   const countLabel = turns.length > 0
     ? translate('mindmap.rounds', { n: turns.length })
     : translate('mindmap.session.empty')
-  /* Status priority: streaming > session summary in flight > done / waiting. */
+  /* Status priority: streaming > session summary in flight > queued behind
+     another session's summary > done / waiting. */
   const statusLabel = isRunning
     ? translate('mindmap.streaming')
     : isSummarizing
       ? translate('mindmap.sessionSummary.summarizing')
-      : (turns.length > 0 ? translate('mindmap.done') : translate('mindmap.session.waiting'))
-  const statusLive = isRunning || isSummarizing
+      : isQueued
+        ? translate('mindmap.sessionSummary.queued')
+        : (turns.length > 0 ? translate('mindmap.done') : translate('mindmap.session.waiting'))
+  const statusLive = isRunning || isSummarizing || isQueued
   /* Session-level AI summary (persisted on the session entry, read from the
      CURRENT doc — the layout's session object is structure-memoized and would
      be stale). Shown in the card's remaining space; the FULL text is one hover
@@ -364,12 +367,14 @@ export const MindMapSessionHead = memo(function MindMapSessionHead({
       summaryEnabled === true
         ? h('button', {
           className: 'dsh-ws-mindmap-head-action',
-          disabled: canSummarize !== true || isSummarizing === true,
+          disabled: canSummarize !== true || isSummarizing === true || isQueued === true,
           onClick: (event) => { event.stopPropagation(); onSummarize(String(entry.sessionId)) },
           onKeyDown: (event) => { event.stopPropagation() },
           title: isSummarizing === true
             ? translate('mindmap.sessionSummary.summarizing')
-            : translate('mindmap.menu.summarizeSession'),
+            : isQueued === true
+              ? translate('mindmap.sessionSummary.queued')
+              : translate('mindmap.menu.summarizeSession'),
           type: 'button',
         }, translate('mindmap.head.summarize'))
         : null))

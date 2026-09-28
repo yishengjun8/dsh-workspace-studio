@@ -233,16 +233,30 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   const [regenerateAllTarget, setRegenerateAllTarget] = useState(null)
   const [regenerateAllBusy, setRegenerateAllBusy] = useState(false)
   const [regenerateAllError, setRegenerateAllError] = useState(null)
-  /* Summarize-session state: the session id being waited on, the session whose
+  /* Summarize-session state: the session whose Host job is still being waited on
+     (`{ id, baseline, seen }` — see the waiting effect below), the session whose
      synchronous request is in flight, and the Host-reported set of sessions
      whose session summary is pending/running. No result dialog: the card shows
      the outcome. */
   const [sessionSummaryWaiting, setSessionSummaryWaiting] = useState(null)
   const [sessionSummaryBusyId, setSessionSummaryBusyId] = useState(null)
-  /* Busy mirror for the stable head-card summarize callback (same reason as
-     archiveBranchBusyRef above). */
+  /* Busy / waiting mirrors for the stable head-card summarize callback (same
+     reason as archiveBranchBusyRef above) — but deliberately NOT per-render
+     mirrors: the queue gate below must be same-tick accurate, and a mirror
+     assigned on every render would clobber the synchronous write that a request
+     makes at its start. Both refs are written ONLY at their transitions:
+     runSummarizeSession sets busy, the waiting branch sets waiting, the settle /
+     timeout / landed-summary paths clear them. */
   const sessionSummaryBusyIdRef = useRef(null)
-  sessionSummaryBusyIdRef.current = sessionSummaryBusyId
+  const sessionSummaryWaitingRef = useRef(null)
+  /* Sessions whose "summarize this session" click arrived while another session
+     summary was still running (or still waiting on its card summaries): a FIFO
+     drained one entry at a time by the effect further down. Without it the click
+     was dropped silently, because only ONE summarize-session request may be in
+     flight (the Host runs it synchronously on the request thread and parallel
+     calls on the same provider interfere). */
+  const [sessionSummaryQueue, setSessionSummaryQueue] = useState([])
+  const sessionSummaryQueueRef = useRef([])
   const [sessionSummarizing, setSessionSummarizing] = useState([])
   /* Live-turn info from the latest sync payload: one { sessionId, turn,
      question } per doc-family session with a turn in flight — drives the
@@ -1890,16 +1904,17 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         }
       })
   }, [regenerateAllBusy, regenerateAllTarget, rootId, showNotice, showNoticeError])
-  /* Summarize ONE session: ready sessions return synchronously ('done' —
-     optimistic doc update); sessions with missing or in-flight card summaries
-     return 'waiting' — the Host generates the missing ones and finishes the
-     session summary in the background, which the waiting effect below picks up
-     from a later sync. Shared by the session head's hover "summarize" button
-     and the right-click menu item; STABLE identity (refs only) so the memoized
-     head cards keep their memo. */
-  const requestSummarizeSession = useCallback((sessionId) => {
-    if (sessionSummaryBusyIdRef.current !== null) return
+  /* Send ONE summarize-session request: ready sessions return synchronously
+     ('done' — optimistic doc update); sessions with missing or in-flight card
+     summaries return 'waiting' — the Host generates the missing ones and
+     finishes the session summary in the background, which the waiting effect
+     below picks up from a later sync. The caller has already established that
+     nothing else is in flight (see requestSummarizeSession / the queue drain). */
+  const runSummarizeSession = useCallback((sessionId) => {
     const target = String(sessionId)
+    /* Written synchronously (not via a render mirror): the queue gate must never
+       see a stale "idle" in the same tick this request starts. */
+    sessionSummaryBusyIdRef.current = target
     setSessionSummaryBusyId(target)
     showNotice(translate('mindmap.sessionSummary.generating'))
     /* Arm the sync guard for the whole LLM round-trip (up to 25 s): a sync
@@ -1924,7 +1939,14 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
             lastFingerprintRef.current = mindmapDocFingerprint(next)
           }
         } else if (payload?.ok === true && payload.status === 'waiting') {
-          setSessionSummaryWaiting(target)
+          /* Capture the CURRENT summary as the baseline: the Host regenerates it
+             in the background, so "a different non-empty summary landed" is the
+             completion signal (the queue drain gates on this waiting state). */
+          const owner = (docRef.current?.sessions ?? []).find(s => String(s?.sessionId) === target)
+          const baseline = typeof owner?.summary === 'string' ? owner.summary : ''
+          const next = { id: target, baseline }
+          sessionSummaryWaitingRef.current = next
+          setSessionSummaryWaiting(next)
           showNotice(translate('mindmap.sessionSummary.waiting'))
         } else if (payload?.ok === true && payload.status === 'empty') {
           showNotice(translate('mindmap.sessionSummary.empty'))
@@ -1942,9 +1964,59 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       })
       .finally(() => {
         savingRef.current -= 1
+        /* Clear the ref FIRST (the queue drain reads it) — the state update only
+           drives rendering. */
+        sessionSummaryBusyIdRef.current = null
         if (mountedRef.current) setSessionSummaryBusyId(null)
       })
   }, [showNotice, showNoticeError])
+  /* Session head hover button / right-click menu entry: run the request when
+     nothing else is summarizing, otherwise PARK it in the FIFO queue — dropping
+     the click (the previous single-flight guard) made a second card's summarize
+     action look broken. STABLE identity (refs only) so the memoized head cards
+     keep their memo. */
+  const requestSummarizeSession = useCallback((sessionId) => {
+    const target = String(sessionId)
+    const busy = sessionSummaryBusyIdRef.current
+    const waiting = sessionSummaryWaitingRef.current
+    if ((busy !== null && String(busy) === target)
+      || (waiting !== null && String(waiting.id) === target)
+      || sessionSummaryQueueRef.current.some(id => String(id) === target)) {
+      showNotice(translate('mindmap.sessionSummary.pending'))
+      return
+    }
+    if (busy !== null || waiting !== null || sessionSummaryQueueRef.current.length > 0) {
+      sessionSummaryQueueRef.current = [...sessionSummaryQueueRef.current, target]
+      setSessionSummaryQueue(sessionSummaryQueueRef.current)
+      showNotice(translate('mindmap.sessionSummary.queued.notice', { n: sessionSummaryQueueRef.current.length }))
+      return
+    }
+    runSummarizeSession(target)
+  }, [runSummarizeSession, showNotice])
+  /* Queue drain: start the next parked session summary, one at a time, and only
+     when the PREVIOUS one is really over. A 'waiting' response comes back
+     immediately while the Host keeps generating in the background, so gating on
+     the HTTP round-trip alone (busy === null) would fire the next call in
+     parallel with it; `sessionSummaryWaiting` clears only once that session's
+     summary lands in the doc (or the 5-minute stall timeout fires). Entries whose
+     session left the doc family (deleted / archived) are dropped silently. `doc`
+     is a dependency so a family switch re-runs the gate once the new doc loads
+     (the body is a cheap array filter and a no-op while the queue is empty). */
+  useEffect(() => {
+    if (sessionSummaryQueue.length === 0) return
+    if (doc === null) return
+    const alive = sessionSummaryQueue.filter(id => familyIdsRef.current.includes(String(id)))
+    if (alive.length !== sessionSummaryQueue.length) {
+      sessionSummaryQueueRef.current = alive
+      setSessionSummaryQueue(alive)
+      return
+    }
+    if (sessionSummaryBusyId !== null || sessionSummaryWaiting !== null) return
+    const [next, ...rest] = sessionSummaryQueue
+    sessionSummaryQueueRef.current = rest
+    setSessionSummaryQueue(rest)
+    runSummarizeSession(next)
+  }, [doc, sessionSummaryQueue, sessionSummaryBusyId, sessionSummaryWaiting, runSummarizeSession])
   /* Right-click menu entry: close the menu first, then the shared call. */
   const startSummarizeSession = useCallback(() => {
     if (menu === null || menu.kind !== 'head') return
@@ -1955,21 +2027,47 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   /* Waiting completion: a later sync brings the session's summary — the head
      card updates by itself (no dialog). A 5-minute stall (generation failed and
      cooled down, or the map was closed) surfaces as a timeout notice. */
+  /* Waiting completion: the Host's background job for this session is over when
+     EITHER a NEW summary landed in the doc (a non-empty value different from the
+     baseline captured at request time) OR the Host-reported pending/running set
+     released the session after having listed it. Neither signal alone is enough:
+     the value check cannot see a regeneration that produced identical text, and
+     the set check cannot see a job that finished before the next sync. `seen`
+     latches the second observation so an early (pre-job) sync payload with an
+     empty set can never count as a release. A 5-minute stall (generation failed
+     and cooled down, or the map was closed) surfaces as a timeout notice and
+     releases the queue. */
   useEffect(() => {
     if (sessionSummaryWaiting === null) return undefined
-    const session = (doc?.sessions ?? []).find(s => s !== null && s !== undefined && String(s.sessionId) === String(sessionSummaryWaiting))
-    if (session !== undefined && typeof session.summary === 'string' && session.summary !== '') {
+    const id = String(sessionSummaryWaiting.id)
+    const session = (doc?.sessions ?? []).find(s => s !== null && s !== undefined && String(s.sessionId) === id)
+    const summary = session !== undefined && typeof session.summary === 'string' ? session.summary : ''
+    const hostHas = sessionSummarizing.some(item => String(item) === id)
+    const seen = sessionSummaryWaiting.seen === true || hostHas
+    if ((summary !== '' && summary !== sessionSummaryWaiting.baseline) || (seen && !hostHas)) {
+      /* The job is over: clear the gate so the queue drain (which gates on this
+         same waiting state) may start the next parked session. */
+      sessionSummaryWaitingRef.current = null
       setSessionSummaryWaiting(null)
+      return undefined
+    }
+    if (seen && sessionSummaryWaiting.seen !== true) {
+      /* Latch the observation (no clear yet): only a LATER payload that drops the
+         session counts as the job ending. */
+      const next = { ...sessionSummaryWaiting, seen: true }
+      sessionSummaryWaitingRef.current = next
+      setSessionSummaryWaiting(next)
       return undefined
     }
     const timer = window.setTimeout(() => {
       if (mountedRef.current) {
+        sessionSummaryWaitingRef.current = null
         setSessionSummaryWaiting(null)
         showNoticeError(translate('mindmap.sessionSummary.timeout'))
       }
     }, 5 * 60 * 1000)
     return () => clearTimeout(timer)
-  }, [doc, sessionSummaryWaiting, showNoticeError])
+  }, [doc, sessionSummaryWaiting, sessionSummarizing, showNoticeError])
   /* Escape closes the archive / delete / archive-branch / regenerate-all
      confirm dialogs (rename and the context menu handle their own). Those four
      have no Escape handling of their own, so the view supplies it. */
@@ -2249,9 +2347,20 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       if (id !== null && id !== undefined) set.add(String(id))
     }
     if (sessionSummaryBusyId !== null) set.add(String(sessionSummaryBusyId))
-    if (sessionSummaryWaiting !== null) set.add(String(sessionSummaryWaiting))
+    if (sessionSummaryWaiting !== null) set.add(String(sessionSummaryWaiting.id))
     return set
   }, [sessionSummarizing, sessionSummaryBusyId, sessionSummaryWaiting])
+
+  /* Sessions parked in the local FIFO queue (clicked while another summary was
+     still running): their head card shows the queued status and disables its own
+     summarize button, so one session is never enqueued twice. */
+  const sessionSummaryQueuedSet = useMemo(() => {
+    const set = new Set()
+    for (const id of sessionSummaryQueue) {
+      if (id !== null && id !== undefined) set.add(String(id))
+    }
+    return set
+  }, [sessionSummaryQueue])
 
   /* Blank-area menu availability (drives the disabled state of the fold-all /
      unfold-all items): fold-all needs at least one peeked run; unfold-all needs
@@ -2348,6 +2457,9 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         onMenu: openCardMenu,
         summary: sessionSummaryByKey.get(String(entry.sessionId)),
         isSummarizing: sessionSummarizingSet.has(String(entry.sessionId)),
+        /* Parked behind another session's summary: shown as queued (never as
+           "summarizing", which means the model call is already running). */
+        isQueued: sessionSummaryQueuedSet.has(String(entry.sessionId)),
         /* Hover action row (bottom-left archive / bottom-right summarize).
            Both callbacks are STABLE (refs only) so the memo above still holds;
            the summarize button only renders while the AI-summary feature is on
