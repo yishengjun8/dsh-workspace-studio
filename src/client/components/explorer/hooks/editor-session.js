@@ -1,7 +1,7 @@
 /** Editor session domain: read pass, draft/autosave machinery, save/cancel/
  * conflict resolution, external-change polling and editor-context publishing. */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { AUTO_RELOAD_COOLDOWN_MS, AUTO_SYNC_CHECK_MS, AUTO_SYNC_MODE_AUTO, AUTOSAVE_DELAY_MS, FILE_CACHE_REVALIDATE_SKIP_MS, WATCH_FILES_DEFAULT } from '../../../constants.js'
+import { AUTO_RELOAD_COOLDOWN_MS, AUTO_SYNC_CHECK_MS, AUTO_SYNC_MODE_AUTO, AUTOSAVE_DELAY_MS, DISK_STATE_CLEAN, DISK_STATE_CONFLICT, DISK_STATE_GONE, DISK_STATE_STALE, FILE_CACHE_REVALIDATE_SKIP_MS, TAB_FLASH_MS, WATCH_FILES_DEFAULT } from '../../../constants.js'
 import { translate } from '../../../locale/index.js'
 import { readOnlyReason } from '../../../format.js'
 import { encodingLabel } from '../../../api.js'
@@ -49,6 +49,8 @@ export function useEditorSession({
   const retainedStatesRef = useRef(new Map())
   /* Per-path reload cooldown for AUTO mode, suppressing the remount storm for continuously-written files. */
   const autoReloadCooldownRef = useRef(new Map())
+  /* Per-path timers clearing an AUTO-reload flash flag: the flag must come back off, or the next reload's CSS animation would not replay. */
+  const flashTimersRef = useRef(new Map())
   /* Draft mutations serialize per path with a monotonic generation; the Host fences every op behind one owner-level generation, so all operations share a single counter. */
   const draftGenerationCounterRef = useRef(0)
   const draftGenerationsRef = useRef(new Map())
@@ -108,8 +110,19 @@ export function useEditorSession({
     const view = editorRef.current
     if (view !== undefined) publishContextState(view.state)
   }, [preview, publishContextState])
-  /* Preview auto-sync: poll the change-check endpoint on a fixed cadence; clean active tabs re-read (auto) or show "file changed" (watch-only), dirty tabs are never overwritten. */
+  /* Preview auto-sync: poll the change-check endpoint on a fixed cadence; a clean active tab re-reads (auto) or shows a "changed" marker (watch-only), a dirty tab is never overwritten, and a BACKGROUND tab is only MARKED — never reloaded — so a file moving under the user's other tabs stays visible without silently swapping content. */
   const syncControllerRef = useRef()
+  /* Flash a tab whose content an AUTO reload just replaced; the timer clears the flag, without which the next reload's CSS animation would not replay. */
+  const flashTab = useCallback((path) => {
+    updateTab(path, { flash: true })
+    const timers = flashTimersRef.current
+    const pending = timers.get(path)
+    if (pending !== undefined) window.clearTimeout(pending)
+    timers.set(path, window.setTimeout(() => {
+      timers.delete(path)
+      updateTab(path, { flash: undefined })
+    }, TAB_FLASH_MS))
+  }, [updateTab])
   const applyFileChanged = useCallback((path) => {
     /* A re-read for this path is already in flight; bumping the reload token again would remount the editor and discard the restored scroll. */
     if (reloadingPathsRef.current.has(path)) return
@@ -119,13 +132,21 @@ export function useEditorSession({
     const activeNow = activePathNow === path
     const editableActive = activeNow && preview.state === 'ready'
       && (isByteKind(preview.kind) || (preview.editable !== false && !preview.readOnlyReason))
-    if (activeNow && !tab.dirty && !tab.saving) {
+    /* A non-editable tab (a read-only preview holding a leftover draft) can never be in conflict: its draft has no save path. */
+    const dirtyEditable = tab.dirty === true && tab.editing !== false
+    /* A BACKGROUND tab is marked only: reloading it would swap content the user is not looking at (and the read pass serves the active path alone), so the strip's marker is its only honest channel — no status is written either. */
+    if (!activeNow) {
+      if (tab.saving) return
+      updateTab(path, { diskState: dirtyEditable ? DISK_STATE_CONFLICT : DISK_STATE_STALE })
+      return
+    }
+    if (!tab.dirty && !tab.saving) {
       const auto = (settings.autoSyncMode ?? AUTO_SYNC_MODE_AUTO) === AUTO_SYNC_MODE_AUTO
       if (auto) {
-        /* Backpressure for continuously-written files: changes within the cooldown only surface a status, since a second reload would wipe undo history. */
+        /* Backpressure for continuously-written files: changes within the cooldown only mark the tab, since a second reload would wipe undo history. */
         const cooldownUntil = autoReloadCooldownRef.current.get(path)
         if (cooldownUntil !== undefined && cooldownUntil > Date.now()) {
-          updateTab(path, { status: { text: translate('status.fileChanged') } })
+          updateTab(path, { diskState: DISK_STATE_STALE })
           setStatus({ text: translate('status.fileChanged') })
           return
         }
@@ -137,23 +158,23 @@ export function useEditorSession({
           refreshPendingRef.current = path
           setReloadToken(token => token + 1)
         }
-        updateTab(path, { status: { text: translate('editor.refreshed') } })
+        /* The reload IS the resolution: clear the marker now so the status bar keeps the "reloaded" notice instead of the out-of-date "changed" one, and flash the tab so an automatic replace is never silent. */
+        updateTab(path, { diskState: DISK_STATE_CLEAN, status: { text: translate('editor.refreshed') } })
+        flashTab(path)
         setStatus({ text: translate('editor.refreshed') })
       } else {
-        // WATCH-ONLY mode: surface the change without reloading; the user pulls new content via the refresh button.
-        updateTab(path, { status: { text: translate('status.fileChanged') } })
+        // WATCH-ONLY mode: surface the change without reloading; the user pulls new content through the tab's own reload action.
+        updateTab(path, { diskState: DISK_STATE_STALE })
         setStatus({ text: translate('status.fileChanged') })
       }
-    } else if (activeNow && !tab.saving) {
+    } else if (!tab.saving) {
       // Dirty (non-saving) tab: never overwrite the draft or save status; surface the change and let the user decide.
       const dirtyNow = editableActive ? tab.dirty : false
-      const text = dirtyNow
-        ? translate('status.fileChangedDirty')
-        : translate('status.fileChanged')
-      setStatus({ error: dirtyNow, text })
-      updateTab(path, { status: { error: dirtyNow, text } })
+      updateTab(path, { diskState: dirtyNow ? DISK_STATE_CONFLICT : DISK_STATE_STALE })
+      /* Only the ERROR variant goes into tab.status: the plain change notice is DERIVED from diskState where it renders, because a stored non-error status is persisted and would outlive the reload that resolved it. */
+      setStatus(dirtyNow ? { error: true, text: translate('status.fileChangedDirty') } : { text: translate('status.fileChanged') })
     }
-  }, [preview.state, preview.kind, preview.editable, preview.readOnlyReason, setReloadToken, settings.autoSyncMode, translate, updateTab])
+  }, [flashTab, preview.state, preview.kind, preview.editable, preview.readOnlyReason, setReloadToken, settings.autoSyncMode, translate, updateTab])
   /* Polling: every AUTO_SYNC_CHECK_MS, check each tracked open tab against the
      cheap head endpoint. */
   useEffect(() => {
@@ -191,8 +212,9 @@ export function useEditorSession({
               applyFileChanged(tab.path)
             }
           } else {
-            /* File disappeared: show the removal notice once, then keep a `null` sentinel so later ticks do not repeat it. */
+            /* File disappeared: mark it on the strip (a background tab has no status bar to speak through), show the removal notice once on the active tab, then keep a `null` sentinel so later ticks do not repeat it. The mark is guarded because a still-missing file re-enters this branch every tick and a fresh tab object would re-render the whole pane each time. */
             invalidateCachedPath(workspace.workspaceId, tab.path)
+            if (tab.diskState !== DISK_STATE_GONE) updateTab(tab.path, { diskState: DISK_STATE_GONE })
             if (tab.path === activePathRef.current
               && watchSnapshotsRef.current.get(tab.path) !== null) {
               setStatus({ error: true, text: translate('status.fileRemoved') })
@@ -214,7 +236,7 @@ export function useEditorSession({
       syncControllerRef.current = undefined
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [applyFileChanged, settings.watchFiles, workspace.workspaceId])
+  }, [applyFileChanged, settings.watchFiles, updateTab, workspace.workspaceId])
   /* Cleanup on unmount: stop polling and drop per-path change baselines. */
   useEffect(() => {
     return () => {
@@ -224,6 +246,8 @@ export function useEditorSession({
       retainedStatesRef.current.clear()
       autoReloadCooldownRef.current.clear()
       reloadingPathsRef.current.clear()
+      flashTimersRef.current.forEach(timer => window.clearTimeout(timer))
+      flashTimersRef.current.clear()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace.workspaceId])
@@ -523,10 +547,13 @@ export function useEditorSession({
         baseRevision: payload.revision ?? null,
         bom: Boolean(payload.bom),
         dirty: false,
+        /* Serving is only reachable while the watch baseline still equals the content baseline, so the shown content IS the disk state. */
+        diskState: DISK_STATE_CLEAN,
         draft: content,
         draftKnown: true,
         editing: payload.editable === true,
         encoding: serveEncoding,
+        flash: undefined,
         lineEnding: payload.lineEnding ?? 'none',
         loaded: true,
         maxContextBytes: payload.maxContextBytes ?? null,
@@ -581,7 +608,7 @@ export function useEditorSession({
           if (tabNow.dirty === true || tabNow.saving === true) {
             const text = translate('status.fileRemoved')
             setStatus({ error: true, text })
-            updateTab(activePath, { status: { error: true, text } })
+            updateTab(activePath, { diskState: DISK_STATE_GONE, status: { error: true, text } })
             return
           }
           if (!reloadingPathsRef.current.has(activePath)) {
@@ -598,7 +625,7 @@ export function useEditorSession({
                poll's dirty-change banner and leave the draft untouched. */
             const text = translate('status.fileChangedDirty')
             setStatus({ error: true, text })
-            updateTab(activePath, { status: { error: true, text } })
+            updateTab(activePath, { diskState: DISK_STATE_CONFLICT, status: { error: true, text } })
             return
           }
           if (reloadingPathsRef.current.has(activePath)) return
@@ -785,10 +812,13 @@ export function useEditorSession({
           baseRevision: restored.baseRevision ?? null,
           bom: Boolean(result.bom),
           dirty: restoredDirty,
+          /* A full read IS the disk state: whatever change the poll reported is now resolved. */
+          diskState: DISK_STATE_CLEAN,
           draft: content,
           draftKnown: true,
           editing: editable,
           encoding: result.encoding ?? effectiveEncoding,
+          flash: undefined,
           lineEnding: result.lineEnding ?? 'none',
           loaded: true,
           maxContextBytes: Number.isFinite(result.maxContextBytes) ? result.maxContextBytes : null,
@@ -978,10 +1008,13 @@ export function useEditorSession({
         baseRevision: result.revision ?? revision ?? null,
         bom: savedBom,
         dirty: false,
+        /* Our own text is now the disk state: a save also resolves a reported conflict. */
+        diskState: DISK_STATE_CLEAN,
         draft: content,
         draftKnown: true,
         editing: true,
         encoding: savedEncoding,
+        flash: undefined,
         lineEnding: tab.lineEnding ?? 'none',
         revision: result.revision ?? revision,
         saving: false,

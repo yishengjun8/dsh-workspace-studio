@@ -1,6 +1,6 @@
 import { createElement as h, Fragment, useRef, useState, useEffect, useLayoutEffect, useMemo, useCallback, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
-import { CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MAX, CONFLICT_FONT_SIZE_MIN, CONTEXT_MENU_WIDTH, ENCODING_FALLBACK } from '../../constants.js'
+import { CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MAX, CONFLICT_FONT_SIZE_MIN, CONTEXT_MENU_WIDTH, DISK_STATE_CLEAN, DISK_STATE_CONFLICT, DISK_STATE_GONE, DISK_STATE_STALE, ENCODING_FALLBACK } from '../../constants.js'
 import { translate } from '../../locale/index.js'
 import { clamp, fileLabel, formatBytes, readOnlyReason } from '../../format.js'
 import { copyText, defaultEntryName, entryNameError, entryPath, joinAbsolutePath, parentPath, pathBaseName, rewriteDirectoryMap, rewritePathMap, rewritePathSet, rewriteRelativePath, selectedLevelPath } from '../../paths.js'
@@ -1108,8 +1108,33 @@ export function WorkspaceExplorer({
     }
     refreshPendingRef.current = activePath
     if (activePath !== null) reloadingPathsRef.current.add(activePath)
+    /* A requested reload IS the action the marker asked for: drop it, so the status bar shows the reload notice instead of the superseded "changed on disk" one. */
+    updateActiveTab({ diskState: DISK_STATE_CLEAN })
     setReloadToken(token => token + 1)
-  }, [activePath, dirty, saving])
+  }, [activePath, dirty, saving, updateActiveTab])
+  /* Reload ONE tab from disk, from the strip's marker or its context menu. A background
+     tab is activated first, because the read effect serves the active path alone; arming
+     the refresh flag makes that pass a full read instead of a cache/fast-path serve.
+     Unsaved work is never discarded: a dirty tab refuses and says why (the status bar's
+     Cancel action is the deliberate way to drop edits). */
+  const reloadTab = useCallback((path) => {
+    const tab = tabsRef.current.find(item => item.path === path)
+    if (tab === undefined) return
+    if (tab.saving) {
+      setStatus({ error: true, text: translate('editor.operationBusy') })
+      return
+    }
+    if (tab.dirty === true) {
+      setStatus({ error: true, text: translate('tab.reloadBlocked') })
+      return
+    }
+    if (path !== activePathRef.current) activateTab(tab)
+    refreshPendingRef.current = path
+    reloadingPathsRef.current.add(path)
+    /* The marker asked for this reload, so clear it at once (same rule as refreshFile). */
+    updateTab(path, { diskState: DISK_STATE_CLEAN })
+    setReloadToken(token => token + 1)
+  }, [activateTab, updateTab])
   const openEncodingDialog = useCallback((mode) => {
     setEncodingMenu(undefined)
     setEncodingPick(preview.encoding ?? 'utf-8')
@@ -1523,6 +1548,17 @@ export function WorkspaceExplorer({
   const reason = preview.state === 'ready' ? readOnlyReason(preview) : translate('editor.notLoaded')
   const size = preview.state === 'ready' ? formatBytes(preview.size) : ''
   const tabMenuTarget = tabContextMenu === undefined ? undefined : tabs.find(tab => tab.path === tabContextMenu.path)
+  /* Disk state is DERIVED here rather than stored in tab.status: a stored non-error
+     status is persisted, so it would outlive the reload that resolved it (a hard
+     refresh would re-read the file and still claim "changed on disk"). Precedence is
+     error status > disk state > informational status, so a save failure keeps the
+     status bar while the strip's marker carries the disk story. */
+  const diskNotice = activeTab === undefined || activeTab.external === true ? undefined
+    : activeTab.diskState === DISK_STATE_GONE ? { error: true, text: translate('status.fileRemoved') }
+      : activeTab.diskState === DISK_STATE_CONFLICT ? { error: true, text: translate('status.fileChangedDirty') }
+        : activeTab.diskState === DISK_STATE_STALE ? { text: translate('status.fileChanged') }
+          : undefined
+  const notice = status?.error === true ? status : (diskNotice ?? status)
   /* "Open in new window" is limited to workspace file tabs the Host can serve as text: mind-map, plan, review, external, image, PDF, and Office tabs have no such content. */
   const canOpenInNewWindow = tabMenuTarget !== undefined && !isSyntheticTab(tabMenuTarget) && !tabMenuTarget.external
     && !isImageName(tabMenuTarget.name) && !isPdfName(tabMenuTarget.name) && !isOfficeName(tabMenuTarget.name)
@@ -1624,9 +1660,9 @@ export function WorkspaceExplorer({
     }) : null,
     treePortalTarget ? createPortal(treeSection, treePortalTarget) : null,
     h('section', { 'data-drop-active': dropActive || undefined, className: 'dsh-ws-preview', ref: previewSectionRef },
-      tabs.length ? h(PreviewTabs, { activePath, containerRef: previewTabsRef, draggingPath, dropIndex, onChoose: activateTab, onClose: closeTab, onContextMenu: (path, x, y) => setTabContextMenu({ path, x, y }), onDragEnd: () => { setDraggingPath(null); setDropIndex(null) }, onDragLeave: handleTabsDragLeave, onDragOver: updateDropIndex, onDragStart: (path, event) => { setDraggingPath(path); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', path) }, onDrop: handleTabsDrop, onMouseEnter: handleTabsMouseEnter, onMouseLeave: handleTabsMouseLeave, onPromote: promoteTab, onScroll: handleTabsScroll, onUnpin: unpinTab, tabs }) : null,
+      tabs.length ? h(PreviewTabs, { activePath, containerRef: previewTabsRef, draggingPath, dropIndex, onChoose: activateTab, onClose: closeTab, onContextMenu: (path, x, y) => setTabContextMenu({ path, x, y }), onDragEnd: () => { setDraggingPath(null); setDropIndex(null) }, onDragLeave: handleTabsDragLeave, onDragOver: updateDropIndex, onDragStart: (path, event) => { setDraggingPath(path); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', path) }, onDrop: handleTabsDrop, onMouseEnter: handleTabsMouseEnter, onMouseLeave: handleTabsMouseLeave, onPromote: promoteTab, onReload: reloadTab, onScroll: handleTabsScroll, onUnpin: unpinTab, tabs }) : null,
       tabs.length ? h('div', { className: 'dsh-ws-preview-scrollbar', onMouseEnter: handleScrollbarMouseEnter, onMouseLeave: handleScrollbarMouseLeave, onPointerCancel: handleScrollbarPointerEnd, onPointerDown: handleScrollbarPointerDown, onPointerMove: handleScrollbarPointerMove, onPointerUp: handleScrollbarPointerEnd, ref: previewScrollbarRef }, h('div', { className: 'dsh-ws-preview-scrollbar-thumb', ref: previewScrollThumbRef })) : null,
-      tabContextMenu ? h(TabContextMenu, { menuRef: tabMenuRef, onCloseOthers: () => { setTabContextMenu(undefined); closeOtherTabs(tabContextMenu.path) }, onTogglePin: () => { setTabContextMenu(undefined); if (tabMenuTarget?.pinned) unpinTab(tabContextMenu.path); else pinTab(tabContextMenu.path) }, onOpenInNewWindow: openTabInNewWindow, canOpenInNewWindow, pinned: Boolean(tabMenuTarget?.pinned), x: tabContextMenu.x, y: tabContextMenu.y }) : null,
+      tabContextMenu ? h(TabContextMenu, { menuRef: tabMenuRef, onCloseOthers: () => { setTabContextMenu(undefined); closeOtherTabs(tabContextMenu.path) }, onTogglePin: () => { setTabContextMenu(undefined); if (tabMenuTarget?.pinned) unpinTab(tabContextMenu.path); else pinTab(tabContextMenu.path) }, onOpenInNewWindow: openTabInNewWindow, canOpenInNewWindow, canReload: tabMenuTarget !== undefined && !isSyntheticTab(tabMenuTarget) && !tabMenuTarget.external && tabMenuTarget.dirty !== true && tabMenuTarget.saving !== true, onReload: () => { setTabContextMenu(undefined); reloadTab(tabContextMenu.path) }, pinned: Boolean(tabMenuTarget?.pinned), reloadTitle: tabMenuTarget?.dirty === true ? translate('tab.reloadBlocked') : translate('tab.reload.title'), x: tabContextMenu.x, y: tabContextMenu.y }) : null,
       /* A mind-map tab hides the file header: the map draws its own toolbar
          and title bar. A plan tab hides it too: the document carries its own
          heading and has no file chrome to offer. A review tab hides it as
@@ -1696,7 +1732,7 @@ export function WorkspaceExplorer({
           preview.state === 'ready' && preview.kind !== 'image' && preview.encoding ? h('span', { className: 'dsh-ws-encoding', title: translate('encoding.badge') }, encodingLabel(preview.encoding)) : null,
           preview.state === 'ready' && preview.kind !== 'image' && reason ? h('span', { title: reason }, reason) : null,
         ),
-        h('span', { className: 'dsh-ws-preview-status-msg', 'data-error': status?.error || undefined }, status?.text ?? ''),
+        h('span', { className: 'dsh-ws-preview-status-msg', 'data-error': notice?.error || undefined }, notice?.text ?? ''),
       ),
       h(DropOverlay, { active: dropActive, onClose: () => setDropActive(false), suppressedRef: dropSuppressedRef }),
       previewToast ? h(PreviewToast, { headerRef: previewHeaderRef, key: previewToast.seq, onDone: () => setPreviewToast(undefined), text: previewToast.text }) : null,

@@ -1,10 +1,45 @@
 import { createElement as h } from 'react'
 import { translate } from '../../locale/index.js'
+import { DISK_STATE_CLEAN, DISK_STATE_CONFLICT, DISK_STATE_GONE, DISK_STATE_STALE } from '../../constants.js'
 import { isPlanTab, isReviewTab, isSyntheticTab, isTemporaryTab } from '../../preview-tabs.js'
 import { IconCloseWin10, IconPinVscode } from '../../icons.js'
 
+/* One 12px slot between the name and the close button carries every runtime tab state:
+   a filled dot for unsaved edits, a hollow ring for "the disk moved", a two-tone dot
+   for both at once, and a slashed red ring for a deleted file. Only `stale` is
+   interactive — clicking it reloads that path; the other states deliberately offer no
+   reload, because one would discard unsaved work (conflict) or has nothing to read
+   (gone, closed with the × instead). */
+function tabMark(tab, onReload) {
+  const state = typeof tab.diskState === 'string' ? tab.diskState : DISK_STATE_CLEAN
+  const dirty = tab.dirty === true
+  const kind = state === DISK_STATE_GONE ? 'gone'
+    : state === DISK_STATE_CONFLICT ? 'conflict'
+      : state === DISK_STATE_STALE ? (dirty ? 'conflict' : 'stale')
+        : (dirty ? 'dirty' : null)
+  if (kind === null) return null
+  const title = kind === 'dirty' ? translate('tab.dirty')
+    : kind === 'stale' ? translate('tab.diskChanged')
+      : kind === 'conflict' ? translate('tab.diskChangedDirty')
+        : translate('tab.diskRemoved')
+  if (kind === 'stale') {
+    return h('button', {
+      'aria-label': translate('tab.reloadAria', { name: tab.name }),
+      className: 'dsh-ws-preview-tab-mark',
+      'data-kind': 'stale',
+      onClick: event => { event.stopPropagation(); onReload(tab.path) },
+      title,
+      type: 'button',
+    },
+      h('span', { 'aria-hidden': true, className: 'dsh-ws-mark-core' }),
+      h('span', { 'aria-hidden': true, className: 'dsh-ws-mark-reload' }, '↻'))
+  }
+  return h('span', { className: 'dsh-ws-preview-tab-mark', 'data-kind': kind, title },
+    h('span', { 'aria-hidden': true, className: 'dsh-ws-mark-core' }))
+}
+
 /* Preview tab strip: one tab per open file with pin/close, drag reordering, and context-menu trigger; all interactions are callbacks. */
-export function PreviewTabs({ tabs, activePath, draggingPath, dropIndex, containerRef, onChoose, onClose, onContextMenu, onDragEnd, onDragStart, onDragLeave, onDragOver, onDrop, onMouseEnter, onMouseLeave, onPromote, onScroll, onUnpin }) {
+export function PreviewTabs({ tabs, activePath, draggingPath, dropIndex, containerRef, onChoose, onClose, onContextMenu, onDragEnd, onDragStart, onDragLeave, onDragOver, onDrop, onMouseEnter, onMouseLeave, onPromote, onReload, onScroll, onUnpin }) {
   const nodes = []
   for (const [index, tab] of tabs.entries()) {
     /* A synthetic tab's path addresses a map, a plan, or a change review, not a file: its label is its name, never the path. */
@@ -14,6 +49,8 @@ export function PreviewTabs({ tabs, activePath, draggingPath, dropIndex, contain
       className: 'dsh-ws-preview-tab',
       'data-active': tab.path === activePath || undefined,
       'data-dragging': draggingPath === tab.path || undefined,
+      /* Transient runtime flag set by an AUTO-mode reload, cleared by its timer: the CSS animation restarts only when the attribute comes back, so the flag is never persisted. */
+      'data-flash': tab.flash === true || undefined,
       'data-path': tab.path,
       /* A single-click preview tab is italic (styled in styles.js) until it is made permanent by a double-click, an edit, or a pin. */
       'data-temporary': isTemporaryTab(tab) || undefined,
@@ -70,7 +107,8 @@ export function PreviewTabs({ tabs, activePath, draggingPath, dropIndex, contain
         'aria-selected': tab.path === activePath,
         title: tabTitle,
         type: 'button',
-      }, h('span', { className: 'dsh-ws-preview-tab-name' }, tab.name), tab.dirty ? h('span', { className: 'dsh-ws-dirty', title: translate('tab.dirty') }, '·') : null),
+      }, h('span', { className: 'dsh-ws-preview-tab-name' }, tab.name)),
+      tabMark(tab, onReload),
       tab.pinned
         ? h('button', {
           'aria-label': translate('tab.unpinAria', { name: tab.name }),

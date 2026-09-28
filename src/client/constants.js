@@ -46,6 +46,17 @@ export const AUTO_RELOAD_COOLDOWN_MS = 4000
 /* "Auto" = a clean tab reloads on change; "watch-only" = only shows a "file changed" status and waits for the user's refresh. */
 export const AUTO_SYNC_MODE_AUTO = 'auto'
 export const AUTO_SYNC_MODE_WATCH_ONLY = 'watch-only'
+/* Per-tab disk state, RUNTIME ONLY (not in clonePreviewTab's whitelist — see
+   preview-tabs.js, so it never persists or joins previewSnapshotFingerprint):
+   `clean` = shown content matches disk; `stale` = disk moved, tab is clean;
+   `conflict` = disk moved AND the tab holds editable unsaved edits;
+   `gone` = the Host reports the file missing. */
+export const DISK_STATE_CLEAN = 'clean'
+export const DISK_STATE_STALE = 'stale'
+export const DISK_STATE_CONFLICT = 'conflict'
+export const DISK_STATE_GONE = 'gone'
+/* Feedback flash applied to a tab an AUTO-mode reload just replaced; must outlast the CSS animation, then clear so the next reload can replay it. */
+export const TAB_FLASH_MS = 700
 /* Think card: the body viewport shows only the latest N lines (user-tunable, 5-30, default 10), pinned to the newest text while streaming; published as --dsh-ws-think-lines. */
 export const THINK_LINES_DEFAULT = 10
 export const THINK_LINES_MIN = 5
