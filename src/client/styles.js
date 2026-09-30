@@ -3,6 +3,27 @@ export const styles = `
 .dsh-ws-frame{--dsh-ws-sidebar:280px;--dsh-ws-preview:420px;position:relative;display:grid;grid-template-columns:var(--dsh-ws-sidebar) var(--dsh-ws-preview) minmax(0,1fr);grid-template-rows:100%;width:100%;min-width:0;height:100%;overflow:hidden;background:var(--dsw-alias-bg-base);transition:grid-template-columns var(--ds-transition-duration-slow) var(--ds-ease-in-out)}
 .dsh-ws-frame[data-resizing]{transition:none;user-select:none}.dsh-ws-sidebar,.dsh-ws-tree,.dsh-ws-preview,.dsh-ws-chat{min-width:0;height:100%;overflow:hidden}.dsh-ws-sidebar{background:var(--dsw-specific-sidebar-fill);border-right:1px solid var(--dsw-alias-border-l1)}html:not(.dsh-ws-mobile-on) .dsh-ws-frame[data-preview-right]{grid-template-columns:var(--dsh-ws-sidebar) minmax(0,1fr) var(--dsh-ws-preview)}html:not(.dsh-ws-mobile-on) .dsh-ws-frame[data-preview-right] .dsh-ws-sidebar{grid-column:1;grid-row:1}html:not(.dsh-ws-mobile-on) .dsh-ws-frame[data-preview-right] .dsh-ws-chat{grid-column:2;grid-row:1}html:not(.dsh-ws-mobile-on) .dsh-ws-frame[data-preview-right] .dsh-ws-preview{grid-column:3;grid-row:1;border-right:0;border-left:1px solid var(--dsw-alias-border-l2)}
 .dsh-ws-tree,.dsh-ws-preview{display:flex;flex-direction:column;position:relative;background:var(--dsw-alias-bg-layer-1);border-right:1px solid var(--dsw-alias-border-l2)}.dsh-ws-frame[data-explorer-closed] .dsh-ws-tree,.dsh-ws-frame[data-explorer-closed] .dsh-ws-preview{visibility:hidden;pointer-events:none;border-right:0}.dsh-ws-chat{display:flex;flex-direction:column;position:relative;background:var(--dsw-alias-bg-base)}
+/* Windows Desktop (Electron): the shell draws a caption row over the page — the
+   window drag strip, the preload-mounted menu bar and the native window
+   controls. The shipped layout reserves it in its own frame (padding-top plus a
+   drag ::before), but this plugin's patch disables ui-layout, so neither that
+   markup nor its stylesheet exists here: the plugin's frame owns both the
+   reservation and the shell's window-chrome clearance tokens that portalled
+   overlays read. --dsh-ws-caption-h is the band height the preload publishes.
+   See AGENTS.md「双端目标」and docs/development-notes.md §39. */
+html[data-windows-titlebar]{--dsh-ws-caption-h:var(--dsh-windows-titlebar-height,40px);--dsh-frame-top-clearance:var(--dsh-ws-caption-h);--dsh-frame-chrome-top:var(--dsh-ws-caption-h);--dsh-frame-overlay-top:calc(var(--dsh-ws-caption-h) + 20px)}
+html[data-windows-titlebar][data-fullscreen]{--dsh-frame-chrome-top:0px;--dsh-frame-overlay-top:20px}
+html[data-windows-titlebar] .dsh-ws-frame{box-sizing:border-box;padding-top:var(--dsh-ws-caption-h);grid-template-rows:minmax(0,1fr)}
+html[data-windows-titlebar] .dsh-ws-frame::before{content:'';position:absolute;inset:0 0 auto;height:var(--dsh-ws-caption-h);background:var(--dsw-specific-sidebar-fill);-webkit-app-region:drag}
+/* Absolute children resolve against the padding box, which still spans the band:
+   keep the content-level ones below it. The sidebar's own caption controls stay
+   fixed and no-drag where the shell put them, so the band stays draggable. */
+html[data-windows-titlebar] .dsh-ws-details{top:var(--dsh-ws-caption-h)}
+html[data-windows-titlebar] .dsh-ws-splitter{top:var(--dsh-ws-caption-h)}
+/* macOS desktop: the disabled frame also published the portalled overlays'
+   clearance; mirror its values (that platform pads no frame). */
+html[data-platform='darwin']{--dsh-frame-top-clearance:48px;--dsh-frame-overlay-top:calc(48px + 20px)}
+html[data-platform='darwin'][data-fullscreen]{--dsh-frame-overlay-top:20px}
 .dsh-ws-panel-header{display:flex;align-items:center;gap:8px;min-height:52px;padding:0 12px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);box-sizing:border-box}.dsh-ws-panel-title{min-width:0;display:flex;flex:1;flex-direction:column;gap:2px}.dsh-ws-panel-title strong{overflow:hidden;color:var(--dsw-alias-label-primary);font-size:13px;line-height:18px;text-overflow:ellipsis;white-space:nowrap}.dsh-ws-panel-title>span{overflow:hidden;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:15px;text-overflow:ellipsis;white-space:nowrap}
 /* Preview page top rows share the sidebar fill so the file browsing page reads as one band with the sidebar. */
 .dsh-ws-preview .dsh-ws-panel-header{background:var(--dsw-specific-sidebar-fill)}.dsh-ws-preview .dsh-ws-preview-file-header{min-height:26px;gap:4px;padding:0 8px}.dsh-ws-preview-file-path{flex:1;min-width:0;overflow:hidden;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:15px;text-overflow:ellipsis;white-space:nowrap}.dsh-ws-preview-file-header .dsh-ws-icon-button{width:22px;height:22px}.dsh-ws-preview-file-header .dsh-ws-icon-button svg{width:14px;height:14px}.dsh-ws-preview-file-header .dsh-ws-text-button{height:22px;padding:0 6px;font-size:11px}
@@ -196,6 +217,9 @@ html.dsh-ws-mobile-on [data-slot="sidebar"] > div > div:first-child > button:las
 html.dsh-ws-mobile-on.dsh-ws-mobile-files-on .dsh-ws-frame{grid-template-columns:0 minmax(0,430px) 0!important}
 html.dsh-ws-mobile-on.dsh-ws-mobile-files-on .dsh-ws-preview{display:flex;grid-column:2;visibility:visible;pointer-events:auto;box-sizing:border-box;padding-top:var(--dsh-ws-mobile-header-h,52px)}
 html.dsh-ws-mobile-on.dsh-ws-mobile-files-on .dsh-ws-chat{position:fixed;top:0;left:50%;width:min(430px,100%);margin-left:calc(min(430px,100%) / -2);z-index:3;height:var(--dsh-ws-mobile-header-h,52px);overflow:hidden}
+/* Mobile file-fullscreen pins that header to the viewport top: on the Windows
+   Desktop shell it starts below the caption band instead. */
+html[data-windows-titlebar].dsh-ws-mobile-on.dsh-ws-mobile-files-on .dsh-ws-chat{top:var(--dsh-ws-caption-h)}
 html.dsh-ws-mobile-on.dsh-ws-mobile-files-on .dsh-ws-chat [data-slot="main"] [data-conversation-scroll]{display:none}
 /* In file-fullscreen the conversation's view tabs are pinned with the title row; hiding them lets the file content start flush under the title row. */
 html.dsh-ws-mobile-on.dsh-ws-mobile-files-on [data-slot="conversation.session.header"] > header > div[role="tablist"]{display:none}
@@ -219,6 +243,9 @@ html.dsh-ws-mobile-on:has([data-slot="main"] [data-phase="hero"]) .dsh-ws-mobile
    dropping the transform frees the modal to cover the phone column. */
 html.dsh-ws-mobile-on .dsh-ws-sidebar:has([data-slot="sidebar.settings"] [role="dialog"][aria-modal="true"]){transform:none;transition:none}
 html.dsh-ws-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal="true"]:has(> nav){width:100vw;height:100vh;height:100dvh;max-width:none;max-height:none;border-radius:0;flex-direction:column;overflow:hidden}
+/* The harness insets its settings overlay from the top by the published window
+   chrome clearance, so the full-height dialog subtracts the same band. */
+html[data-windows-titlebar].dsh-ws-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal="true"]:has(> nav){height:calc(100vh - var(--dsh-frame-chrome-top,0px));height:calc(100dvh - var(--dsh-frame-chrome-top,0px))}
 html.dsh-ws-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal="true"]:has(> nav) > nav{order:2;flex:none;display:flex;flex-direction:row;align-items:center;gap:8px;width:100%;padding:8px 12px 10px;box-sizing:border-box;overflow-x:auto;scrollbar-width:thin}
 html.dsh-ws-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal="true"]:has(> nav) > nav > div:last-child{display:flex;flex-direction:row;gap:8px;overflow-x:auto;padding-bottom:4px;scrollbar-width:thin}
 html.dsh-ws-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal="true"]:has(> nav) > nav > div:last-child > button{flex:none}

@@ -107,6 +107,29 @@ for (const file of sources(SRC)) {
   })
 }
 
+/**
+ * The Windows Desktop shell draws its caption row (drag strip, preload-mounted
+ * menu bar, native window controls) over the page, and the shipped layout
+ * reserved it inside its own frame — the very frame this plugin's patch
+ * disables. The plugin's frame must therefore carry both the reservation and the
+ * drag area, or the layout renders under the menu bar again and the window has
+ * no drag region at all. See docs/development-notes.md §39.
+ */
+const CAPTION_BAND = [
+  {
+    pattern: /html\[data-windows-titlebar\][^{]*\.dsh-ws-frame\{[^}]*padding-top:\s*var\(--dsh-ws-caption-h\)/,
+    why: 'the Desktop caption band is no longer reserved: .dsh-ws-frame needs box-sizing:border-box plus padding-top:var(--dsh-ws-caption-h)',
+  },
+  {
+    pattern: /html\[data-windows-titlebar\][^{]*\.dsh-ws-frame::before\{[^}]*-webkit-app-region:\s*drag/,
+    why: 'the Desktop caption band is no longer draggable: ui-layout owned the window drag area and this plugin disables it',
+  },
+]
+const styleSheet = readFileSync(join(CLIENT, 'styles.js'), 'utf8')
+for (const rule of CAPTION_BAND) {
+  if (!rule.pattern.test(styleSheet)) failures.push(`src/client/styles.js  ${rule.why}`)
+}
+
 if (failures.length > 0) {
   console.error('check:dual-target FAILED — these break the Desktop (or Web) target (AGENTS.md「双端目标」):\n')
   for (const failure of failures) console.error(`  ${failure}\n`)
