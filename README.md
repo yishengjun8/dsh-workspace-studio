@@ -71,7 +71,7 @@
 | 🪟 **新窗口预览** | 右键标签「在新窗口内打开」：Markdown 渲染为文档（GFM，页面无脚本），HTML 原样运行页面脚本，其余文件显示原始文本；链接与图片仅放行 http / https / mailto（图片 / PDF / Office 标签不提供此项） |
 | 📄 **文档预览** | PDF 直接预览；Word / PowerPoint / Excel（.doc/.docx/.ppt/.pptx/.xls/.xlsx）由 Harness Host 在本机转 PDF 后预览，缺字体时给出横幅提示 |
 | 📊 **Token 统计** | 设置页按标准周 / 自然月（本周、上周、本月、上月、全部）或自定义起止日期统计所有会话日志的 token 用量，可查看总计或按模型明细（输入、缓存读取、输出；缓存写入既不显示也不计价），默认包含已归档会话；「按模型」明细下还可用「模型筛选」按名称片段（不区分大小写；多个关键词用空格 / 逗号分隔）只看匹配的模型；面板底部提供「快速计算」，填入输入 / 缓存读取 / 输出单价（每百万 tokens，货币符号可改、每行可单独覆盖）后，按当前显示与勾选的模型自动算出金额 |
-| 🔄 **插件更新** | 设置页从 GitHub（yishengjun8/dsh-workspace-studio）main 分支检查新版本，一键下载并替换安装文件，完成后提示重启 dsh 并刷新页面生效（本地 `file:` 安装只替换 profile 副本） |
+| 🔄 **插件更新** | 设置页从 GitHub（yishengjun8/dsh-workspace-studio）main 分支检查新版本，一键下载并替换**本端 profile** 中的安装文件；生效方式按端提示（Web 端重启进程并刷新页面，桌面端退出并重新打开 App；本地 `file:` 安装只替换 profile 副本） |
 | ⚡ **`/init` 命令** | 在当前会话所属工作区的根目录生成或更新 `AGENTS.md`，已有文件时弹层选择「更新」或「取消」，由当前 Agent 分析工作区后生成 |
 | 📱 **手机模式** | 侧栏底部开关切换为居中的手机竖屏列：侧栏变为左上角鲸鱼开合的悬浮抽屉，会话头部出现「文件内容浏览」按钮可铺满手机列；瞬态状态，刷新后回到桌面布局 |
 | 🌐 **中英双语** | 界面语言跟随 Harness「设置 → 通用设置 → 语言」（中文 / English）即时切换，无需重启或刷新 |
@@ -154,6 +154,16 @@ Host 仍是完整 Web 组合），因此本插件**没有单独的桌面端构�
   锁定 commit 的写法、`file:` / 绝对本地路径都可以），装完重启 App。桌面 profile 与 Web profile 是
   **互相独立的两份安装副本**：在一边「插件更新」只替换那一边的副本，另一边不受影响（两边的自更新都从
   同一个 GitHub 仓库取包）。
+- **「插件更新」两端都可用、互不越界**：两端的设置页「检查更新」都从同一个 GitHub 仓库的 main 分支取包，
+  只替换**本端** profile 里的插件副本；桌面端生效必须**退出并重新打开 App**（桌面端刷新页面无效，它加载
+  的是打包内的前端），Web 端重启进程后刷新页面。设置页按安装形态给出提示：`file:` 安装提示「只替换了
+  profile 副本」，git 安装提示「lockfile 仍锁定安装时的提交」。
+- **桌面端多为 git 安装 → 自更新不改变 lockfile 记账**：桌面 profile 的 `pnpm-lock.yaml` 仍锁定安装时解析
+  到的提交，本次更新只换了 `node_modules/` 里的目录；之后再从插件页重装或重新解析依赖，pnpm 可能按
+  lockfile 把插件退回那个提交。要长期停在某个版本，以插件页安装的版本为准。另外，换装只接受位于**本端
+  profile 的 `node_modules/` 之下**的安装副本：`link:` 安装（副本即链接目标）或内置安装不在 profile 内，
+  检查结果会标记为不可更新并在设置页直接说明，下载接口同样拒绝——不会把链接目标或应用自带目录当成安装
+  副本替换。
 - `install.sh` 面向 Web profile。`bash ./install.sh desktop` 只在 PATH 上的 `dsh` 是**桌面端自带的命令**
   时可用（桌面端「管理 dsh 命令…」→ 安装）；registry 版 `dsh` 会拒绝保留 profile，脚本检测到后会直接
   打印上面两条指引并退出，不会留下半成品。
@@ -216,7 +226,7 @@ bash ./uninstall.sh
 
 **上下文安全**：编辑器上下文只接受拥有当前 Session 的 Workspace 内相对路径（拥有关系来自 membership projection 或会话规范化 cwd）；仅路径上下文不携带文件字节。Host 拒绝符号链接，按磁盘修订校验 clean 选区，`maxPreviewBytes` 截断预览时以浏览器提交文本为权威，并把渲染文本拼接在直接提示前，因此普通 Session 日志记录实际模型可见上下文；对话页把它折叠成气泡上方显示文件名与行列范围的一行摘要，历史只渲染已记录的用户消息，不重新读取当前编辑器或磁盘。
 
-**自更新保护**：`/update/check` 与 `/update/download` 仅向受信任来源开放（与其余接口相同的 Host / Origin / Fetch-Metadata 门禁）；检查下载 main 分支源码包并缓存，安装的正是检查阶段缓存的那份（再次校验包名、版本与 `lib/`、`cordis.patch.yml` 等关键文件后提交），经同目录暂存、备份与原子改名完成，失败自动回滚；替换的是插件自身的安装目录（本地 `file:` 安装只影响 profile 副本）。检查与安装全程只走 `codeload.github.com`——`github.com` / `api.github.com` / `raw.githubusercontent.com` 常被 hosts 级 GitHub 加速代理指向本地并签发自签证书，Node 的 CA 库会拒绝，而 codeload 不受影响。更新只在用户在设置页明确点击后触发，不自动检查、不自动重启。
+**自更新保护**：`/update/check` 与 `/update/download` 仅向受信任来源开放（与其余接口相同的 Host / Origin / Fetch-Metadata 门禁）；检查下载 main 分支源码包并缓存，安装的正是检查阶段缓存的那份（再次校验包名、版本与 `lib/`、`cordis.patch.yml` 等关键文件后提交），经同目录暂存、备份与原子改名完成，失败自动回滚；替换的是插件自身的安装目录（本地 `file:` 安装只影响 profile 副本）。换装目标必须位于**本端 profile 的 `node_modules/` 之下**：`link:` 安装（`link` 目标即安装副本）或内置安装不在 profile 内，`/update/check` 会返回 `updateSupported: false`，设置页据此把「下载并更新」换成说明，`/update/download` 也会直接拒绝——绝不把链接目标或应用自带目录当成安装副本替换。检查缓存（`~/.dsh-plugin/dsh-workspace-studio/updates/`）两端共享，安装消费的正是检查阶段缓存的那份。检查与安装全程只走 `codeload.github.com`——`github.com` / `api.github.com` / `raw.githubusercontent.com` 常被 hosts 级 GitHub 加速代理指向本地并签发自签证书，Node 的 CA 库会拒绝，而 codeload 不受影响。更新只在用户在设置页明确点击后触发，不自动检查、不自动重启。
 
 > ⚠️ 这些限制只约束资源管理器自己的文件接口与 Composer 上下文，不改变 agent 的权限策略、沙箱或工具能力；接口为受信任本地 UI 操作提供应用级路径包含校验，不替代 Harness 的内核级沙箱。
 

@@ -48,6 +48,8 @@ function UpdateSettingsGroup() {
           current: payload.current,
           latest: payload.latest,
           installMode: payload.installMode,
+          /* Host-computed: false when the swap target is not a copy inside a profile (link: / built-in installs), in which case the download button is replaced by an explanation. */
+          updateSupported: payload.updateSupported !== false,
         })
         return
       }
@@ -66,8 +68,9 @@ function UpdateSettingsGroup() {
     if (state.phase !== 'available') return
     setPhase('downloading')
     try {
-      await downloadUpdate(state.latest)
-      setPhase('done', { latest: state.latest, installMode: state.installMode, pending: false })
+      const result = await downloadUpdate(state.latest)
+      /* The install recomputes the mode on the Host; prefer its answer so the note matches what was actually replaced. */
+      setPhase('done', { latest: state.latest, installMode: result?.installMode ?? state.installMode, pending: false })
     } catch (error) {
       /* Same timeout rule as runCheck: a timed-out download must land on the error state, not hang on 'downloading'. */
       if (error?.name === 'AbortError' && error?.reason?.name !== 'TimeoutError') return
@@ -88,13 +91,19 @@ function UpdateSettingsGroup() {
       case 'available':
         return h(Fragment, null,
           h('span', { className: 'dsh-ws-update-state', 'data-new': true }, translate('settings.update.available', { latest: state.latest, current: state.current })),
-          h('button', { className: 'dsh-ws-text-button', onClick: () => void runDownload(), type: 'button' }, translate('settings.update.download')))
+          state.updateSupported === false
+            ? h('div', { className: 'dsh-ws-settings-hint' }, translate('settings.update.otherInstallNote'))
+            : h('button', { className: 'dsh-ws-text-button', onClick: () => void runDownload(), type: 'button' }, translate('settings.update.download')))
       case 'downloading':
         return h('span', { className: 'dsh-ws-settings-value' }, translate('settings.update.downloading'))
       case 'done':
         return h(Fragment, null,
           h('span', { className: 'dsh-ws-update-state', 'data-ok': true }, translate(state.pending === true ? 'settings.update.done.pending' : 'settings.update.done', { latest: state.latest })),
-          state.installMode === 'file' ? h('div', { className: 'dsh-ws-settings-hint' }, translate('settings.update.fileInstallNote')) : null)
+          state.installMode === 'file'
+            ? h('div', { className: 'dsh-ws-settings-hint' }, translate('settings.update.fileInstallNote'))
+            : state.installMode === 'git'
+              ? h('div', { className: 'dsh-ws-settings-hint' }, translate('settings.update.gitInstallNote'))
+              : null)
       case 'error':
         return h(Fragment, null,
           h('span', { className: 'dsh-ws-update-state', 'data-error': true }, state.message),

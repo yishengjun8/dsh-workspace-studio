@@ -1,8 +1,8 @@
 export const PACKAGE_ID = '@yishengjun8/dsh-workspace-studio'
 export const API_PREFIX = '/workspace-studio/api'
-/* Plugin self-update: the download+install round trip makes a real network call, so it gets a longer timeout than the generic 30 s check. */
-export const UPDATE_CHECK_TIMEOUT_MS = 30_000
-export const UPDATE_DOWNLOAD_TIMEOUT_MS = 120_000
+/* Plugin self-update: the download+install round trip makes a real network call, so it gets a longer timeout than a generic request. Both budgets stay ABOVE the Host's own bounds (30 s for the check's codeload fetch, 120 s for the install fetch) plus its gunzip/extract/verify work, so a slow network surfaces the Host's specific error message instead of an opaque client-side abort. */
+export const UPDATE_CHECK_TIMEOUT_MS = 60_000
+export const UPDATE_DOWNLOAD_TIMEOUT_MS = 180_000
 /* Token statistics: the first-ever scan walks every session log on the Host (subsequent opens hit the revision-guarded index), so the request gets a long timeout like the update download. */
 export const TOKEN_STATS_TIMEOUT_MS = 120_000
 export const EDITOR_CONTEXT_PROVIDER = 'workspace-editor-context'

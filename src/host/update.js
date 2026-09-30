@@ -20,7 +20,7 @@
 import { gunzipSync } from 'node:zlib'
 import { readFileSync } from 'node:fs'
 import { promises as fsp } from 'node:fs'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, join, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { homedir } from 'node:os'
 import { HttpError } from './errors.js'
@@ -86,24 +86,56 @@ export function compareVersions(a, b) {
   return 0
 }
 
-/** Install mode: 'file' when the profile manifest pins this package with a file: spec (local checkout — the swap only replaces the profile copy), 'git' when pinned from GitHub, 'other' when the package is not laid out under a profile at all. */
-async function detectInstallMode() {
-  const scopeDir = dirname(ownPackageDir()) // .../node_modules/@yishengjun8
-  const nmDir = dirname(scopeDir) // .../node_modules
-  const profileDir = dirname(nmDir) // .../profiles/<profile>
-  if (basename(dirname(profileDir)) !== 'profiles') return 'other'
-  try {
-    const manifest = JSON.parse(await fsp.readFile(join(profileDir, 'package.json'), 'utf8'))
-    const spec = manifest?.dependencies?.[PACKAGE_NAME] ?? manifest?.devDependencies?.[PACKAGE_NAME]
-    if (typeof spec === 'string') {
-      if (spec.startsWith('file:')) return 'file'
-      if (spec.startsWith('github:')) return 'git'
-      return 'other'
-    }
-  } catch {
-    /* not a profile layout — fall through */
-  }
+/* Install mode of the profile manifest's dependency spec: 'file' (local checkout / local path — the swap only replaces the profile copy), 'git' (fetched from GitHub, pinned by the profile lockfile), 'other' (anything else, including installs that are not laid out under a profile at all). Every source the README documents must land in one bucket: the settings panel picks its note from this, and the Desktop profile's own plugin page writes the `git+https://github.com/...` form — the old `file:`/`github:` prefix test reported that install as 'other', so its note never appeared. */
+const GIT_SPEC_PREFIXES = ['git+', 'github:', 'git@', 'git://']
+const GITHUB_URL_RE = /^https?:\/\/(?:www\.)?github\.com\//i
+const LOCAL_PATH_RE = /^(?:[A-Za-z]:[\\/]|[\\/]|\.{1,2}[\\/])/
+function classifySpec(spec) {
+  if (spec.startsWith('file:')) return 'file'
+  if (GIT_SPEC_PREFIXES.some(prefix => spec.startsWith(prefix))) return 'git'
+  if (GITHUB_URL_RE.test(spec)) return 'git'
+  if (LOCAL_PATH_RE.test(spec)) return 'file'
   return 'other'
+}
+
+/** The profile root this module is installed under, or null. Both layouts are recognized: the hoisted tree (`<profile>/node_modules/<name>`) and pnpm's isolated virtual store (`<profile>/node_modules/.pnpm/<pkg>@<v>/node_modules/<name>`). A `link:` install resolves import.meta.url to the LINKED directory instead, so no profile is found — exactly the case the swap must refuse. */
+function profileDirOf(packageDir) {
+  let dir = packageDir
+  for (let depth = 0; depth < 8; depth += 1) {
+    if (basename(dir) === 'node_modules') {
+      const candidate = dirname(dir)
+      if (basename(dirname(candidate)) === 'profiles') return candidate
+    }
+    const parent = dirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  return null
+}
+
+/** Resolve the install layout once: the directory the swap would replace, the profile it must belong to, whether it really sits inside that profile's node_modules, and the mode the settings note keys on. */
+async function inspectInstall() {
+  const packageDir = ownPackageDir()
+  const profileDir = profileDirOf(packageDir)
+  let installMode = 'other'
+  if (profileDir !== null) {
+    try {
+      const manifest = JSON.parse(await fsp.readFile(join(profileDir, 'package.json'), 'utf8'))
+      const spec = manifest?.dependencies?.[PACKAGE_NAME] ?? manifest?.devDependencies?.[PACKAGE_NAME]
+      if (typeof spec === 'string') installMode = classifySpec(spec)
+    } catch {
+      /* unreadable manifest — keep 'other' */
+    }
+  }
+  const nodeModulesDir = profileDir === null ? null : join(profileDir, 'node_modules')
+  return {
+    packageDir,
+    profileDir,
+    /* Both sides come from the same walk up from import.meta.url, so a plain prefix test is exact (no case or separator drift). */
+    insideProfile: nodeModulesDir !== null
+      && (packageDir === nodeModulesDir || packageDir.startsWith(`${nodeModulesDir}${sep}`)),
+    installMode,
+  }
 }
 
 function readCheckedMeta() {
@@ -218,12 +250,15 @@ export async function checkForUpdate(ctx, config, force) {
   }
   const current = typeof disk?.version === 'string' ? disk.version : null
   const cmp = compareVersions(latest, current ?? '0.0.0')
+  const install = await inspectInstall()
   return {
     enabled: true,
     current,
     latest,
     updateAvailable: cmp !== null && cmp > 0,
-    installMode: await detectInstallMode(),
+    installMode: install.installMode,
+    /* False when the swap target is not a copy inside a profile (a link: install resolves to the linked directory, a built-in one into the app bundle): the client then explains instead of offering a download whose request would be refused, and downloadUpdate refuses it too. */
+    updateSupported: install.insideProfile,
     /* On-disk version differs from the version this loaded module was built with: an update (or a host rebuild) landed after startup, so the running code is stale until the user restarts dsh. */
     restartPending: current !== null && LOADED_VERSION !== null && current !== LOADED_VERSION,
   }
@@ -401,12 +436,16 @@ export async function downloadUpdate(ctx, config, payload) {
         throw new HttpError(409, 'update-version-changed', '检查结果已过期，请重新检查后再更新')
       }
     }
-    const installMode = await detectInstallMode()
+    const install = await inspectInstall()
+    /* Refuse BEFORE downloading or touching anything when the swap target is not a copy inside this profile: a link: install resolves import.meta.url to the LINKED directory (the user's own checkout), so the swap below would rename that tree away instead of a profile copy. */
+    if (!install.insideProfile) {
+      throw new HttpError(409, 'update-target-unsupported', `当前安装不在 profile 内（${install.packageDir}），已拒绝自动更新；请从插件页重装`)
+    }
     /* Consume the cached content under the SAME swap chain as downloadAndCache: a concurrent forced check renames checked-content away between cachedContentValid() and the install's renames — the install would fail (ENOENT → 409) or the verify-rollback would destroy the racing download's cached payload. The exchange is serialized; downloads themselves stay concurrent. */
     const runInstall = contentSwapChain.then(() => swapPackage(contentDir, version))
     contentSwapChain = runInstall.catch(() => {})
     await runInstall
-    return { ok: true, version, installMode }
+    return { ok: true, version, installMode: install.installMode }
   } catch (error) {
     if (error instanceof HttpError) throw error
     try { ctx.logger?.warn?.(`[workspace-studio] update failed: ${String(error)}`) } catch { /* no logger */ }
