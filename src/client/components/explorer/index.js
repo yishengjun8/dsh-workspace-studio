@@ -2,7 +2,7 @@ import { createElement as h, Fragment, useRef, useState, useEffect, useLayoutEff
 import { createPortal } from 'react-dom'
 import { CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MAX, CONFLICT_FONT_SIZE_MIN, CONTEXT_MENU_WIDTH, DISK_STATE_CLEAN, DISK_STATE_CONFLICT, DISK_STATE_GONE, DISK_STATE_STALE, ENCODING_FALLBACK } from '../../constants.js'
 import { translate } from '../../locale/index.js'
-import { clamp, fileLabel, formatBytes, readOnlyReason, vcsStatusColorVars } from '../../format.js'
+import { clamp, diffColorVars, fileLabel, formatBytes, readOnlyReason, vcsStatusColorVars } from '../../format.js'
 import { copyText, defaultEntryName, entryNameError, entryPath, joinAbsolutePath, parentPath, pathBaseName, rewriteDirectoryMap, rewritePathMap, rewritePathSet, rewriteRelativePath, selectedLevelPath } from '../../paths.js'
 import { ancestorDirectoryPaths, dropIndexFromEvent, entryFromPreviewTab, isMindmapTab, isPlanTab, isReviewTab, isSyntheticTab, isTemporaryTab, isUnpersistedTab, mindmapRootIdOfTab, mindmapTabPath, normalizePreviewSession, openPermanentTab, openPreviewTab, orderPinnedFirst, planAddressOfTab, planTabPath, promoteTemporaryTab, reviewAddressOfTab, reviewTabPath, rewritePreviewTabs, serializePreviewSession } from '../../preview-tabs.js'
 import { IconFolder, IconNewFile, IconNewFolder, IconRefresh, IconSearch } from '../../icons.js'
@@ -22,6 +22,8 @@ import { ExplorerTree } from './tree.js'
 import { VcsBar } from './vcs.js'
 import { vcsBarModel, vcsPendingAutoExpand } from '../../vcs.js'
 import { useVcsStatus } from './hooks/vcs.js'
+import { useDiffBase } from './hooks/diff-base.js'
+import { diffReasonKey, summaryHasChanges } from '../../diff-gutter.js'
 import { PreviewPane } from './preview.js'
 import { PreviewTabs } from './tabs.js'
 import { SearchResults } from './search.js'
@@ -459,6 +461,83 @@ export function WorkspaceExplorer({
     retainedStatesRef.current.set(path, session)
   }, [retainedStatesRef])
   const search = useSearchState({ workspaceId: workspace.workspaceId, settings })
+  /* Renderer dispatch (registry-driven): markdown/html offer a rendered preview, byte renderers
+     (image/pdf/office) render standalone, and read-only text files offer a paged full-file browse.
+     These four sit ABOVE the change-gutter block on purpose: its eligibility test reads `showBrowse`,
+     and declaring them further down turns that read into a temporal-dead-zone crash at render time. */
+  const isMarkdown = preview.state === 'ready' && isMarkdownName(preview.name)
+  const isHtmlFile = preview.state === 'ready' && isHtmlName(preview.name)
+  const isReadOnlyText = preview.state === 'ready' && !isByteKind(preview.kind)
+    && (preview.editable === false || preview.readOnlyReason)
+  /* Browse mode = the paged full-file view; it replaces the editor for read-only text files, while HTML keeps the iframe overlay. A dropped-in file has no path the Remote could read (its content lives only in memory), but a file OUTSIDE the workspace does — the Remote reads its absolute path — so that tab browses like any other read-only file. */
+  const showBrowse = viewMode === VIEW_PREVIEW && isReadOnlyText && !isHtmlFile
+    && (activeTab?.external !== true || activeTab?.outside === true)
+  /* ---- Change gutter (editor) + its status-bar summary ----
+   * The base revision comes from the Host (HEAD / SVN BASE); the editor diffs it against its live
+   * buffer and reports the counts back here, so the status bar recap and the gutter always agree. */
+  /* Only the tab kinds that actually render the CodeMirror editor carry a gutter: images, PDF/Office
+     conversions and the paged read-only view have no line-number column to annotate. */
+  const diffEligible = vcsEnabled === true && preview.state === 'ready'
+    && preview.kind !== 'image' && preview.kind !== 'pdf' && preview.kind !== 'office'
+    && showBrowse !== true
+    && activeTab !== undefined
+    && !isSyntheticTab(activeTab) && activeTab.external !== true && activeTab.outside !== true
+  const diffEntry = diffEligible ? vcs.overlay.byPath.get(activeTab.path) : undefined
+  /* The repository has no base for a new file: the whole buffer is new, so no request is needed
+     (the tree shows the same file as ? / A). */
+  const diffNewFile = diffEntry !== undefined && (diffEntry.untracked === true || diffEntry.status === 'A')
+  const [diffBaseEpoch, setDiffBaseEpoch] = useState(0)
+  const diffBaseState = useDiffBase({
+    workspaceId: workspace.workspaceId,
+    path: diffEligible ? activeTab.path : undefined,
+    encoding: preview.encoding,
+    enabled: diffEligible && diffNewFile !== true,
+    epoch: diffBaseEpoch,
+  })
+  const diffBaseLabel = diffBaseState.status === 'ready' && typeof diffBaseState.payload?.baseLabel === 'string' && diffBaseState.payload.baseLabel !== ''
+    ? diffBaseState.payload.baseLabel
+    : (vcs.payload?.kind === 'svn' ? 'BASE' : 'HEAD')
+  /* An undefined `diffBase` means "nothing to say": no repository, feature off, or the base is still
+     loading. A known-but-unusable base carries its `reason` so the status bar can explain it. */
+  const diffBase = (() => {
+    if (diffEligible !== true) return undefined
+    if (diffNewFile === true) return { exists: false, newFile: true, baseLabel: diffBaseLabel }
+    if (diffBaseState.status === 'error') return { exists: false, newFile: false, reason: 'fetch-failed', baseLabel: diffBaseLabel }
+    if (diffBaseState.status !== 'ready') return undefined
+    const payload = diffBaseState.payload
+    if (payload?.exists === true && typeof payload.content === 'string') {
+      return { exists: true, content: payload.content, newFile: false, baseLabel: diffBaseLabel }
+    }
+    const reason = payload?.reason
+    /* Not having a repository (or no CLI) is already explained by the status strip: stay silent. */
+    if (reason === 'no-repo' || reason === 'disabled' || reason === 'vcs-unavailable') return undefined
+    return { exists: false, newFile: false, reason: reason ?? 'no-base', baseLabel: diffBaseLabel }
+  })()
+  const [diffSummary, setDiffSummary] = useState()
+  /* Only adopt a genuinely different report: the editor re-reports on every recompute, and an
+     identical payload must not re-render the whole explorer. */
+  const handleDiffSummary = useCallback((next) => {
+    setDiffSummary(current => {
+      if (current === next) return current
+      if (current !== undefined && next !== undefined
+        && current.status === next.status && current.reason === next.reason && current.baseLabel === next.baseLabel
+        && current.summary?.added === next.summary?.added
+        && current.summary?.modified === next.summary?.modified
+        && current.summary?.deleted === next.summary?.deleted) return current
+      return next
+    })
+  }, [])
+  useEffect(() => { setDiffSummary(undefined) }, [activePath, preview.encoding, readEpoch])
+  /* A commit / branch switch / checkout moves the base: the status payload's label changes, so the
+     cached base text (and the marks built from it) is re-read. */
+  const diffLabelRef = useRef(undefined)
+  useEffect(() => {
+    const label = `${vcs.payload?.kind ?? ''}:${vcs.payload?.label ?? ''}`
+    if (diffLabelRef.current === undefined) { diffLabelRef.current = label; return }
+    if (diffLabelRef.current === label) return
+    diffLabelRef.current = label
+    setDiffBaseEpoch(current => current + 1)
+  }, [vcs.payload?.kind, vcs.payload?.label])
   const sessionRename = useSessionRename({ sessionId, sessionTitle, renameSession, mounted })
   const scrollbar = usePreviewScrollbar({ previewTabsRef, previewScrollbarRef, previewScrollThumbRef, activePath, tabsLength: tabs.length })
   const {
@@ -1015,7 +1094,7 @@ export function WorkspaceExplorer({
     if (el.scrollTop !== target) el.scrollTop = target
     if (framesLeft > 0) requestAnimationFrame(() => { if (mounted.current) restoreTreeScroll(savedScrollTop, framesLeft - 1) })
   }, [])
-  const refresh=useCallback(()=>{if(hasDirtyTabs){setStatus({error:true,text:translate('tree.refreshBlocked')});return}/* Refresh must not collapse the tree: snapshot the scroll position and expanded paths before clearing the listings, then re-list the root and every expanded directory so disk changes appear in place. */  const scrollEl=treeScrollRef.current;const savedScrollTop=scrollEl?.scrollTop??0;const expandedPaths=[...expandedRef.current].filter(path=>path!=='');abortDirectoryRequests();setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);composingRef.current=false;setDirectories(new Map());setStatus(undefined);vcsRef.current.refresh();const reloads=[loadDirectory(''),...expandedPaths.map(path=>loadDirectory(path,{pruneOnMissing:true}))];void Promise.allSettled(reloads).then(()=>{if(mounted.current)restoreTreeScroll(savedScrollTop)})},[abortDirectoryRequests,hasDirtyTabs,loadDirectory,restoreTreeScroll])
+  const refresh=useCallback(()=>{if(hasDirtyTabs){setStatus({error:true,text:translate('tree.refreshBlocked')});return}/* Refresh must not collapse the tree: snapshot the scroll position and expanded paths before clearing the listings, then re-list the root and every expanded directory so disk changes appear in place. */  const scrollEl=treeScrollRef.current;const savedScrollTop=scrollEl?.scrollTop??0;const expandedPaths=[...expandedRef.current].filter(path=>path!=='');abortDirectoryRequests();setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);composingRef.current=false;setDirectories(new Map());setStatus(undefined);vcsRef.current.refresh();setDiffBaseEpoch(current=>current+1);const reloads=[loadDirectory(''),...expandedPaths.map(path=>loadDirectory(path,{pruneOnMissing:true}))];void Promise.allSettled(reloads).then(()=>{if(mounted.current)restoreTreeScroll(savedScrollTop)})},[abortDirectoryRequests,hasDirtyTabs,loadDirectory,restoreTreeScroll])
   const toggleDirectory=useCallback(entry=>{const path=entry.path;const opening=!expanded.has(path);setExpanded(cur=>{const next=new Set(cur);opening?next.add(path):next.delete(path);return next});if(opening){if(directories.get(path)?.state!=='ready')void loadDirectory(path);chooseDirectory(entry)}else setSelected(entry)},[chooseDirectory,directories,expanded,loadDirectory])
   const openContextMenu=useCallback((event,entry)=>{event.preventDefault();setSelected(entry);setContextMenu({entry,x:event.clientX,y:event.clientY})},[])
   const copyEntryPath=useCallback((entry,relative)=>{const value=relative?entry.path:joinAbsolutePath(workspace.path,entry.path);void copyText(value).then(ok=>{if(!mounted.current)return;setContextMenu(undefined);setCopyNotice(ok?(relative?translate('status.copiedRelative'):translate('status.copiedPath')):translate('status.copyFailed'));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},1600)})},[workspace.path])
@@ -1201,6 +1280,9 @@ export function WorkspaceExplorer({
     /* A requested reload IS the action the marker asked for: drop it, so the status bar shows the reload notice instead of the superseded "changed on disk" one. */
     updateActiveTab({ diskState: DISK_STATE_CLEAN })
     setReloadToken(token => token + 1)
+    /* A manual refresh is also the way to pick up a commit / branch switch made outside: re-read the
+       base revision the change marks are computed against. */
+    setDiffBaseEpoch(current => current + 1)
   }, [activePath, dirty, saving, updateActiveTab])
   /* Reload ONE tab from disk, from the strip's marker or its context menu. A background
      tab is activated first, because the read effect serves the active path alone; arming
@@ -1458,16 +1540,8 @@ export function WorkspaceExplorer({
     for (const rootId of placedMapRootsRef.current.keys()) mindmapViewHost.unplace(rootId)
     placedMapRootsRef.current = new Map()
   }, [])
-  // Renderer dispatch (registry-driven): markdown/html offer a rendered preview, byte renderers (image/pdf/office) render standalone, and read-only text files offer a paged full-file browse.
-  const isMarkdown = preview.state === 'ready' && isMarkdownName(preview.name)
-  const isHtmlFile = preview.state === 'ready' && isHtmlName(preview.name)
   /* The active byte renderer (image/pdf/office), selected by the preview itself. */
   const byteKind = preview.state === 'ready' && isByteKind(preview.kind) ? preview.kind : undefined
-  const isReadOnlyText = preview.state === 'ready' && !isByteKind(preview.kind)
-    && (preview.editable === false || preview.readOnlyReason)
-  /* Browse mode = the paged full-file view; it replaces the editor for read-only text files, while HTML keeps the iframe overlay. A dropped-in file has no path the Remote could read (its content lives only in memory), but a file OUTSIDE the workspace does — the Remote reads its absolute path — so that tab browses like any other read-only file. */
-  const showBrowse = viewMode === VIEW_PREVIEW && isReadOnlyText && !isHtmlFile
-    && (activeTab?.external !== true || activeTab?.outside === true)
   const browseKind = isMarkdown ? 'markdown' : 'code'
   const viewerItems = useMemo(() => {
     if (preview.state !== 'ready' || activeTab === undefined || isSyntheticTab(activeTab)) return []
@@ -1532,8 +1606,10 @@ export function WorkspaceExplorer({
     activePath,
     activeTab,
     browseKind,
+    diffBase,
     draft,
     editing,
+    onDiffSummary: handleDiffSummary,
     editorRef,
     isBrowse: showBrowse,
     isHtmlFile,
@@ -1575,8 +1651,10 @@ export function WorkspaceExplorer({
     activePath,
     activeTab,
     browseKind,
+    diffBase,
     draft,
     editing,
+    onDiffSummary: handleDiffSummary,
     editorRef,
     isBrowse: showBrowse,
     isHtmlFile,
@@ -1636,6 +1714,43 @@ export function WorkspaceExplorer({
         : undefined)
   const entryDialogBlocked = entryBusy || entryDialog === undefined || entryDialogError !== undefined
   const reason = preview.state === 'ready' ? readOnlyReason(preview) : translate('editor.notLoaded')
+  /* Status-bar recap of the editor's change marks, fused into the EXISTING bottom bar: one divider
+     plus one item, never a third row. Nothing renders while the base is unknown or the file is
+     clean, and a known-unusable base says so instead of silently showing nothing. */
+  const diffSummaryNode = (() => {
+    if (diffSummary === undefined || diffSummary.status === 'pending') return null
+    if (diffSummary.status === 'unavailable') {
+      return [
+        h('div', { className: 'dsh-ws-status-divider', key: 'diff-divider' }),
+        h('span', {
+          className: 'dsh-ws-diff-muted',
+          key: 'diff-unavailable',
+          title: translate('diff.unavailable.title', { reason: translate(diffReasonKey(diffSummary.reason)) }),
+        }, translate('diff.unavailable')),
+      ]
+    }
+    const summary = diffSummary.summary
+    if (!summaryHasChanges(summary)) return null
+    const tokens = []
+    if (summary.added > 0) tokens.push(h('span', { className: 'dsh-ws-diff-token', 'data-kind': 'added', key: 'added' }, h('span', { 'aria-hidden': true }, '+'), h('span', { className: 'dsh-ws-diff-count' }, String(summary.added))))
+    if (summary.modified > 0) tokens.push(h('span', { className: 'dsh-ws-diff-token', 'data-kind': 'modified', key: 'modified' }, h('span', { 'aria-hidden': true }, '~'), h('span', { className: 'dsh-ws-diff-count' }, String(summary.modified))))
+    if (summary.deleted > 0) tokens.push(h('span', { className: 'dsh-ws-diff-token', 'data-kind': 'deleted', key: 'deleted' }, h('span', { 'aria-hidden': true }, '−'), h('span', { className: 'dsh-ws-diff-count' }, String(summary.deleted))))
+    const title = translate('diff.summary.title', {
+      base: diffSummary.baseLabel === '' ? diffBaseLabel : diffSummary.baseLabel,
+      added: summary.added,
+      modified: summary.modified,
+      deleted: summary.deleted,
+    })
+    return [
+      h('div', { className: 'dsh-ws-status-divider', key: 'diff-divider' }),
+      h('div', {
+        className: 'dsh-ws-diff-summary',
+        key: 'diff-summary',
+        /* Counting the live buffer is the point: an unsaved edit's marks are already included. */
+        title: activeTab?.dirty === true ? `${title} · ${translate('diff.summary.unsaved')}` : title,
+      }, tokens),
+    ]
+  })()
   const size = preview.state === 'ready' ? formatBytes(preview.size) : ''
   const tabMenuTarget = tabContextMenu === undefined ? undefined : tabs.find(tab => tab.path === tabContextMenu.path)
   /* Disk state is DERIVED here rather than stored in tab.status: a stored non-error
@@ -1781,7 +1896,7 @@ export function WorkspaceExplorer({
       onDraft: value => { setSessionRenameDraft(value); setSessionRenameError(undefined) },
     }) : null,
     treePortalTarget ? createPortal(treeSection, treePortalTarget) : null,
-    h('section', { 'data-drop-active': dropActive || undefined, className: 'dsh-ws-preview', ref: previewSectionRef },
+    h('section', { 'data-drop-active': dropActive || undefined, className: 'dsh-ws-preview', ref: previewSectionRef, style: diffColorVars(settings) },
       tabs.length ? h(PreviewTabs, { activePath, containerRef: previewTabsRef, draggingPath, dropIndex, onChoose: activateTab, onClose: closeTab, onContextMenu: (path, x, y) => setTabContextMenu({ path, x, y }), onDragEnd: () => { setDraggingPath(null); setDropIndex(null) }, onDragLeave: handleTabsDragLeave, onDragOver: updateDropIndex, onDragStart: (path, event) => { setDraggingPath(path); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', path) }, onDrop: handleTabsDrop, onMouseEnter: handleTabsMouseEnter, onMouseLeave: handleTabsMouseLeave, onPromote: promoteTab, onReload: reloadTab, onScroll: handleTabsScroll, onUnpin: unpinTab, tabs }) : null,
       tabs.length ? h('div', { className: 'dsh-ws-preview-scrollbar', onMouseEnter: handleScrollbarMouseEnter, onMouseLeave: handleScrollbarMouseLeave, onPointerCancel: handleScrollbarPointerEnd, onPointerDown: handleScrollbarPointerDown, onPointerMove: handleScrollbarPointerMove, onPointerUp: handleScrollbarPointerEnd, ref: previewScrollbarRef }, h('div', { className: 'dsh-ws-preview-scrollbar-thumb', ref: previewScrollThumbRef })) : null,
       tabContextMenu ? h(TabContextMenu, { menuRef: tabMenuRef, onCloseOthers: () => { setTabContextMenu(undefined); closeOtherTabs(tabContextMenu.path) }, onTogglePin: () => { setTabContextMenu(undefined); if (tabMenuTarget?.pinned) unpinTab(tabContextMenu.path); else pinTab(tabContextMenu.path) }, onOpenInNewWindow: openTabInNewWindow, canOpenInNewWindow, canReload: tabMenuTarget !== undefined && !isSyntheticTab(tabMenuTarget) && !tabMenuTarget.external && tabMenuTarget.dirty !== true && tabMenuTarget.saving !== true, onReload: () => { setTabContextMenu(undefined); reloadTab(tabContextMenu.path) }, pinned: Boolean(tabMenuTarget?.pinned), reloadTitle: tabMenuTarget?.dirty === true ? translate('tab.reloadBlocked') : translate('tab.reload.title'), x: tabContextMenu.x, y: tabContextMenu.y }) : null,
@@ -1848,6 +1963,7 @@ export function WorkspaceExplorer({
             )
             : null,
         ),
+        diffSummaryNode,
         h('div', { className: 'dsh-ws-preview-status-meta' },
           activeTab ? h('span', { className: 'dsh-ws-language' }, fileLabel(activeTab.name)) : null,
           size ? h('span', null, size) : null,

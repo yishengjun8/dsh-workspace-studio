@@ -13,10 +13,12 @@
  */
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { access, realpath } from 'node:fs/promises'
+import { access, realpath, stat } from 'node:fs/promises'
 import { join, relative, resolve } from 'node:path'
 import { Buffer } from 'node:buffer'
+import { containsNul, decodeBytes } from './encodings.js'
 import { HttpError } from './errors.js'
+import { resolveWorkspacePath } from './paths.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -546,5 +548,75 @@ export async function readVcsStatus(workspace, config, options = {}) {
   } finally {
     /* Only clear the slot this call owns: a request that arrived while this one was in flight must not be evicted. */
     if (inFlight.get(key) === pending) inFlight.delete(key)
+  }
+}
+
+/* ------------------------------------------------------------------------
+ * Base revision of one file, for the editor's change gutter.
+ *
+ * The client diffs THIS text against the live buffer (the merge module's
+ * budgeted Myers), so an unsaved edit is reflected immediately and the marks
+ * never flicker when a save lands. Only the base lookup itself is new here:
+ * `git show HEAD:<path>` / `svn cat -r BASE <path>`, both pure reads.
+ * ---------------------------------------------------------------------- */
+
+/** Short TTL for one file's base text: switching tabs back and forth must not respawn the tool. */
+const BASE_TTL_MS = 30_000
+const baseCache = new Map()
+const baseInFlight = new Map()
+
+/** One file's base-revision text. Every degradation is a `reason` on a 200 payload; only the fence
+ *  itself (untrusted origin, unknown workspace) fails with a real HTTP error. */
+export async function readVcsBase(workspace, relativePath, encodingId, config) {
+  const settings = effectiveConfig(config)
+  const workspaceId = String(workspace.id)
+  const base = { workspaceId, path: relativePath, kind: null, exists: false, baseLabel: '', label: '', reason: undefined }
+  if (settings.enableVcsStatus === false) return { ...base, enabled: false, reason: 'disabled' }
+  const root = await realpath(workspace.path)
+  const detection = await detectRepo(workspaceId, root, settings)
+  if (detection.kind === null) return { ...base, reason: 'no-repo' }
+  if (detection.available === false) return { ...base, kind: detection.kind, reason: 'vcs-unavailable' }
+  /* The target goes through the SAME fence as every other read. */
+  const target = await resolveWorkspacePath(root, relativePath)
+  const targetStat = await stat(target)
+  if (!targetStat.isFile()) throw new HttpError(400, 'not-a-file', '所选路径不是普通文件')
+  if (targetStat.size > settings.maxPreviewBytes) {
+    /* A truncated base would produce a WRONG diff, so it is reported as unavailable instead. */
+    return { ...base, kind: detection.kind, baseLabel: detection.kind === 'git' ? 'HEAD' : 'BASE', label: detection.label ?? '', reason: 'file-too-large' }
+  }
+  const key = `${workspaceId}:${detection.kind}:${encodingId}:${relativePath}`
+  const cached = baseCache.get(key)
+  if (cached !== undefined && Date.now() - cached.at < BASE_TTL_MS) return cached.value
+  const running = baseInFlight.get(key)
+  if (running !== undefined) return running
+  const pending = (async () => {
+    const spec = `${detection.prefix}${relativePath}`
+    const result = detection.kind === 'git'
+      ? await runTool(detection.file, ['show', `HEAD:${spec}`], { cwd: root, timeout: settings.vcsTimeoutMs, maxBuffer: VCS_MAX_OUTPUT_BYTES })
+      : await runTool(detection.file, ['cat', '-r', 'BASE', relativePath], { cwd: root, timeout: settings.vcsTimeoutMs, maxBuffer: VCS_MAX_OUTPUT_BYTES })
+    const baseLabel = detection.kind === 'git' ? 'HEAD' : 'BASE'
+    const identity = { ...base, kind: detection.kind, baseLabel, label: detection.label ?? '' }
+    if (!result.ok && !result.overflow) {
+      const failure = failureKind(result)
+      /* Not in the base revision (a new file) and a real failure look the same at this level: the
+         client tells them apart with the status payload it already holds (untracked / added). */
+      const reason = failure === 'timeout' ? 'timeout' : failure === 'missing' ? 'vcs-unavailable' : 'missing-base'
+      return { ...identity, reason }
+    }
+    const bytes = Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(result.stdout ?? '', 'utf8')
+    if (result.overflow === true || bytes.byteLength > settings.maxPreviewBytes) return { ...identity, reason: 'file-too-large' }
+    /* Same NUL sniff as the preview path: a binary base has no line diff to show. */
+    if (containsNul(bytes)) return { ...identity, reason: 'binary' }
+    const content = decodeBytes(bytes, encodingId, false)
+    if (content === undefined) return { ...identity, reason: 'invalid-encoding' }
+    return { ...identity, exists: true, content, bytes: bytes.byteLength }
+  })()
+  baseInFlight.set(key, pending)
+  try {
+    const value = await pending
+    baseCache.set(key, { at: Date.now(), value })
+    return value
+  } finally {
+    if (baseInFlight.get(key) === pending) baseInFlight.delete(key)
   }
 }

@@ -1,7 +1,7 @@
 import { createElement as h, Fragment } from 'react'
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import { translate } from '../../locale/index.js'
-import { colorGroupOf, highlightPresetOf, readOnlyReason } from '../../format.js'
+import { colorGroupOf, diffColorVars, highlightPresetOf, readOnlyReason } from '../../format.js'
 import { CodeEditor } from '../editor.js'
 import { BrowseView } from '../../renderers/browse-view.js'
 import { ConvertedView } from '../../renderers/converted-view.js'
@@ -10,7 +10,7 @@ import { ImageView } from '../../renderers/image-view.js'
 import { useMarkdownLabels } from '../../renderers/registry.js'
 
 /* Preview pane body: idle/loading/error states, the CodeMirror editor (kept mounted under the rendered-Markdown overlay so switching back keeps caret, undo history and the draft), and the search-panel mount point. Renderer dispatch is registry-driven: images render standalone, read-only text files browse as a paged view, and everything else keeps the editor with Markdown/HTML overlays in preview mode. */
-export function PreviewPane({ preview, settings, editing, activeTab, draft, viewMode, isMarkdown, isHtmlFile, isBrowse, browseKind, sessionId, searchReveal, readEpoch, activePath, editorRef, searchPanelContainerRef, scrollTopRef, restore, onViewState, onDirty, onSaveShortcut, onScroll, onRevealApplied, onBodyClick, onSearchPanelContextMenu, onContext }) {
+export function PreviewPane({ preview, settings, editing, activeTab, draft, viewMode, isMarkdown, isHtmlFile, isBrowse, browseKind, sessionId, searchReveal, readEpoch, activePath, editorRef, searchPanelContainerRef, scrollTopRef, restore, onViewState, onDirty, onSaveShortcut, onScroll, onRevealApplied, onBodyClick, onSearchPanelContextMenu, onContext, diffBase, onDiffSummary }) {
   const markdownLabels = useMarkdownLabels()
   if (preview.state === 'idle') {
     return h('div', { className: 'dsh-ws-empty' }, translate('panel.previewHint'))
@@ -62,6 +62,12 @@ export function PreviewPane({ preview, settings, editing, activeTab, draft, view
         onDirty: onDirty,
         onSaveShortcut: onSaveShortcut,
         onScroll: onScroll,
+        /* Change gutter: the base text (HEAD / SVN BASE), its tone palette and the line wash; the
+           editor diffs the base against its own live buffer and reports the counts back. */
+        diffBase: diffBase ?? null,
+        diffColors: diffColorVars(settings),
+        diffLineTint: settings.diffLineTint !== false,
+        onDiffSummary,
         reveal: searchReveal !== undefined && preview.state === 'ready' && activeTab !== undefined && searchReveal.path === activeTab.path
           ? searchReveal
           : null,

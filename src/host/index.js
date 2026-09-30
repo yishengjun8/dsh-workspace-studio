@@ -13,7 +13,7 @@ import { renderPromptContext } from './prompt-context.js'
 import { renderMarkdownDocument } from './markdown.js'
 import { checkForUpdate, downloadUpdate } from './update.js'
 import { computeTokenStats, warmTokenStatsIndex } from './token-stats.js'
-import { readVcsStatus } from './vcs.js'
+import { readVcsBase, readVcsStatus } from './vcs.js'
 import { workspaceFor } from './workspace.js'
 /** Stable Cordis plugin name. */
 export const name = 'workspace-studio'
@@ -124,6 +124,7 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
     const updateDownloadEndpoint = url.pathname === `${API_PREFIX}/update/download`
     const tokenStatsEndpoint = url.pathname === `${API_PREFIX}/token-stats`
     const vcsEndpoint = url.pathname === `${API_PREFIX}/vcs`
+    const vcsBaseEndpoint = url.pathname === `${API_PREFIX}/vcs-base`
     const allowed = contextEndpoint
       ? 'POST'
       : encodingsEndpoint
@@ -172,7 +173,9 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
                                                   ? 'GET, HEAD'
                                                   : vcsEndpoint
                                                     ? 'GET, HEAD'
-                                                    : mindmapDocEndpoint
+                                                    : vcsBaseEndpoint
+                                                      ? 'GET, HEAD'
+                                                      : mindmapDocEndpoint
                                                     ? 'GET, HEAD, POST, DELETE'
                                                     : draftEndpoint
                                                       ? 'GET, HEAD, PUT, DELETE'
@@ -181,7 +184,7 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
       sendError(req, res, 405, 'method-not-allowed', `该接口只允许 ${allowed} 请求`, { allow: allowed })
       return
     }
-    if (!contextEndpoint && !encodingsEndpoint && !entryEndpoint && !externalFileEndpoint && !fileEndpoint && !rawEndpoint && !fsEndpoint && !treeEndpoint && !searchEndpoint && !revealEndpoint && !draftEndpoint && !draftTreeEndpoint && !mindmapDocEndpoint && !mindmapDocIndexEndpoint && !mindmapDocSyncEndpoint && !mindmapDocRenameEndpoint && !mindmapDocModelsEndpoint && !mindmapDocRegenerateEndpoint && !mindmapDocRegenerateAllEndpoint && !mindmapDocRegenerateSessionSummariesEndpoint && !mindmapDocSummarizeSessionEndpoint && !mindmapForkCleanupEndpoint && !updateCheckEndpoint && !updateDownloadEndpoint && !tokenStatsEndpoint && !vcsEndpoint) {
+    if (!contextEndpoint && !encodingsEndpoint && !entryEndpoint && !externalFileEndpoint && !fileEndpoint && !rawEndpoint && !fsEndpoint && !treeEndpoint && !searchEndpoint && !revealEndpoint && !draftEndpoint && !draftTreeEndpoint && !mindmapDocEndpoint && !mindmapDocIndexEndpoint && !mindmapDocSyncEndpoint && !mindmapDocRenameEndpoint && !mindmapDocModelsEndpoint && !mindmapDocRegenerateEndpoint && !mindmapDocRegenerateAllEndpoint && !mindmapDocRegenerateSessionSummariesEndpoint && !mindmapDocSummarizeSessionEndpoint && !mindmapForkCleanupEndpoint && !updateCheckEndpoint && !updateDownloadEndpoint && !tokenStatsEndpoint && !vcsEndpoint && !vcsBaseEndpoint) {
       sendError(req, res, 404, 'endpoint-not-found', '接口不存在')
       return
     }
@@ -398,6 +401,15 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
         includeIgnored: url.searchParams.get('ignored') === '1',
         refresh: url.searchParams.get('refresh') === '1',
       }))
+      return
+    }
+    if (vcsBaseEndpoint) {
+      /* Base-revision text of one file, for the editor's change gutter (the client diffs it against
+         the live buffer). Degradations (new file, binary, oversized, missing CLI) are `reason` values
+         on a 200 payload, never a failed request. */
+      const basePath = normalizeRelativePath(url.searchParams.get('path') ?? '')
+      if (basePath === '') throw new HttpError(400, 'invalid-path', '基线读取必须指定文件路径')
+      sendJson(req, res, 200, await readVcsBase(workspace, basePath, url.searchParams.get('encoding') ?? 'utf-8', config))
       return
     }
     if (draftTreeEndpoint) {

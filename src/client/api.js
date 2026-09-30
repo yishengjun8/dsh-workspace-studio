@@ -167,6 +167,23 @@ export async function fetchVcsStatus(workspaceId, options, signal) {
   }
   return payload
 }
+/* Base-revision text of one file, for the editor's change gutter. Like /vcs, every degradation (a
+   new file, a binary, an oversized file, a missing CLI) rides the payload's `reason` field on a 200;
+   only the request fence itself can throw. */
+export async function fetchVcsBase(workspaceId, path, encoding, signal) {
+  const query = new URLSearchParams({ workspaceId: String(workspaceId), path })
+  if (encoding !== undefined && encoding !== null) query.set('encoding', String(encoding))
+  const response = await fetch(`${API_PREFIX}/vcs-base?${query}`, { method: 'GET', headers: { accept: 'application/json' }, credentials: 'same-origin', signal: withTimeout(signal, VCS_STATUS_TIMEOUT_MS) })
+  if (!response.ok) throw await responseFailure(response, 'vcs-failed', 'error.vcs-failed')
+  let payload
+  try {
+    payload = await response.json()
+  } catch (error) {
+    if (error?.name === 'AbortError') throw error
+    throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.vcs', { status: response.status }), response.status)
+  }
+  return payload
+}
 export async function putFile(workspaceId, path, content, revision, signal, encoding) {
   const query = new URLSearchParams({ workspaceId: String(workspaceId), path })
   if (encoding !== undefined && encoding !== null) query.set('encoding', String(encoding))

@@ -2,7 +2,7 @@ import { createElement as h, Fragment, useCallback, useEffect, useRef, useState,
 import { createPortal } from 'react-dom'
 import { AUTO_SYNC_MODE_AUTO, AUTO_SYNC_MODE_WATCH_ONLY, clampMountBulge, clampSpinSpeed, CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MAX, CONFLICT_FONT_SIZE_MIN, EDIT_LINES_DEFAULT, EDIT_LINES_MAX, EDIT_LINES_MIN, EDIT_LINES_STEP, MINDMAP_END_COLOR_DEFAULT, MINDMAP_HEAD_COLOR_DEFAULT, MINDMAP_HOVER_COLOR_FALLBACK, MINDMAP_HOVER_THEME_VAR, MINDMAP_MOUNT_BULGE_DEFAULT_X, MINDMAP_MOUNT_BULGE_MAX_X, MINDMAP_MOUNT_BULGE_MIN_X, MINDMAP_SELECTED_COLOR_FALLBACK, MINDMAP_SELECTED_THEME_VAR, MINDMAP_SPIN_SPEED_DEFAULT_X, MINDMAP_SPIN_SPEED_MAX_X, MINDMAP_SPIN_SPEED_MIN_X, MINDMAP_SUMMARY_DEFAULT_LENGTH, MINDMAP_SUMMARY_LENGTH_STEP, MINDMAP_SUMMARY_MAX_LENGTH, MINDMAP_SUMMARY_MIN_LENGTH, MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH, MINDMAP_SUMMARY_SESSION_LENGTH_STEP, MINDMAP_SUMMARY_SESSION_MAX_LENGTH, MINDMAP_SUMMARY_SESSION_MIN_LENGTH, mindmapEffectiveColor, PREVIEW_RIGHT_DEFAULT, ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MAX, ROW_HEIGHT_MIN, SEARCH_MATCH_EXPAND_DEFAULT, THINK_LINES_DEFAULT, THINK_LINES_MAX, THINK_LINES_MIN, THINK_LINES_STEP, WATCH_FILES_DEFAULT } from '../constants.js'
 import { translate } from '../locale/index.js'
-import { clamp, FILE_COLOR_GROUPS, fileColorGroupLabel, fileColorOf, HIGHLIGHT_PRESETS, highlightPresetLabel, highlightPresetOf, VCS_STATUS_GROUPS, vcsStatusColorOf, vcsStatusGroupLabel } from '../format.js'
+import { clamp, DIFF_TONE_GROUPS, diffColorOf, diffGroupLabel, FILE_COLOR_GROUPS, fileColorGroupLabel, fileColorOf, HIGHLIGHT_PRESETS, highlightPresetLabel, highlightPresetOf, VCS_STATUS_GROUPS, vcsStatusColorOf, vcsStatusGroupLabel } from '../format.js'
 import { checkUpdate, downloadUpdate, fetchMindmapModels } from '../api.js'
 import { readVcsHostEnabled, subscribeVcsHostEnabled } from '../vcs.js'
 import { PanelHeader } from './menus.js'
@@ -171,6 +171,7 @@ export function ExplorerSettingsSection({ settingsStore }) {
   const customizedCount = Object.keys(settings.fileColors ?? {}).length
   const customizedPresetCount = Object.keys(settings.highlightPresets ?? {}).length
   const customizedVcsColorCount = Object.keys(settings.vcsColors ?? {}).length
+  const customizedDiffColorCount = Object.keys(settings.diffColors ?? {}).length
   /* The Host can disable the whole feature (`enableVcsStatus:false`); the explorer mirrors that
      answer here so the group explains itself instead of showing switches that do nothing. */
   const vcsHostEnabled = useSyncExternalStore(subscribeVcsHostEnabled, readVcsHostEnabled) !== false
@@ -459,6 +460,34 @@ export function ExplorerSettingsSection({ settingsStore }) {
           onClick: () => settingsStore.actions.resetFileColors(),
           type: 'button',
         }, translate('settings.resetAllColors'))),
+      h('div', { className: 'dsh-ws-file-colors-title' }, translate('settings.diffColors')),
+      h('div', { className: 'dsh-ws-file-colors' },
+        DIFF_TONE_GROUPS.map(({ group }) => { const label = diffGroupLabel(group); return h('div', { className: 'dsh-ws-file-color-row', key: `diff-${group}` },
+          h('span', { className: 'dsh-ws-file-color-name', title: label }, label),
+          h('input', {
+            'aria-label': translate('settings.diffColor.aria', { label }),
+            className: 'dsh-ws-file-color-input',
+            onChange: e => settingsStore.actions.setDiffColor(group, e.target.value),
+            type: 'color',
+            value: diffColorOf(settings, group),
+          }),
+          h('button', {
+            className: 'dsh-ws-file-color-reset',
+            disabled: settings.diffColors?.[group] === undefined || undefined,
+            onClick: () => settingsStore.actions.resetDiffColor(group),
+            title: translate('settings.diffColor.reset.title', { label }),
+            type: 'button',
+          }, translate('settings.reset')),
+        ) })),
+      h('div', { className: 'dsh-ws-file-colors-actions' },
+        h('button', {
+          className: 'dsh-ws-text-button',
+          disabled: customizedDiffColorCount === 0 || undefined,
+          onClick: () => settingsStore.actions.resetDiffColors(),
+          type: 'button',
+        }, translate('settings.resetAllColors'))),
+      vcsToggleRow('settings.diffLineTint', 'dsh-ws-diff-line-tint', settings.diffLineTint !== false, value => settingsStore.actions.setDiffLineTint(value), settings.vcsEnabled === false || vcsHostEnabled === false),
+      h('div', { className: 'dsh-ws-settings-hint' }, translate('settings.diff.hint')),
     ),
     h('div', { className: 'dsh-ws-explorer-divider' }),
     h('div', { className: 'dsh-ws-settings-group' },

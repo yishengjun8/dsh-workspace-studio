@@ -1,13 +1,15 @@
 import { createElement as h, useRef, useState, useEffect } from 'react'
 import { closeSearchPanel, findNext, findPrevious, gotoLine, highlightSelectionMatches, openSearchPanel, search, selectNextOccurrence, selectSelectionMatches } from '@codemirror/search'
-import { EditorState, Compartment } from '@codemirror/state'
+import { EditorState, Compartment, RangeSet, RangeSetBuilder, StateEffect, StateField } from '@codemirror/state'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
 import { bracketMatching, defaultHighlightStyle, foldable, foldEffect, foldGutter, foldKeymap, indentOnInput, syntaxHighlighting, unfoldAll } from '@codemirror/language'
-import { EditorView, drawSelection, dropCursor, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers, panels } from '@codemirror/view'
+import { Decoration, EditorView, GutterMarker, drawSelection, dropCursor, gutter, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers, panels } from '@codemirror/view'
 import { localeIsZh, translate, useLocaleText } from '../locale/index.js'
 import { languageFor, tokenHighlight } from '../languages.js'
 import { HIGHLIGHT_PRESET_DEFAULT, lineSeparator } from '../format.js'
+import { DIFF_GUTTER_DEBOUNCE_MS, DIFF_GUTTER_MAX_LINES } from '../constants.js'
+import { diffMarks } from '../diff-gutter.js'
 
 /* CodeMirror search/goto-line panel phrases (EditorState.phrases keys; keep the $ placeholders); only installed for the Chinese surface, since English is CodeMirror's default. */
 export const CM_PHRASES_ZH = Object.freeze({
@@ -119,6 +121,9 @@ function handleEditorUpdate(update) {
     const text = update.state.sliceDoc()
     bridge.dirtyRef.current(text)
     bridge.contextRef.current(update.state, true, text)
+    /* The change gutter follows the LIVE buffer, so an edit schedules its recompute here (throttled
+       by the instance; the marks themselves stay mapped by the document until it lands). */
+    bridge.scheduleDiff?.()
   } else if (update.selectionSet) {
     bridge.contextRef.current(update.state, false)
   }
@@ -135,13 +140,102 @@ function handleEditorUpdate(update) {
   }
 }
 
+/* ------------------------------------------------------------------------
+ * Change gutter: the repository base versus the live buffer.
+ *
+ * CodeMirror has no "git gutter" primitive, so the marks live in a StateField
+ * an effect replaces; between recomputes the mapped ranges follow the document,
+ * which keeps the bars roughly in place while typing instead of blanking on every
+ * keystroke. The diff itself is merge.js's budgeted Myers (see diff-gutter.js),
+ * so no second diff implementation ships.
+ * ---------------------------------------------------------------------- */
+
+/** One line's mark: a colour bar (`kind`) and/or a deletion triangle (`deleted`). */
+class DiffLineMarker extends GutterMarker {
+  constructor(kind, deleted) {
+    super()
+    this.kind = kind === undefined ? null : kind
+    this.deleted = deleted === undefined ? null : deleted
+  }
+  eq(other) { return other.kind === this.kind && other.deleted === this.deleted }
+  toDOM() {
+    const node = document.createElement('div')
+    node.className = 'dsh-ws-diffMark'
+    if (this.kind !== null) node.dataset.kind = this.kind
+    if (this.deleted !== null) node.dataset.deleted = this.deleted
+    return node
+  }
+}
+const setDiffDecorations = StateEffect.define()
+const diffDecorationsField = StateField.define({
+  create: () => ({ gutter: RangeSet.empty, lines: Decoration.none }),
+  update(value, transaction) {
+    let next = transaction.docChanged
+      ? { gutter: value.gutter.map(transaction.changes), lines: value.lines.map(transaction.changes) }
+      : value
+    for (const effect of transaction.effects) {
+      if (effect.is(setDiffDecorations)) next = effect.value
+    }
+    return next
+  },
+  provide: field => EditorView.decorations.from(field, value => value.lines),
+})
+const emptyDiffDecorations = () => ({ gutter: RangeSet.empty, lines: Decoration.none })
+
+/** Gutter markers plus (optionally) the line wash of one mark list; line numbers are 1-based. */
+function diffDecorationSets(state, marks, tint) {
+  const gutterBuilder = new RangeSetBuilder()
+  const lineRanges = []
+  for (const mark of marks) {
+    const number = Math.min(Math.max(1, mark.line), state.doc.lines)
+    const line = state.doc.line(number)
+    gutterBuilder.add(line.from, line.from, new DiffLineMarker(mark.kind, mark.deleted))
+    if (tint !== true) continue
+    const classes = []
+    if (mark.kind === 'added') classes.push('dsh-ws-diff-line-added')
+    else if (mark.kind === 'modified') classes.push('dsh-ws-diff-line-modified')
+    if (mark.deleted === 'top') classes.push('dsh-ws-diff-line-deleted-top')
+    else if (mark.deleted === 'bottom') classes.push('dsh-ws-diff-line-deleted-bottom')
+    if (classes.length > 0) lineRanges.push(Decoration.line({ class: classes.join(' ') }).range(line.from))
+  }
+  return { gutter: gutterBuilder.finish(), lines: Decoration.set(lineRanges, true) }
+}
+
+/* Fold gutter marker: one vector chevron that rotates while folded, replacing
+   CodeMirror's default ⌄ / › TEXT glyphs (font-dependent metrics, no rotation). */
+function foldMarkerDOM(open) {
+  const ns = 'http://www.w3.org/2000/svg'
+  const svg = document.createElementNS(ns, 'svg')
+  svg.setAttribute('aria-hidden', 'true')
+  svg.setAttribute('class', 'fold-mark')
+  svg.setAttribute('data-open', open ? 'true' : 'false')
+  svg.setAttribute('viewBox', '0 0 10 10')
+  const path = document.createElementNS(ns, 'path')
+  path.setAttribute('d', 'M2 3.6 5 6.6l3-3')
+  path.setAttribute('fill', 'none')
+  path.setAttribute('stroke', 'currentColor')
+  path.setAttribute('stroke-width', '1.4')
+  path.setAttribute('stroke-linecap', 'round')
+  path.setAttribute('stroke-linejoin', 'round')
+  svg.append(path)
+  const wrap = document.createElement('span')
+  wrap.className = 'dsh-ws-foldMark'
+  wrap.title = translate(open ? 'editor.foldLine' : 'editor.unfoldLine')
+  wrap.append(svg)
+  return wrap
+}
+const diffGutterExtension = [
+  diffDecorationsField,
+  gutter({ class: 'dsh-ws-diffGutter', markers: view => view.state.field(diffDecorationsField).gutter }),
+]
+
 /* `restore` (optional) is a retained EditorSession of a file previously shown:
    { state, editable, wrap, phrases, name }. Mounting from the same EditorState
    preserves the doc, undo history, selection and fold state across tab
    switches; without it the view is built fresh from `file.content`.
    `onViewState` (optional) reports the live { state, ...compartments, name }
    on every update and at mount. */
-export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShortcut, onScroll, reveal, scrollTop, editorRef, highlightPreset, searchPanelContainer, readEpoch, onRevealApplied, restore = null, onViewState = null }) {
+export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShortcut, onScroll, reveal, scrollTop, editorRef, highlightPreset, searchPanelContainer, readEpoch, onRevealApplied, restore = null, onViewState = null, diffBase = null, diffLineTint = true, diffColors = null, onDiffSummary = null }) {
   const host = useRef(null)
   /* Lazy compartments: useRef(new Compartment()) would construct a discarded
      object on every render. A view mounted from a restored state must
@@ -191,12 +285,83 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
       contextRef,
       stateSinkRef,
       compartmentsRef,
+      /* Assigned below, once the change-gutter scheduler exists (see handleEditorUpdate). */
+      scheduleDiff: null,
     }
   } else {
     bridgeSelfRef.current.path = file.path
     bridgeSelfRef.current.name = file.name
   }
   liveEditorBridge.current = bridgeSelfRef.current
+
+  /* ---- Change gutter: recompute the marks from the live buffer ----
+   * Runs on the throttled schedule above, never inside a keystroke's transaction: the field keeps
+   * the mapped previous marks until the new ones land, so typing never blanks the gutter. */
+  const diffBaseRef = useRef(diffBase)
+  const diffTintRef = useRef(diffLineTint)
+  const diffSummaryRef = useRef(onDiffSummary)
+  const diffTimerRef = useRef(undefined)
+  diffBaseRef.current = diffBase
+  diffTintRef.current = diffLineTint
+  diffSummaryRef.current = onDiffSummary
+  const applyDiff = () => {
+    const view = editorRef.current
+    if (view === undefined || view === null) return
+    const base = diffBaseRef.current
+    /* No base to compare against (no repository, feature off, still loading): say nothing at all
+       rather than claiming "not computed" — the status strip already explains a missing repository. */
+    if (base === null || base === undefined) {
+      view.dispatch({ effects: setDiffDecorations.of(emptyDiffDecorations()) })
+      diffSummaryRef.current?.({ status: 'pending', baseLabel: '' })
+      return
+    }
+    const lines = view.state.doc.lines
+    if (lines > DIFF_GUTTER_MAX_LINES) {
+      view.dispatch({ effects: setDiffDecorations.of(emptyDiffDecorations()) })
+      diffSummaryRef.current?.({ status: 'unavailable', reason: 'too-large', baseLabel: base?.baseLabel ?? '' })
+      return
+    }
+    let outcome
+    if (base !== null && base !== undefined && base.newFile === true) {
+      /* A file the repository does not have yet: every line is new (matches the tree's ? / A badge). */
+      const marks = []
+      for (let number = 1; number <= lines; number += 1) marks.push({ line: number, kind: 'added' })
+      outcome = { status: 'ok', marks, summary: { added: lines, modified: 0, deleted: 0 } }
+    } else {
+      const baseText = base !== null && base !== undefined && base.exists === true && typeof base.content === 'string'
+        ? base.content
+        : undefined
+      outcome = diffMarks(baseText, view.state.sliceDoc())
+    }
+    view.dispatch({
+      effects: setDiffDecorations.of(outcome.status === 'ok'
+        ? diffDecorationSets(view.state, outcome.marks, diffTintRef.current === true)
+        : emptyDiffDecorations()),
+    })
+    diffSummaryRef.current?.(outcome.status === 'ok'
+      ? { status: 'ok', summary: outcome.summary, baseLabel: base?.baseLabel ?? '', newFile: base?.newFile === true }
+      : { status: 'unavailable', reason: outcome.reason, baseLabel: base?.baseLabel ?? '' })
+  }
+  const applyDiffRef = useRef(applyDiff)
+  applyDiffRef.current = applyDiff
+  /* Throttled rather than trailing-debounced: at most one recompute per window while typing. */
+  const scheduleDiff = () => {
+    if (diffTimerRef.current !== undefined) return
+    diffTimerRef.current = setTimeout(() => {
+      diffTimerRef.current = undefined
+      applyDiffRef.current()
+    }, DIFF_GUTTER_DEBOUNCE_MS)
+  }
+  bridgeSelfRef.current.scheduleDiff = scheduleDiff
+  /* The base text, the tint setting or a reload changed: recompute once the view exists (a macrotask,
+     so the mount effect below has already created it). */
+  useEffect(() => {
+    const timer = setTimeout(() => { applyDiffRef.current() }, 0)
+    return () => { clearTimeout(timer) }
+  }, [diffBase, diffLineTint, readEpoch])
+  useEffect(() => () => {
+    if (diffTimerRef.current !== undefined) clearTimeout(diffTimerRef.current)
+  }, [])
 
   useEffect(() => {
     const comps = compartments
@@ -219,7 +384,10 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
         state: EditorState.create({
           doc: file.content,
           extensions: [
-            lineNumbers(), highlightActiveLineGutter(), history(), foldGutter(), drawSelection(), dropCursor(),
+            /* Gutter order is extension order, and it is the user-facing order: line numbers,
+               then the change marks, then the fold arrows (all left of the code). */
+            lineNumbers(), diffGutterExtension, highlightActiveLineGutter(), history(),
+            foldGutter({ markerDOM: foldMarkerDOM }), drawSelection(), dropCursor(),
             EditorState.allowMultipleSelections.of(true), indentOnInput(), bracketMatching(), closeBrackets(),
             highlightSelectionMatches(), highlightActiveLine(), syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
             /* The search panel renders into a container div between the status
@@ -558,5 +726,5 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
     return () => { observer.disconnect(); detach?.() }
   }, [searchPanelContainer])
 
-  return h('div', { className: 'dsh-ws-editor-host', 'data-highlight-preset': highlightPreset ?? HIGHLIGHT_PRESET_DEFAULT, ref: host })
+  return h('div', { className: 'dsh-ws-editor-host', 'data-highlight-preset': highlightPreset ?? HIGHLIGHT_PRESET_DEFAULT, ref: host, style: diffColors ?? undefined })
 }

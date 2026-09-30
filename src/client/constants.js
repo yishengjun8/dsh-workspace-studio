@@ -57,6 +57,13 @@ export const VCS_STATUS_TIMEOUT_MS = 15000
 export const VCS_REFRESH_DEBOUNCE_MS = 300
 /* Hide VCS metadata directories (.git / .svn) in the tree; display-only, user-tunable. */
 export const VCS_HIDE_METADATA_DEFAULT = true
+/* Editor change gutter (the add/modify/delete marks left of the code): the recompute runs on the
+   live buffer so typing stays responsive, hence a debounce; a document past the line cap and a diff
+   whose trace exceeds the merge budget both degrade to "not computed" instead of a slow tick. */
+export const DIFF_GUTTER_MAX_LINES = 20000
+export const DIFF_GUTTER_DEBOUNCE_MS = 250
+/* Change-gutter line tint: rows carry the added/modified wash by default (user-tunable). */
+export const DIFF_TINT_DEFAULT = true
 /* Per-tab disk state, RUNTIME ONLY (not in clonePreviewTab's whitelist — see
    preview-tabs.js, so it never persists or joins previewSnapshotFingerprint):
    `clean` = shown content matches disk; `stale` = disk moved, tab is clean;

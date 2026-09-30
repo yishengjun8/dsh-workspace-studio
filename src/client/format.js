@@ -79,6 +79,37 @@ export function vcsStatusColorVars(settings) {
   return vars
 }
 
+/* Editor change-gutter tones. Deliberately their own palette (not the tree's badge tones): the
+   gutter follows the code-editor convention — green added, BLUE modified, red deleted — while the
+   tree keeps its amber "modified" badge. User-recolorable in Workspace Settings → File Browsing. */
+export const DIFF_TONE_GROUPS = Object.freeze([
+  { group: 'added', label: '新增', color: '#1a7f37' },
+  { group: 'modified', label: '修改', color: '#1a63d8' },
+  { group: 'deleted', label: '删除', color: '#d92f24' },
+])
+export const DEFAULT_DIFF_COLOR = '#8a9099'
+export const DIFF_TONE_DEFAULTS = Object.fromEntries(DIFF_TONE_GROUPS.map(({ group, color }) => [group, color]))
+/** Localized label of one gutter tone; falls back to the constant label. */
+export function diffGroupLabel(group) {
+  const localized = translate(`diffTone.${group}`)
+  if (localized !== `diffTone.${group}`) return localized
+  return DIFF_TONE_GROUPS.find(item => item.group === group)?.label ?? group
+}
+/** The color a gutter tone falls back to when the user has not set one. */
+export function diffColorDefault(group) {
+  return DIFF_TONE_DEFAULTS[group] ?? DEFAULT_DIFF_COLOR
+}
+/** Resolve one gutter tone's effective color: the user's customization, else the default. */
+export function diffColorOf(settings, group) {
+  return settings?.diffColors?.[group] ?? diffColorDefault(group)
+}
+/** CSS custom properties for the gutter tones, spread onto the editor host so its marks inherit them. */
+export function diffColorVars(settings) {
+  const vars = {}
+  for (const { group } of DIFF_TONE_GROUPS) vars[`--dsh-ws-diff-${group}`] = diffColorOf(settings, group)
+  return vars
+}
+
 /* Extension -> color group; mirrors EXTENSION_LANGUAGES so badge and editor highlighting agree. */
 export const FILE_GROUP_BY_EXTENSION = Object.freeze({
   ts: 'typescript', tsx: 'typescript', mts: 'typescript', cts: 'typescript',
