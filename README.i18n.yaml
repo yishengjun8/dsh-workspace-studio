@@ -1,6 +1,9 @@
 # Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
-#   pnpm run verify-translation-pairing --write deepseek-harness-plugin/dsh-workspace-studio/README.md
-README.md: b28c90275da0f095f388136019876f1e3cf4c6fe
-README.en.md: f026e82387976003581dc078946e07056ae34b01
+#   git hash-object README.md README.en.md
+# This repository pairs the Chinese README.md with README.en.md instead of the harness's
+# README.md + README.zh.md convention, so `pnpm run verify-translation-pairing --write`
+# cannot record it; the hashes below come from git hash-object.
+README.md: 28b176c6425e621fa8e566bbdd003d7c5843c2db
+README.en.md: 4fc0758bd69d2493226b1fe2b6ae94835f66e2b2
