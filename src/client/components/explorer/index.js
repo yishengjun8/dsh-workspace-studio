@@ -1,6 +1,6 @@
 import { createElement as h, Fragment, useRef, useState, useEffect, useLayoutEffect, useMemo, useCallback, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
-import { CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MAX, CONFLICT_FONT_SIZE_MIN, CONTEXT_MENU_WIDTH, DISK_STATE_CLEAN, DISK_STATE_CONFLICT, DISK_STATE_GONE, DISK_STATE_STALE, ENCODING_FALLBACK } from '../../constants.js'
+import { CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MAX, CONFLICT_FONT_SIZE_MIN, CONTEXT_MENU_WIDTH, DIFF_RULER_WIDTH_DEFAULT, DIFF_RULER_WIDTH_MAX, DIFF_RULER_WIDTH_MIN, DISK_STATE_CLEAN, DISK_STATE_CONFLICT, DISK_STATE_GONE, DISK_STATE_STALE, ENCODING_FALLBACK } from '../../constants.js'
 import { translate } from '../../locale/index.js'
 import { clamp, diffColorVars, fileLabel, formatBytes, readOnlyReason, vcsStatusColorVars } from '../../format.js'
 import { copyText, defaultEntryName, entryNameError, entryPath, joinAbsolutePath, parentPath, pathBaseName, rewriteDirectoryMap, rewritePathMap, rewritePathSet, rewriteRelativePath, selectedLevelPath } from '../../paths.js'
@@ -514,6 +514,11 @@ export function WorkspaceExplorer({
     return { exists: false, newFile: false, reason: reason ?? 'no-base', baseLabel: diffBaseLabel }
   })()
   const [diffSummary, setDiffSummary] = useState()
+  /* Scrollbar change ruler: the whole preview column's vertical bars share one width, and the marks
+     themselves are written by the editor onto its own scroller (the same mark list as the gutter).
+     Off = none of the ruler rules apply, so every bar keeps the harness's 8px look. */
+  const diffRulerOn = settings.diffRuler !== false
+  const diffRulerWidth = clamp(settings.diffRulerWidth ?? DIFF_RULER_WIDTH_DEFAULT, DIFF_RULER_WIDTH_MIN, DIFF_RULER_WIDTH_MAX)
   /* Only adopt a genuinely different report: the editor re-reports on every recompute, and an
      identical payload must not re-render the whole explorer. */
   const handleDiffSummary = useCallback((next) => {
@@ -1896,7 +1901,15 @@ export function WorkspaceExplorer({
       onDraft: value => { setSessionRenameDraft(value); setSessionRenameError(undefined) },
     }) : null,
     treePortalTarget ? createPortal(treeSection, treePortalTarget) : null,
-    h('section', { 'data-drop-active': dropActive || undefined, className: 'dsh-ws-preview', ref: previewSectionRef, style: diffColorVars(settings) },
+    h('section', {
+      'data-diff-ruler': diffRulerOn ? 'on' : 'off',
+      'data-diff-ruler-span': settings.diffRulerSpan === 'full' ? 'full' : 'inset',
+      'data-diff-ruler-thumb': settings.diffRulerThumb === 'full' ? 'full' : 'slim',
+      'data-drop-active': dropActive || undefined,
+      className: 'dsh-ws-preview',
+      ref: previewSectionRef,
+      style: { ...diffColorVars(settings), '--dsh-ws-vscroll-w': `${diffRulerWidth}px` },
+    },
       tabs.length ? h(PreviewTabs, { activePath, containerRef: previewTabsRef, draggingPath, dropIndex, onChoose: activateTab, onClose: closeTab, onContextMenu: (path, x, y) => setTabContextMenu({ path, x, y }), onDragEnd: () => { setDraggingPath(null); setDropIndex(null) }, onDragLeave: handleTabsDragLeave, onDragOver: updateDropIndex, onDragStart: (path, event) => { setDraggingPath(path); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', path) }, onDrop: handleTabsDrop, onMouseEnter: handleTabsMouseEnter, onMouseLeave: handleTabsMouseLeave, onPromote: promoteTab, onReload: reloadTab, onScroll: handleTabsScroll, onUnpin: unpinTab, tabs }) : null,
       tabs.length ? h('div', { className: 'dsh-ws-preview-scrollbar', onMouseEnter: handleScrollbarMouseEnter, onMouseLeave: handleScrollbarMouseLeave, onPointerCancel: handleScrollbarPointerEnd, onPointerDown: handleScrollbarPointerDown, onPointerMove: handleScrollbarPointerMove, onPointerUp: handleScrollbarPointerEnd, ref: previewScrollbarRef }, h('div', { className: 'dsh-ws-preview-scrollbar-thumb', ref: previewScrollThumbRef })) : null,
       tabContextMenu ? h(TabContextMenu, { menuRef: tabMenuRef, onCloseOthers: () => { setTabContextMenu(undefined); closeOtherTabs(tabContextMenu.path) }, onTogglePin: () => { setTabContextMenu(undefined); if (tabMenuTarget?.pinned) unpinTab(tabContextMenu.path); else pinTab(tabContextMenu.path) }, onOpenInNewWindow: openTabInNewWindow, canOpenInNewWindow, canReload: tabMenuTarget !== undefined && !isSyntheticTab(tabMenuTarget) && !tabMenuTarget.external && tabMenuTarget.dirty !== true && tabMenuTarget.saving !== true, onReload: () => { setTabContextMenu(undefined); reloadTab(tabContextMenu.path) }, pinned: Boolean(tabMenuTarget?.pinned), reloadTitle: tabMenuTarget?.dirty === true ? translate('tab.reloadBlocked') : translate('tab.reload.title'), x: tabContextMenu.x, y: tabContextMenu.y }) : null,

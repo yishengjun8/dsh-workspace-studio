@@ -1,6 +1,6 @@
 import { createElement as h, Fragment, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
-import { AUTO_SYNC_MODE_AUTO, AUTO_SYNC_MODE_WATCH_ONLY, clampMountBulge, clampSpinSpeed, CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MAX, CONFLICT_FONT_SIZE_MIN, EDIT_LINES_DEFAULT, EDIT_LINES_MAX, EDIT_LINES_MIN, EDIT_LINES_STEP, MINDMAP_END_COLOR_DEFAULT, MINDMAP_HEAD_COLOR_DEFAULT, MINDMAP_HOVER_COLOR_FALLBACK, MINDMAP_HOVER_THEME_VAR, MINDMAP_MOUNT_BULGE_DEFAULT_X, MINDMAP_MOUNT_BULGE_MAX_X, MINDMAP_MOUNT_BULGE_MIN_X, MINDMAP_SELECTED_COLOR_FALLBACK, MINDMAP_SELECTED_THEME_VAR, MINDMAP_SPIN_SPEED_DEFAULT_X, MINDMAP_SPIN_SPEED_MAX_X, MINDMAP_SPIN_SPEED_MIN_X, MINDMAP_SUMMARY_DEFAULT_LENGTH, MINDMAP_SUMMARY_LENGTH_STEP, MINDMAP_SUMMARY_MAX_LENGTH, MINDMAP_SUMMARY_MIN_LENGTH, MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH, MINDMAP_SUMMARY_SESSION_LENGTH_STEP, MINDMAP_SUMMARY_SESSION_MAX_LENGTH, MINDMAP_SUMMARY_SESSION_MIN_LENGTH, mindmapEffectiveColor, PREVIEW_RIGHT_DEFAULT, ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MAX, ROW_HEIGHT_MIN, SEARCH_MATCH_EXPAND_DEFAULT, THINK_LINES_DEFAULT, THINK_LINES_MAX, THINK_LINES_MIN, THINK_LINES_STEP, WATCH_FILES_DEFAULT } from '../constants.js'
+import { AUTO_SYNC_MODE_AUTO, AUTO_SYNC_MODE_WATCH_ONLY, clampMountBulge, clampSpinSpeed, CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MAX, CONFLICT_FONT_SIZE_MIN, DIFF_RULER_WIDTH_DEFAULT, DIFF_RULER_WIDTH_MAX, DIFF_RULER_WIDTH_MIN, EDIT_LINES_DEFAULT, EDIT_LINES_MAX, EDIT_LINES_MIN, EDIT_LINES_STEP, MINDMAP_END_COLOR_DEFAULT, MINDMAP_HEAD_COLOR_DEFAULT, MINDMAP_HOVER_COLOR_FALLBACK, MINDMAP_HOVER_THEME_VAR, MINDMAP_MOUNT_BULGE_DEFAULT_X, MINDMAP_MOUNT_BULGE_MAX_X, MINDMAP_MOUNT_BULGE_MIN_X, MINDMAP_SELECTED_COLOR_FALLBACK, MINDMAP_SELECTED_THEME_VAR, MINDMAP_SPIN_SPEED_DEFAULT_X, MINDMAP_SPIN_SPEED_MAX_X, MINDMAP_SPIN_SPEED_MIN_X, MINDMAP_SUMMARY_DEFAULT_LENGTH, MINDMAP_SUMMARY_LENGTH_STEP, MINDMAP_SUMMARY_MAX_LENGTH, MINDMAP_SUMMARY_MIN_LENGTH, MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH, MINDMAP_SUMMARY_SESSION_LENGTH_STEP, MINDMAP_SUMMARY_SESSION_MAX_LENGTH, MINDMAP_SUMMARY_SESSION_MIN_LENGTH, mindmapEffectiveColor, PREVIEW_RIGHT_DEFAULT, ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MAX, ROW_HEIGHT_MIN, SEARCH_MATCH_EXPAND_DEFAULT, THINK_LINES_DEFAULT, THINK_LINES_MAX, THINK_LINES_MIN, THINK_LINES_STEP, WATCH_FILES_DEFAULT } from '../constants.js'
 import { translate } from '../locale/index.js'
 import { clamp, DIFF_TONE_GROUPS, diffColorOf, diffGroupLabel, FILE_COLOR_GROUPS, fileColorGroupLabel, fileColorOf, HIGHLIGHT_PRESETS, highlightPresetLabel, highlightPresetOf, VCS_STATUS_GROUPS, vcsStatusColorOf, vcsStatusGroupLabel } from '../format.js'
 import { checkUpdate, downloadUpdate, fetchMindmapModels } from '../api.js'
@@ -153,6 +153,7 @@ export function ExplorerSettingsSection({ settingsStore }) {
   /* Same render-side normalization for the edit-row line count (out-of-range values must not mislead the slider/reset). */
   const editLinesValue = clamp(settings.editLines ?? EDIT_LINES_DEFAULT, EDIT_LINES_MIN, EDIT_LINES_MAX)
   const rowHeight = clamp(settings.rowHeight ?? ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MIN, ROW_HEIGHT_MAX)
+  const diffRulerWidth = stepAligned(settings.diffRulerWidth ?? DIFF_RULER_WIDTH_DEFAULT, DIFF_RULER_WIDTH_MIN, DIFF_RULER_WIDTH_MAX, 2)
   const conflictFontSize = clamp(settings.conflictFontSize ?? CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MIN, CONFLICT_FONT_SIZE_MAX)
   const mindmapSpinSpeed = clampSpinSpeed(settings.mindmapSpinSpeed)
   /* Effective mind-map highlight colors: user hex or theme default resolved to a concrete hex (color input), plus whether customized (drives each reset button's disabled state). */
@@ -487,6 +488,34 @@ export function ExplorerSettingsSection({ settingsStore }) {
           type: 'button',
         }, translate('settings.resetAllColors'))),
       vcsToggleRow('settings.diffLineTint', 'dsh-ws-diff-line-tint', settings.diffLineTint !== false, value => settingsStore.actions.setDiffLineTint(value), settings.vcsEnabled === false || vcsHostEnabled === false),
+      /* Scrollbar change ruler: the widened track plus its three geometry choices. Everything is
+         display-only, so the sub-rows simply grey out while the feature itself is off. */
+      vcsToggleRow('settings.diffRuler', 'dsh-ws-diff-ruler', settings.diffRuler !== false, value => settingsStore.actions.setDiffRuler(value), settings.vcsEnabled === false || vcsHostEnabled === false),
+      h('div', { className: 'dsh-ws-settings-row' },
+        h('label', { className: 'dsh-ws-settings-label', htmlFor: 'dsh-ws-diff-ruler-width' }, translate('settings.diffRulerWidth')),
+        h('input', {
+          'aria-label': translate('settings.diffRulerWidth'),
+          className: 'dsh-ws-settings-slider',
+          disabled: settings.diffRuler === false || undefined,
+          id: 'dsh-ws-diff-ruler-width',
+          max: DIFF_RULER_WIDTH_MAX,
+          min: DIFF_RULER_WIDTH_MIN,
+          onChange: e => settingsStore.actions.setDiffRulerWidth(Number(e.target.value)),
+          step: 2,
+          type: 'range',
+          value: diffRulerWidth,
+        }),
+        h('span', { className: 'dsh-ws-settings-value' }, `${diffRulerWidth}px`),
+        h('button', {
+          className: 'dsh-ws-text-button',
+          disabled: diffRulerWidth === DIFF_RULER_WIDTH_DEFAULT || undefined,
+          onClick: () => settingsStore.actions.setDiffRulerWidth(DIFF_RULER_WIDTH_DEFAULT),
+          title: translate('settings.diffRulerWidth.reset.title'),
+          type: 'button',
+        }, translate('settings.resetDefault'))),
+      vcsToggleRow('settings.diffRulerSpan', 'dsh-ws-diff-ruler-span', settings.diffRulerSpan === 'full', value => settingsStore.actions.setDiffRulerSpan(value ? 'full' : 'inset'), settings.diffRuler === false || settings.vcsEnabled === false || vcsHostEnabled === false),
+      vcsToggleRow('settings.diffRulerThumb', 'dsh-ws-diff-ruler-thumb', settings.diffRulerThumb === 'full', value => settingsStore.actions.setDiffRulerThumb(value ? 'full' : 'slim'), settings.diffRuler === false || settings.vcsEnabled === false || vcsHostEnabled === false),
+      h('div', { className: 'dsh-ws-settings-hint' }, translate('settings.diffRuler.hint')),
       h('div', { className: 'dsh-ws-settings-hint' }, translate('settings.diff.hint')),
     ),
     h('div', { className: 'dsh-ws-explorer-divider' }),

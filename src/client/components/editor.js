@@ -9,7 +9,7 @@ import { localeIsZh, translate, useLocaleText } from '../locale/index.js'
 import { languageFor, tokenHighlight } from '../languages.js'
 import { HIGHLIGHT_PRESET_DEFAULT, lineSeparator } from '../format.js'
 import { DIFF_GUTTER_DEBOUNCE_MS, DIFF_GUTTER_MAX_LINES } from '../constants.js'
-import { diffMarks } from '../diff-gutter.js'
+import { diffMarks, rulerLayers } from '../diff-gutter.js'
 
 /* CodeMirror search/goto-line panel phrases (EditorState.phrases keys; keep the $ placeholders); only installed for the Chinese surface, since English is CodeMirror's default. */
 export const CM_PHRASES_ZH = Object.freeze({
@@ -182,6 +182,21 @@ const diffDecorationsField = StateField.define({
 })
 const emptyDiffDecorations = () => ({ gutter: RangeSet.empty, lines: Decoration.none })
 
+/** Paint (or clear) the scrollbar change ruler: two CSS gradients the scroller's track reads through
+ *  custom properties, so the marks live UNDER the native slider and no scroll behaviour changes.
+ *  Passing null clears both, which is what every "no base to compare against" path wants. */
+function applyRuler(view, marks, totalLines) {
+  const style = view.scrollDOM.style
+  const layers = marks === null || marks === undefined ? null : rulerLayers(marks, totalLines)
+  for (const [property, value] of [
+    ['--dsh-ws-ruler-bands', layers?.bands ?? null],
+    ['--dsh-ws-ruler-ticks', layers?.ticks ?? null],
+  ]) {
+    if (typeof value === 'string' && value !== '') style.setProperty(property, value)
+    else style.removeProperty(property)
+  }
+}
+
 /** Gutter markers plus (optionally) the line wash of one mark list; line numbers are 1-based. */
 function diffDecorationSets(state, marks, tint) {
   const gutterBuilder = new RangeSetBuilder()
@@ -312,12 +327,14 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
        rather than claiming "not computed" — the status strip already explains a missing repository. */
     if (base === null || base === undefined) {
       view.dispatch({ effects: setDiffDecorations.of(emptyDiffDecorations()) })
+      applyRuler(view, null, 0)
       diffSummaryRef.current?.({ status: 'pending', baseLabel: '' })
       return
     }
     const lines = view.state.doc.lines
     if (lines > DIFF_GUTTER_MAX_LINES) {
       view.dispatch({ effects: setDiffDecorations.of(emptyDiffDecorations()) })
+      applyRuler(view, null, 0)
       diffSummaryRef.current?.({ status: 'unavailable', reason: 'too-large', baseLabel: base?.baseLabel ?? '' })
       return
     }
@@ -338,6 +355,9 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
         ? diffDecorationSets(view.state, outcome.marks, diffTintRef.current === true)
         : emptyDiffDecorations()),
     })
+    /* The ruler rides the SAME marks (one diff per recompute) but ignores the line-tint setting:
+       it is a map of the file, not another way to wash the rows. */
+    applyRuler(view, outcome.status === 'ok' ? outcome.marks : null, lines)
     diffSummaryRef.current?.(outcome.status === 'ok'
       ? { status: 'ok', summary: outcome.summary, baseLabel: base?.baseLabel ?? '', newFile: base?.newFile === true }
       : { status: 'unavailable', reason: outcome.reason, baseLabel: base?.baseLabel ?? '' })

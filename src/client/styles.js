@@ -99,6 +99,28 @@ html[data-platform='darwin'][data-fullscreen]{--dsh-frame-overlay-top:20px}
 .dsh-ws-editor-host .dsh-ws-diff-line-modified{background:color-mix(in srgb,var(--dsh-ws-diff-modified,#1a63d8) 10%,transparent)}
 .dsh-ws-editor-host .dsh-ws-diff-line-deleted-top{box-shadow:inset 0 2px 0 -0.5px color-mix(in srgb,var(--dsh-ws-diff-deleted,#d92f24) 60%,transparent)}
 .dsh-ws-editor-host .dsh-ws-diff-line-deleted-bottom{box-shadow:inset 0 -2px 0 -0.5px color-mix(in srgb,var(--dsh-ws-diff-deleted,#d92f24) 60%,transparent)}
+/* Scrollbar change ruler (VS Code's overview ruler): the preview column's VERTICAL scrollbars are
+   widened and the editor's track paints the change map UNDER the native slider — the marks are two
+   gradients the editor writes as custom properties on the scroller element (view.scrollDOM), so
+   dragging, track paging, keyboard, trackpad and the platform's auto-hide all stay native. Width and
+   mark span come from Workspace Settings → File Browsing; with the feature off none of these rules
+   apply and every bar keeps the harness's 8px look. Horizontal bars are deliberately left alone (a
+   thicker one would only eat code width). The track's "none" fallback is what a file without a
+   computable base shows. */
+/* The preview column's bars take the file tree's elevated-surface binding (l2) instead of the body's
+   l1: in the light theme the two tokens are the same colour, in the dark theme l2 sits one neutral
+   step brighter, which is what the tree has always shown. */
+.dsh-ws-preview{--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2)}
+.dsh-ws-preview[data-diff-ruler='on']{--dsh-ws-ruler-w:calc(var(--dsh-ws-vscroll-w,14px) - 6px);--dsh-scrollbar-width:var(--dsh-ws-vscroll-w,14px)}
+.dsh-ws-preview[data-diff-ruler='on'][data-diff-ruler-span='full']{--dsh-ws-ruler-w:var(--dsh-ws-vscroll-w,14px)}
+.dsh-ws-preview[data-diff-ruler='on'] ::-webkit-scrollbar:vertical{width:var(--dsh-ws-vscroll-w,14px)}
+/* The slider must not hide the marks it passes over: it keeps its exact size but goes translucent, so
+   the track colour shows through, and the darker hover token pays the alpha back — the bar never
+   reads fainter than the default one while idle, and it firms up to near-solid on hover. */
+.dsh-ws-preview[data-diff-ruler='on'] ::-webkit-scrollbar-thumb:vertical{background-color:color-mix(in srgb,var(--dsh-scrollbar-thumb-hover) 65%,transparent);background-clip:padding-box;border:3px solid transparent;border-radius:7px}
+.dsh-ws-preview[data-diff-ruler='on'] ::-webkit-scrollbar-thumb:vertical:hover{background-color:color-mix(in srgb,var(--dsh-scrollbar-thumb-hover) 90%,transparent)}
+.dsh-ws-preview[data-diff-ruler='on'][data-diff-ruler-thumb='full'] ::-webkit-scrollbar-thumb:vertical{border-width:0}
+.dsh-ws-editor-host .cm-scroller::-webkit-scrollbar-track:vertical{background-image:var(--dsh-ws-ruler-ticks,none),var(--dsh-ws-ruler-bands,none);background-repeat:no-repeat;background-position:center top;background-size:var(--dsh-ws-ruler-w,8px) 100%,var(--dsh-ws-ruler-w,8px) 100%}
 /* Fold arrows: one vector chevron per foldable line, replacing CodeMirror's ⌄ / › text glyphs
    (font-dependent metrics, no rotation, no hover affordance). */
 .dsh-ws-editor-host .cm-foldGutter{width:15px}

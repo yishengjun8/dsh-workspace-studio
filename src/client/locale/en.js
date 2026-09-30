@@ -394,6 +394,14 @@ export const en = {
   'settings.diffColor.reset.title': 'Reset {label} to its default color',
   'settings.diffLineTint': 'Line background',
   'settings.diff.hint': 'The editor\'s change marks: a bar right of the line numbers means added / modified, a triangle means lines were deleted here; the line background is on by default (turn it off above). Marks compare against the editor\'s live content, unsaved edits included.',
+  /* Scrollbar change ruler: the preview column's vertical scrollbars are widened and the editor's
+     track paints the same change map under the native slider. */
+  'settings.diffRuler': 'Change ruler on scrollbar',
+  'settings.diffRulerWidth': 'Scrollbar width',
+  'settings.diffRulerWidth.reset.title': 'Reset to the default width',
+  'settings.diffRulerSpan': 'Marks span the track',
+  'settings.diffRulerThumb': 'Full-width slider',
+  'settings.diffRuler.hint': 'The preview column\'s vertical scrollbars are widened, and the editor\'s track marks where the document was added to / changed / deleted from, mapped over the whole file like VS Code\'s overview ruler. The marks are painted on the track background, so dragging, track paging, keyboard and trackpad scrolling are untouched; the slider is translucent (near-solid while hovered) and does not hide the marks underneath it. Only the source editor draws marks — rendered views are merely widened. Turn it off to get the default 8px bar back.',
   'settings.group.vcs': 'Version Control',
   'settings.vcs.enabled': 'Show version control status',
   'settings.vcs.ignored': 'Dim ignored entries',

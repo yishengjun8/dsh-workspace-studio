@@ -64,6 +64,21 @@ export const DIFF_GUTTER_MAX_LINES = 20000
 export const DIFF_GUTTER_DEBOUNCE_MS = 250
 /* Change-gutter line tint: rows carry the added/modified wash by default (user-tunable). */
 export const DIFF_TINT_DEFAULT = true
+/* Scrollbar change ruler: the preview column's vertical scrollbar track is widened and paints the
+   buffer's change map UNDER the native slider (no custom scrollbar, so dragging, track paging,
+   keyboard and trackpad scrolling stay native). Width is the track's layout width in px, mirrored
+   into the harness's own --dsh-scrollbar-width so nested surfaces align. */
+export const DIFF_RULER_DEFAULT = true
+export const DIFF_RULER_WIDTH_DEFAULT = 14
+export const DIFF_RULER_WIDTH_MIN = 10
+export const DIFF_RULER_WIDTH_MAX = 18
+/* 'inset' keeps a 3px margin either side so the marks read as one column inside the wider track. */
+export const DIFF_RULER_SPAN_DEFAULT = 'inset'
+/* 'slim' keeps today's 8px slider look centred in the wider track; 'full' fills it. */
+export const DIFF_RULER_THUMB_DEFAULT = 'slim'
+/* Cap on the ruler gradient's colour stops: a pathological buffer (thousands of alternating runs)
+   must not build a megabyte-long inline style; past the cap consecutive runs merge into one band. */
+export const DIFF_RULER_MAX_RUNS = 200
 /* Per-tab disk state, RUNTIME ONLY (not in clonePreviewTab's whitelist — see
    preview-tabs.js, so it never persists or joins previewSnapshotFingerprint):
    `clean` = shown content matches disk; `stale` = disk moved, tab is clean;

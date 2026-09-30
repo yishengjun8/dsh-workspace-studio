@@ -394,6 +394,14 @@ export const zh = {
   'settings.diffColor.reset.title': '恢复 {label} 的默认颜色',
   'settings.diffLineTint': '行底色',
   'settings.diff.hint': '编辑器左侧的差异色标：行号右侧的竖条表示新增 / 修改，三角表示此处删除了若干行；行底色默认开启（可在上方关闭）。色标比对的是编辑器里的实时内容（含未保存编辑）。',
+  /* Scrollbar change ruler: the preview column's vertical scrollbars are widened and the editor's
+     track paints the same change map under the native slider. */
+  'settings.diffRuler': '滚动条变更刻度',
+  'settings.diffRulerWidth': '滚动条宽度',
+  'settings.diffRulerWidth.reset.title': '恢复默认宽度',
+  'settings.diffRulerSpan': '刻度铺满轨道',
+  'settings.diffRulerThumb': '滑块满宽',
+  'settings.diffRuler.hint': '预览列右侧的竖向滚动条加宽，并在轨道上按整篇文档的比例标出新增 / 修改 / 删除的位置（与 VS Code 的概览标尺同理）。刻度画在轨道背景上，所以拖动、点轨道翻页、键盘与触控板滚动都不受影响；滑块半透明（鼠标悬停时变实），不会遮住其下的刻度。仅源码编辑器视图有刻度，渲染视图只加宽。关闭后滚动条恢复默认 8px。',
   'settings.group.vcs': '版本控制设置',
   'settings.vcs.enabled': '显示版本控制状态',
   'settings.vcs.ignored': '弱化显示忽略项',

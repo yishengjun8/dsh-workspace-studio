@@ -1,5 +1,5 @@
 import { defineStore } from '@deepseek-ai/dsh-client-store'
-import { AUTO_SYNC_MODE_AUTO, AUTO_SYNC_MODE_WATCH_ONLY, clampMountBulge, CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MAX, CONFLICT_FONT_SIZE_MIN, cssColorToHex, DIFF_TINT_DEFAULT, EDIT_LINES_DEFAULT, EDIT_LINES_MAX, EDIT_LINES_MIN, EXPLORER_LAYOUT_STORE_KEY, EXPLORER_SETTINGS_STORE_KEY, MINDMAP_END_COLOR_DEFAULT, MINDMAP_HEAD_COLOR_DEFAULT, MINDMAP_HOVER_COLOR_FALLBACK, MINDMAP_HOVER_THEME_VAR, MINDMAP_MOUNT_BULGE_DEFAULT_X, MINDMAP_SELECTED_COLOR_FALLBACK, MINDMAP_SELECTED_THEME_VAR, MINDMAP_SPIN_SPEED_DEFAULT_X, MINDMAP_SPIN_SPEED_MAX_X, MINDMAP_SPIN_SPEED_MIN_X, MINDMAP_SUMMARY_DEFAULT_LENGTH, MINDMAP_SUMMARY_LENGTH_STEP, MINDMAP_SUMMARY_MAX_LENGTH, MINDMAP_SUMMARY_MIN_LENGTH, MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH, MINDMAP_SUMMARY_SESSION_LENGTH_STEP, MINDMAP_SUMMARY_SESSION_MAX_LENGTH, MINDMAP_SUMMARY_SESSION_MIN_LENGTH, mindmapEffectiveColor, PREVIEW_DEFAULT, PREVIEW_MAX, PREVIEW_MIN, PREVIEW_RIGHT_DEFAULT, PREVIEW_SESSION_STORE_KEY, ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MAX, ROW_HEIGHT_MIN, SEARCH_MATCH_EXPAND_DEFAULT, SIDEBAR_DEFAULT, SIDEBAR_MAX_FALLBACK, SIDEBAR_MIN, THINK_LINES_DEFAULT, THINK_LINES_MAX, THINK_LINES_MIN, TREE_DEFAULT, TREE_MAX, TREE_MIN, VCS_HIDE_METADATA_DEFAULT, WATCH_FILES_DEFAULT } from './constants.js'
+import { AUTO_SYNC_MODE_AUTO, AUTO_SYNC_MODE_WATCH_ONLY, clampMountBulge, CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MAX, CONFLICT_FONT_SIZE_MIN, cssColorToHex, DIFF_RULER_DEFAULT, DIFF_RULER_SPAN_DEFAULT, DIFF_RULER_THUMB_DEFAULT, DIFF_RULER_WIDTH_DEFAULT, DIFF_RULER_WIDTH_MAX, DIFF_RULER_WIDTH_MIN, DIFF_TINT_DEFAULT, EDIT_LINES_DEFAULT, EDIT_LINES_MAX, EDIT_LINES_MIN, EXPLORER_LAYOUT_STORE_KEY, EXPLORER_SETTINGS_STORE_KEY, MINDMAP_END_COLOR_DEFAULT, MINDMAP_HEAD_COLOR_DEFAULT, MINDMAP_HOVER_COLOR_FALLBACK, MINDMAP_HOVER_THEME_VAR, MINDMAP_MOUNT_BULGE_DEFAULT_X, MINDMAP_SELECTED_COLOR_FALLBACK, MINDMAP_SELECTED_THEME_VAR, MINDMAP_SPIN_SPEED_DEFAULT_X, MINDMAP_SPIN_SPEED_MAX_X, MINDMAP_SPIN_SPEED_MIN_X, MINDMAP_SUMMARY_DEFAULT_LENGTH, MINDMAP_SUMMARY_LENGTH_STEP, MINDMAP_SUMMARY_MAX_LENGTH, MINDMAP_SUMMARY_MIN_LENGTH, MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH, MINDMAP_SUMMARY_SESSION_LENGTH_STEP, MINDMAP_SUMMARY_SESSION_MAX_LENGTH, MINDMAP_SUMMARY_SESSION_MIN_LENGTH, mindmapEffectiveColor, PREVIEW_DEFAULT, PREVIEW_MAX, PREVIEW_MIN, PREVIEW_RIGHT_DEFAULT, PREVIEW_SESSION_STORE_KEY, ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MAX, ROW_HEIGHT_MIN, SEARCH_MATCH_EXPAND_DEFAULT, SIDEBAR_DEFAULT, SIDEBAR_MAX_FALLBACK, SIDEBAR_MIN, THINK_LINES_DEFAULT, THINK_LINES_MAX, THINK_LINES_MIN, TREE_DEFAULT, TREE_MAX, TREE_MIN, VCS_HIDE_METADATA_DEFAULT, WATCH_FILES_DEFAULT } from './constants.js'
 import { clamp, diffColorDefault, fileColorDefault, highlightPresetDefaultFor, vcsStatusColorDefault } from './format.js'
 import { normalizePreviewSession, prunePreviewSessions } from './preview-tabs.js'
 
@@ -115,6 +115,12 @@ export function createExplorerSettingsStore() {
       /* Editor change gutter: its own tone palette (defaults green / blue / red) plus the line wash. */
       diffColors: {},
       diffLineTint: DIFF_TINT_DEFAULT,
+      /* Scrollbar change ruler: the widened track and its mark geometry. Display-only, so an
+         out-of-range persisted value is snapped back on read instead of breaking the bar. */
+      diffRuler: DIFF_RULER_DEFAULT,
+      diffRulerWidth: DIFF_RULER_WIDTH_DEFAULT,
+      diffRulerSpan: DIFF_RULER_SPAN_DEFAULT,
+      diffRulerThumb: DIFF_RULER_THUMB_DEFAULT,
     }),
     persist: EXPLORER_SETTINGS_STORE_KEY,
     actions: {
@@ -224,6 +230,18 @@ export function createExplorerSettingsStore() {
       resetDiffColor: (draft, group) => { if (draft.diffColors !== undefined) delete draft.diffColors[group] },
       resetDiffColors: (draft) => { draft.diffColors = {} },
       setDiffLineTint: (draft, value) => { draft.diffLineTint = Boolean(value) },
+      setDiffRuler: (draft, value) => { draft.diffRuler = Boolean(value) },
+      /* Snap onto the slider's 2px grid (10 / 12 / 14 / 16 / 18) so a stale or hand-edited value
+         never leaves the thumb between steps. */
+      setDiffRulerWidth: (draft, value) => {
+        const number = Number(value)
+        const bounded = Number.isFinite(number)
+          ? Math.min(DIFF_RULER_WIDTH_MAX, Math.max(DIFF_RULER_WIDTH_MIN, number))
+          : DIFF_RULER_WIDTH_DEFAULT
+        draft.diffRulerWidth = DIFF_RULER_WIDTH_MIN + Math.round((bounded - DIFF_RULER_WIDTH_MIN) / 2) * 2
+      },
+      setDiffRulerSpan: (draft, value) => { draft.diffRulerSpan = value === 'full' ? 'full' : 'inset' },
+      setDiffRulerThumb: (draft, value) => { draft.diffRulerThumb = value === 'full' ? 'full' : 'slim' },
     },
   })
 }
