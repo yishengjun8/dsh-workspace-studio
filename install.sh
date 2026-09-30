@@ -10,6 +10,10 @@
 #             install until the package is allowlisted, and the script then
 #             parses pnpm's printed key, adds it to the profile's
 #             pnpm-workspace.yaml, and retries the add.
+#   profile   default 'web'. 'desktop' is the Electron application's reserved
+#             profile: it only works when the 'dsh' on PATH is the Desktop
+#             command (Desktop app -> 'Manage dsh Command...' -> Install),
+#             because a registry installation refuses that profile name.
 # Env:   PROFILE   default profile when no positional argument is supplied
 #        GIT_SPEC  git dependency spec to use with --git (default: this repo's origin)
 #        DSH_BIN   optional dsh executable path/name without extra arguments
@@ -29,6 +33,13 @@ if [[ ${#POSITIONAL[@]} -gt 0 ]]; then
   PROFILE="${POSITIONAL[0]}"
 else
   PROFILE="${PROFILE:-web}"
+fi
+# The Desktop profile is owned by the Electron application: only its own bundled CLI
+# carries the reserved-profile grant, so a registry dsh refuses it. Detect that case
+# and point at the two supported routes instead of leaking the harness wording.
+IS_DESKTOP_PROFILE=0
+if [[ "$(printf '%s' "$PROFILE" | tr '[:upper:]' '[:lower:]')" == "desktop" ]]; then
+  IS_DESKTOP_PROFILE=1
 fi
 BUNDLE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # The bundle may live one level below the harness root (../) or two (../../);
@@ -56,6 +67,23 @@ elif command -v pnpm >/dev/null 2>&1 && [[ -f "$HARNESS_ROOT/package.json" ]]; t
 else
   echo "error: cannot find 'dsh'; install it on PATH or set DSH_BIN" >&2
   exit 1
+fi
+
+# Pre-flight the reserved profile: a bare 'plugin --profile desktop' performs no
+# package work, and only a CLI without the Desktop grant rejects the name.
+if [[ "$IS_DESKTOP_PROFILE" == 1 ]]; then
+  PROBE_OUTPUT="$("${DSH_COMMAND[@]}" plugin --profile "$PROFILE" 2>&1 || true)"
+  if [[ "$PROBE_OUTPUT" == *"managed exclusively by the Electron"* ]]; then
+    echo "error: the 'dsh' this script found is a registry installation, and profile" >&2
+    echo "       'desktop' is managed exclusively by the DeepSeek Harness desktop app." >&2
+    echo "       Install the bundle one of these ways instead:" >&2
+    echo "         1. Desktop app -> Plugins -> Add plugin, then restart the app" >&2
+    echo "            (sources: github:yishengjun8/dsh-workspace-studio, a pinned" >&2
+    echo "             github:<owner>/<repo>#<commit>, or an absolute local path)" >&2
+    echo "         2. Desktop app -> 'Manage dsh Command...' -> Install, then re-run this" >&2
+    echo "            script so the Desktop command is the 'dsh' on PATH" >&2
+    exit 1
+  fi
 fi
 
 DSH_HOME_RAW="${DSH_HOME:-$HOME/.dsh}"
@@ -144,7 +172,13 @@ if [[ -f "$PROFILE_MANIFEST" ]]; then
 fi
 
 echo
-echo "Installed. Restart the existing DeepSeek Harness Web process, then refresh the page."
+if [[ "$IS_DESKTOP_PROFILE" == 1 ]]; then
+  echo "Installed into the Desktop profile ($PROFILE_DIR)."
+  echo "Quit and reopen the DeepSeek Harness desktop app so its Host composes the profile again;"
+  echo "the Desktop profile is a separate copy, so the Web profile keeps its own installed copy."
+else
+  echo "Installed. Restart the existing DeepSeek Harness Web process, then refresh the page."
+fi
 echo "The script did not start another server and did not run tests."
 echo
 

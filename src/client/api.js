@@ -105,6 +105,18 @@ export function rawFileUrl(workspaceId, path) {
   const query = new URLSearchParams({ workspaceId: String(workspaceId), path })
   return `${API_PREFIX}/raw?${query}`
 }
+/* Absolute form of a same-document API URL, used only by the new-window action.
+   A served Web page is same-origin with its Host, so the document-relative URL stays
+   untouched (and a mounted deployment keeps working). The Desktop shell serves the page
+   from dsh-app://app while the Host listens on a loopback HTTP origin, and its
+   window-open handler routes http(s) to the system browser while denying every other
+   scheme: only there does the href have to be absolute. The transport global is read
+   lazily because the shell sets it before any plugin bundle materializes. */
+export function hostAbsoluteHref(relative) {
+  const origin = globalThis.__DSH_TRANSPORT__?.streamBaseUrl
+  if (typeof origin !== 'string' || origin === '') return relative
+  try { return new URL(relative, origin).href } catch { return relative }
+}
 /* Cheap file-change check for open preview tabs: the Host stats the file and compares mtime/size/hash against the previous snapshot. Returns `changed` plus the new baseline snapshot; null means the file is gone. A null previousSnapshot is sent as an explicit { gone: true } marker so a re-created file reports `changed`. */
 export async function checkFileChange(workspaceId, path, previousSnapshot, signal) {
   const query = new URLSearchParams({ workspaceId: String(workspaceId), path, check: '1' })

@@ -6,7 +6,7 @@ import { clamp, fileLabel, formatBytes, readOnlyReason } from '../../format.js'
 import { copyText, defaultEntryName, entryNameError, entryPath, joinAbsolutePath, parentPath, pathBaseName, rewriteDirectoryMap, rewritePathMap, rewritePathSet, rewriteRelativePath, selectedLevelPath } from '../../paths.js'
 import { ancestorDirectoryPaths, dropIndexFromEvent, entryFromPreviewTab, isMindmapTab, isPlanTab, isReviewTab, isSyntheticTab, isTemporaryTab, isUnpersistedTab, mindmapRootIdOfTab, mindmapTabPath, normalizePreviewSession, openPermanentTab, openPreviewTab, orderPinnedFirst, planAddressOfTab, planTabPath, promoteTemporaryTab, reviewAddressOfTab, reviewTabPath, rewritePreviewTabs, serializePreviewSession } from '../../preview-tabs.js'
 import { IconFolder, IconNewFile, IconNewFolder, IconRefresh, IconSearch } from '../../icons.js'
-import { encodingLabel, fetchEncodings, rawFileUrl, requestFsOperation, revealInExplorer, uploadExternalFile, WorkspaceApiError } from '../../api.js'
+import { encodingLabel, fetchEncodings, hostAbsoluteHref, rawFileUrl, requestFsOperation, revealInExplorer, uploadExternalFile, WorkspaceApiError } from '../../api.js'
 import { hasDraggedFiles, hasNormalFile } from '../../utils.js'
 import { deleteEmergencyDraft, rewriteEmergencyDraftPath } from '../../drafts.js'
 import { invalidateCachedSubtree, rewriteCachedPaths } from '../../file-cache.js'
@@ -1559,13 +1559,13 @@ export function WorkspaceExplorer({
         : activeTab.diskState === DISK_STATE_STALE ? { text: translate('status.fileChanged') }
           : undefined
   const notice = status?.error === true ? status : (diskNotice ?? status)
-  /* "Open in new window" is limited to workspace file tabs the Host can serve as text: mind-map, plan, review, external, image, PDF, and Office tabs have no such content. */
+  /* "Open in new window" is limited to workspace file tabs the Host can serve as text: mind-map, plan, review, external, image, PDF, and Office tabs have no such content. The href is absolutized for a page whose origin is not the Host (the Desktop shell), whose window-open handler only forwards http(s) to the system browser. */
   const canOpenInNewWindow = tabMenuTarget !== undefined && !isSyntheticTab(tabMenuTarget) && !tabMenuTarget.external
     && !isImageName(tabMenuTarget.name) && !isPdfName(tabMenuTarget.name) && !isOfficeName(tabMenuTarget.name)
   const openTabInNewWindow = () => {
     setTabContextMenu(undefined)
     if (!canOpenInNewWindow) return
-    window.open(rawFileUrl(workspace.workspaceId, tabMenuTarget.path), '_blank', 'noopener')
+    window.open(hostAbsoluteHref(rawFileUrl(workspace.workspaceId, tabMenuTarget.path)), '_blank', 'noopener')
   }
   const treeSection = h('section', { className: 'dsh-ws-tree' },
       searchOpen

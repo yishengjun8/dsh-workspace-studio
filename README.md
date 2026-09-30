@@ -137,6 +137,40 @@ https://github.com/yishengjun8/dsh-workspace-studio  # 等价写法
 > allowBuilds 键复制进该 profile 的 `pnpm-workspace.yaml` 后重试（`install.sh --git` 会自动完成这一步）。
 > 当前版本已不含 `prepare` 脚本，无需放行。
 
+### 桌面端（Electron 打包版，Windows / macOS）
+
+桌面端与 Web 端**共用同一套 profile 机制和同一份 Web 前端**（桌面端就是把 Web 应用放进 Electron 壳，
+Host 仍是完整 Web 组合），因此本插件**没有单独的桌面端构建**，也不需要为桌面端改代码。两者的区别只在
+「装到哪个 profile」「页面从哪个源加载」和「谁来重启」：
+
+| 维度 | Web 端 | 桌面端 |
+|---|---|---|
+| profile | `$DSH_HOME/profiles/web` | `$DSH_HOME/profiles/desktop`（名称由桌面端独占） |
+| 安装方式 | `install.sh` / 插件面板 | **只走桌面端「插件」页**（或桌面端自带的 `dsh` 命令） |
+| 生效方式 | 重启 Web 进程 + 刷新页面 | **重启 App**（桌面端无热更，插件变更提示「下次启动生效」） |
+| 页面源 | `http://127.0.0.1:3080` | `dsh-app://app`（Host 固定监听 `127.0.0.1:19387`） |
+
+- **安装**：桌面端「插件」页 →「添加插件」，安装源与 Web 相同（`github:yishengjun8/dsh-workspace-studio`、
+  锁定 commit 的写法、`file:` / 绝对本地路径都可以），装完重启 App。桌面 profile 与 Web profile 是
+  **互相独立的两份安装副本**：在一边「插件更新」只替换那一边的副本，另一边不受影响（两边的自更新都从
+  同一个 GitHub 仓库取包）。
+- `install.sh` 面向 Web profile。`bash ./install.sh desktop` 只在 PATH 上的 `dsh` 是**桌面端自带的命令**
+  时可用（桌面端「管理 dsh 命令…」→ 安装）；registry 版 `dsh` 会拒绝保留 profile，脚本检测到后会直接
+  打印上面两条指引并退出，不会留下半成品。
+- **界面状态按源隔离，数据共享**：localStorage 以页面源为界，所以设置、预览标签、文件树展开、导图视口
+  等界面状态在两端各存一份；而会话、`$DSH_HOME` 配置与 `~/.dsh-plugin/dsh-workspace-studio/`
+  （编辑器草稿、导图文档、更新缓存）是同一份。两端同时开着并编辑同一份导图文档时按最后写入者为准。
+- **「在新窗口打开」**：桌面端窗口只把 `http(s)` 交给系统浏览器、其余 scheme 一律拒绝，因此该菜单项在
+  桌面端打开的是**系统默认浏览器**（插件接口与内置 `/api` 同形，loopback 请求不需要 cookie 也能读 raw）；
+  Web 端行为不变，仍是浏览器新标签页。
+- **起不来怎么办**：若插件让桌面端 Host 启动失败，原生恢复对话框提供「禁用第三方插件，备份 profile patch
+  并重启」；已装好的包文件不会被删除，修好后在「插件」页重新启用即可。
+- **已实测**：官方桌面端 nightly（Electron 44 / Node 24.18.1 / 内置 dsh 0.2.0-rc.2 / pnpm 11.7.0）+
+  从 GitHub 安装的 1.0.20 可正常加载——Host 侧 `/workspace-studio/api/*` 返回本插件的响应，客户端侧在
+  `dsh-app://app` 源下写入了本插件的界面状态（localStorage）。桌面端内置的 dsh 版本由发行版固定：
+  若它与你在用的 Web 端版本不同，先按维护者本地文档里的 harness 耦合点清单复核一次即可——那是版本
+  升级的常规动作，与「桌面端」无关。
+
 ## 🗑️ 卸载
 
 ```sh
@@ -245,4 +279,4 @@ CodeMirror 与语言模块已内联到预构建的普通 JavaScript Client bundl
 
 ## 🔄 兼容性说明
 
-本版本针对提供 `conversation.input.dock` Slot、Session 输入 resolver、会话发送服务、`ctx.sidebarRight.openResource` 与 `ctx.sessions.fork` 的 Harness `0.1.x` checkout 编写。编辑器上下文、聊天文件接管与导图均完全由本 bundle 实现，不要求修改 Harness 源码；上述 seam 都封装在 bundle 内的桥接代码里，未来版本可能只需更新这部分。其他高优先级 profile / home patch 若重新启用 `ui-layout`，会与本插件同时占用根 Slot；请保留本 bundle 对 `ui-layout` 的禁用设置。
+本版本针对提供 `conversation.input.dock` Slot、Session 输入 resolver、会话发送服务、`ctx.sidebarRight.openResource` 与 `ctx.sessions.fork` 的 Harness 编写；**已验证基线为 Harness `0.2.0-rc.2`**（Web 端与官方桌面端 nightly 同为该版本），并要求 shell 提供 `@deepseek-ai/dsh-client-ui-primitives` 平台种子。编辑器上下文、聊天文件接管与导图均完全由本 bundle 实现，不要求修改 Harness 源码；上述 seam 都封装在 bundle 内的桥接代码里，未来版本可能只需更新这部分。其他高优先级 profile / home patch 若重新启用 `ui-layout`，会与本插件同时占用根 Slot；请保留本 bundle 对 `ui-layout` 的禁用设置。本插件对 **Web 端与桌面端（Electron 打包版）双端对等**：任何功能默认两端同时成立、不需要两套产物，两端差异只在 profile、页面源与生效方式（见上文「桌面端」小节）；确有无法对等的能力时，会在这里与「桌面端」小节明确写出降级行为，不做静默失效。

@@ -134,6 +134,24 @@ https://github.com/yishengjun8/dsh-workspace-studio  # equivalent form
 
 > 💡 Only **older commits that still declare an install-time build script** make pnpm ≥ 10 refuse a git dependency and demand an allowance: copy the allowBuilds key pnpm prints into that profile's `pnpm-workspace.yaml` and retry (`install.sh --git` does this automatically). The current version ships no `prepare` script, so no allowance is needed.
 
+### Desktop (packaged Electron app, Windows / macOS)
+
+The Desktop app shares the **same profile mechanism and the same Web frontend** as the Web app (it is the Web application inside an Electron shell, and its Host is the complete Web composition), so this plugin has **no separate Desktop build** and needs no Desktop-specific code. The differences are which profile it installs into, which origin serves the page, and who restarts:
+
+| Aspect | Web | Desktop |
+|---|---|---|
+| Profile | `$DSH_HOME/profiles/web` | `$DSH_HOME/profiles/desktop` (owned exclusively by the Desktop app) |
+| Install | `install.sh` / Plugins panel | **the Desktop app's Plugins page only** (or the Desktop-provided `dsh` command) |
+| Activation | restart the Web process, then refresh | **restart the app** (no hot reload; plugin changes report "takes effect at the next start") |
+| Page origin | `http://127.0.0.1:3080` | `dsh-app://app` (its Host always listens on `127.0.0.1:19387`) |
+
+- **Install**: Desktop → Plugins → Add plugin, with the same sources as Web (`github:yishengjun8/dsh-workspace-studio`, a pinned-commit form, or a `file:` / absolute local path), then restart the app. The Desktop and Web profiles are **two independent installed copies**: the "plugin update" action replaces only the copy it runs from (both update from the same GitHub repository).
+- `install.sh` targets the Web profile. `bash ./install.sh desktop` works only when the `dsh` on PATH is the **Desktop command** (Desktop → "Manage dsh Command…" → Install); a registry `dsh` refuses the reserved profile, and the script then prints exactly those two routes and exits instead of leaving a half-finished install.
+- **UI state is per origin; data is shared**: localStorage is scoped to the page origin, so settings, preview tabs, tree expansion, and mind-map viewport each have their own copy per side, while sessions, `$DSH_HOME` configuration, and `~/.dsh-plugin/dsh-workspace-studio/` (editor drafts, mind-map documents, update cache) are one shared store. Editing the same mind-map document from both sides at once resolves last-write-wins.
+- **"Open in new window"**: the Desktop window hands only `http(s)` to the system browser and denies every other scheme, so that menu item opens the **default browser** there (the plugin's endpoints share the built-in `/api` trust shape, so a loopback request reads raw bytes without a cookie). Web behaviour is unchanged: a new browser tab.
+- **If it will not start**: should the plugin break Desktop Host startup, the native recovery dialog offers "Disable third-party plugins, back up profile patch, and restart"; installed package files are preserved, and the plugin can be re-enabled from the Plugins page once fixed.
+- **Verified**: the official nightly Desktop app (Electron 44 / Node 24.18.1 / bundled dsh 0.2.0-rc.2 / pnpm 11.7.0) loads 1.0.20 installed from GitHub — the Host serves this plugin's `/workspace-studio/api/*` responses, and the client half writes its UI state under the `dsh-app://app` origin (localStorage). The bundled dsh version is fixed by the release: if it differs from the Web version you run, re-check the maintainer's local harness coupling-point list once — that is ordinary version-upgrade work, unrelated to Desktop.
+
 ## 🗑️ Uninstallation
 
 ```sh
@@ -242,4 +260,4 @@ CodeMirror and its language modules are bundled into the prebuilt plain-JavaScri
 
 ## 🔄 Compatibility
 
-This version targets a Harness `0.1.x` checkout that provides the `conversation.input.dock` Slot, the session input resolver, the conversation send service, `ctx.sidebarRight.openResource`, and `ctx.sessions.fork`. The editor context, the chat file-open takeover, and the mind map are implemented entirely by this bundle and do not require modified Harness source; those seams all live in the bundle's bridge code, so a future release may need only that part updated. A higher-priority profile/home patch that re-enables `ui-layout` competes for the root Slot; retain this bundle's `ui-layout` disable entry.
+This version targets a Harness that provides the `conversation.input.dock` Slot, the session input resolver, the conversation send service, `ctx.sidebarRight.openResource`, and `ctx.sessions.fork`; the **verified baseline is Harness `0.2.0-rc.2`** (the same version ships in the Web app and in the official nightly Desktop app), and it requires the shell to provide the `@deepseek-ai/dsh-client-ui-primitives` platform seed. The editor context, the chat file-open takeover, and the mind map are implemented entirely by this bundle and do not require modified Harness source; those seams all live in the bundle's bridge code, so a future release may need only that part updated. A higher-priority profile/home patch that re-enables `ui-layout` competes for the root Slot; retain this bundle's `ui-layout` disable entry. This plugin is **equivalent on Web and on the packaged Desktop app**: every feature is expected to work on both with no second artifact, and the only differences are the profile, the page origin, and how a change takes effect (see the "Desktop" section above); a capability that genuinely cannot be equivalent is documented there with its degraded behaviour rather than failing silently.
