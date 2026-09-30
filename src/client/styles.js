@@ -114,11 +114,19 @@ html[data-platform='darwin'][data-fullscreen]{--dsh-frame-overlay-top:20px}
 .dsh-ws-preview[data-diff-ruler='on']{--dsh-ws-ruler-w:calc(var(--dsh-ws-vscroll-w,14px) - 6px);--dsh-scrollbar-width:var(--dsh-ws-vscroll-w,14px)}
 .dsh-ws-preview[data-diff-ruler='on'][data-diff-ruler-span='full']{--dsh-ws-ruler-w:var(--dsh-ws-vscroll-w,14px)}
 .dsh-ws-preview[data-diff-ruler='on'] ::-webkit-scrollbar:vertical{width:var(--dsh-ws-vscroll-w,14px)}
-/* The slider must not hide the marks it passes over: it keeps its exact size but goes translucent, so
-   the track colour shows through, and the darker hover token pays the alpha back — the bar never
-   reads fainter than the default one while idle, and it firms up to near-solid on hover. */
-.dsh-ws-preview[data-diff-ruler='on'] ::-webkit-scrollbar-thumb:vertical{background-color:color-mix(in srgb,var(--dsh-scrollbar-thumb-hover) 65%,transparent);background-clip:padding-box;border:3px solid transparent;border-radius:7px}
-.dsh-ws-preview[data-diff-ruler='on'] ::-webkit-scrollbar-thumb:vertical:hover{background-color:color-mix(in srgb,var(--dsh-scrollbar-thumb-hover) 90%,transparent)}
+/* The slider must not hide the marks it passes over: it keeps its exact size but stays translucent,
+   and the darker hover token pays the alpha back so the bar never reads fainter than the default one.
+   The hovered value is the one that matters while DRAGGING (a held slider is still hovered), so it
+   sits close to the idle one: at 65% the marks stay legible under the slider in both themes, which is
+   exactly what 90% failed at. */
+.dsh-ws-preview[data-diff-ruler='on'] ::-webkit-scrollbar-thumb:vertical{background-color:color-mix(in srgb,var(--dsh-scrollbar-thumb-hover) 55%,transparent);background-clip:padding-box;border:3px solid transparent;border-radius:7px}
+.dsh-ws-preview[data-diff-ruler='on'] ::-webkit-scrollbar-thumb:vertical:hover{background-color:color-mix(in srgb,var(--dsh-scrollbar-thumb-hover) 65%,transparent)}
+/* Hover / drag highlight, EDITOR SCROLLER ONLY: a 1px accent ring hugging the capsule, so the
+   translucent slider still reads as "grabbable" without darkening its fill (which would hide the
+   marks). An inset box-shadow is required — a real border would outline the whole 14px track and
+   shrink the fill to 12px, and outline does not paint on scrollbar pseudo-elements at all (verified).
+   The ring rides the feature's own switch: with the ruler off the bar is back to the harness default. */
+.dsh-ws-preview[data-diff-ruler='on'] .dsh-ws-editor-host .cm-scroller::-webkit-scrollbar-thumb:vertical:hover{box-shadow:inset 0 0 0 1px var(--dsw-alias-state-business-primary)}
 .dsh-ws-preview[data-diff-ruler='on'][data-diff-ruler-thumb='full'] ::-webkit-scrollbar-thumb:vertical{border-width:0}
 .dsh-ws-editor-host .cm-scroller::-webkit-scrollbar-track:vertical{background-image:var(--dsh-ws-ruler-ticks,none),var(--dsh-ws-ruler-bands,none);background-repeat:no-repeat;background-position:center top;background-size:var(--dsh-ws-ruler-w,8px) 100%,var(--dsh-ws-ruler-w,8px) 100%}
 /* Fold arrows: one vector chevron per foldable line, replacing CodeMirror's ⌄ / › text glyphs

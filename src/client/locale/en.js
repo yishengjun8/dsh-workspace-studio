@@ -401,7 +401,7 @@ export const en = {
   'settings.diffRulerWidth.reset.title': 'Reset to the default width',
   'settings.diffRulerSpan': 'Marks span the track',
   'settings.diffRulerThumb': 'Full-width slider',
-  'settings.diffRuler.hint': 'The preview column\'s vertical scrollbars are widened, and the editor\'s track marks where the document was added to / changed / deleted from, mapped over the whole file like VS Code\'s overview ruler. The marks are painted on the track background, so dragging, track paging, keyboard and trackpad scrolling are untouched; the slider is translucent (near-solid while hovered) and does not hide the marks underneath it. Only the source editor draws marks — rendered views are merely widened. Turn it off to get the default 8px bar back.',
+  'settings.diffRuler.hint': 'The preview column\'s vertical scrollbars are widened, and the editor\'s track marks where the document was added to / changed / deleted from, mapped over the whole file like VS Code\'s overview ruler. The marks are painted on the track background, so dragging, track paging, keyboard and trackpad scrolling are untouched; the slider stays translucent while hovered or dragged and never hides the marks underneath it, and the editor\'s slider gains a 1px accent ring while the pointer is on it. Only the source editor draws marks (and only its slider gets the ring) — rendered views are merely widened. Turn it off to get the default 8px bar back.',
   'settings.group.vcs': 'Version Control',
   'settings.vcs.enabled': 'Show version control status',
   'settings.vcs.ignored': 'Dim ignored entries',

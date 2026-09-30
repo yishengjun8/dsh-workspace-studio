@@ -401,7 +401,7 @@ export const zh = {
   'settings.diffRulerWidth.reset.title': '恢复默认宽度',
   'settings.diffRulerSpan': '刻度铺满轨道',
   'settings.diffRulerThumb': '滑块满宽',
-  'settings.diffRuler.hint': '预览列右侧的竖向滚动条加宽，并在轨道上按整篇文档的比例标出新增 / 修改 / 删除的位置（与 VS Code 的概览标尺同理）。刻度画在轨道背景上，所以拖动、点轨道翻页、键盘与触控板滚动都不受影响；滑块半透明（鼠标悬停时变实），不会遮住其下的刻度。仅源码编辑器视图有刻度，渲染视图只加宽。关闭后滚动条恢复默认 8px。',
+  'settings.diffRuler.hint': '预览列右侧的竖向滚动条加宽，并在轨道上按整篇文档的比例标出新增 / 修改 / 删除的位置（与 VS Code 的概览标尺同理）。刻度画在轨道背景上，所以拖动、点轨道翻页、键盘与触控板滚动都不受影响；滑块半透明，拖动或悬停时也不会遮住其下的刻度，指针停在编辑器的滚动条上时会多出一圈主色描边。仅源码编辑器视图有刻度（也只有它这条带描边），渲染视图只加宽。关闭后滚动条恢复默认 8px。',
   'settings.group.vcs': '版本控制设置',
   'settings.vcs.enabled': '显示版本控制状态',
   'settings.vcs.ignored': '弱化显示忽略项',
