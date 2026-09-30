@@ -112,16 +112,30 @@ bash ./install.sh web      # 也可显式指定 profile
 
 ### 从 Git 直接安装
 
-不依赖本地副本，直接从插件仓库安装（首次安装会用 tsdown 把 `src/client/` 与 `src/host/` 现场构建出 `lib/client.js` 与 `lib/index.js`）：
+不依赖本地副本，直接从插件仓库安装。仓库随源码提交了构建产物（`lib/client.js`、`lib/index.js`、
+`lib/invariant.js` 与 `cordis.patch.yml`），安装时**不需要**在用户机上构建，因此 pnpm ≥ 10 不会索要
+`allowBuilds` 放行：
 
 ```sh
 bash ./install.sh --git          # 默认安装到 web profile
 bash ./install.sh --git web      # 也可显式指定 profile
 ```
 
-脚本把 git 依赖 spec 解析为当前插件的 GitHub 仓库（可用 `GIT_SPEC` 环境变量覆盖），并锁定到当前 HEAD 提交（`github:<owner>/<repo>#<commit>`），因此后续推送不会悄悄改变已安装的代码。pnpm ≥ 10 默认拒绝执行 git 依赖的 `prepare` 构建脚本，首次 `add` 会失败；脚本会解析 pnpm 打印的 allowBuilds 键、写入该 profile 的 `pnpm-workspace.yaml`，然后重试，无需手动干预。
+脚本把 git 依赖 spec 解析为当前插件的 GitHub 仓库（可用 `GIT_SPEC` 环境变量覆盖），并锁定到当前 HEAD 提交（`github:<owner>/<repo>#<commit>`），因此后续推送不会悄悄改变已安装的代码。
 
-> ⚠️ 允许构建意味着允许该包的 `prepare` 脚本在安装时于你的机器上执行（不在 agent 沙箱内）。从本插件的官方仓库安装时这是预期行为。手动安装的等价命令是 `dsh plugin --profile web add github:yishengjun8/dsh-workspace-studio`：失败后按 pnpm 提示把 allowBuilds 键复制进该 profile 的 `pnpm-workspace.yaml`，再重跑 `add`。
+### 用 DSH 自带的插件管理安装
+
+Web / Desktop 的「插件」面板 → 「添加插件」，填入下列任一安装源（装完重启 DSH）：
+
+```
+github:yishengjun8/dsh-workspace-studio              # 跟随 main
+github:yishengjun8/dsh-workspace-studio#<commit>     # 锁定提交
+https://github.com/yishengjun8/dsh-workspace-studio  # 等价写法
+```
+
+> 💡 只有安装**仍带安装期构建脚本的旧提交**时，pnpm ≥ 10 才会拦下 git 依赖并要求放行：把 pnpm 打印的
+> allowBuilds 键复制进该 profile 的 `pnpm-workspace.yaml` 后重试（`install.sh --git` 会自动完成这一步）。
+> 当前版本已不含 `prepare` 脚本，无需放行。
 
 ## 🗑️ 卸载
 
@@ -227,7 +241,7 @@ Browser 发送桥把渲染后的文本拼接到直接用户提示前，因此普
 └── lib/client.js                        # 预构建三栏布局、文件树、编辑器、渲染视图与导图
 ```
 
-CodeMirror 与语言模块已内联到预构建的普通 JavaScript Client bundle；本地 `file:` 安装无需构建，从 git 安装时 `prepare` 会用 tsdown 现场重新构建。维护源码时，在仓库根目录执行 `pnpm install --config.auto-install-peers=false`，再运行 `npm run bundle` 重新生成 `lib/client.js` 与 `lib/index.js`。
+CodeMirror 与语言模块已内联到预构建的普通 JavaScript Client bundle；本地 `file:` 安装与从 git 安装都直接使用仓库内已构建的 `lib/`（安装期不再构建）。维护源码时，在仓库根目录执行 `pnpm install --config.auto-install-peers=false`，再运行 `npm run bundle` 重新生成 `lib/client.js` 与 `lib/index.js`，**并提交重建产物**——git 安装与「插件更新」拿到的就是仓库里的这份 `lib/`。
 
 ## 🔄 兼容性说明
 

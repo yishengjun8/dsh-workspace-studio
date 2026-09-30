@@ -113,16 +113,26 @@ The script picks the executable in this order: `DSH_BIN` when set, then `dsh` fr
 
 ### Install directly from Git
 
-Install straight from the plugin repository without a local checkout (the first install builds the client and host artifacts — `lib/client.js` and `lib/index.js` — from `src/client/` and `src/host/` with tsdown at install time):
+Install straight from the plugin repository without a local checkout. The repository commits its built artifacts (`lib/client.js`, `lib/index.js`, `lib/invariant.js`, and `cordis.patch.yml`) alongside the sources, so an install needs **no** build on the user's machine and pnpm ≥ 10 never asks for an `allowBuilds` entry:
 
 ```sh
 bash ./install.sh --git          # default target is the web profile
 bash ./install.sh --git web      # a profile can be supplied explicitly
 ```
 
-The script resolves the git spec to this plugin's GitHub repository (override with the `GIT_SPEC` environment variable) and pins it to the current HEAD commit (`github:<owner>/<repo>#<commit>`), so a later push cannot silently change the installed code. pnpm ≥ 10 refuses to run a git dependency's `prepare` build by default, so the first `add` fails; the script parses pnpm's printed allowBuilds key, writes it into the profile's `pnpm-workspace.yaml`, and retries — no manual step.
+The script resolves the git spec to this plugin's GitHub repository (override with the `GIT_SPEC` environment variable) and pins it to the current HEAD commit (`github:<owner>/<repo>#<commit>`), so a later push cannot silently change the installed code.
 
-> ⚠️ Allowing the build means permitting the package's `prepare` script to run on your machine at install time (outside the agent sandbox). That is expected when installing from this plugin's official repository. The manual equivalent is `dsh plugin --profile web add github:yishengjun8/dsh-workspace-studio`: on failure, copy the allowBuilds key pnpm prints into the profile's `pnpm-workspace.yaml`, then re-run `add`.
+### Install through the built-in plugin manager
+
+In the Web or Desktop "Plugins" panel choose "Add plugin" and enter one of these install sources (restart DSH afterwards):
+
+```
+github:yishengjun8/dsh-workspace-studio              # follow main
+github:yishengjun8/dsh-workspace-studio#<commit>     # pin a commit
+https://github.com/yishengjun8/dsh-workspace-studio  # equivalent form
+```
+
+> 💡 Only **older commits that still declare an install-time build script** make pnpm ≥ 10 refuse a git dependency and demand an allowance: copy the allowBuilds key pnpm prints into that profile's `pnpm-workspace.yaml` and retry (`install.sh --git` does this automatically). The current version ships no `prepare` script, so no allowance is needed.
 
 ## 🗑️ Uninstallation
 
@@ -228,7 +238,7 @@ Selection contexts add the selected text plus the `<selection>...</selection>` e
 └── lib/client.js                        # Prebuilt three-pane layout, file tree, editor, renderer views, and mind map
 ```
 
-CodeMirror and its language modules are bundled into the prebuilt plain-JavaScript Client artifact; a local `file:` install runs no builds, while a git install rebuilds it with tsdown through the `prepare` script. To maintain the source, run `pnpm install --config.auto-install-peers=false` in the repo root and then `npm run bundle` to regenerate `lib/client.js` and `lib/index.js`.
+CodeMirror and its language modules are bundled into the prebuilt plain-JavaScript Client artifact; both a local `file:` install and a git install use the `lib/` already committed to the repository (no build runs at install time). To maintain the source, run `pnpm install --config.auto-install-peers=false` in the repo root and then `npm run bundle` to regenerate `lib/client.js` and `lib/index.js`, **and commit the rebuilt artifacts** — a git install and the in-app update both take that committed `lib/`.
 
 ## 🔄 Compatibility
 

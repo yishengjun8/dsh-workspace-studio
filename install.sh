@@ -3,9 +3,13 @@
 # Usage: bash ./install.sh [--git] [profile]
 #   --git     install directly from the plugin git remote
 #             (github:<owner>/<repo>#<commit>) instead of the local checkout.
-#             pnpm >= 10 blocks the install-time prepare build until the package
-#             is allowlisted; the script parses pnpm's printed key and adds it to
-#             the profile's pnpm-workspace.yaml, then retries the add.
+#             The repository ships the built lib/ artifacts and declares no
+#             install-time build script, so pnpm needs no allowlist entry.
+#             The recovery below stays as a safety net: an older commit (or one
+#             that reintroduces a build script) makes pnpm >= 10 block the
+#             install until the package is allowlisted, and the script then
+#             parses pnpm's printed key, adds it to the profile's
+#             pnpm-workspace.yaml, and retries the add.
 # Env:   PROFILE   default profile when no positional argument is supplied
 #        GIT_SPEC  git dependency spec to use with --git (default: this repo's origin)
 #        DSH_BIN   optional dsh executable path/name without extra arguments
@@ -64,7 +68,8 @@ PROFILE_MANIFEST="$DSH_HOME_SHELL/profiles/$PROFILE/package.json"
 PROFILE_DIR="$DSH_HOME_SHELL/profiles/$PROFILE"
 
 # Allowlist the pnpm allowBuilds key (name@spec#commit) printed by pnpm so a
-# git dependency's prepare script may run at install time.
+# git dependency's build script may run at install time. Only reached for a
+# fetched version that still declares one.
 ensure_allowbuilds() {
   local key="$1"
   mkdir -p "$PROFILE_DIR"
@@ -122,8 +127,8 @@ if [[ "$GIT_MODE" == 1 ]]; then
       echo "error: git install failed and no allowBuilds hint was found" >&2
       exit 1
     fi
-    echo "==> pnpm >= 10 blocked the install-time build"
-    echo "    allowlisting '$ALLOW_KEY' (runs the package's prepare script on this machine at install time)"
+    echo "==> pnpm >= 10 blocked the install-time build of this fetched version"
+    echo "    allowlisting '$ALLOW_KEY' (runs that version's build script on this machine at install time)"
     ensure_allowbuilds "$ALLOW_KEY"
     "${DSH_COMMAND[@]}" plugin --profile "$PROFILE" add "$GIT_SPEC"
   fi
