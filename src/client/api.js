@@ -1,4 +1,4 @@
-import { API_PREFIX, ENCODING_FALLBACK, ENCODING_LABEL_FALLBACK, MINDMAP_LOAD_TIMEOUT_MS, MINDMAP_MODELS_CACHE_MS, MINDMAP_SYNC_TIMEOUT_MS, TOKEN_STATS_TIMEOUT_MS, UPDATE_CHECK_TIMEOUT_MS, UPDATE_DOWNLOAD_TIMEOUT_MS } from './constants.js'
+import { API_PREFIX, ENCODING_FALLBACK, ENCODING_LABEL_FALLBACK, MINDMAP_LOAD_TIMEOUT_MS, MINDMAP_MODELS_CACHE_MS, MINDMAP_SYNC_TIMEOUT_MS, TOKEN_STATS_TIMEOUT_MS, UPDATE_CHECK_TIMEOUT_MS, UPDATE_DOWNLOAD_TIMEOUT_MS, VCS_STATUS_TIMEOUT_MS } from './constants.js'
 import { localeIsZh, translate } from './locale/index.js'
 
 /* Bounded request timeouts: a hung Host must not leave the UI in a permanent loading/saving state; merges the caller's signal with a timeout, falling back to the signal alone when the timeout APIs are unavailable. */
@@ -142,6 +142,28 @@ export async function checkFileChange(workspaceId, path, previousSnapshot, signa
   } catch (error) {
     if (error?.name === 'AbortError') throw error
     throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.file', { status: response.status }), response.status)
+  }
+  return payload
+}
+/* Version-control status of one workspace (git / svn, read-only). Degradations arrive as a 200 with
+   an `error` field inside the payload, so the caller keeps its last good result and only the request
+   fence itself can throw; `refresh` bypasses the Host's short payload TTL. */
+export async function fetchVcsStatus(workspaceId, options, signal) {
+  const query = new URLSearchParams({ workspaceId: String(workspaceId) })
+  if (options?.refresh === true) query.set('refresh', '1')
+  if (options?.includeIgnored === true) query.set('ignored', '1')
+  const response = await fetch(`${API_PREFIX}/vcs?${query}`, { method: 'GET', headers: { accept: 'application/json' }, credentials: 'same-origin', signal: withTimeout(signal, VCS_STATUS_TIMEOUT_MS) })
+  if (!response.ok) throw await responseFailure(response, 'vcs-failed', 'error.vcs-failed')
+  let payload
+  try {
+    payload = await response.json()
+  } catch (error) {
+    if (error?.name === 'AbortError') throw error
+    throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.vcs', { status: response.status }), response.status)
+  }
+  /* Minimal shape assertion: a 200 body without an entries array is a Host anomaly, not a render crash. */
+  if (!Array.isArray(payload?.entries)) {
+    throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.vcs', { status: response.status }), response.status)
   }
   return payload
 }

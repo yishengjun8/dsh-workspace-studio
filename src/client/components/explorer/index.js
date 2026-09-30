@@ -2,7 +2,7 @@ import { createElement as h, Fragment, useRef, useState, useEffect, useLayoutEff
 import { createPortal } from 'react-dom'
 import { CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MAX, CONFLICT_FONT_SIZE_MIN, CONTEXT_MENU_WIDTH, DISK_STATE_CLEAN, DISK_STATE_CONFLICT, DISK_STATE_GONE, DISK_STATE_STALE, ENCODING_FALLBACK } from '../../constants.js'
 import { translate } from '../../locale/index.js'
-import { clamp, fileLabel, formatBytes, readOnlyReason } from '../../format.js'
+import { clamp, fileLabel, formatBytes, readOnlyReason, vcsStatusColorVars } from '../../format.js'
 import { copyText, defaultEntryName, entryNameError, entryPath, joinAbsolutePath, parentPath, pathBaseName, rewriteDirectoryMap, rewritePathMap, rewritePathSet, rewriteRelativePath, selectedLevelPath } from '../../paths.js'
 import { ancestorDirectoryPaths, dropIndexFromEvent, entryFromPreviewTab, isMindmapTab, isPlanTab, isReviewTab, isSyntheticTab, isTemporaryTab, isUnpersistedTab, mindmapRootIdOfTab, mindmapTabPath, normalizePreviewSession, openPermanentTab, openPreviewTab, orderPinnedFirst, planAddressOfTab, planTabPath, promoteTemporaryTab, reviewAddressOfTab, reviewTabPath, rewritePreviewTabs, serializePreviewSession } from '../../preview-tabs.js'
 import { IconFolder, IconNewFile, IconNewFolder, IconRefresh, IconSearch } from '../../icons.js'
@@ -19,6 +19,9 @@ import { EncodingMenu, PanelHeader, PreviewToast, TabContextMenu, TreeContextMen
 import { DeleteDialog, EncodingDialog, EntryDialog, SaveConflictDialog, SessionRenameDialog } from '../dialogs.js'
 import { DropOverlay } from './drop.js'
 import { ExplorerTree } from './tree.js'
+import { VcsBar } from './vcs.js'
+import { vcsBarModel, vcsPendingAutoExpand } from '../../vcs.js'
+import { useVcsStatus } from './hooks/vcs.js'
 import { PreviewPane } from './preview.js'
 import { PreviewTabs } from './tabs.js'
 import { SearchResults } from './search.js'
@@ -64,6 +67,26 @@ function fileTabFromEntry(entry, temporary) {
   }
 }
 
+/* Bounded concurrency for the version-control auto-expansion: a large change set must not fire one
+   directory listing per ancestor directory at the same moment. `loadDirectory` reports its own
+   failures (it sets the directory's error row), so a rejection here is only a safety net. */
+const VCS_AUTO_EXPAND_CONCURRENCY = 6
+async function loadDirectoriesBounded(paths, load) {
+  let index = 0
+  const worker = async () => {
+    while (index < paths.length) {
+      const path = paths[index]
+      index += 1
+      try {
+        await load(path)
+      } catch { /* reported by the loader */ }
+    }
+  }
+  const workers = []
+  for (let i = 0; i < Math.min(VCS_AUTO_EXPAND_CONCURRENCY, paths.length); i += 1) workers.push(worker())
+  await Promise.all(workers)
+}
+
 
 export function WorkspaceExplorer({
   workspace, treePortalTarget, sessionTitle, sessionId, previewSessionId, renameSession, publishEditorContext, listDirectory, readFile, saveFile, createEntry, renameEntry, storedPreviewSession, persistPreviewSession, settingsStore, loadDraft, persistDraftFile, removeDraftFile, draftTree, checkFileChange, mindmapActions, sessionCwdOf,
@@ -85,6 +108,9 @@ export function WorkspaceExplorer({
     return entryFromPreviewTab(activeTab)
   })
   const [reloadToken, setReloadToken] = useState(0)
+  /* Version-control display: the "changes only" tree view is session-transient (a refresh restores
+     the full tree), so a user can never lose sight of a file because of a forgotten filter. */
+  const [vcsChangesOnly, setVcsChangesOnly] = useState(false)
   const [searchReveal, setSearchReveal] = useState()
   const [encodingMenu, setEncodingMenu] = useState()
   const [encodingDialog, setEncodingDialog] = useState()
@@ -150,6 +176,29 @@ export function WorkspaceExplorer({
   // Paths confirmed missing while restoring persisted expansion; later restore passes skip them until the cleaned snapshot is persisted.
   const prunedPathsRef = useRef(new Set())
   const previewTabsBootstrapped = useRef(Boolean(initialPreviewSession.tabs.length > 0 || initialPreviewSession.activePath !== null))
+  /* Working-copy status (git / svn) for this workspace: one shared payload feeds the status bar,
+     the tree badges and the changes list. It is display-only, so it can be switched off entirely
+     (user setting) or disabled by the Host without touching any other explorer behavior. */
+  const vcsEnabled = settings.vcsEnabled !== false
+  const vcsPaneVisible = useCallback(() => {
+    const container = treeScrollRef.current
+    /* The tree lives in the sidebar's files region, which is `display:none` while the session list
+       fills the sidebar: skip the poll rather than spawn a status command for a pane nobody can see.
+       A missing container (first render) counts as visible so the initial read still happens. */
+    return container === null || container === undefined || container.offsetParent !== null
+  }, [])
+  const vcs = useVcsStatus({
+    workspaceId: workspace.workspaceId,
+    enabled: vcsEnabled,
+    autoRefresh: settings.vcsAutoRefresh !== false,
+    includeIgnored: settings.vcsShowIgnored === true,
+    isPaneVisible: vcsPaneVisible,
+  })
+  const vcsModel = vcsBarModel({ payload: vcs.payload, error: vcs.error, loading: vcs.loading })
+  /* The refresh triggers live inside callbacks defined below, whose dependency arrays must not grow
+     with the hook's own identity: they read it through this mirror ref instead. */
+  const vcsRef = useRef(vcs)
+  vcsRef.current = vcs
   const selectedDirectoryPath = selectedLevelPath(selected)
   const activatePath = useCallback((path) => {
     // A cancel marker belongs to one file; switching files must not let a stale marker decorate a later read.
@@ -175,6 +224,15 @@ export function WorkspaceExplorer({
     if (activePath === null || isSyntheticTab(activeTab)) publishEditorContext(undefined)
   }, [activePath, activeTab, publishEditorContext, sessionId])
   const hasDirtyTabs = useMemo(() => tabs.some(tab => tab.dirty || tab.saving), [tabs])
+  /* Every tab becoming clean again means a save just landed, so the working copy may have moved:
+     re-read the version-control status once the burst settles. Closing a dirty tab lowers the count
+     too — one needless (cheap, cached) read, which is preferable to missing a save. */
+  const dirtyTabCount = useMemo(() => tabs.filter(tab => tab.dirty || tab.saving).length, [tabs])
+  const previousDirtyCountRef = useRef(dirtyTabCount)
+  useEffect(() => {
+    if (dirtyTabCount < previousDirtyCountRef.current) vcsRef.current.refreshSoon()
+    previousDirtyCountRef.current = dirtyTabCount
+  }, [dirtyTabCount])
   const updateActiveTab = useCallback((patch) => {
     const path = activePathRef.current
     if (path === null) return
@@ -514,6 +572,37 @@ export function WorkspaceExplorer({
     }
   }, [listDirectory, pruneExpandedPath, workspace.workspaceId])
   useEffect(() => { void loadDirectory('') }, [loadDirectory])
+  /* "Changes only" must show EVERY change without a single click, so every directory that holds a
+     change (any ancestor of any changed path, straight from the status payload) is expanded and
+     listed. Directories already listed are skipped, which makes the effect idempotent across the
+     status polls; the loads run through a small worker pool so a large change set does not fire one
+     request per directory at once. */
+  const autoExpandedRef = useRef(new Set())
+  useEffect(() => {
+    if (vcsChangesOnly !== true) {
+      autoExpandedRef.current.clear()
+      return
+    }
+    /* Only the directories whose listing already arrived need to be materialized for the exclusion
+       set; every other path is decided by the pure helper. */
+    const readyDirs = new Set()
+    for (const [path, value] of directories) {
+      if (value?.state === 'ready') readyDirs.add(path)
+    }
+    const pending = vcsPendingAutoExpand(vcs.overlay, {
+      expanded: expandedRef.current,
+      ready: readyDirs,
+      requested: autoExpandedRef.current,
+    })
+    if (pending.length === 0) return
+    for (const dir of pending) autoExpandedRef.current.add(dir)
+    setExpanded(cur => {
+      const next = new Set(cur)
+      for (const dir of pending) next.add(dir)
+      return next
+    })
+    void loadDirectoriesBounded(pending, loadDirectory)
+  }, [directories, loadDirectory, vcs.overlay, vcsChangesOnly])
   // Restore the persisted expansion: fetch every restored directory's listing
   // so the tree renders its children. Mount-only; ancestors are already in the
   // persisted set, so nested folders appear in place.
@@ -885,7 +974,7 @@ export function WorkspaceExplorer({
     rewriteCachedPaths(workspace.workspaceId, from, to)
   }, [workspace.workspaceId])
   /* Deps note (development-notes §16): this callback omits callbacks declared later in the body, since listing them would throw a TDZ ReferenceError; their identities are stable for the mount, so the omission is safe. */
-  const submitEntryDialog=useCallback(()=>{if(entryBusy||entryDialog===undefined)return;/* A concurrent tree mutation would bump mutationSeq and drop this op's bookkeeping after the server already succeeded — refuse while one is in flight (same guard as pasteEntry). */if(mutationController.current!==undefined){setEntryError(translate('editor.operationBusy'));return}const trimmed=entryDraft.trim();const message=entryNameError(entryDraft);if(message!==undefined){setEntryError(message);return}const parentPathValue=entryDialog.mode==='create'?entryDialog.parentPath:parentPath(entryDialog.entry.path);const siblings=directories.get(parentPathValue)?.entries??[];if(entryDialog.mode==='create'){if(siblings.some(entry=>entry.name===trimmed)){setEntryError(translate('entry.duplicate'));return}}else if(trimmed===entryDialog.entry.name||siblings.some(entry=>entry.name===trimmed&&entry.path!==entryDialog.entry.path)){setEntryError(trimmed===entryDialog.entry.name?translate('entry.nameUnchanged'):translate('entry.duplicate'));return}const controller=new AbortController();mutationController.current=controller;setEntryBusy(true);setEntryError(undefined);const mutationSeq=mutationSeqRef.current+=1;let draftMoveGeneration;const request=(async()=>{if(entryDialog.mode==='rename'){draftMoveGeneration=nextDraftGeneration('__tree__');await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:draftMoveGeneration,fromPath:entryDialog.entry.path,toPath:entryPath(parentPath(entryDialog.entry.path),trimmed)},controller.signal)}return entryDialog.mode==='create'?createEntry(workspace.workspaceId,entryDialog.parentPath,entryDialog.kind,trimmed,controller.signal):renameEntry(workspace.workspaceId,entryDialog.entry.path,trimmed,controller.signal)})();request.then(result=>{if(!mounted.current||mutationSeq!==mutationSeqRef.current)return;const mode=entryDialog.mode;const sourcePath=mode==='create'?entryDialog.parentPath:entryDialog.entry.path;const nextStatus=mode==='create'?result.kind==='directory'?translate('status.createdFolder'):translate('status.createdFile'):result.kind==='directory'?translate('status.renamedFolder'):translate('status.renamedFile');composingRef.current=false;setEntryBusy(false);setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);setStatus({text:nextStatus});if(mode==='create'){setExpanded(cur=>{const next=new Set(cur);next.add(sourcePath);if(result.kind==='directory')next.add(result.path);return next});if(result.kind==='file'){previewTabsBootstrapped.current = true;setTabs(cur=>cur.some(tab=>tab.path===result.path)?cur:[...cur,{baseText:'',dirty:false,draft:'',editing:false,name:result.name,path:result.path,pinned:false,saving:false,scrollTop:0,size:null,status:undefined,symlink:Boolean(result.symlink),bom:false,lineEnding:'none',revision:null}]);activatePath(result.path)}setSelected(result);void loadDirectory(sourcePath);if(result.kind==='directory')void loadDirectory(result.path)}else{setDirectories(cur=>rewriteDirectoryMap(cur,sourcePath,result.path,result));setExpanded(cur=>rewritePathSet(cur,sourcePath,result.path));setTabs(cur=>rewritePreviewTabs(cur,sourcePath,result.path,result));rewriteRuntimePaths(sourcePath,result.path);migratePendingAutosavesRef.current?.(sourcePath,result.path);void rewriteEmergencyDraftPath(workspace.workspaceId,draftScopeId,sourcePath,result.path).catch(error=>{if(mounted.current)setStatus({error:true,text:translate('editor.autosaveFailed',{message:error instanceof Error?error.message:String(error)})})});{const nextActivePath=activePathRef.current===null?null:rewriteRelativePath(activePathRef.current,sourcePath,result.path);if(nextActivePath!==activePathRef.current)setActivePath(nextActivePath)}setSelected(result);void loadDirectory(parentPath(sourcePath))}}).catch(error=>{const timedOut=error?.name==='AbortError'&&error?.reason?.name==='TimeoutError';if((error?.name==='AbortError'&&!timedOut)||!mounted.current||mutationSeq!==mutationSeqRef.current){return}if(entryDialog?.mode==='rename'&&draftMoveGeneration!==undefined){void rollbackDraftTree(entryDialog.entry.path,entryPath(parentPath(entryDialog.entry.path),trimmed))}setEntryBusy(false);setEntryError(timedOut?translate('editor.requestTimeout'):(error instanceof Error?error.message:String(error)))}).finally(()=>{if(mutationController.current===controller)mutationController.current=undefined;if(mounted.current)setEntryBusy(false)})},[createEntry,directories,draftScopeId,draftTree,entryBusy,entryDialog,entryDraft,loadDirectory,renameEntry,rewriteRuntimePaths,workspace.workspaceId])
+  const submitEntryDialog=useCallback(()=>{if(entryBusy||entryDialog===undefined)return;/* A concurrent tree mutation would bump mutationSeq and drop this op's bookkeeping after the server already succeeded — refuse while one is in flight (same guard as pasteEntry). */if(mutationController.current!==undefined){setEntryError(translate('editor.operationBusy'));return}const trimmed=entryDraft.trim();const message=entryNameError(entryDraft);if(message!==undefined){setEntryError(message);return}const parentPathValue=entryDialog.mode==='create'?entryDialog.parentPath:parentPath(entryDialog.entry.path);const siblings=directories.get(parentPathValue)?.entries??[];if(entryDialog.mode==='create'){if(siblings.some(entry=>entry.name===trimmed)){setEntryError(translate('entry.duplicate'));return}}else if(trimmed===entryDialog.entry.name||siblings.some(entry=>entry.name===trimmed&&entry.path!==entryDialog.entry.path)){setEntryError(trimmed===entryDialog.entry.name?translate('entry.nameUnchanged'):translate('entry.duplicate'));return}const controller=new AbortController();mutationController.current=controller;setEntryBusy(true);setEntryError(undefined);const mutationSeq=mutationSeqRef.current+=1;let draftMoveGeneration;const request=(async()=>{if(entryDialog.mode==='rename'){draftMoveGeneration=nextDraftGeneration('__tree__');await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:draftMoveGeneration,fromPath:entryDialog.entry.path,toPath:entryPath(parentPath(entryDialog.entry.path),trimmed)},controller.signal)}return entryDialog.mode==='create'?createEntry(workspace.workspaceId,entryDialog.parentPath,entryDialog.kind,trimmed,controller.signal):renameEntry(workspace.workspaceId,entryDialog.entry.path,trimmed,controller.signal)})();request.then(result=>{if(!mounted.current||mutationSeq!==mutationSeqRef.current)return;const mode=entryDialog.mode;const sourcePath=mode==='create'?entryDialog.parentPath:entryDialog.entry.path;const nextStatus=mode==='create'?result.kind==='directory'?translate('status.createdFolder'):translate('status.createdFile'):result.kind==='directory'?translate('status.renamedFolder'):translate('status.renamedFile');composingRef.current=false;setEntryBusy(false);setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);setStatus({text:nextStatus});vcsRef.current.refreshSoon();if(mode==='create'){setExpanded(cur=>{const next=new Set(cur);next.add(sourcePath);if(result.kind==='directory')next.add(result.path);return next});if(result.kind==='file'){previewTabsBootstrapped.current = true;setTabs(cur=>cur.some(tab=>tab.path===result.path)?cur:[...cur,{baseText:'',dirty:false,draft:'',editing:false,name:result.name,path:result.path,pinned:false,saving:false,scrollTop:0,size:null,status:undefined,symlink:Boolean(result.symlink),bom:false,lineEnding:'none',revision:null}]);activatePath(result.path)}setSelected(result);void loadDirectory(sourcePath);if(result.kind==='directory')void loadDirectory(result.path)}else{setDirectories(cur=>rewriteDirectoryMap(cur,sourcePath,result.path,result));setExpanded(cur=>rewritePathSet(cur,sourcePath,result.path));setTabs(cur=>rewritePreviewTabs(cur,sourcePath,result.path,result));rewriteRuntimePaths(sourcePath,result.path);migratePendingAutosavesRef.current?.(sourcePath,result.path);void rewriteEmergencyDraftPath(workspace.workspaceId,draftScopeId,sourcePath,result.path).catch(error=>{if(mounted.current)setStatus({error:true,text:translate('editor.autosaveFailed',{message:error instanceof Error?error.message:String(error)})})});{const nextActivePath=activePathRef.current===null?null:rewriteRelativePath(activePathRef.current,sourcePath,result.path);if(nextActivePath!==activePathRef.current)setActivePath(nextActivePath)}setSelected(result);void loadDirectory(parentPath(sourcePath))}}).catch(error=>{const timedOut=error?.name==='AbortError'&&error?.reason?.name==='TimeoutError';if((error?.name==='AbortError'&&!timedOut)||!mounted.current||mutationSeq!==mutationSeqRef.current){return}if(entryDialog?.mode==='rename'&&draftMoveGeneration!==undefined){void rollbackDraftTree(entryDialog.entry.path,entryPath(parentPath(entryDialog.entry.path),trimmed))}setEntryBusy(false);setEntryError(timedOut?translate('editor.requestTimeout'):(error instanceof Error?error.message:String(error)))}).finally(()=>{if(mutationController.current===controller)mutationController.current=undefined;if(mounted.current)setEntryBusy(false)})},[createEntry,directories,draftScopeId,draftTree,entryBusy,entryDialog,entryDraft,loadDirectory,renameEntry,rewriteRuntimePaths,workspace.workspaceId])
 
   // The unmount cleanup must run exactly once per real unmount; snapshot the callbacks in refs so the effect stays stable.
   const persistSessionTabsRef = useRef(persistSessionTabs)
@@ -926,14 +1015,14 @@ export function WorkspaceExplorer({
     if (el.scrollTop !== target) el.scrollTop = target
     if (framesLeft > 0) requestAnimationFrame(() => { if (mounted.current) restoreTreeScroll(savedScrollTop, framesLeft - 1) })
   }, [])
-  const refresh=useCallback(()=>{if(hasDirtyTabs){setStatus({error:true,text:translate('tree.refreshBlocked')});return}/* Refresh must not collapse the tree: snapshot the scroll position and expanded paths before clearing the listings, then re-list the root and every expanded directory so disk changes appear in place. */  const scrollEl=treeScrollRef.current;const savedScrollTop=scrollEl?.scrollTop??0;const expandedPaths=[...expandedRef.current].filter(path=>path!=='');abortDirectoryRequests();setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);composingRef.current=false;setDirectories(new Map());setStatus(undefined);const reloads=[loadDirectory(''),...expandedPaths.map(path=>loadDirectory(path,{pruneOnMissing:true}))];void Promise.allSettled(reloads).then(()=>{if(mounted.current)restoreTreeScroll(savedScrollTop)})},[abortDirectoryRequests,hasDirtyTabs,loadDirectory,restoreTreeScroll])
+  const refresh=useCallback(()=>{if(hasDirtyTabs){setStatus({error:true,text:translate('tree.refreshBlocked')});return}/* Refresh must not collapse the tree: snapshot the scroll position and expanded paths before clearing the listings, then re-list the root and every expanded directory so disk changes appear in place. */  const scrollEl=treeScrollRef.current;const savedScrollTop=scrollEl?.scrollTop??0;const expandedPaths=[...expandedRef.current].filter(path=>path!=='');abortDirectoryRequests();setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);composingRef.current=false;setDirectories(new Map());setStatus(undefined);vcsRef.current.refresh();const reloads=[loadDirectory(''),...expandedPaths.map(path=>loadDirectory(path,{pruneOnMissing:true}))];void Promise.allSettled(reloads).then(()=>{if(mounted.current)restoreTreeScroll(savedScrollTop)})},[abortDirectoryRequests,hasDirtyTabs,loadDirectory,restoreTreeScroll])
   const toggleDirectory=useCallback(entry=>{const path=entry.path;const opening=!expanded.has(path);setExpanded(cur=>{const next=new Set(cur);opening?next.add(path):next.delete(path);return next});if(opening){if(directories.get(path)?.state!=='ready')void loadDirectory(path);chooseDirectory(entry)}else setSelected(entry)},[chooseDirectory,directories,expanded,loadDirectory])
   const openContextMenu=useCallback((event,entry)=>{event.preventDefault();setSelected(entry);setContextMenu({entry,x:event.clientX,y:event.clientY})},[])
   const copyEntryPath=useCallback((entry,relative)=>{const value=relative?entry.path:joinAbsolutePath(workspace.path,entry.path);void copyText(value).then(ok=>{if(!mounted.current)return;setContextMenu(undefined);setCopyNotice(ok?(relative?translate('status.copiedRelative'):translate('status.copiedPath')):translate('status.copyFailed'));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},1600)})},[workspace.path])
   const copyEntryName=useCallback((entry)=>{void copyText(entry.name).then(ok=>{if(!mounted.current)return;setContextMenu(undefined);setCopyNotice(ok?translate('status.copiedName'):translate('status.copyFailed'));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},1600)})},[])
   const openInExplorer=useCallback((entry)=>{setContextMenu(undefined);const controller=new AbortController();revealInExplorer(workspace.workspaceId,entry.path,controller.signal).then(()=>{if(!mounted.current)return;setCopyNotice(translate('status.revealed'));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},1600)}).catch(error=>{if(!mounted.current||error?.name==='AbortError')return;setCopyNotice(translate('status.revealFailed',{message:error instanceof Error?error.message:String(error)}));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},3000)})},[workspace.workspaceId])
   const copyEntryToClipboard=useCallback((entry,cut)=>{setContextMenu(undefined);setClipboard({workspaceId:workspace.workspaceId,path:entry.path,name:entry.name,kind:entry.kind,cut});setCopyNotice(cut?translate('status.cut'):translate('status.copied'));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},1600)},[workspace.workspaceId])
-  const pasteEntry=useCallback((targetEntry)=>{if(clipboard===undefined||clipboard.workspaceId!==workspace.workspaceId)return;const targetDir=targetEntry.kind==='directory'?targetEntry.path:parentPath(targetEntry.path);const targetPath=entryPath(targetDir,pathBaseName(clipboard.path));if(clipboard.cut&&clipboard.path===targetPath)return;const wasCut=clipboard.cut;const affectedPrefix=clipboard.path===''?'':`${clipboard.path}/`;if(wasCut&&tabsRef.current.some(tab=>{if(!tab.dirty&&!tab.saving)return false;return tab.path===clipboard.path||(affectedPrefix!==''&&tab.path.startsWith(affectedPrefix))})){setStatus({error:true,text:translate('editor.unsavedBlocked')});return}/* A concurrent mutation would bump mutationSeq and drop this paste's bookkeeping after the fs move already succeeded — refuse while one is in flight. */if(mutationController.current!==undefined){setStatus({error:true,text:translate('editor.operationBusy')});return}const controller=new AbortController();mutationController.current=controller;const mutationSeq=mutationSeqRef.current+=1;let draftMoveGeneration;let draftMoveFailed=false;const request=(async()=>{const result=await requestFsOperation(workspace.workspaceId,{action:wasCut?'move':'copy',source:clipboard.path,target:targetPath},controller.signal);if(wasCut){draftMoveGeneration=nextDraftGeneration('__tree__');await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:draftMoveGeneration,fromPath:clipboard.path,toPath:result.path},controller.signal).catch(async error=>{if(!mounted.current)return;draftMoveFailed=true;console.warn('workspace-studio: draft move after fs move failed:',error);setStatus({error:true,text:translate('status.movedDraftWarning')});/* The old-path draft is the ONLY persistent copy of the user's unsaved edits: deleting it on a failed move (the old behavior) could lose them if the page refreshes before the next autosave lands on the new path. Retry once with a fresh generation (the failure is usually a transient generation race with a concurrent autosave); if the retry also fails, KEEP the old-path draft — a harmless zombie that only restores if a file appears at the old path again — and warn. */try{await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:nextDraftGeneration('__tree__'),fromPath:clipboard.path,toPath:result.path},controller.signal);draftMoveFailed=false}catch(retryError){if(mounted.current)console.warn('workspace-studio: draft move retry also failed; keeping draft at source path:',retryError)}})}return result})();request.then(result=>{if(!mounted.current||mutationSeq!==mutationSeqRef.current)return;setContextMenu(undefined);setStatus(draftMoveFailed?{error:true,text:translate('status.movedDraftWarning')}:{text:wasCut?translate('status.moved'):translate('status.pasted')});if(wasCut){const source=clipboard.path;if(clipboardRef.current?.path===source&&clipboardRef.current?.cut===true)setClipboard(undefined);setSelected(result);setDirectories(cur=>rewriteDirectoryMap(cur,source,result.path,result));setExpanded(cur=>rewritePathSet(cur,source,result.path));setTabs(cur=>rewritePreviewTabs(cur,source,result.path,result));rewriteRuntimePaths(source,result.path);migratePendingAutosavesRef.current?.(source,result.path);void rewriteEmergencyDraftPath(workspace.workspaceId,draftScopeId,source,result.path).catch(error=>{if(mounted.current)setStatus({error:true,text:translate('editor.autosaveFailed',{message:error instanceof Error?error.message:String(error)})})});const nextActivePath=activePathRef.current===null?null:rewriteRelativePath(activePathRef.current,source,result.path);if(nextActivePath!==activePathRef.current)setActivePath(nextActivePath);void loadDirectory(parentPath(source));void loadDirectory(targetDir)}else{void loadDirectory(targetDir)}}).catch(error=>{const timedOut=error?.name==='AbortError'&&error?.reason?.name==='TimeoutError';if((error?.name==='AbortError'&&!timedOut)||!mounted.current||mutationSeq!==mutationSeqRef.current)return;setContextMenu(undefined);const failedMessage=timedOut?translate('editor.requestTimeout'):(error instanceof Error?error.message:String(error));setCopyNotice(translate(wasCut?'status.cutFailed':'status.pasteFailed',{message:failedMessage}));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},3000)}).finally(()=>{if(mutationController.current===controller)mutationController.current=undefined})},[clipboard,draftScopeId,draftTree,loadDirectory,nextDraftGeneration,rewriteRuntimePaths,workspace.workspaceId])
+  const pasteEntry=useCallback((targetEntry)=>{if(clipboard===undefined||clipboard.workspaceId!==workspace.workspaceId)return;const targetDir=targetEntry.kind==='directory'?targetEntry.path:parentPath(targetEntry.path);const targetPath=entryPath(targetDir,pathBaseName(clipboard.path));if(clipboard.cut&&clipboard.path===targetPath)return;const wasCut=clipboard.cut;const affectedPrefix=clipboard.path===''?'':`${clipboard.path}/`;if(wasCut&&tabsRef.current.some(tab=>{if(!tab.dirty&&!tab.saving)return false;return tab.path===clipboard.path||(affectedPrefix!==''&&tab.path.startsWith(affectedPrefix))})){setStatus({error:true,text:translate('editor.unsavedBlocked')});return}/* A concurrent mutation would bump mutationSeq and drop this paste's bookkeeping after the fs move already succeeded — refuse while one is in flight. */if(mutationController.current!==undefined){setStatus({error:true,text:translate('editor.operationBusy')});return}const controller=new AbortController();mutationController.current=controller;const mutationSeq=mutationSeqRef.current+=1;let draftMoveGeneration;let draftMoveFailed=false;const request=(async()=>{const result=await requestFsOperation(workspace.workspaceId,{action:wasCut?'move':'copy',source:clipboard.path,target:targetPath},controller.signal);if(wasCut){draftMoveGeneration=nextDraftGeneration('__tree__');await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:draftMoveGeneration,fromPath:clipboard.path,toPath:result.path},controller.signal).catch(async error=>{if(!mounted.current)return;draftMoveFailed=true;console.warn('workspace-studio: draft move after fs move failed:',error);setStatus({error:true,text:translate('status.movedDraftWarning')});/* The old-path draft is the ONLY persistent copy of the user's unsaved edits: deleting it on a failed move (the old behavior) could lose them if the page refreshes before the next autosave lands on the new path. Retry once with a fresh generation (the failure is usually a transient generation race with a concurrent autosave); if the retry also fails, KEEP the old-path draft — a harmless zombie that only restores if a file appears at the old path again — and warn. */try{await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:nextDraftGeneration('__tree__'),fromPath:clipboard.path,toPath:result.path},controller.signal);draftMoveFailed=false}catch(retryError){if(mounted.current)console.warn('workspace-studio: draft move retry also failed; keeping draft at source path:',retryError)}})}return result})();request.then(result=>{if(!mounted.current||mutationSeq!==mutationSeqRef.current)return;setContextMenu(undefined);setStatus(draftMoveFailed?{error:true,text:translate('status.movedDraftWarning')}:{text:wasCut?translate('status.moved'):translate('status.pasted')});vcsRef.current.refreshSoon();if(wasCut){const source=clipboard.path;if(clipboardRef.current?.path===source&&clipboardRef.current?.cut===true)setClipboard(undefined);setSelected(result);setDirectories(cur=>rewriteDirectoryMap(cur,source,result.path,result));setExpanded(cur=>rewritePathSet(cur,source,result.path));setTabs(cur=>rewritePreviewTabs(cur,source,result.path,result));rewriteRuntimePaths(source,result.path);migratePendingAutosavesRef.current?.(source,result.path);void rewriteEmergencyDraftPath(workspace.workspaceId,draftScopeId,source,result.path).catch(error=>{if(mounted.current)setStatus({error:true,text:translate('editor.autosaveFailed',{message:error instanceof Error?error.message:String(error)})})});const nextActivePath=activePathRef.current===null?null:rewriteRelativePath(activePathRef.current,source,result.path);if(nextActivePath!==activePathRef.current)setActivePath(nextActivePath);void loadDirectory(parentPath(source));void loadDirectory(targetDir)}else{void loadDirectory(targetDir)}}).catch(error=>{const timedOut=error?.name==='AbortError'&&error?.reason?.name==='TimeoutError';if((error?.name==='AbortError'&&!timedOut)||!mounted.current||mutationSeq!==mutationSeqRef.current)return;setContextMenu(undefined);const failedMessage=timedOut?translate('editor.requestTimeout'):(error instanceof Error?error.message:String(error));setCopyNotice(translate(wasCut?'status.cutFailed':'status.pasteFailed',{message:failedMessage}));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},3000)}).finally(()=>{if(mutationController.current===controller)mutationController.current=undefined})},[clipboard,draftScopeId,draftTree,loadDirectory,nextDraftGeneration,rewriteRuntimePaths,workspace.workspaceId])
   const openDeleteConfirm=useCallback(entry=>{setContextMenu(undefined);setDeleteDialog(entry);setDeleteBusy(false)},[])
   const closeDeleteDialog=useCallback(()=>{if(deleteBusy)return;setDeleteDialog(undefined)},[deleteBusy])
   const confirmDelete = useCallback(async () => {
@@ -1007,6 +1096,7 @@ export function WorkspaceExplorer({
       setDeleteBusy(false)
       setDeleteDialog(undefined)
       setStatus({ text: translate('status.deleted') })
+      vcsRef.current.refreshSoon()
       setTabs(cur => cur.filter(tab => tab.path !== entry.path && !tab.path.startsWith(`${entry.path}/`)))
       for (const item of affected) {
         /* A keystroke during the (possibly slow) fs delete re-armed a 1s autosave above the tree fence: disarm it here, or the PUT would recreate a Host staging draft for the deleted path (a future same-named file would restore it as dirty). */
@@ -1567,7 +1657,7 @@ export function WorkspaceExplorer({
     if (!canOpenInNewWindow) return
     window.open(hostAbsoluteHref(rawFileUrl(workspace.workspaceId, tabMenuTarget.path)), '_blank', 'noopener')
   }
-  const treeSection = h('section', { className: 'dsh-ws-tree' },
+  const treeSection = h('section', { className: 'dsh-ws-tree', style: vcsStatusColorVars(settings) },
       searchOpen
         ? h(Fragment, null,
           h('header', { className: 'dsh-ws-panel-header dsh-ws-search-header' },
@@ -1628,7 +1718,39 @@ export function WorkspaceExplorer({
             subtitle: workspace.path,
             title: sessionTitle ?? translate('panel.workspaceFiles'),
           }),
-          h(ExplorerTree, { clipboard, containerRef: treeScrollRef, directories, entryBusy, entryDialog, entryDialogError, entryDraft, expanded, onCloseEntryDialog: closeEntryDialog, onConfirmEntryDialog: submitEntryDialog, onContextMenu: openContextMenu, onDirectory: toggleDirectory, onDraftEntry: value => { setEntryDraft(value); setEntryError(undefined) }, onFile: chooseFilePreview, onFilePermanent: chooseFile, onSelect: setSelected, onRename: beginRename, selected }),
+          h(VcsBar, {
+            changesOnly: vcsChangesOnly,
+            ignored: settings.vcsShowIgnored === true,
+            model: vcsModel,
+            onRefresh: vcs.refresh,
+            onToggleChangesOnly: () => setVcsChangesOnly(current => !current),
+            onToggleIgnored: () => settingsStore.actions.setVcsShowIgnored(settings.vcsShowIgnored !== true),
+            showIgnored: vcsModel.visible === true,
+          }),
+          h(ExplorerTree, {
+            changesLoading: vcs.loading,
+            changesOnly: vcsChangesOnly,
+            clipboard,
+            containerRef: treeScrollRef,
+            directories,
+            entryBusy,
+            entryDialog,
+            entryDialogError,
+            entryDraft,
+            expanded,
+            hideMetadataDirs: settings.vcsHideDirs !== false,
+            onCloseEntryDialog: closeEntryDialog,
+            onConfirmEntryDialog: submitEntryDialog,
+            onContextMenu: openContextMenu,
+            onDirectory: toggleDirectory,
+            onDraftEntry: value => { setEntryDraft(value); setEntryError(undefined) },
+            onFile: chooseFilePreview,
+            onFilePermanent: chooseFile,
+            onSelect: setSelected,
+            onRename: beginRename,
+            overlay: vcs.overlay,
+            selected,
+          }),
           contextMenu ? h(TreeContextMenu, { entry: contextMenu.entry, menuRef, onRename: entry => { setContextMenu(undefined); beginRename(entry) }, onCopyName: copyEntryName, onCopyPath: copyEntryPath, onReveal: openInExplorer, onCopy: entry => copyEntryToClipboard(entry, false), onPaste: pasteEntry, onCut: entry => copyEntryToClipboard(entry, true), onDelete: openDeleteConfirm, pasteDisabled: clipboard === undefined || clipboard.workspaceId !== workspace.workspaceId, pasteTitle: clipboard === undefined ? translate('context.paste.titleEmpty') : clipboard.workspaceId !== workspace.workspaceId ? translate('context.paste.titleForeign') : translate('context.paste.title'), x: contextMenu.x, y: contextMenu.y }) : null,
           titleContextMenu ? h('div', { className: 'dsh-ws-context-menu', ref: titleMenuRef, role: 'menu', style: { left: Math.max(4, Math.min(titleContextMenu.x, window.innerWidth - CONTEXT_MENU_WIDTH - 4)), top: Math.max(4, Math.min(titleContextMenu.y, window.innerHeight - 52)) } }, h('button', { className: 'dsh-ws-context-item', onClick: openSessionRename, role: 'menuitem', title: translate('dialog.renameSession'), type: 'button' }, translate('dialog.renameSession'))) : null,
           copyNotice ? h('div', { className: 'dsh-ws-copy-notice', role: 'status' }, copyNotice) : null,

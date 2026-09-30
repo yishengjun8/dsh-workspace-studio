@@ -46,6 +46,17 @@ export const AUTO_RELOAD_COOLDOWN_MS = 4000
 /* "Auto" = a clean tab reloads on change; "watch-only" = only shows a "file changed" status and waits for the user's refresh. */
 export const AUTO_SYNC_MODE_AUTO = 'auto'
 export const AUTO_SYNC_MODE_WATCH_ONLY = 'watch-only'
+/* Version-control status in the file browser (git / svn, read-only). Each poll spawns a
+   status command on the Host, so the cadence is far slower than the file-watch tick and
+   only runs while the file-browsing pane is actually visible; the Host's own payload TTL
+   is shorter, so consecutive polls usually answer from its cache. */
+export const VCS_STATUS_POLL_MS = 20000
+/* Above the Host's own tool timeout (10 s), so a hung command surfaces the Host's message. */
+export const VCS_STATUS_TIMEOUT_MS = 15000
+/* Coalesces the refresh triggers of one save / mutation burst into a single request. */
+export const VCS_REFRESH_DEBOUNCE_MS = 300
+/* Hide VCS metadata directories (.git / .svn) in the tree; display-only, user-tunable. */
+export const VCS_HIDE_METADATA_DEFAULT = true
 /* Per-tab disk state, RUNTIME ONLY (not in clonePreviewTab's whitelist — see
    preview-tabs.js, so it never persists or joins previewSnapshotFingerprint):
    `clean` = shown content matches disk; `stale` = disk moved, tab is clean;

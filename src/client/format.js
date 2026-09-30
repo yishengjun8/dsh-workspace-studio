@@ -44,6 +44,41 @@ export function fileColorOf(settings, group) {
   return settings?.fileColors?.[group] ?? fileColorDefault(group)
 }
 
+/* VCS status-badge accents, one per TONE (several status letters share a tone: renamed/copied,
+   added/untracked). Defaults mirror the app's state palette, so an untouched install matches the
+   theme; the user can recolor each tone in settings like the file-type badges. */
+export const VCS_STATUS_GROUPS = Object.freeze([
+  { group: 'modified', label: '已修改', color: '#b7791f' },
+  { group: 'added', label: '已新增', color: '#1a7f37' },
+  { group: 'untracked', label: '未跟踪', color: '#1a7f37' },
+  { group: 'deleted', label: '已删除', color: '#d92f24' },
+  { group: 'renamed', label: '已重命名', color: '#1a63d8' },
+  { group: 'conflict', label: '冲突', color: '#d92f24' },
+  { group: 'ignored', label: '已忽略', color: '#8a9099' },
+])
+export const DEFAULT_VCS_STATUS_COLOR = '#8a9099'
+export const VCS_STATUS_DEFAULTS = Object.fromEntries(VCS_STATUS_GROUPS.map(({ group, color }) => [group, color]))
+/** Localized label of one VCS tone; falls back to the constant label. */
+export function vcsStatusGroupLabel(group) {
+  const localized = translate(`vcsColor.${group}`)
+  if (localized !== `vcsColor.${group}`) return localized
+  return VCS_STATUS_GROUPS.find(item => item.group === group)?.label ?? group
+}
+/** The accent a VCS tone falls back to when the user has not set one. */
+export function vcsStatusColorDefault(group) {
+  return VCS_STATUS_DEFAULTS[group] ?? DEFAULT_VCS_STATUS_COLOR
+}
+/** Resolve one VCS tone's effective color: the user's customization, else the default. */
+export function vcsStatusColorOf(settings, group) {
+  return settings?.vcsColors?.[group] ?? vcsStatusColorDefault(group)
+}
+/** CSS custom properties for every VCS tone, spread onto the tree panel so its badges inherit them. */
+export function vcsStatusColorVars(settings) {
+  const vars = {}
+  for (const { group } of VCS_STATUS_GROUPS) vars[`--dsh-ws-vcs-${group}`] = vcsStatusColorOf(settings, group)
+  return vars
+}
+
 /* Extension -> color group; mirrors EXTENSION_LANGUAGES so badge and editor highlighting agree. */
 export const FILE_GROUP_BY_EXTENSION = Object.freeze({
   ts: 'typescript', tsx: 'typescript', mts: 'typescript', cts: 'typescript',

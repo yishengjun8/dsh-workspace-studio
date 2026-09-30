@@ -13,6 +13,7 @@ import { renderPromptContext } from './prompt-context.js'
 import { renderMarkdownDocument } from './markdown.js'
 import { checkForUpdate, downloadUpdate } from './update.js'
 import { computeTokenStats, warmTokenStatsIndex } from './token-stats.js'
+import { readVcsStatus } from './vcs.js'
 import { workspaceFor } from './workspace.js'
 /** Stable Cordis plugin name. */
 export const name = 'workspace-studio'
@@ -41,6 +42,15 @@ export const Config = z.object({
   maxSearchQueryLength: z.natural().min(1).max(4096).default(1024),
   // Self-update gate: when false the update endpoints refuse and the settings UI hides the group.
   enableUpdateCheck: z.boolean().default(true),
+  /* Version-control status display for the file browser: read-only `git status` / `svn status`
+     probes. A missing executable or a timeout degrades inside the payload (the UI says so);
+     nothing here ever writes to the repository or reaches the network. */
+  enableVcsStatus: z.boolean().default(true),
+  gitExecutable: z.string().default('git'),
+  svnExecutable: z.string().default('svn'),
+  vcsTimeoutMs: z.natural().min(1000).max(120_000).default(10_000),
+  vcsCacheTtlMs: z.natural().min(0).max(600_000).default(8000),
+  vcsMaxEntries: z.natural().min(100).max(50_000).default(5000),
 })
 
 const API_PREFIX = '/workspace-studio/api'
@@ -113,6 +123,7 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
     const updateCheckEndpoint = url.pathname === `${API_PREFIX}/update/check`
     const updateDownloadEndpoint = url.pathname === `${API_PREFIX}/update/download`
     const tokenStatsEndpoint = url.pathname === `${API_PREFIX}/token-stats`
+    const vcsEndpoint = url.pathname === `${API_PREFIX}/vcs`
     const allowed = contextEndpoint
       ? 'POST'
       : encodingsEndpoint
@@ -159,7 +170,9 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
                                                 ? 'POST'
                                                 : tokenStatsEndpoint
                                                   ? 'GET, HEAD'
-                                                  : mindmapDocEndpoint
+                                                  : vcsEndpoint
+                                                    ? 'GET, HEAD'
+                                                    : mindmapDocEndpoint
                                                     ? 'GET, HEAD, POST, DELETE'
                                                     : draftEndpoint
                                                       ? 'GET, HEAD, PUT, DELETE'
@@ -168,7 +181,7 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
       sendError(req, res, 405, 'method-not-allowed', `该接口只允许 ${allowed} 请求`, { allow: allowed })
       return
     }
-    if (!contextEndpoint && !encodingsEndpoint && !entryEndpoint && !externalFileEndpoint && !fileEndpoint && !rawEndpoint && !fsEndpoint && !treeEndpoint && !searchEndpoint && !revealEndpoint && !draftEndpoint && !draftTreeEndpoint && !mindmapDocEndpoint && !mindmapDocIndexEndpoint && !mindmapDocSyncEndpoint && !mindmapDocRenameEndpoint && !mindmapDocModelsEndpoint && !mindmapDocRegenerateEndpoint && !mindmapDocRegenerateAllEndpoint && !mindmapDocRegenerateSessionSummariesEndpoint && !mindmapDocSummarizeSessionEndpoint && !mindmapForkCleanupEndpoint && !updateCheckEndpoint && !updateDownloadEndpoint && !tokenStatsEndpoint) {
+    if (!contextEndpoint && !encodingsEndpoint && !entryEndpoint && !externalFileEndpoint && !fileEndpoint && !rawEndpoint && !fsEndpoint && !treeEndpoint && !searchEndpoint && !revealEndpoint && !draftEndpoint && !draftTreeEndpoint && !mindmapDocEndpoint && !mindmapDocIndexEndpoint && !mindmapDocSyncEndpoint && !mindmapDocRenameEndpoint && !mindmapDocModelsEndpoint && !mindmapDocRegenerateEndpoint && !mindmapDocRegenerateAllEndpoint && !mindmapDocRegenerateSessionSummariesEndpoint && !mindmapDocSummarizeSessionEndpoint && !mindmapForkCleanupEndpoint && !updateCheckEndpoint && !updateDownloadEndpoint && !tokenStatsEndpoint && !vcsEndpoint) {
       sendError(req, res, 404, 'endpoint-not-found', '接口不存在')
       return
     }
@@ -377,6 +390,16 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
     }
     const workspaceId = requiredQuery(url, 'workspaceId')
     const workspace = workspaceFor(ctx, workspaceId)
+    if (vcsEndpoint) {
+      /* Read-only working-copy status. Degradations (no CLI, timeout, unexpected failure) ride the
+         payload's `error` field with a 200, so the client always gets the full shape and can keep
+         its last good result on screen; only the request fence above fails with a real HTTP error. */
+      sendJson(req, res, 200, await readVcsStatus(workspace, config, {
+        includeIgnored: url.searchParams.get('ignored') === '1',
+        refresh: url.searchParams.get('refresh') === '1',
+      }))
+      return
+    }
     if (draftTreeEndpoint) {
       const payload = await readJsonObject(req, config)
       sendJson(req, res, 200, await draftTreeOperation(workspaceId, payload, config, writeQueues))
