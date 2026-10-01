@@ -4,7 +4,8 @@ Below the table sits the quick calculator: three unit-price fields (input / cach
 import { createElement as h, Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { translate } from '../locale/index.js'
 import { fetchTokenStats } from '../api.js'
-import { TOKEN_CURRENCY_MAX_LENGTH, TOKEN_PRICE_MAX_LENGTH, TOKEN_PRICES_STORE_KEY } from '../constants.js'
+import { TOKEN_CURRENCY_MAX_LENGTH, TOKEN_PRICE_DEFAULT_CURRENCY, TOKEN_PRICE_FIELDS, TOKEN_PRICE_MAX_LENGTH, TOKEN_PRICES_STORE_KEY } from '../constants.js'
+import { readPersistedState } from '../persisted-state.js'
 import { useDialogFocusTrap } from './dialogs.js'
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -77,9 +78,9 @@ function fmtDate(ms) {
 }
 
 /* ---- Quick calculator (bottom of the token panel) ---- */
-/* Cache-write tokens are excluded on purpose: they are neither displayed nor priced, so no field exists for them here. Anything a previous version stored under `cacheWrite` is dropped by normalizePriceRecord (it only walks this list). */
-const TOKEN_PRICE_FIELDS = ['input', 'cacheRead', 'output']
-const TOKEN_PRICE_DEFAULT_CURRENCY = '¥'
+/* The priced fields, their default currency and the input caps live in constants.js so the
+   persisted-state schema and this panel share one definition; a field the schema does not name
+   (including one a previous format wrote) simply is not part of the record and is dropped there. */
 const MILLION = 1000000
 
 /* One price field: a plain text input with decimal keypad hints, so a number input's spinners (and its wheel-changes-value behaviour inside the scrolling dialog) never appear. Anything that is not a digit or a single dot is dropped instead of stored, and the length is capped so a paste cannot bloat the persisted value. An empty string means "not filled in" and is worth 0. */
@@ -107,40 +108,13 @@ function hasTextSelection() {
   const selection = window.getSelection()
   return selection !== null && selection !== undefined && String(selection).trim() !== ''
 }
-/* Keeps only well-formed fields, so a polluted or legacy key cannot throw and cannot smuggle a non-string into a controlled input. */
-function normalizePriceRecord(value) {
-  if (value === null || typeof value !== 'object') return null
-  const record = {}
-  for (const field of TOKEN_PRICE_FIELDS) {
-    if (typeof value[field] !== 'string') continue
-    const clean = sanitizePriceInput(value[field])
-    if (clean !== '') record[field] = clean
-  }
-  return Object.keys(record).length === 0 ? null : record
-}
-/* Prices survive reloads (they are user-typed reference data, not session state); an unreadable or missing key falls back to empty fields and the default currency. */
+/* Prices survive reloads (they are user-typed reference data, not session state). The shape is
+   owned by persisted-state.js: an absent or unusable key simply yields the empty calculator. */
 function readPersistedTokenPrices() {
-  const empty = { currency: TOKEN_PRICE_DEFAULT_CURRENCY, prices: {}, overrides: {} }
-  if (typeof localStorage === 'undefined') return empty
-  try {
-    const raw = localStorage.getItem(TOKEN_PRICES_STORE_KEY)
-    if (raw === null) return empty
-    const stored = JSON.parse(raw)
-    if (stored === null || typeof stored !== 'object') return empty
-    const overrides = {}
-    if (stored.overrides !== null && typeof stored.overrides === 'object') {
-      for (const [key, record] of Object.entries(stored.overrides)) {
-        const normalized = normalizePriceRecord(record)
-        if (normalized !== null) overrides[key] = normalized
-      }
-    }
-    return {
-      currency: typeof stored.currency === 'string' ? stored.currency.slice(0, TOKEN_CURRENCY_MAX_LENGTH) : TOKEN_PRICE_DEFAULT_CURRENCY,
-      prices: normalizePriceRecord(stored.prices) ?? {},
-      overrides,
-    }
-  } catch {
-    return empty
+  return readPersistedState(TOKEN_PRICES_STORE_KEY) ?? {
+    currency: TOKEN_PRICE_DEFAULT_CURRENCY,
+    prices: {},
+    overrides: {},
   }
 }
 function writePersistedTokenPrices(state) {

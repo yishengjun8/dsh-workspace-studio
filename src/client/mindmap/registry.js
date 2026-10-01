@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
-import { MINDMAP_INDEX_REFRESH_MS } from '../constants.js'
+import { MINDMAP_INDEX_REFRESH_MS, MINDMAP_LAST_SESSION_STORE_KEY, MINDMAP_ORDER_STORE_KEY } from '../constants.js'
+import { readPersistedState } from '../persisted-state.js'
 import { fetchMindmapDocIndex } from '../api.js'
 
 /* Module-wide mind-map index registry: sidebar panel and branch hider need the
@@ -215,8 +216,9 @@ export function useMindmapDocHandoff(rootId) {
 }
 
 /* Per-group sidebar order of mind-map entries in localStorage (id list per
-   group key; a workspace rename loses the mapping — accepted trade-off). */
-const MINDMAP_ORDER_STORE_KEY = 'dsh.workspace.studio.mindmap-order.v1'
+   group key; a workspace rename loses the mapping — accepted trade-off). The
+   stored shape is owned by persisted-state.js, which drops anything unusable
+   (including the keys of previous formats) before this module ever reads it. */
 /* Cross-tab serialization for the read-modify-write of the whole map: two GUI
    tabs writing different maps concurrently would otherwise overwrite each
    other's entries (lost update). Web Locks serializes the read+write; without
@@ -230,33 +232,7 @@ async function withMindmapStoreLock(name, operation) {
   return operation()
 }
 export function readMindmapOrder() {
-  try {
-    const raw = window.localStorage.getItem(MINDMAP_ORDER_STORE_KEY)
-    if (raw === null || raw === '') return {}
-    const parsed = JSON.parse(raw)
-    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
-  } catch {
-    return {}
-  }
-}
-/* Distinguishes "absent" ({} → a fresh map is safe to seed) from "corrupt"
-   (non-empty raw that fails to parse or fails the shape guard): a caller that
-   cannot tell the two apart would seed a fresh {} over corrupt data and
-   silently erase every other group's persisted order. */
-function readMindmapOrderState() {
-  try {
-    const raw = window.localStorage.getItem(MINDMAP_ORDER_STORE_KEY)
-    if (raw === null || raw === '') return { map: {} }
-    try {
-      const parsed = JSON.parse(raw)
-      return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? { map: parsed } : { corrupt: true }
-    } catch {
-      return { corrupt: true }
-    }
-  } catch {
-    /* storage unavailable: nothing readable, nothing writable */
-    return { unavailable: true }
-  }
+  return readPersistedState(MINDMAP_ORDER_STORE_KEY) ?? {}
 }
 export function writeMindmapOrder(map) {
   return withMindmapStoreLock('dsh-workspace-studio:mindmap-order', () => {
@@ -270,13 +246,10 @@ export function writeMindmapOrder(map) {
 export function updateMindmapOrder(groupKey, ids) {
   return withMindmapStoreLock('dsh-workspace-studio:mindmap-order', () => {
     try {
-      const state = readMindmapOrderState()
-      /* Corrupt storage is left untouched: seeding a fresh {} here would erase
-         every other group's persisted order on the next drag. */
-      if (state.corrupt === true || state.unavailable === true) return undefined
-      state.map[String(groupKey)] = ids
-      window.localStorage.setItem(MINDMAP_ORDER_STORE_KEY, JSON.stringify(state.map))
-      return state.map
+      const map = readMindmapOrder()
+      map[String(groupKey)] = ids
+      window.localStorage.setItem(MINDMAP_ORDER_STORE_KEY, JSON.stringify(map))
+      return map
     } catch { /* quota / private mode */ }
   })
 }
@@ -285,16 +258,8 @@ export function updateMindmapOrder(groupKey, ids) {
    → last selected session id). Restored on the next open so the current
    highlight (and the right-side chat) return to the last clicked card; a stale
    entry falls back to the default first branch. */
-const MINDMAP_LAST_SESSION_STORE_KEY = 'dsh.workspace.studio.mindmap-last-session.v1'
 function readMindmapLastSessionMap() {
-  try {
-    const raw = window.localStorage.getItem(MINDMAP_LAST_SESSION_STORE_KEY)
-    if (raw === null || raw === '') return {}
-    const parsed = JSON.parse(raw)
-    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
-  } catch {
-    return {}
-  }
+  return readPersistedState(MINDMAP_LAST_SESSION_STORE_KEY) ?? {}
 }
 export function readMindmapLastSession(rootId) {
   const value = readMindmapLastSessionMap()[String(rootId)]

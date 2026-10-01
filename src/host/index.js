@@ -14,6 +14,7 @@ import { renderMarkdownDocument } from './markdown.js'
 import { checkForUpdate, downloadUpdate } from './update.js'
 import { computeTokenStats, warmTokenStatsIndex } from './token-stats.js'
 import { readVcsBase, readVcsStatus } from './vcs.js'
+import { buildRunPlan, clearExecutableCache, describeRunExtensions, probeInterpreter, readRunPolicy, readRunPolicyStore, readRunStatus, startRun, stopAllRuns, stopRun, writeRunPolicy } from './run.js'
 import { workspaceFor } from './workspace.js'
 /** Stable Cordis plugin name. */
 export const name = 'workspace-studio'
@@ -54,6 +55,98 @@ export const Config = z.object({
 })
 
 const API_PREFIX = '/workspace-studio/api'
+/* Executable-file runner routes (see run.js for the safety model). Kept as their own table so the
+   long route chain below — including its method/404 bookkeeping — stays untouched. */
+const RUN_ROUTES = Object.freeze({
+  [`${API_PREFIX}/run`]: 'POST',
+  [`${API_PREFIX}/run/plan`]: 'GET, HEAD',
+  [`${API_PREFIX}/run/status`]: 'GET, HEAD',
+  [`${API_PREFIX}/run/stop`]: 'POST',
+  [`${API_PREFIX}/run/policy`]: 'GET, HEAD, POST',
+  /* Interpreter configuration, both ends of it: the settings page's per-extension table and the
+     one-shot version probe behind the dialogs' 「测试」 button. */
+  [`${API_PREFIX}/run/interpreters`]: 'GET, HEAD',
+  [`${API_PREFIX}/run/probe`]: 'POST',
+})
+/* The runner's request body bound: the argument text is capped at 4 KiB by run.js, so the JSON
+   envelope only needs a little headroom over the shared mutation cap. */
+const RUN_BODY_MAX_BYTES = 16 * 1024
+
+/** Handle one runner request. Workspace-scoped except the stop verb, which only needs its run id
+ *  (a run must stay stoppable even when its workspace entry went away mid-flight). */
+async function handleRunRoute(ctx, config, url, req, res, writeQueues) {
+  const endpoint = url.pathname
+  if (endpoint === `${API_PREFIX}/run/stop`) {
+    const payload = await readJsonObject(req, config, RUN_BODY_MAX_BYTES)
+    const runId = typeof payload?.runId === 'string' ? payload.runId : ''
+    if (runId === '') throw new HttpError(400, 'invalid-run', '停止运行必须提供 runId')
+    sendJson(req, res, 200, stopRun(runId))
+    return
+  }
+  /* Version probe and the per-extension resolution table are HOST-wide (an interpreter path is an
+     absolute path, not a workspace path), so neither needs a workspace id. */
+  if (endpoint === `${API_PREFIX}/run/probe`) {
+    const payload = await readJsonObject(req, config, RUN_BODY_MAX_BYTES)
+    const target = typeof payload?.path === 'string' ? payload.path : ''
+    const family = typeof payload?.family === 'string' ? payload.family : ''
+    if (target === '' || family === '') throw new HttpError(400, 'invalid-run', '版本探测必须提供解释器路径与命令类别')
+    sendJson(req, res, 200, await probeInterpreter(target, family))
+    return
+  }
+  if (endpoint === `${API_PREFIX}/run/interpreters`) {
+    /* refresh=1 mirrors /run/plan: after installing an interpreter, the settings page's 「重新检测」
+       button must not be answered from the stale PATH-search cache. */
+    if (url.searchParams.get('refresh') === '1') clearExecutableCache()
+    const policy = await readRunPolicyStore()
+    sendJson(req, res, 200, await describeRunExtensions({ extensions: policy.extensions }))
+    return
+  }
+  /* The policy's GLOBAL maps (per-extension and per-file interpreters) are workspace-independent —
+     only `trusted` is per workspace — so a missing workspaceId is legal here (the settings page has
+     no workspace context) and only a `trusted` write insists on one. */
+  if (endpoint === `${API_PREFIX}/run/policy`) {
+    const policyWorkspaceId = url.searchParams.get('workspaceId') ?? ''
+    if (req.method === 'POST') {
+      const payload = await readJsonObject(req, config, RUN_BODY_MAX_BYTES)
+      sendJson(req, res, 200, await writeRunPolicy(policyWorkspaceId, payload, writeQueues))
+      return
+    }
+    sendJson(req, res, 200, await readRunPolicy(policyWorkspaceId))
+    return
+  }
+  const workspaceId = requiredQuery(url, 'workspaceId')
+  const workspace = workspaceFor(ctx, workspaceId)
+  if (endpoint === `${API_PREFIX}/run/status`) {
+    const runId = url.searchParams.get('runId') ?? ''
+    const relativePath = normalizeRelativePath(url.searchParams.get('path') ?? '')
+    if (runId === '' && relativePath === '') {
+      throw new HttpError(400, 'invalid-path', '运行状态查询必须提供 path 或 runId')
+    }
+    const offset = Number(url.searchParams.get('offset'))
+    sendJson(req, res, 200, readRunStatus({
+      runId,
+      workspace,
+      relativePath,
+      offset: Number.isSafeInteger(offset) && offset > 0 ? offset : 0,
+    }))
+    return
+  }
+  const relativePath = normalizeRelativePath(url.searchParams.get('path') ?? '')
+  if (relativePath === '') throw new HttpError(400, 'invalid-path', '运行相关请求必须指定文件路径')
+  const policy = await readRunPolicyStore()
+  if (endpoint === `${API_PREFIX}/run/plan`) {
+    /* refresh=1 comes from the console's 重新检测 button: a user who just installed an interpreter
+       (or pointed at one) must not be answered from the PATH-search cache. */
+    if (url.searchParams.get('refresh') === '1') clearExecutableCache()
+    sendJson(req, res, 200, await buildRunPlan(workspace, relativePath, {
+      extensions: policy.extensions,
+      files: policy.files,
+    }))
+    return
+  }
+  const payload = await readJsonObject(req, config, RUN_BODY_MAX_BYTES)
+  sendJson(req, res, 200, await startRun(workspace, relativePath, typeof payload?.args === 'string' ? payload.args : ''))
+}
 /* Shared GET-load refresh: reconcile + adopt under the caller's lock, write back when changed, invalidate the sync cache, and serve the last good disk doc when the refresh degraded (a partial in-memory mutation must never be served or written). */
 async function refreshMindmapDocLoad(ctx, persistence, doc) {
   /* An OPEN must start from a FRESH session index: the row revisions behind the
@@ -98,6 +191,15 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
   }
   try {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1')
+    const runRoute = RUN_ROUTES[url.pathname]
+    if (runRoute !== undefined) {
+      if (!runRoute.split(', ').includes(req.method ?? '')) {
+        sendError(req, res, 405, 'method-not-allowed', `该接口只允许 ${runRoute} 请求`, { allow: runRoute })
+        return
+      }
+      await handleRunRoute(ctx, config, url, req, res, writeQueues)
+      return
+    }
     const contextEndpoint = url.pathname === `${API_PREFIX}/context`
     const encodingsEndpoint = url.pathname === `${API_PREFIX}/encodings`
     const entryEndpoint = url.pathname === `${API_PREFIX}/entry`
@@ -554,6 +656,12 @@ export function apply(ctx, config) {
       handler: (req, res) => handleRequest(ctx, config, trustedHosts, writeQueues, req, res),
     }),
     'workspace-studio: workspace API',
+  )
+  /* Executable-file runner: nothing it spawned may outlive the Host (a plugin teardown, a restart,
+     or a dsh shutdown would otherwise leave orphaned build/deploy processes behind). */
+  ctx.effect(
+    () => () => stopAllRuns(),
+    'workspace-studio: run registry teardown',
   )
   /* Token-statistics warm-up: every dsh start rebuilds the usage index in the background (per-session results are cached on disk behind the persistence revision, so only sessions whose logs changed since the last run are re-read); the first panel open then answers from the cache instead of scanning. */
   ctx.effect(

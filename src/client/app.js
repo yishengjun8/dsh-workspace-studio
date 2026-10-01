@@ -1,11 +1,12 @@
 import { createElement as h, Fragment, useRef, useState, useEffect, useLayoutEffect, useMemo, useCallback, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
-import { clampSpinSpeed, CONTEXT_MENU_WIDTH, EDIT_LINES_DEFAULT, EDIT_LINES_MAX, EDIT_LINES_MIN, EDITOR_CONTEXT_PROVIDER, EXPLORER_MAX_RATIO, MINDMAP_END_COLOR_DEFAULT, MINDMAP_HEAD_COLOR_DEFAULT, MINDMAP_SPIN_BASE_DURATION_S, MINDMAP_SPIN_STOP_DURATION_S, MOBILE_HEADER_FALLBACK_H, PACKAGE_ID, PREVIEW_DEFAULT, PREVIEW_MAX, PREVIEW_MIN, PREVIEW_SESSION_MAX, ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MAX, ROW_HEIGHT_MIN, SIDEBAR_COLLAPSED, SIDEBAR_MAX_FALLBACK, SIDEBAR_MAX_RATIO, SIDEBAR_MIN, THINK_LINES_DEFAULT, THINK_LINES_MAX, THINK_LINES_MIN, TREE_MAX, TREE_MIN } from './constants.js'
+import { CONTEXT_MENU_WIDTH, EDITOR_CONTEXT_PROVIDER, EXPLORER_MAX_RATIO, MINDMAP_END_COLOR_DEFAULT, MINDMAP_HEAD_COLOR_DEFAULT, MINDMAP_SPIN_BASE_DURATION_S, MINDMAP_SPIN_STOP_DURATION_S, MOBILE_HEADER_FALLBACK_H, PACKAGE_ID, PREVIEW_MAX, PREVIEW_MIN, SIDEBAR_COLLAPSED, SIDEBAR_MAX_FALLBACK, SIDEBAR_MAX_RATIO, SIDEBAR_MIN, TREE_MAX, TREE_MIN } from './constants.js'
 import { installLocaleService, translate } from './locale/index.js'
 import { setDrawerOpen, setMobile, useMobile } from './mobile.js'
 import { styles } from './styles.js'
 import { clamp, FILE_COLOR_GROUPS, fileColorOf } from './format.js'
 import { previewSnapshotFingerprint, selectStoredPreviewSession } from './preview-tabs.js'
+import { sanitizePersistedClientState } from './persisted-state.js'
 import { checkFileChange, createWorkspaceEntry, deleteDraft, deleteMindmapDoc, putFile, readDraft, renameWorkspaceEntry, requestDraftTree, requestJson, writeDraft } from './api.js'
 import { createExplorerPaneStore, createExplorerSettingsStore, createLayoutStore, createPreviewSessionStore, LayoutController } from './stores.js'
 import { currentSessionOf, EditorContextController, openHarnessSession, PromptContextBridge, recentWorkspaceIdOf, selectWorkspaceForSession, workspaceOfSession } from './controllers.js'
@@ -42,18 +43,6 @@ export function AppFrame(props) {
   const settings = useSyncExternalStore(props.settingsStore.subscribe, props.settingsStore.getSnapshot)
   const panes = useSyncExternalStore(props.explorerPaneStore.subscribe, props.explorerPaneStore.getSnapshot)
   const mobile = useMobile()
-  /* One-time self-heal for legacy over-limit data: prunePreviewSessions only
-     runs inside rememberPreviewSession, so a snapshot holding more than
-     PREVIEW_SESSION_MAX keys stays oversized until the next real write.
-     Re-stamping every key converges to the cap in one pass. */
-  useLayoutEffect(() => {
-    const entries = previewPanels.previewSessions
-    if (entries === null || entries === undefined || typeof entries !== 'object') return
-    const keys = Object.keys(entries)
-    if (keys.length <= PREVIEW_SESSION_MAX) return
-    for (const key of keys) props.previewSessionsStore.actions.rememberPreviewSession(key, entries[key])
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
   // Mirror the sidebar width into the persisted pane store: the layout store
   // owns the live value but cannot persist wholesale, so the pane store's
   // small layout value is the durable copy.
@@ -144,8 +133,9 @@ export function AppFrame(props) {
     return () => { cancelAnimationFrame(rafId); detachObserver?.() }
   }, [currentSession, mobile.files, mobile.on])
   /* Sidebar mind-map entry icon spin: the user speed multiplier becomes the
-     animation duration var; speed 0 freezes the spin. */
-  const mindmapSpinSpeed = clampSpinSpeed(settings.mindmapSpinSpeed)
+     animation duration var; speed 0 freezes the spin. The schema guarantees the
+     range, so no re-clamp is needed here. */
+  const mindmapSpinSpeed = settings.mindmapSpinSpeed
   const mindmapSpinDuration = mindmapSpinSpeed > 0
     ? `${(MINDMAP_SPIN_BASE_DURATION_S / mindmapSpinSpeed).toFixed(3)}s`
     : `${MINDMAP_SPIN_STOP_DURATION_S}s`
@@ -316,13 +306,18 @@ export function AppFrame(props) {
   const previewMax = settings.previewRight === true
     ? Math.max(PREVIEW_MIN, viewportWidth > 0 ? Math.floor(viewportWidth * EXPLORER_MAX_RATIO) : PREVIEW_MAX)
     : Math.max(PREVIEW_MIN, explorerMax - tree)
-  const preview = filesActive || panes.explorerOpen ? clamp(panes.preview ?? PREVIEW_DEFAULT, PREVIEW_MIN, previewMax) : 0
+  const preview = filesActive || panes.explorerOpen ? clamp(panes.preview, PREVIEW_MIN, previewMax) : 0
   const previewBoundary = sidebar + preview
   const treePortalTarget = sidebarChrome?.files ?? null
-  return h('div',{ref:viewportRef,className:'dsh-ws-viewport'},h('main',{className:'dsh-ws-frame','data-explorer-closed':!panes.explorerOpen&&!filesActive||undefined,'data-sidebar-collapsed':collapsed||undefined,'data-sidebar-files':filesActive||undefined,'data-resizing':resizing||undefined,'data-preview-right':settings.previewRight===true||undefined,style:{'--dsh-ws-preview':`${preview}px`,'--dsh-ws-sidebar':`${sidebar}px`,'--dsh-ws-row-height':`${clamp(settings.rowHeight ?? ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MIN, ROW_HEIGHT_MAX)}px`,'--dsh-ws-mobile-header-h':`${mobileHeaderHeight}px`,'--dsh-ws-mindmap-spin-duration':mindmapSpinDuration,...fileColorVars}},h('aside',{className:'dsh-ws-sidebar',ref:asideRef},props.renderSlot('sidebar',{collapsed,width:sidebar}),sidebarChrome?.top?createPortal(h(SidebarTopActions,{collapsed,view,width:sidebar,onSelectSessions:()=>{props.actions.setView('sessions')},onSelectFiles:()=>{if(collapsed)props.toggleSidebar();props.actions.setView('files')}}),sidebarChrome.top):null,sidebarChrome&&(sidebarChrome.groups.length>0?sidebarChrome.groups.map(group=>createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:group.title,openSession:openMindmapSession,revealSession:revealSessionById}),group.container)):sidebarChrome.fallback?createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:undefined,openSession:openMindmapSession,revealSession:revealSessionById}),sidebarChrome.fallback):null)),workspace?h(WorkspaceExplorer,{key:`${workspace.workspaceId}:${previewSessionId ?? 'workspace'}`,createEntry:props.createEntry,listDirectory:props.listDirectory,mindmapActions:props.mindmapActions,persistPreviewSession,previewSessionId,publishEditorContext,readFile:props.readFile,renameEntry:props.renameEntry,saveFile:props.saveFile,loadDraft:props.loadDraft,persistDraftFile:props.persistDraftFile,removeDraftFile:props.removeDraftFile,draftTree:props.draftTree,checkFileChange:props.checkFileChange,settingsStore:props.settingsStore,sessionCwdOf,storedPreviewSession,sessionTitle,sessionId,renameSession:props.renameSession,treePortalTarget,useSessions:props.useSessions,workspace}):h(EmptyWorkspaceExplorer,{sessionTitle,treePortalTarget}),h(MindMapHost,{currentSession,mindmapActions:props.mindmapActions,previewSessionsStore:props.previewSessionsStore,settingsStore:props.settingsStore,useSessions:props.useSessions}),h('section',{className:'dsh-ws-chat',ref:chatSectionRef},props.renderSlot('main',{}, {entryKey:panels.panelInfo.activePanelId ?? 'conversation'}),chatDropActive?h('div',{className:'dsh-ws-chat-drop-mask',role:'presentation'},h('button',{'aria-label':translate('drop.closeAria'),className:'dsh-ws-chat-drop-close',onClick:()=>{chatDropSuppressed.current=true;setChatDropActive(false)},title:translate('drop.closeTitle'),type:'button'},'×'),h('div',{className:'dsh-ws-chat-drop-card'},translate('drop.releaseImages'))):null),!collapsed?h(ResizeHandle,{label:translate('resize.sidebar'),left:sidebar,max:sidebarMax,min:SIDEBAR_MIN,onDragging:setResizing,onResize:width=>props.actions.setSidebar(width,sidebarMax),value:sidebar}):null,(panes.explorerOpen||filesActive)?h(ResizeHandle,{label:translate('resize.preview'),left:settings.previewRight===true?Math.max(0,viewportWidth-preview):previewBoundary,max:previewMax,min:PREVIEW_MIN,onDragging:setResizing,onResize:width=>props.explorerPaneStore.actions.setPreview(width,previewMax),value:preview,invert:settings.previewRight===true||undefined}):null,h('aside',{className:'dsh-ws-details','data-closed':!panels.detailsOpen||!detailsCapable||undefined},h(props.SessionProvider,null,props.renderSlot('details',{}))),mobile.on&&mobile.drawerOpen?h('div',{className:'dsh-ws-mobile-scrim',onClick:()=>setDrawerOpen(false)}):null,h('div',{className:'dsh-ws-overlay','data-shell-overlay':true},props.renderSlot('shell.overlay',{})),sessionContextMenu?h('div',{className:'dsh-ws-context-menu',ref:sessionMenuRef,role:'menu',style:{left:Math.max(4,Math.min(sessionContextMenu.x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top:Math.max(4,Math.min(sessionContextMenu.y,window.innerHeight-SESSION_CONTEXT_MENU_HEIGHT-8))}},h('button',{className:'dsh-ws-context-item',onClick:beginSessionInlineRename,role:'menuitem',type:'button',title:sessionContextMenu.ambiguous?translate('context.ambiguousTitle',{id:String(sessionContextMenu.sessionId).slice(0,8)}):undefined},translate('context.renameSession')+(sessionContextMenu.ambiguous?` · ${String(sessionContextMenu.sessionId).slice(0,8)}`:'')),h('button',{className:'dsh-ws-context-item',onClick:archiveSessionFromMenu,role:'menuitem',type:'button',title:sessionContextMenu.ambiguous?translate('context.ambiguousTitle',{id:String(sessionContextMenu.sessionId).slice(0,8)}):undefined},translate('context.archiveSession')+(sessionContextMenu.ambiguous?` · ${String(sessionContextMenu.sessionId).slice(0,8)}`:'')),h('div',{className:'dsh-ws-context-separator',role:'separator'}),h('button',{className:'dsh-ws-context-item',onClick:revealSessionFromMenu,role:'menuitem',type:'button'},translate('context.reveal'))):null,sessionInlineRename?h(SessionInlineRename,{busy:sessionInlineRenameBusy,error:sessionInlineRenameError,key:sessionInlineRename.sessionId,onCancel:cancelSessionInlineRename,onConfirm:confirmSessionInlineRename,row:sessionInlineRename.row,title:sessionInlineRename.title}):null,sessionNotice?h('div',{className:'dsh-ws-copy-notice','data-error':sessionNotice.error||undefined,role:'status'},sessionNotice.text):null,resourceNotice?h('div',{className:'dsh-ws-copy-notice','data-error':resourceNotice.error||undefined,role:'status'},resourceNotice.text):null))}
+  return h('div',{ref:viewportRef,className:'dsh-ws-viewport'},h('main',{className:'dsh-ws-frame','data-explorer-closed':!panes.explorerOpen&&!filesActive||undefined,'data-sidebar-collapsed':collapsed||undefined,'data-sidebar-files':filesActive||undefined,'data-resizing':resizing||undefined,'data-preview-right':settings.previewRight===true||undefined,style:{'--dsh-ws-preview':`${preview}px`,'--dsh-ws-sidebar':`${sidebar}px`,'--dsh-ws-row-height':`${settings.rowHeight}px`,'--dsh-ws-mobile-header-h':`${mobileHeaderHeight}px`,'--dsh-ws-mindmap-spin-duration':mindmapSpinDuration,...fileColorVars}},h('aside',{className:'dsh-ws-sidebar',ref:asideRef},props.renderSlot('sidebar',{collapsed,width:sidebar}),sidebarChrome?.top?createPortal(h(SidebarTopActions,{collapsed,view,width:sidebar,onSelectSessions:()=>{props.actions.setView('sessions')},onSelectFiles:()=>{if(collapsed)props.toggleSidebar();props.actions.setView('files')}}),sidebarChrome.top):null,sidebarChrome&&(sidebarChrome.groups.length>0?sidebarChrome.groups.map(group=>createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:group.title,openSession:openMindmapSession,revealSession:revealSessionById}),group.container)):sidebarChrome.fallback?createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:undefined,openSession:openMindmapSession,revealSession:revealSessionById}),sidebarChrome.fallback):null)),workspace?h(WorkspaceExplorer,{key:`${workspace.workspaceId}:${previewSessionId ?? 'workspace'}`,createEntry:props.createEntry,listDirectory:props.listDirectory,mindmapActions:props.mindmapActions,persistPreviewSession,previewSessionId,publishEditorContext,readFile:props.readFile,renameEntry:props.renameEntry,saveFile:props.saveFile,loadDraft:props.loadDraft,persistDraftFile:props.persistDraftFile,removeDraftFile:props.removeDraftFile,draftTree:props.draftTree,checkFileChange:props.checkFileChange,settingsStore:props.settingsStore,sessionCwdOf,storedPreviewSession,sessionTitle,sessionId,renameSession:props.renameSession,treePortalTarget,useSessions:props.useSessions,workspace}):h(EmptyWorkspaceExplorer,{sessionTitle,treePortalTarget}),h(MindMapHost,{currentSession,mindmapActions:props.mindmapActions,previewSessionsStore:props.previewSessionsStore,settingsStore:props.settingsStore,useSessions:props.useSessions}),h('section',{className:'dsh-ws-chat',ref:chatSectionRef},props.renderSlot('main',{}, {entryKey:panels.panelInfo.activePanelId ?? 'conversation'}),chatDropActive?h('div',{className:'dsh-ws-chat-drop-mask',role:'presentation'},h('button',{'aria-label':translate('drop.closeAria'),className:'dsh-ws-chat-drop-close',onClick:()=>{chatDropSuppressed.current=true;setChatDropActive(false)},title:translate('drop.closeTitle'),type:'button'},'×'),h('div',{className:'dsh-ws-chat-drop-card'},translate('drop.releaseImages'))):null),!collapsed?h(ResizeHandle,{label:translate('resize.sidebar'),left:sidebar,max:sidebarMax,min:SIDEBAR_MIN,onDragging:setResizing,onResize:width=>props.actions.setSidebar(width,sidebarMax),value:sidebar}):null,(panes.explorerOpen||filesActive)?h(ResizeHandle,{label:translate('resize.preview'),left:settings.previewRight===true?Math.max(0,viewportWidth-preview):previewBoundary,max:previewMax,min:PREVIEW_MIN,onDragging:setResizing,onResize:width=>props.explorerPaneStore.actions.setPreview(width,previewMax),value:preview,invert:settings.previewRight===true||undefined}):null,h('aside',{className:'dsh-ws-details','data-closed':!panels.detailsOpen||!detailsCapable||undefined},h(props.SessionProvider,null,props.renderSlot('details',{}))),mobile.on&&mobile.drawerOpen?h('div',{className:'dsh-ws-mobile-scrim',onClick:()=>setDrawerOpen(false)}):null,h('div',{className:'dsh-ws-overlay','data-shell-overlay':true},props.renderSlot('shell.overlay',{})),sessionContextMenu?h('div',{className:'dsh-ws-context-menu',ref:sessionMenuRef,role:'menu',style:{left:Math.max(4,Math.min(sessionContextMenu.x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top:Math.max(4,Math.min(sessionContextMenu.y,window.innerHeight-SESSION_CONTEXT_MENU_HEIGHT-8))}},h('button',{className:'dsh-ws-context-item',onClick:beginSessionInlineRename,role:'menuitem',type:'button',title:sessionContextMenu.ambiguous?translate('context.ambiguousTitle',{id:String(sessionContextMenu.sessionId).slice(0,8)}):undefined},translate('context.renameSession')+(sessionContextMenu.ambiguous?` · ${String(sessionContextMenu.sessionId).slice(0,8)}`:'')),h('button',{className:'dsh-ws-context-item',onClick:archiveSessionFromMenu,role:'menuitem',type:'button',title:sessionContextMenu.ambiguous?translate('context.ambiguousTitle',{id:String(sessionContextMenu.sessionId).slice(0,8)}):undefined},translate('context.archiveSession')+(sessionContextMenu.ambiguous?` · ${String(sessionContextMenu.sessionId).slice(0,8)}`:'')),h('div',{className:'dsh-ws-context-separator',role:'separator'}),h('button',{className:'dsh-ws-context-item',onClick:revealSessionFromMenu,role:'menuitem',type:'button'},translate('context.reveal'))):null,sessionInlineRename?h(SessionInlineRename,{busy:sessionInlineRenameBusy,error:sessionInlineRenameError,key:sessionInlineRename.sessionId,onCancel:cancelSessionInlineRename,onConfirm:confirmSessionInlineRename,row:sessionInlineRename.row,title:sessionInlineRename.title}):null,sessionNotice?h('div',{className:'dsh-ws-copy-notice','data-error':sessionNotice.error||undefined,role:'status'},sessionNotice.text):null,resourceNotice?h('div',{className:'dsh-ws-copy-notice','data-error':resourceNotice.error||undefined,role:'status'},resourceNotice.text):null))}
 
 export const inject = ['slots', 'theme', 'sessions', 'workspaces']
 export function mountStudio(ctx) {
+  /* Before ANY store is created: drop the keys of every previous persisted format and make the
+     current keys canonical on disk. The harness's persistence rehydrates a store by replacing its
+     whole state with the raw JSON, so a value that does not match the current schema has to be
+     cleaned here — the readers trust the schema and carry no per-field fallbacks. */
+  sanitizePersistedClientState()
   const layoutStore = createLayoutStore()
   /* The root store instance is shared between the slot registration and the
      panelInfo root contribution: this plugin's patch disables ui-layout, so
@@ -341,7 +336,6 @@ export function mountStudio(ctx) {
   const settingsStore = createExplorerSettingsStore().create()
   const explorerPaneStore = createExplorerPaneStore().create()
   // The explorer footer toggle is gone; keep the panes always on-screen.
-  // Persisted `explorerOpen:false` self-heals here.
   explorerPaneStore.actions.setExplorerOpen(true)
   /* Publish the user's mind-map highlight colors as document-wide CSS custom
      properties so changing a setting updates open maps instantly. */
@@ -364,7 +358,7 @@ export function mountStudio(ctx) {
     if (typeof document === 'undefined') return undefined
     const applyThinkLines = () => {
       const state = settingsStore.getSnapshot()
-      document.documentElement.style.setProperty('--dsh-ws-think-lines', String(clamp(state?.thinkLines ?? THINK_LINES_DEFAULT, THINK_LINES_MIN, THINK_LINES_MAX)))
+      document.documentElement.style.setProperty('--dsh-ws-think-lines', String(state.thinkLines))
     }
     applyThinkLines()
     return settingsStore.subscribe(applyThinkLines)
@@ -376,7 +370,7 @@ export function mountStudio(ctx) {
     if (typeof document === 'undefined') return undefined
     const applyEditLines = () => {
       const state = settingsStore.getSnapshot()
-      document.documentElement.style.setProperty('--dsh-ws-edit-lines', String(clamp(state?.editLines ?? EDIT_LINES_DEFAULT, EDIT_LINES_MIN, EDIT_LINES_MAX)))
+      document.documentElement.style.setProperty('--dsh-ws-edit-lines', String(state.editLines))
     }
     applyEditLines()
     return settingsStore.subscribe(applyEditLines)

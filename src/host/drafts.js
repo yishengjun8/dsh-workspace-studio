@@ -7,6 +7,7 @@ import { Buffer } from 'node:buffer'
 import { HttpError, isPlainObject } from './errors.js'
 import { normalizeRelativePath } from './paths.js'
 import { encodingById } from './encodings.js'
+import { quarantineFile } from './quarantine.js'
 import { serializeWrite } from './write.js'
 /* ---- Draft (staging) file persistence ----
  * Edits to a workspace file are staged in a draft OUTSIDE the workspace
@@ -86,11 +87,86 @@ export async function readJsonFileOrNull(target) {
   }
 }
 
+/**
+ * Read one JSON file with the difference between "absent" and "present but unusable" preserved:
+ * a reader that must CLEAN UP an unusable record needs that distinction, while an IO/permission
+ * failure is neither of the two and is rethrown (a transient fault must never be mistaken for
+ * corruption and turn into deleted user content).
+ * @returns {Promise<{status: 'missing'} | {status: 'invalid'} | {status: 'ok', value: object}>}
+ */
+export async function readJsonStrict(target) {
+  let raw
+  try {
+    raw = await readFile(target, 'utf8')
+  } catch (error) {
+    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return { status: 'missing' }
+    throw error
+  }
+  let value
+  try {
+    value = JSON.parse(raw)
+  } catch {
+    return { status: 'invalid' }
+  }
+  return isPlainObject(value) ? { status: 'ok', value } : { status: 'invalid' }
+}
+
+/* The only draft-record format this code reads. The version is written by every writer and
+   verified by every reader: a record of any other shape is unusable, so it is quarantined rather
+   than migrated (see quarantine.js). */
+const DRAFT_RECORD_VERSION = 2
+const DRAFT_REVISION_RE = /^[a-f0-9]{64}$/u
+
+/* Whether one stored draft record satisfies the current format. `owner` is the owner whose
+   directory the record was found in (undefined = the ownerless namespace): a record declaring a
+   different owner, or a path other than the one its file name is derived from, cannot be reached
+   by any reader and is therefore unusable, not merely foreign. */
+function isDraftRecordUsable(value, relativePath, owner) {
+  if (!isPlainObject(value) || value.version !== DRAFT_RECORD_VERSION) return false
+  if (typeof value.path !== 'string' || value.path !== relativePath) return false
+  if (value.owner !== owner) return false
+  if (value.generation !== undefined && (!Number.isSafeInteger(value.generation) || value.generation < 0)) return false
+  /* A tombstone is a marker, not a payload: it carries no text and is valid as such. */
+  if (value.deleted === true) return true
+  if (value.deleted !== undefined) return false
+  if (typeof value.draft !== 'string' || typeof value.baseText !== 'string') return false
+  if (value.baseRevision !== null && (typeof value.baseRevision !== 'string' || !DRAFT_REVISION_RE.test(value.baseRevision))) return false
+  if (typeof value.lineEnding !== 'string') return false
+  if (typeof value.bom !== 'boolean') return false
+  try {
+    encodingById(String(value.encoding))
+  } catch {
+    return false
+  }
+  return true
+}
+
+/* Read the record of one path, quarantining a file that is present but not in the current format. */
+async function readDraftRecord(workspaceId, relativePath, owner) {
+  const target = draftFilePath(workspaceId, relativePath, owner)
+  const read = await readJsonStrict(target)
+  if (read.status === 'missing') return null
+  if (read.status !== 'ok' || !isDraftRecordUsable(read.value, relativePath, owner)) {
+    await quarantineFile(target, 'not a current-format draft record')
+    return null
+  }
+  return read.value
+}
+
 async function readOwnerGenerationState(workspaceId, owner) {
-  const value = await readJsonFileOrNull(draftGenerationPath(workspaceId, owner))
+  const target = draftGenerationPath(workspaceId, owner)
+  const read = await readJsonStrict(target)
+  if (read.status === 'missing') return { generation: -1, operation: undefined }
+  if (read.status !== 'ok' || read.value.version !== DRAFT_RECORD_VERSION
+    || !Number.isSafeInteger(read.value.generation) || read.value.generation < 0) {
+    /* Quarantining a corrupt fence is behaviour-neutral: the read already degraded to "no
+       generation", and the per-record generation keeps the owner fence meaningful. */
+    await quarantineFile(target, 'not a current-format generation fence')
+    return { generation: -1, operation: undefined }
+  }
   return {
-    generation: Number.isSafeInteger(value?.generation) && value.generation >= 0 ? value.generation : -1,
-    operation: typeof value?.operation === 'string' ? value.operation : undefined,
+    generation: read.value.generation,
+    operation: typeof read.value.operation === 'string' ? read.value.operation : undefined,
   }
 }
 
@@ -99,10 +175,7 @@ async function readOwnerGeneration(workspaceId, owner) {
 }
 
 async function readDraftAtPath(workspaceId, relativePath, owner) {
-  const value = await readJsonFileOrNull(draftFilePath(workspaceId, relativePath, owner))
-  if (value === null || value.path !== relativePath) return null
-  if (owner !== undefined && value.owner !== undefined && value.owner !== owner) return null
-  return value
+  return readDraftRecord(workspaceId, relativePath, owner)
 }
 
 export async function readDraftFile(workspaceId, relativePath, owner) {
@@ -340,11 +413,22 @@ async function listDraftRecords(workspaceId, owner) {
   for (const entry of entries) {
     if (!entry.isFile() || !entry.name.endsWith('.json') || entry.name === '.generation.json') continue
     const file = join(directory, entry.name)
-    const value = await readJsonFileOrNull(file)
-    if (value === null || typeof value.path !== 'string' || value.owner !== owner) continue
+    const read = await readJsonStrict(file)
+    if (read.status === 'missing') continue
+    if (read.status !== 'ok') {
+      await quarantineFile(file, 'unreadable draft record')
+      continue
+    }
+    const value = read.value
+    let relativePath
     try {
-      normalizeRelativePath(value.path)
+      relativePath = normalizeRelativePath(value.path)
     } catch {
+      await quarantineFile(file, 'draft record without a usable path')
+      continue
+    }
+    if (!isDraftRecordUsable(value, relativePath, owner)) {
+      await quarantineFile(file, 'not a current-format draft record')
       continue
     }
     records.push({ file, value, owner })

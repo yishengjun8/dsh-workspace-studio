@@ -869,4 +869,134 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-token-cost-note{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}
 .dsh-ws-token-override-clear{flex:none;width:22px;height:22px;padding:0;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:transparent;color:var(--dsw-alias-label-caption);font:inherit;font-size:11px;line-height:1;cursor:pointer}
 .dsh-ws-token-override-clear:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+/* Executable-file run console (see run-panel.js / run-store.js): the preview column's lower half
+   under the code preview. The body becomes a two-part split, the splitter is draggable and
+   keyboard-adjustable, and everything inside the console keeps the app's mono voice. */
+.dsh-ws-run-split{display:flex;flex:1;flex-direction:column;min-height:0}
+.dsh-ws-run-code{display:flex;flex:1 1 auto;flex-direction:column;min-height:0;overflow:hidden}
+.dsh-ws-run-console{display:flex;flex:none;flex-direction:column;min-height:0}
+.dsh-ws-run-splitter{flex:none;display:flex;align-items:center;justify-content:center;height:6px;border-top:1px solid var(--dsw-alias-border-l2);border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);cursor:row-resize}
+.dsh-ws-run-splitter::after{content:'';width:46px;height:2px;border-radius:2px;background:var(--dsw-alias-border-l2)}
+.dsh-ws-run-splitter:hover{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 14%,transparent)}
+.dsh-ws-run-splitter:hover::after{background:var(--dsw-alias-state-business-primary)}
+.dsh-ws-run-splitter:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
+.dsh-ws-run-panel{display:flex;flex:1;flex-direction:column;min-height:0;background:var(--dsw-alias-bg-base)}
+.dsh-ws-run-bar{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;min-height:30px;padding:3px 8px;border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-specific-sidebar-fill);box-sizing:border-box}
+.dsh-ws-run-chip{flex:0 1 auto;display:inline-flex;align-items:center;gap:5px;min-width:0;height:18px;padding:0 7px;overflow:hidden;border-radius:9px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:10px;line-height:18px;white-space:nowrap;text-overflow:ellipsis}
+.dsh-ws-run-chip[data-tone=run]{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 16%,transparent);color:var(--dsw-alias-state-business-primary)}
+.dsh-ws-run-chip[data-tone=ok]{background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 16%,transparent);color:var(--dsw-alias-state-success-primary)}
+.dsh-ws-run-chip[data-tone=err]{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 16%,transparent);color:var(--dsw-alias-state-error-primary)}
+.dsh-ws-run-chip[data-tone=warn]{background:color-mix(in srgb,var(--dsw-alias-state-warn-label) 16%,transparent);color:var(--dsw-alias-state-warn-label)}
+.dsh-ws-run-cmd{display:flex;flex:1 1 150px;align-items:center;min-width:110px;height:22px;padding:0 6px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base)}
+.dsh-ws-run-cmd-prefix{flex:none;max-width:55%;overflow:hidden;color:var(--dsw-alias-label-secondary);font-family:var(--dsw-font-family-code,ui-monospace,SFMono-Regular,Consolas,monospace);font-size:11px;line-height:20px;white-space:nowrap;text-overflow:ellipsis}
+.dsh-ws-run-args{flex:1;min-width:36px;height:20px;padding:0 0 0 5px;border:0;background:transparent;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family-code,ui-monospace,SFMono-Regular,Consolas,monospace);font-size:11px}
+.dsh-ws-run-args:focus{outline:none}
+.dsh-ws-run-args::placeholder{color:var(--dsw-alias-label-tertiary)}
+/* Six actions cannot fit a narrow preview column on one row with the command line: the group wraps
+   to a second row instead of clipping a button (the bar grows, the output area gives up the space). */
+.dsh-ws-run-actions{display:flex;flex:0 1 auto;flex-wrap:wrap;align-items:center;gap:2px}
+.dsh-ws-run-button{display:inline-flex;align-items:center;justify-content:center;height:22px;padding:0 6px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:1;white-space:nowrap;cursor:pointer}
+.dsh-ws-run-button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dsh-ws-run-button:disabled{cursor:not-allowed;opacity:.42}
+.dsh-ws-run-button:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
+.dsh-ws-run-button[data-tone=danger]{color:var(--dsw-alias-state-error-primary)}
+.dsh-ws-run-button[data-tone=danger]:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 14%,transparent);color:var(--dsw-alias-state-error-primary)}
+.dsh-ws-run-button[data-active]{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 14%,transparent);color:var(--dsw-alias-state-business-primary)}
+.dsh-ws-run-button-run{background:var(--dsw-alias-state-business-primary);color:#fff}
+.dsh-ws-run-button-run:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 84%,#fff);color:#fff}
+.dsh-ws-run-meta{flex:none;display:flex;align-items:center;gap:14px;height:22px;padding:0 10px;overflow:hidden;border-bottom:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:22px}
+.dsh-ws-run-meta>span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.dsh-ws-run-notice{flex:none;padding:5px 10px;border-bottom:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}
+.dsh-ws-run-notice[data-error]{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,transparent);color:var(--dsw-alias-state-error-primary)}
+.dsh-ws-run-output{flex:1;min-height:0;overflow:auto;padding:8px 10px 12px;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family-code,ui-monospace,SFMono-Regular,Consolas,monospace);font-size:12px;line-height:18px;outline:none}
+.dsh-ws-run-line{white-space:pre-wrap;word-break:break-word}
+.dsh-ws-run-line[data-error]{color:var(--dsw-alias-state-error-primary)}
+.dsh-ws-run-tail-error{color:var(--dsw-alias-state-error-primary)}
+.dsh-ws-run-exit{margin-top:3px;color:var(--dsw-alias-label-tertiary);font-style:italic}
+.dsh-ws-run-exit[data-error]{color:var(--dsw-alias-state-error-primary);font-style:normal}
+.dsh-ws-run-omitted{margin-top:3px;color:var(--dsw-alias-label-tertiary);font-style:italic}
+.dsh-ws-run-cursor{display:inline-block;width:7px;height:14px;margin-left:2px;vertical-align:-3px;background:var(--dsw-alias-label-secondary);animation:dsh-ws-run-blink 1s step-end infinite}
+@keyframes dsh-ws-run-blink{50%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.dsh-ws-run-cursor{animation:none}}
+.dsh-ws-run-empty{margin:2px 0 8px;padding:10px 12px;border:1px dashed var(--dsw-alias-border-l2);border-radius:8px;color:var(--dsw-alias-label-tertiary);font-family:inherit;font-size:12px;line-height:18px}
+.dsh-ws-run-empty-cmd{margin-top:5px;color:var(--dsw-alias-state-business-primary);font-family:var(--dsw-font-family-code,ui-monospace,SFMono-Regular,Consolas,monospace);font-size:11px;word-break:break-all}
+.dsh-ws-run-empty-hint{margin-top:4px}
+.dsh-ws-run-unavailable{margin:2px 0 8px;padding:10px 12px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-warn-label) 32%,transparent);border-radius:8px;background:color-mix(in srgb,var(--dsw-alias-state-warn-label) 8%,transparent);color:var(--dsw-alias-state-warn-label);font-family:inherit;font-size:12px;line-height:18px}
+.dsh-ws-run-unavailable b{display:block;margin-bottom:3px}
+.dsh-ws-run-unavailable[data-tone=error]{border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 32%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 8%,transparent);color:var(--dsw-alias-state-error-primary)}
+.dsh-ws-run-unavailable-actions{display:flex;gap:6px;margin-top:9px}
+.dsh-ws-run-unavailable-tried{margin-top:4px;opacity:.8}
+.dsh-ws-run-field{margin-top:8px}
+.dsh-ws-run-field i{display:block;margin-bottom:3px;color:var(--dsw-alias-label-tertiary);font-size:11px;font-style:normal}
+.dsh-ws-run-field>div{padding:5px 8px;border:1px solid var(--dsw-alias-border-l1);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family-code,ui-monospace,SFMono-Regular,Consolas,monospace);font-size:11px;word-break:break-all}
+.dsh-ws-run-warning{margin-top:10px;padding:7px 9px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-warn-label) 28%,transparent);border-radius:6px;background:color-mix(in srgb,var(--dsw-alias-state-warn-label) 8%,transparent);color:var(--dsw-alias-state-warn-label);font-size:11px;line-height:17px}
+.dsh-ws-run-check{display:flex;align-items:center;gap:6px;margin-top:11px;color:var(--dsw-alias-label-secondary);font-size:12px}
+.dsh-ws-run-confirm-button{background:var(--dsw-alias-state-business-primary);color:#fff}
+.dsh-ws-run-confirm-button:hover{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 84%,#fff);color:#fff}
+.dsh-ws-run-dialog{width:min(392px,100%)}
+/* Interpreter button in the console's meta row (the old plain text became the only entry point for a
+   per-file override). The source tag is what makes 「py -3」 unambiguous; the tone per source tells
+   auto-detection from an override at a glance, and a disabled button means "nothing to point at". */
+.dsh-ws-run-meta-label{flex:none}
+.dsh-ws-run-interp{display:inline-flex;flex:0 1 auto;align-items:center;gap:5px;min-width:0;height:19px;padding:0 5px 0 7px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:17px;cursor:pointer}
+.dsh-ws-run-interp:hover:not(:disabled){border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-primary)}
+.dsh-ws-run-interp:disabled{cursor:default;opacity:.6}
+.dsh-ws-run-interp:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
+.dsh-ws-run-interp[data-source=file]{border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 55%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 14%,transparent);color:var(--dsw-alias-state-business-primary)}
+.dsh-ws-run-interp[data-source=extension]{border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 34%,transparent);color:var(--dsw-alias-state-business-primary)}
+.dsh-ws-run-interp[data-source=family]{border-color:color-mix(in srgb,var(--dsw-alias-state-warn-label) 34%,transparent);color:var(--dsw-alias-state-warn-label)}
+.dsh-ws-run-interp[data-source=unknown]{border-color:color-mix(in srgb,var(--dsw-alias-state-warn-label) 50%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-warn-label) 12%,transparent);color:var(--dsw-alias-state-warn-label)}
+.dsh-ws-run-interp-name{min-width:0;overflow:hidden;font-family:var(--dsw-font-family-code,ui-monospace,SFMono-Regular,Consolas,monospace);font-size:10.5px;text-overflow:ellipsis;white-space:nowrap}
+.dsh-ws-run-interp-source{flex:none;font-size:10px;opacity:.9}
+.dsh-ws-run-interp-caret{flex:none;color:var(--dsw-alias-label-tertiary);font-size:9px;line-height:1}
+/* A stored override whose interpreter vanished: said out loud, in the console, with the tier and path
+   that failed — falling back silently is what this feature exists to remove. */
+.dsh-ws-run-stale{flex:none;display:flex;align-items:flex-start;gap:6px;padding:5px 10px;border-bottom:1px solid var(--dsw-alias-border-l1);background:color-mix(in srgb,var(--dsw-alias-state-warn-label) 9%,transparent);color:var(--dsw-alias-state-warn-label);font-size:11px;line-height:16px}
+.dsh-ws-run-stale-icon{flex:none}
+/* Interpreter dialog (both scopes: this file / one suffix). */
+.dsh-ws-interp-dialog{width:min(440px,100%)}
+.dsh-ws-interp-inputrow{display:flex;align-items:center;gap:6px}
+.dsh-ws-interp-inputrow .dsh-ws-dialog-input{flex:1;min-width:0}
+.dsh-ws-interp-inputrow .dsh-ws-dialog-input[data-invalid]{border-color:var(--dsw-alias-state-error-primary)}
+.dsh-ws-interp-test{flex:none;height:32px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}
+.dsh-ws-interp-test:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dsh-ws-interp-test:disabled{cursor:not-allowed;opacity:.5}
+.dsh-ws-interp-hint{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}
+.dsh-ws-interp-line{padding:5px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;font-size:11px;line-height:16px;word-break:break-word}
+.dsh-ws-interp-line[data-tone=ok]{border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary) 34%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 10%,transparent);color:var(--dsw-alias-state-success-primary)}
+.dsh-ws-interp-line[data-tone=error]{border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 34%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,transparent);color:var(--dsw-alias-state-error-primary);font-family:var(--dsw-font-family-code,ui-monospace,SFMono-Regular,Consolas,monospace)}
+.dsh-ws-interp-line[data-tone=warn]{border-color:color-mix(in srgb,var(--dsw-alias-state-warn-label) 32%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-warn-label) 8%,transparent);color:var(--dsw-alias-state-warn-label)}
+.dsh-ws-interp-spacer{flex:1}
+.dsh-ws-interp-title{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:500;line-height:22px;color:var(--dsw-alias-label-primary)}
+.dsh-ws-interp-count{flex:1;min-width:0;padding:0}
+/* Settings page: one row per runnable suffix, showing what it resolves to right now. */
+.dsh-ws-interp-table{width:100%;border-collapse:collapse;font-size:12px}
+.dsh-ws-interp-table th{padding:4px 8px;border-bottom:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-tertiary);font-size:11px;font-weight:600;text-align:left}
+.dsh-ws-interp-th-ext{width:64px}
+.dsh-ws-interp-th-actions{width:150px;text-align:right}
+.dsh-ws-interp-table td{padding:3px 8px;border-bottom:1px solid var(--dsw-alias-border-l1);vertical-align:middle}
+.dsh-ws-interp-table tr[data-stale] .dsh-ws-interp-eff-name{color:var(--dsw-alias-state-warn-label)}
+.dsh-ws-interp-ext{color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family-code,ui-monospace,SFMono-Regular,Consolas,monospace);font-size:11px;white-space:nowrap}
+.dsh-ws-interp-eff{display:flex;align-items:center;gap:6px;min-width:0}
+.dsh-ws-interp-eff-name{min-width:0;overflow:hidden;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family-code,ui-monospace,SFMono-Regular,Consolas,monospace);font-size:11px;text-overflow:ellipsis;white-space:nowrap}
+.dsh-ws-interp-tag{flex:none;display:inline-flex;align-items:center;height:16px;padding:0 5px;border-radius:5px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary);font-size:10px;white-space:nowrap}
+.dsh-ws-interp-tag[data-kind=extension]{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 14%,transparent);color:var(--dsw-alias-state-business-primary)}
+.dsh-ws-interp-tag[data-kind=family],.dsh-ws-interp-tag[data-kind=stale]{background:color-mix(in srgb,var(--dsw-alias-state-warn-label) 14%,transparent);color:var(--dsw-alias-state-warn-label)}
+.dsh-ws-interp-probe{flex:0 1 auto;min-width:0;overflow:hidden;font-size:10px;text-overflow:ellipsis;white-space:nowrap}
+.dsh-ws-interp-probe[data-tone=ok]{color:var(--dsw-alias-state-success-primary)}
+.dsh-ws-interp-probe[data-tone=error]{color:var(--dsw-alias-state-error-primary)}
+.dsh-ws-interp-actions{text-align:right;white-space:nowrap}
+.dsh-ws-interp-actions .dsh-ws-text-button{height:22px;padding:0 6px;font-size:11px}
+.dsh-ws-interp-note{color:var(--dsw-alias-label-tertiary);font-size:11px}
+.dsh-ws-interp-files{display:flex;flex-direction:column;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;overflow:hidden}
+.dsh-ws-interp-file{display:flex;align-items:center;gap:8px;padding:5px 9px;border-bottom:1px solid var(--dsw-alias-border-l1);font-size:11px}
+.dsh-ws-interp-file:last-child{border-bottom:0}
+.dsh-ws-interp-file-name{flex:none;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family-code,ui-monospace,SFMono-Regular,Consolas,monospace)}
+.dsh-ws-interp-file-dir{flex:1;min-width:0;overflow:hidden;color:var(--dsw-alias-label-tertiary);font-family:var(--dsw-font-family-code,ui-monospace,SFMono-Regular,Consolas,monospace);text-overflow:ellipsis;white-space:nowrap}
+.dsh-ws-interp-file-path{flex:none;max-width:260px;overflow:hidden;color:var(--dsw-alias-state-success-primary);font-family:var(--dsw-font-family-code,ui-monospace,SFMono-Regular,Consolas,monospace);text-overflow:ellipsis;white-space:nowrap}
+.dsh-ws-interp-file .dsh-ws-text-button{height:22px;padding:0 6px;font-size:11px}
+/* Running badge on the preview tab: a process outlives the tab it was started in. */
+.dsh-ws-preview-tab-run{flex:none;width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-state-business-primary);animation:dsh-ws-run-pulse 1.4s ease-out infinite}
+@keyframes dsh-ws-run-pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--dsw-alias-state-business-primary) 55%,transparent)}70%{box-shadow:0 0 0 6px transparent}100%{box-shadow:0 0 0 0 transparent}}
+@media (prefers-reduced-motion:reduce){.dsh-ws-preview-tab-run{animation:none}}
 `

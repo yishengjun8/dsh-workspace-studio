@@ -2,6 +2,7 @@ import { createElement as h } from 'react'
 import { translate } from '../../locale/index.js'
 import { DISK_STATE_CLEAN, DISK_STATE_CONFLICT, DISK_STATE_GONE, DISK_STATE_STALE } from '../../constants.js'
 import { isPlanTab, isReviewTab, isSyntheticTab, isTemporaryTab } from '../../preview-tabs.js'
+import { getRunEntry, useRunVersion } from '../../run-store.js'
 import { IconCloseWin10, IconPinVscode } from '../../icons.js'
 
 /* One 12px slot between the name and the close button carries every runtime tab state:
@@ -40,6 +41,9 @@ function tabMark(tab, onReload) {
 
 /* Preview tab strip: one tab per open file with pin/close, drag reordering, and context-menu trigger; all interactions are callbacks. */
 export function PreviewTabs({ tabs, activePath, draggingPath, dropIndex, containerRef, onChoose, onClose, onContextMenu, onDragEnd, onDragStart, onDragLeave, onDragOver, onDrop, onMouseEnter, onMouseLeave, onPromote, onReload, onScroll, onUnpin }) {
+  /* Subscribe once to the run store: a process outlives the tab it was started in, so any open
+     tab whose file is still running carries a badge — but per-tab hooks in a loop are not a thing. */
+  useRunVersion()
   const nodes = []
   for (const [index, tab] of tabs.entries()) {
     /* A synthetic tab's path addresses a map, a plan, or a change review, not a file: its label is its name, never the path. */
@@ -108,6 +112,11 @@ export function PreviewTabs({ tabs, activePath, draggingPath, dropIndex, contain
         title: tabTitle,
         type: 'button',
       }, h('span', { className: 'dsh-ws-preview-tab-name' }, tab.name)),
+      /* A live process on this file: a small pulsing dot, so a run started in one tab is visible
+         from any other tab (and the console keeps collecting its output in the background). */
+      getRunEntry(tab.path)?.status === 'running'
+        ? h('span', { 'aria-hidden': true, className: 'dsh-ws-preview-tab-run', title: translate('run.tab.running') })
+        : null,
       tabMark(tab, onReload),
       tab.pinned
         ? h('button', {

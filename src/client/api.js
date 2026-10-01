@@ -1,4 +1,4 @@
-import { API_PREFIX, ENCODING_FALLBACK, ENCODING_LABEL_FALLBACK, MINDMAP_LOAD_TIMEOUT_MS, MINDMAP_MODELS_CACHE_MS, MINDMAP_SYNC_TIMEOUT_MS, TOKEN_STATS_TIMEOUT_MS, UPDATE_CHECK_TIMEOUT_MS, UPDATE_DOWNLOAD_TIMEOUT_MS, VCS_STATUS_TIMEOUT_MS } from './constants.js'
+import { API_PREFIX, ENCODING_FALLBACK, ENCODING_LABEL_FALLBACK, MINDMAP_LOAD_TIMEOUT_MS, MINDMAP_MODELS_CACHE_MS, MINDMAP_SYNC_TIMEOUT_MS, RUN_PROBE_REQUEST_TIMEOUT_MS, RUN_STATUS_TIMEOUT_MS, TOKEN_STATS_TIMEOUT_MS, UPDATE_CHECK_TIMEOUT_MS, UPDATE_DOWNLOAD_TIMEOUT_MS, VCS_STATUS_TIMEOUT_MS } from './constants.js'
 import { localeIsZh, translate } from './locale/index.js'
 
 /* Bounded request timeouts: a hung Host must not leave the UI in a permanent loading/saving state; merges the caller's signal with a timeout, falling back to the signal alone when the timeout APIs are unavailable. */
@@ -509,4 +509,77 @@ export async function requestFsOperation(workspaceId, payload, signal) {
     throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.fs', { status: response.status }), response.status)
   }
   return result
+}
+/* Executable-file runner (see host/run.js for the safety model).
+   The PLAN describes what would run — resolved interpreter, argv and cwd — and is computed without
+   executing anything, so the console can show the real command before the first click (and say
+   "no interpreter" up front instead of failing a run). START/STOP drive one process; STATUS returns
+   the output slice past `offset`, which is also how a refreshed page re-attaches to a live run. */
+async function runRequest(path, options, signal, fallbackCode) {
+  const { method = 'GET', body, timeoutMs = REQUEST_TIMEOUT_MS } = options ?? {}
+  const response = await fetch(`${API_PREFIX}${path}`, {
+    method,
+    headers: body === undefined
+      ? { accept: 'application/json' }
+      : { accept: 'application/json', 'content-type': 'application/json' },
+    credentials: 'same-origin',
+    signal: withTimeout(signal, timeoutMs),
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  if (!response.ok) throw await responseFailure(response, fallbackCode, 'error.request-failed')
+  try {
+    return await response.json()
+  } catch (error) {
+    if (error?.name === 'AbortError') throw error
+    throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.run-failed', { status: response.status }), response.status)
+  }
+}
+export function fetchRunPlan(workspaceId, path, refresh, signal) {
+  const query = new URLSearchParams({ workspaceId: String(workspaceId), path })
+  if (refresh === true) query.set('refresh', '1')
+  return runRequest(`/run/plan?${query}`, { method: 'GET' }, signal, 'run-plan-failed')
+}
+export function startRunRequest(workspaceId, path, args, signal) {
+  const query = new URLSearchParams({ workspaceId: String(workspaceId), path })
+  return runRequest(`/run?${query}`, { method: 'POST', body: { args: String(args ?? '') } }, signal, 'run-start-failed')
+}
+export function fetchRunStatus(workspaceId, path, offset, runId, signal) {
+  const query = new URLSearchParams({ workspaceId: String(workspaceId) })
+  if (typeof path === 'string' && path !== '') query.set('path', path)
+  if (typeof runId === 'string' && runId !== '') query.set('runId', runId)
+  query.set('offset', String(Number.isFinite(offset) ? Math.max(0, Math.trunc(offset)) : 0))
+  return runRequest(`/run/status?${query}`, { method: 'GET', timeoutMs: RUN_STATUS_TIMEOUT_MS }, signal, 'run-status-failed')
+}
+export function stopRunRequest(runId, signal) {
+  return runRequest('/run/stop', { method: 'POST', body: { runId: String(runId) } }, signal, 'run-stop-failed')
+}
+export function fetchRunPolicy(workspaceId, signal) {
+  const query = new URLSearchParams()
+  /* Optional: only `trusted` is workspace-scoped, so the settings page reads the global maps
+     (per-extension + per-file interpreters) without a workspace context. */
+  if (workspaceId !== null && workspaceId !== undefined && String(workspaceId) !== '') query.set('workspaceId', String(workspaceId))
+  const suffix = query.toString() === '' ? '' : `?${query}`
+  return runRequest(`/run/policy${suffix}`, { method: 'GET' }, signal, 'run-policy-failed')
+}
+export function setRunPolicy(workspaceId, payload, signal) {
+  const query = new URLSearchParams()
+  if (workspaceId !== null && workspaceId !== undefined && String(workspaceId) !== '') query.set('workspaceId', String(workspaceId))
+  const suffix = query.toString() === '' ? '' : `?${query}`
+  return runRequest(`/run/policy${suffix}`, { method: 'POST', body: payload }, signal, 'run-policy-failed')
+}
+/** The per-extension resolution table behind the settings page (what each suffix resolves to now). */
+export function fetchRunInterpreters(refresh, signal) {
+  const query = new URLSearchParams()
+  if (refresh === true) query.set('refresh', '1')
+  const suffix = query.toString() === '' ? '' : `?${query}`
+  return runRequest(`/run/interpreters${suffix}`, { method: 'GET' }, signal, 'run-interpreters-failed')
+}
+/** One-shot `<path> --version` probe: the dialogs' 「测试」 button. Never runs a `.exe`/`.com`. */
+export function probeRunInterpreter(path, family, signal) {
+  return runRequest(
+    '/run/probe',
+    { method: 'POST', body: { path: String(path ?? ''), family: String(family ?? '') }, timeoutMs: RUN_PROBE_REQUEST_TIMEOUT_MS },
+    signal,
+    'run-probe-failed',
+  )
 }

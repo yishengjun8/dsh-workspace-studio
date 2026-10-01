@@ -1,10 +1,13 @@
 import { createElement as h, Fragment, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
-import { AUTO_SYNC_MODE_AUTO, AUTO_SYNC_MODE_WATCH_ONLY, clampMountBulge, clampSpinSpeed, CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MAX, CONFLICT_FONT_SIZE_MIN, DIFF_RULER_WIDTH_DEFAULT, DIFF_RULER_WIDTH_MAX, DIFF_RULER_WIDTH_MIN, EDIT_LINES_DEFAULT, EDIT_LINES_MAX, EDIT_LINES_MIN, EDIT_LINES_STEP, MINDMAP_END_COLOR_DEFAULT, MINDMAP_HEAD_COLOR_DEFAULT, MINDMAP_HOVER_COLOR_FALLBACK, MINDMAP_HOVER_THEME_VAR, MINDMAP_MOUNT_BULGE_DEFAULT_X, MINDMAP_MOUNT_BULGE_MAX_X, MINDMAP_MOUNT_BULGE_MIN_X, MINDMAP_SELECTED_COLOR_FALLBACK, MINDMAP_SELECTED_THEME_VAR, MINDMAP_SPIN_SPEED_DEFAULT_X, MINDMAP_SPIN_SPEED_MAX_X, MINDMAP_SPIN_SPEED_MIN_X, MINDMAP_SUMMARY_DEFAULT_LENGTH, MINDMAP_SUMMARY_LENGTH_STEP, MINDMAP_SUMMARY_MAX_LENGTH, MINDMAP_SUMMARY_MIN_LENGTH, MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH, MINDMAP_SUMMARY_SESSION_LENGTH_STEP, MINDMAP_SUMMARY_SESSION_MAX_LENGTH, MINDMAP_SUMMARY_SESSION_MIN_LENGTH, mindmapEffectiveColor, PREVIEW_RIGHT_DEFAULT, ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MAX, ROW_HEIGHT_MIN, SEARCH_MATCH_EXPAND_DEFAULT, THINK_LINES_DEFAULT, THINK_LINES_MAX, THINK_LINES_MIN, THINK_LINES_STEP, WATCH_FILES_DEFAULT } from '../constants.js'
+import { AUTO_SYNC_MODE_AUTO, AUTO_SYNC_MODE_WATCH_ONLY, CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MAX, CONFLICT_FONT_SIZE_MIN, DIFF_RULER_WIDTH_DEFAULT, DIFF_RULER_WIDTH_MAX, DIFF_RULER_WIDTH_MIN, EDIT_LINES_DEFAULT, EDIT_LINES_MAX, EDIT_LINES_MIN, EDIT_LINES_STEP, MINDMAP_END_COLOR_DEFAULT, MINDMAP_HEAD_COLOR_DEFAULT, MINDMAP_HOVER_COLOR_FALLBACK, MINDMAP_HOVER_THEME_VAR, MINDMAP_MOUNT_BULGE_DEFAULT_X, MINDMAP_MOUNT_BULGE_MAX_X, MINDMAP_MOUNT_BULGE_MIN_X, MINDMAP_SELECTED_COLOR_FALLBACK, MINDMAP_SELECTED_THEME_VAR, MINDMAP_SPIN_SPEED_DEFAULT_X, MINDMAP_SPIN_SPEED_MAX_X, MINDMAP_SPIN_SPEED_MIN_X, MINDMAP_SUMMARY_DEFAULT_LENGTH, MINDMAP_SUMMARY_LENGTH_STEP, MINDMAP_SUMMARY_MAX_LENGTH, MINDMAP_SUMMARY_MIN_LENGTH, MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH, MINDMAP_SUMMARY_SESSION_LENGTH_STEP, MINDMAP_SUMMARY_SESSION_MAX_LENGTH, MINDMAP_SUMMARY_SESSION_MIN_LENGTH, mindmapEffectiveColor, PREVIEW_RIGHT_DEFAULT, ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MAX, ROW_HEIGHT_MIN, RUN_FILE_OVERRIDE_MAX, SEARCH_MATCH_EXPAND_DEFAULT, THINK_LINES_DEFAULT, THINK_LINES_MAX, THINK_LINES_MIN, THINK_LINES_STEP, WATCH_FILES_DEFAULT } from '../constants.js'
 import { translate } from '../locale/index.js'
-import { clamp, DIFF_TONE_GROUPS, diffColorOf, diffGroupLabel, FILE_COLOR_GROUPS, fileColorGroupLabel, fileColorOf, HIGHLIGHT_PRESETS, highlightPresetLabel, highlightPresetOf, VCS_STATUS_GROUPS, vcsStatusColorOf, vcsStatusGroupLabel } from '../format.js'
+import { DIFF_TONE_GROUPS, diffColorOf, diffGroupLabel, FILE_COLOR_GROUPS, fileColorGroupLabel, fileColorOf, HIGHLIGHT_PRESETS, highlightPresetLabel, highlightPresetOf, VCS_STATUS_GROUPS, vcsStatusColorOf, vcsStatusGroupLabel } from '../format.js'
+import { pathBasename, runInterpreterSourceLabel } from '../run-detect.js'
+import { clearAllFileInterpreters, clearFileInterpreter, focusRunConfig, probeInterpreter, refreshRunConfig, resetAllInterpreters, runConfigFileOverrides, runConfigRowOf, saveExtensionInterpreter, useRunConfig } from '../run-config.js'
 import { checkUpdate, downloadUpdate, fetchMindmapModels } from '../api.js'
 import { readVcsHostEnabled, subscribeVcsHostEnabled } from '../vcs.js'
+import { InterpreterDialog } from './interpreter-dialog.js'
 import { PanelHeader } from './menus.js'
 import { TokenStatsGroup } from './token-stats.js'
 
@@ -129,33 +132,16 @@ export function ExplorerSettingsSection({ settingsStore }) {
   const summaryModelsAvailable = summaryModels !== null && summaryModels?.available === true
     && Array.isArray(summaryModels?.models) && summaryModels.models.length > 0
   const summaryModelList = summaryModelsAvailable ? summaryModels.models : []
-  /* Snap legacy/out-of-range persisted values to the configured step so the slider thumb stays on-grid. */
-  const stepAligned = (value, min, max, step) => {
-    const number = Number(value)
-    if (!Number.isFinite(number)) return min
-    const bounded = Math.min(max, Math.max(min, number))
-    return min + Math.round((bounded - min) / step) * step
-  }
-  const mindmapSummaryLengthValue = stepAligned(
-    settings.mindmapSummaryLength ?? MINDMAP_SUMMARY_DEFAULT_LENGTH,
-    MINDMAP_SUMMARY_MIN_LENGTH,
-    MINDMAP_SUMMARY_MAX_LENGTH,
-    MINDMAP_SUMMARY_LENGTH_STEP,
-  )
-  const mindmapSummarySessionLengthValue = stepAligned(
-    settings.mindmapSummarySessionLength ?? MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH,
-    MINDMAP_SUMMARY_SESSION_MIN_LENGTH,
-    MINDMAP_SUMMARY_SESSION_MAX_LENGTH,
-    MINDMAP_SUMMARY_SESSION_LENGTH_STEP,
-  )
-  /* Clamp the think-card line count to the same min/max as setThinkLines so out-of-range values don't mislead the slider. */
-  const thinkLinesValue = clamp(settings.thinkLines ?? THINK_LINES_DEFAULT, THINK_LINES_MIN, THINK_LINES_MAX)
-  /* Same render-side normalization for the edit-row line count (out-of-range values must not mislead the slider/reset). */
-  const editLinesValue = clamp(settings.editLines ?? EDIT_LINES_DEFAULT, EDIT_LINES_MIN, EDIT_LINES_MAX)
-  const rowHeight = clamp(settings.rowHeight ?? ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MIN, ROW_HEIGHT_MAX)
-  const diffRulerWidth = stepAligned(settings.diffRulerWidth ?? DIFF_RULER_WIDTH_DEFAULT, DIFF_RULER_WIDTH_MIN, DIFF_RULER_WIDTH_MAX, 2)
-  const conflictFontSize = clamp(settings.conflictFontSize ?? CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MIN, CONFLICT_FONT_SIZE_MAX)
-  const mindmapSpinSpeed = clampSpinSpeed(settings.mindmapSpinSpeed)
+  /* Every slider reads its value straight from the settings store: persisted-state.js'
+     schema owns the range and the step, so the widget never needs a second clamp. */
+  const mindmapSummaryLengthValue = settings.mindmapSummaryLength
+  const mindmapSummarySessionLengthValue = settings.mindmapSummarySessionLength
+  const thinkLinesValue = settings.thinkLines
+  const editLinesValue = settings.editLines
+  const rowHeight = settings.rowHeight
+  const diffRulerWidth = settings.diffRulerWidth
+  const conflictFontSize = settings.conflictFontSize
+  const mindmapSpinSpeed = settings.mindmapSpinSpeed
   /* Effective mind-map highlight colors: user hex or theme default resolved to a concrete hex (color input), plus whether customized (drives each reset button's disabled state). */
   const mindmapHoverColorHex = mindmapEffectiveColor(settings.mindmapHoverColor, MINDMAP_HOVER_THEME_VAR, MINDMAP_HOVER_COLOR_FALLBACK)
   const mindmapSelectedColorHex = mindmapEffectiveColor(settings.mindmapSelectedColor, MINDMAP_SELECTED_THEME_VAR, MINDMAP_SELECTED_COLOR_FALLBACK)
@@ -168,14 +154,97 @@ export function ExplorerSettingsSection({ settingsStore }) {
   /* End-of-branch accent: default is the fixed success green (not theme adaptive), so the effective hex is the stored override or the default constant. */
   const mindmapEndColorHex = settings.mindmapEndColor ?? MINDMAP_END_COLOR_DEFAULT
   const mindmapEndColorCustom = settings.mindmapEndColor !== undefined
-  const mindmapMountBulge = clampMountBulge(settings.mindmapMountBulge)
-  const customizedCount = Object.keys(settings.fileColors ?? {}).length
-  const customizedPresetCount = Object.keys(settings.highlightPresets ?? {}).length
-  const customizedVcsColorCount = Object.keys(settings.vcsColors ?? {}).length
-  const customizedDiffColorCount = Object.keys(settings.diffColors ?? {}).length
+  const mindmapMountBulge = settings.mindmapMountBulge
+  const customizedCount = Object.keys(settings.fileColors).length
+  const customizedPresetCount = Object.keys(settings.highlightPresets).length
+  const customizedVcsColorCount = Object.keys(settings.vcsColors).length
+  const customizedDiffColorCount = Object.keys(settings.diffColors).length
   /* The Host can disable the whole feature (`enableVcsStatus:false`); the explorer mirrors that
      answer here so the group explains itself instead of showing switches that do nothing. */
   const vcsHostEnabled = useSyncExternalStore(subscribeVcsHostEnabled, readVcsHostEnabled) !== false
+  /* Interpreter configuration: the global per-suffix map plus the per-file overrides. Loaded once per
+     page through run-config's idempotent focus, and every write there refreshes the resolved table —
+     so this page shows what each suffix would ACTUALLY use right now, not what was configured once. */
+  const runConfig = useRunConfig()
+  const [interpreterExt, setInterpreterExt] = useState(null)
+  const [probingExt, setProbingExt] = useState(null)
+  const [probeResults, setProbeResults] = useState({})
+  useEffect(() => { void focusRunConfig() }, [])
+  /* A probe result describes one concrete path: drop it when the policy changes underneath. */
+  useEffect(() => { setProbeResults({}) }, [runConfig.policy])
+  const fileOverrides = runConfigFileOverrides(runConfig)
+  const customizedExtensions = Object.keys(runConfig.policy?.extensions ?? {}).length
+  const runRowProbe = useCallback(async (row) => {
+    const target = typeof row?.interpreter === 'string' ? row.interpreter : ''
+    if (target === '' || probingExt !== null) return
+    setProbingExt(row.ext)
+    const result = await probeInterpreter(target, row.family)
+    setProbingExt(null)
+    setProbeResults(current => ({
+      ...current,
+      [row.ext]: {
+        ok: result.ok === true,
+        text: result.ok === true
+          ? (result.output === '' ? translate('run.interp.dlg.testEmpty') : result.output)
+          : (result.error !== undefined && result.error !== '' ? result.error : translate('run.interp.dlg.testFail', { output: result.output })),
+      },
+    }))
+  }, [probingExt])
+  /* One row per runnable extension: what it resolves to, where that came from, and the three actions
+     (指定 / 修改 / 清除). Directly executed suffixes have no interpreter by definition, and a suffix
+     the current platform cannot run at all is greyed out with the reason spelled out. */
+  const interpreterRows = () => (runConfig.rows ?? []).map((row) => {
+    const unsupported = row.reason === 'unsupported-platform'
+    const direct = row.source === 'direct'
+    const missing = row.reason === 'missing-interpreter'
+    const stored = typeof row.override === 'string' && row.override !== ''
+    const effective = direct
+      ? translate('settings.interpreters.direct')
+      : missing
+        ? translate('settings.interpreters.missing', { candidates: (row.candidates ?? []).join(', ') })
+        : (row.interpreterName ?? '')
+    const probe = probeResults[row.ext]
+    return h('tr', { 'data-stale': row.stale === true || undefined, key: row.ext },
+      h('td', { className: 'dsh-ws-interp-ext' }, `.${row.ext}`),
+      h('td', null,
+        h('div', { className: 'dsh-ws-interp-eff' },
+          h('span', { className: 'dsh-ws-interp-eff-name', title: typeof row.interpreter === 'string' ? row.interpreter : '' }, effective),
+          direct || unsupported
+            ? null
+            : h('span', { className: 'dsh-ws-interp-tag', 'data-kind': row.stale === true ? 'stale' : (row.source ?? 'auto') },
+              row.stale === true ? translate('settings.interpreters.stale') : runInterpreterSourceLabel(row.source, row.ext)),
+          probe === undefined
+            ? null
+            : h('span', { className: 'dsh-ws-interp-probe', 'data-tone': probe.ok ? 'ok' : 'error', title: probe.text },
+              probe.ok ? translate('settings.interpreters.probeOk', { output: probe.text }) : translate('settings.interpreters.probeFail', { output: probe.text })))),
+      h('td', { className: 'dsh-ws-interp-actions' },
+        unsupported || direct
+          ? h('span', { className: 'dsh-ws-interp-note' }, translate(direct ? 'settings.interpreters.directNote' : 'settings.interpreters.unsupportedNote'))
+          : h(Fragment, null,
+            stored && row.stale !== true
+              ? h('button', {
+                className: 'dsh-ws-text-button',
+                disabled: probingExt !== null,
+                onClick: () => void runRowProbe(row),
+                type: 'button',
+              }, translate(probingExt === row.ext ? 'settings.interpreters.testing' : 'settings.interpreters.test'))
+              : null,
+            h('button', {
+              className: 'dsh-ws-text-button',
+              onClick: () => { setProbeResults({}); setInterpreterExt(row.ext) },
+              type: 'button',
+            }, translate(stored ? 'settings.interpreters.edit' : 'settings.interpreters.set')),
+            stored
+              ? h('button', {
+                className: 'dsh-ws-text-button',
+                disabled: runConfig.writing === true,
+                /* 清除 stores an empty value for this one suffix, which sends it back to
+                   auto-detection. */
+                onClick: () => void saveExtensionInterpreter(row.ext, '', false),
+                type: 'button',
+              }, translate('settings.interpreters.clear'))
+              : null)))
+  })
   /* One version-control display switch: a label plus a checkbox, disabled while the feature is off. */
   const vcsToggleRow = (key, id, checked, onChange, disabled) => h('div', { className: 'dsh-ws-settings-row' },
     h('label', { className: 'dsh-ws-settings-label', htmlFor: id }, translate(key)),
@@ -517,6 +586,62 @@ export function ExplorerSettingsSection({ settingsStore }) {
       vcsToggleRow('settings.diffRulerThumb', 'dsh-ws-diff-ruler-thumb', settings.diffRulerThumb === 'full', value => settingsStore.actions.setDiffRulerThumb(value ? 'full' : 'slim'), settings.diffRuler === false || settings.vcsEnabled === false || vcsHostEnabled === false),
       h('div', { className: 'dsh-ws-settings-hint' }, translate('settings.diffRuler.hint')),
       h('div', { className: 'dsh-ws-settings-hint' }, translate('settings.diff.hint')),
+      /* 全局自定义解释器：按后缀给所有工作区指定解释器；运行控制台里为单个文件指定的优先。 */
+      h('div', { className: 'dsh-ws-interp-title' },
+        translate('settings.interpreters'),
+        h('span', { className: 'dsh-ws-interp-spacer' }),
+        h('button', {
+          className: 'dsh-ws-text-button',
+          disabled: runConfig.refreshing === true,
+          onClick: () => void refreshRunConfig(),
+          type: 'button',
+        }, translate(runConfig.refreshing === true ? 'settings.loading' : 'settings.interpreters.recheck'))),
+      h('div', { className: 'dsh-ws-settings-hint' }, translate('settings.interpreters.hint')),
+      runConfig.status === 'error'
+        ? h('div', { className: 'dsh-ws-settings-hint', 'data-tone': 'error' }, translate('settings.interpreters.error', { message: runConfig.error ?? '' }))
+        : null,
+      h('table', { className: 'dsh-ws-interp-table' },
+        h('thead', null, h('tr', null,
+          h('th', { className: 'dsh-ws-interp-th-ext' }, translate('settings.interpreters.ext')),
+          h('th', null, translate('settings.interpreters.effective')),
+          h('th', { className: 'dsh-ws-interp-th-actions' }, translate('settings.interpreters.actions')))),
+        h('tbody', null, ...interpreterRows())),
+      h('div', { className: 'dsh-ws-settings-row' },
+        h('span', { className: 'dsh-ws-settings-hint dsh-ws-interp-count' },
+          translate('settings.interpreters.count', { count: String(customizedExtensions), max: String(RUN_FILE_OVERRIDE_MAX) })),
+        h('button', {
+          className: 'dsh-ws-text-button',
+          disabled: customizedExtensions === 0 || runConfig.writing === true,
+          onClick: () => void resetAllInterpreters(),
+          type: 'button',
+        }, translate('settings.interpreters.resetAll'))),
+      h('div', { className: 'dsh-ws-interp-title' }, translate('settings.interpreters.files', { count: String(fileOverrides.length) })),
+      h('div', { className: 'dsh-ws-settings-hint' }, translate('settings.interpreters.filesHint', { max: String(RUN_FILE_OVERRIDE_MAX) })),
+      fileOverrides.length === 0
+        ? h('div', { className: 'dsh-ws-settings-hint' }, translate('settings.interpreters.filesEmpty'))
+        : h('div', { className: 'dsh-ws-interp-files' },
+          ...fileOverrides.map(item => h('div', { className: 'dsh-ws-interp-file', key: item.key },
+            h('span', { className: 'dsh-ws-interp-file-name', title: item.key }, pathBasename(item.key)),
+            h('span', { className: 'dsh-ws-interp-file-dir', title: item.key }, item.key),
+            h('span', { className: 'dsh-ws-interp-file-path', title: item.interpreter }, item.interpreter),
+            h('button', {
+              className: 'dsh-ws-text-button',
+              disabled: runConfig.writing === true,
+              onClick: () => void clearFileInterpreter(item.key),
+              type: 'button',
+            }, translate('settings.interpreters.clear'))))),
+      fileOverrides.length === 0
+        ? null
+        : h('div', { className: 'dsh-ws-file-colors-actions' },
+          h('button', {
+            className: 'dsh-ws-text-button',
+            disabled: runConfig.writing === true,
+            onClick: () => void clearAllFileInterpreters(),
+            type: 'button',
+          }, translate('settings.interpreters.filesClearAll'))),
+      runConfig.notice === undefined
+        ? null
+        : h('div', { className: 'dsh-ws-settings-hint', 'data-tone': 'error', role: 'alert' }, runConfig.notice.text),
     ),
     h('div', { className: 'dsh-ws-explorer-divider' }),
     h('div', { className: 'dsh-ws-settings-group' },
@@ -683,5 +808,15 @@ export function ExplorerSettingsSection({ settingsStore }) {
         }, translate('settings.resetDefault'))),
     ),
     h('div', { className: 'dsh-ws-settings-hint' }, translate('settings.hint')),
+    interpreterExt === null
+      ? null
+      : h(InterpreterDialog, {
+        ext: interpreterExt,
+        family: runConfigRowOf(runConfig, interpreterExt)?.family ?? '',
+        mode: 'extension',
+        onClose: () => setInterpreterExt(null),
+        platform: runConfig.platform,
+        row: runConfigRowOf(runConfig, interpreterExt),
+      }),
   )
 }

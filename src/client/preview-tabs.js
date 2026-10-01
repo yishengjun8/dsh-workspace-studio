@@ -161,21 +161,21 @@ export function orderPinnedFirst(tabs) {
   return [...pinned, ...unpinned]
 }
 export function normalizePreviewSession(value, familyKey) {
-  /* A docked mind-map tab may only ride the persistence family it was docked on: the dockedAt stamp separates "opened in this session" (keep) from "leaked from another session's snapshot" (drop), falling back to the map's root session id when the stamp is absent. */
+  /* A docked mind-map tab must name the persistence family it was docked on: without that stamp
+     (or with another session's) restoring it could mount a foreign map in this strip, so such a
+     tab is not restorable and is dropped. The stamp is part of the format — a snapshot that lacks
+     it is not interpreted, it is cleaned (see persisted-state.js). */
   const family = familyKey === undefined || familyKey === null ? null : String(familyKey)
   const seen = new Set()
   const tabs = Array.isArray(value?.tabs)
     ? value.tabs.map(clonePreviewTab).filter((tab) => {
-        if (tab === null || seen.has(tab.path)) return false
-        /* Self-heal for snapshots written before workspace-relative paths were
-           enforced: an absolute path in a FILE tab is not a tree path, so
-           restoring it would fire a doomed directory read on every load. Such a
-           tab is dropped instead (the file stays reachable from the chat's own
-           open path). Synthetic tabs carry `mindmap:` / `plan:` / `external:`
-           prefixes and are never absolute. */
-        if (tab.kind === 'file' && tab.external !== true && isAbsoluteWorkspacePath(tab.path)) return false
-        if (family !== null && tab.kind === 'mindmap'
-          && (tab.dockedAt ?? tab.sessionId) !== family) return false
+        if (tab === null || seen.has(tab.path) || tab.external === true) return false
+        /* A FILE tab's path is a workspace-relative tree path: an absolute path is not a tree path
+           (the Host refuses it with 400 invalid-path), so restoring one would only fire a doomed
+           directory read on every load. */
+        if (tab.kind === 'file' && isAbsoluteWorkspacePath(tab.path)) return false
+        if (tab.kind === 'mindmap' && (tab.dockedAt === null || tab.sessionId === null)) return false
+        if (family !== null && tab.kind === 'mindmap' && tab.dockedAt !== family) return false
         seen.add(tab.path)
         return true
       })
@@ -184,10 +184,9 @@ export function normalizePreviewSession(value, familyKey) {
     ? value.activePath
     : (tabs[0]?.path ?? null)
   const expanded = Array.isArray(value?.expanded)
-    /* An absolute "directory" can never be a tree path: the Host refuses it (400
-       invalid-path), which also means the restore-time self-heal cannot prune it
-       — a snapshot written before workspace-relative paths were enforced would
-       re-fire those doomed reads on every load. Drop them here instead. */
+    /* A directory list is made of the same workspace-relative tree paths as the tabs, so an
+       absolute entry can never become valid and is dropped here rather than re-firing a refused
+       read on every load. */
     ? [...new Set(value.expanded.filter(path => typeof path === 'string' && path !== '' && !isAbsoluteWorkspacePath(path)))]
     : []
   return { activePath, tabs, expanded }

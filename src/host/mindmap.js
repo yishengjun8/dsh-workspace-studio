@@ -5,7 +5,8 @@ import { readdir, stat, unlink } from 'node:fs/promises'
 import { HttpError, isPlainObject } from './errors.js'
 import { sessionRowFingerprint, sessionRowHeader, sessionRowId } from './session-rows.js'
 import { serializeWrite } from './write.js'
-import { DRAFT_DIR_NAME, draftWorkspacePart, readJsonFileOrNull, writeJsonAtomic } from './drafts.js'
+import { DRAFT_DIR_NAME, draftWorkspacePart, readJsonFileOrNull, readJsonStrict, writeJsonAtomic } from './drafts.js'
+import { quarantineFile } from './quarantine.js'
 /* ---- Mind-map document (导图) ----
  * A persisted, self-contained document keyed by its ROOT session (the first
  * converted session; the rendered root node is a VIRTUAL node), stored under
@@ -1201,40 +1202,55 @@ const MINDMAP_READ_FAIL_CACHE_MAX = 256
 const MINDMAP_READ_FAIL_TTL_MS = 10 * 60 * 1000
 const mindmapReadFailCache = new Map() // sessionId -> { fingerprint, at }
 
-/* Validate one persisted entry against the session and fingerprint we just read:
-   a mismatch (changed log, foreign file, truncated JSON) is a plain miss and the
-   caller falls back to the full read. Turns are stored as [t, seq, user] tuples —
-   the same three fields parseMindmapTurns produces. */
+/* Validate one persisted entry against the session and fingerprint we just read.
+   The three outcomes are deliberately distinct, because only ONE of them is corruption:
+     - 'ok'      the entry answers this read;
+     - 'stale'   a current-format entry whose session/fingerprint moved on (a plain miss the
+                 next flush overwrites) — never a reason to clean anything up;
+     - 'invalid' the file cannot be used by this code in any version (a format this reader no
+                 longer knows, a malformed record, a session mismatch) and is quarantined.
+   Turns are stored as [t, seq, user] tuples — the same three fields parseMindmapTurns produces. */
 function mindmapParseDiskEntry(value, sessionId, fingerprint) {
-  if (!isPlainObject(value) || value.version !== MINDMAP_PARSE_DISK_VERSION) return null
-  if (String(value.sessionId) !== String(sessionId) || value.fingerprint !== fingerprint) return null
-  if (!Array.isArray(value.turns)) return null
+  if (!isPlainObject(value) || value.version !== MINDMAP_PARSE_DISK_VERSION) return { status: 'invalid' }
+  if (String(value.sessionId) !== String(sessionId) || !Array.isArray(value.turns)) return { status: 'invalid' }
   const parsed = []
   for (const item of value.turns) {
-    if (!Array.isArray(item) || item.length < 3) return null
+    if (!Array.isArray(item) || item.length < 3) return { status: 'invalid' }
     const t = Number(item[0])
     const seq = Number(item[1])
     const user = item[2]
-    if (!Number.isSafeInteger(t) || t <= 0 || !Number.isSafeInteger(seq) || seq < 0 || typeof user !== 'string') return null
+    if (!Number.isSafeInteger(t) || t <= 0 || !Number.isSafeInteger(seq) || seq < 0 || typeof user !== 'string') {
+      return { status: 'invalid' }
+    }
     parsed.push({ t, seq, user })
   }
+  if (value.fingerprint !== fingerprint) return { status: 'stale' }
   const inherited = Number(value.inheritedEventCount)
-  return { parsed, inheritedEventCount: Number.isSafeInteger(inherited) && inherited > 0 ? inherited : 0 }
+  return { status: 'ok', entry: { parsed, inheritedEventCount: Number.isSafeInteger(inherited) && inherited > 0 ? inherited : 0 } }
 }
 
 /* Disk hydration: one small file read instead of a multi-megabyte log decode. The
    hydrated entry is stamped with THIS service identity so the ordinary in-memory
    hit test (and its HMR/reload guard) keeps working unchanged. */
 async function mindmapParseDiskLookup(sessionId, fingerprint, identity) {
-  let value
+  const path = mindmapParseDiskPath(sessionId)
+  let read
   try {
-    value = await readJsonFileOrNull(mindmapParseDiskPath(sessionId))
+    read = await readJsonStrict(path)
   } catch {
+    /* An IO failure is not corruption: leave the file alone and let the caller re-read the log. */
     return null
   }
-  const entry = mindmapParseDiskEntry(value, sessionId, fingerprint)
-  if (entry === null) return null
-  const stored = { identity, fingerprint, parsed: entry.parsed, inheritedEventCount: entry.inheritedEventCount }
+  if (read.status === 'missing') return null
+  const validated = read.status === 'ok'
+    ? mindmapParseDiskEntry(read.value, sessionId, fingerprint)
+    : { status: 'invalid' }
+  if (validated.status === 'invalid') {
+    await quarantineFile(path, 'unusable mind-map parse cache entry')
+    return null
+  }
+  if (validated.status === 'stale') return null
+  const stored = { identity, fingerprint, parsed: validated.entry.parsed, inheritedEventCount: validated.entry.inheritedEventCount }
   mindmapColdParseCacheStore(String(sessionId), stored)
   return stored
 }
@@ -1591,8 +1607,14 @@ export async function readMindmapDocFile(sessionId) {
       }
     }
     if (value === undefined) {
-      value = await readJsonFileOrNull(path)
-      if (stats !== undefined && value !== null && isValidMindmapDoc(value)) {
+      const read = await readJsonStrict(path)
+      if (read.status === 'missing') return null
+      if (read.status !== 'ok') {
+        await quarantineUnusableMindmapFile(path)
+        return null
+      }
+      value = read.value
+      if (stats !== undefined && isValidMindmapDoc(value)) {
         /* Store a CLONE and hand the caller the original raw parse: callers mutate what they receive, so the cached entry must never be the same reference. */
         try {
           mindmapDocReadCache.set(path, { ino: stats.ino, size: stats.size, mtimeMs: stats.mtimeMs, ctimeMs: stats.ctimeMs, at: Date.now(), doc: structuredClone(value) })
@@ -1609,9 +1631,27 @@ export async function readMindmapDocFile(sessionId) {
       cursor = value.aliasTo
       continue
     }
+    /* The file exists but is neither a current-format document nor an alias stub: no version of
+       this code can use it, so it is quarantined instead of being re-read on every poll. */
+    await quarantineUnusableMindmapFile(path)
     return null
   }
   return null
+}
+
+/* Quarantine a mind-map file that is present but unusable, under a lock on its own path so a
+   concurrent writer (which always writes through writeJsonAtomic) can never lose a valid
+   document to a stale observation: the file is re-read inside the lock and only removed when it
+   is still unusable there. */
+async function quarantineUnusableMindmapFile(path) {
+  return mindmapLock(path, async () => {
+    const current = await readJsonStrict(path)
+    if (current.status === 'missing') return false
+    if (current.status !== 'ok') return quarantineFile(path, 'unreadable mind-map file')
+    if (isValidMindmapDoc(current.value)) return false
+    if (isPlainObject(current.value) && typeof current.value.aliasTo === 'string' && current.value.aliasTo !== '') return false
+    return quarantineFile(path, 'not a current-format mind-map document')
+  })
 }
 
 /* The registry's archived set, guarded: a host without the registry treats nothing as archived. */
@@ -1673,8 +1713,13 @@ export async function purgeArchivedMindmapDocs(ctx) {
   for (const name of names) {
     if (!name.endsWith('.json')) continue
     const path = join(mindmapRoot(), name)
-    const doc = await readJsonFileOrNull(path)
-    if (doc === null) continue
+    const read = await readJsonStrict(path)
+    if (read.status === 'missing') continue
+    if (read.status !== 'ok') {
+      await quarantineUnusableMindmapFile(path)
+      continue
+    }
+    const doc = read.value
     if (isValidMindmapDoc(doc)) {
       if (await unlinkStaleMindmapFile(ctx, path, doc)) purged += 1
       continue
@@ -1682,7 +1727,10 @@ export async function purgeArchivedMindmapDocs(ctx) {
     if (isPlainObject(doc) && typeof doc.aliasTo === 'string') {
       /* Follow the alias chain under its target root lock; only a dead-end alias observed inside that lock may be removed. */
       if (await unlinkStaleMindmapFile(ctx, path, doc)) purged += 1
+      continue
     }
+    /* Present but neither a current-format document nor an alias stub: unusable, quarantine it. */
+    await quarantineUnusableMindmapFile(path)
   }
   return purged
 }
@@ -2387,7 +2435,14 @@ export async function indexMindmapDocs(ctx) {
       mindmapIndexCache.set(path, cached)
     } else {
       try {
-        doc = await readJsonFileOrNull(path)
+        const read = await readJsonStrict(path)
+        if (read.status !== 'ok') {
+          /* Present but unreadable: quarantine it here (never cache it), so the index poll stops
+             tripping over the same file; a missing file was handled by the stat above. */
+          if (read.status === 'invalid') await quarantineUnusableMindmapFile(path)
+          continue
+        }
+        doc = read.value
       } catch (error) {
         try { ctx.logger.warn(`[workspace-studio] mindmap index read failed for ${name}: ${String(error)}`) } catch { /* no logger */ }
         continue
@@ -2419,7 +2474,11 @@ export async function indexMindmapDocs(ctx) {
     if (isPlainObject(doc) && typeof doc.aliasTo === 'string') {
       /* Same multi-hop rule as purgeArchivedMindmapDocs, with a locked re-read so a replacement cannot lose its alias stub. */
       await unlinkStaleMindmapFile(ctx, path, doc)
+      continue
     }
+    /* Neither a document nor an alias stub (a cached null can only be a leftover of an earlier
+       read): unusable, so it leaves the directory rather than being re-scanned forever. */
+    await quarantineUnusableMindmapFile(path)
   }
   docs.sort((a, b) => b.updatedAt - a.updatedAt)
   return { docs }

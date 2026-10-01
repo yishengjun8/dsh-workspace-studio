@@ -698,8 +698,14 @@ export function useEditorSession({
             : hostDraft
         const tabDraft = tab?.dirty ? tab : undefined
         const editable = result.editable === true
+        /* A restorable draft record carries its baseline: the Host enforces the same field
+           contract when it writes and reads the record, so a record missing baseText (or whose
+           baseRevision is neither a string nor an explicit null) is not restorable instead of
+           being silently patched up from the current disk revision. */
         const diskDraftPresent = draftData !== null && typeof draftData === 'object'
           && draftData.exists !== false && typeof draftData.draft === 'string'
+          && typeof draftData.baseText === 'string'
+          && (typeof draftData.baseRevision === 'string' || draftData.baseRevision === null)
         // A clean fallback draft (draft===baseText) or a stale draft equal to
         // the source carries no unsaved work and must never override a later
         // disk revision.
@@ -721,8 +727,8 @@ export function useEditorSession({
           : hasDiskDraft
             ? {
                 content: draftData.draft,
-                baseText: typeof draftData.baseText === 'string' ? draftData.baseText : result.content,
-                baseRevision: typeof draftData.baseRevision === 'string' ? draftData.baseRevision : result.revision,
+                baseText: draftData.baseText,
+                baseRevision: draftData.baseRevision,
               }
             : { content: result.content, baseText: result.content, baseRevision: result.revision }
         const content = restored.content

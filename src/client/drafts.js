@@ -25,6 +25,12 @@ async function pruneEmergencyDrafts() {
     const request = store.getAll()
     request.onsuccess = () => {
       for (const value of request.result ?? []) {
+        /* A record that does not satisfy the current contract can never be restored: reclaim it here
+           as well, so a store written by an older format empties out without the file being opened. */
+        if (!isEmergencyDraftRecord(value, value?.workspaceId, value?.scopeId, value?.path)) {
+          if (value !== null && typeof value === 'object' && value.key !== undefined) store.delete(value.key)
+          continue
+        }
         /* A record with a missing/corrupt updatedAt can never satisfy the retention check: treat it as the oldest. */
         const updatedAt = Number(value.updatedAt)
         const expired = !Number.isFinite(updatedAt) || updatedAt < cutoff
@@ -126,6 +132,26 @@ function queueEmergencyDraft(key, operation) {
   current.then(cleanup, cleanup)
   return current
 }
+/* The mirror record must satisfy the same contract the Host draft endpoint enforces, or it can
+   never be restored (editor-session's read pass requires the baseline fields): an unusable record
+   is deleted from the store rather than interpreted, so the mirror cannot keep a shape this code
+   no longer writes. */
+const DRAFT_REVISION_RE = /^[a-f0-9]{64}$/u
+function isEmergencyDraftRecord(value, workspaceId, scopeId, path) {
+  if (value === null || typeof value !== 'object') return false
+  if (value.key !== emergencyDraftKey(workspaceId, scopeId, path)) return false
+  if (String(value.workspaceId) !== String(workspaceId) || String(value.scopeId) !== String(scopeId)) return false
+  if (value.path !== path) return false
+  if (!Number.isFinite(Number(value.updatedAt))) return false
+  if (value.generation !== undefined && (!Number.isSafeInteger(value.generation) || value.generation < 0)) return false
+  /* A tombstone is a marker, not a payload. */
+  if (value.state === 'deleted') return true
+  if (value.state !== undefined) return false
+  if (typeof value.draft !== 'string' || typeof value.baseText !== 'string') return false
+  if (value.baseRevision !== null && (typeof value.baseRevision !== 'string' || !DRAFT_REVISION_RE.test(value.baseRevision))) return false
+  if (typeof value.encoding !== 'string' || typeof value.lineEnding !== 'string' || typeof value.bom !== 'boolean') return false
+  return true
+}
 export function writeEmergencyDraft(workspaceId, scopeId, path, payload) {
   const key = emergencyDraftKey(workspaceId, scopeId, path)
   /* Spread the payload first so identity fields always win: a payload's own path must never override the record's derived `path`. */
@@ -135,7 +161,14 @@ export function writeEmergencyDraft(workspaceId, scopeId, path, payload) {
 export async function readEmergencyDraft(workspaceId, scopeId, path) {
   const key = emergencyDraftKey(workspaceId, scopeId, path)
   /* Queue the read on the same key as every write, or a write enqueued after the wait could commit after the read. */
-  return queueEmergencyDraft(key, () => emergencyDraftRequest('readonly', store => store.get(key)))
+  return queueEmergencyDraft(key, async () => {
+    const value = await emergencyDraftRequest('readonly', store => store.get(key))
+    if (value === undefined || value === null) return value
+    if (isEmergencyDraftRecord(value, workspaceId, scopeId, path)) return value
+    /* Unusable record: drop it (best-effort — a failed delete still means it is never restored). */
+    await emergencyDraftRequest('readwrite', store => store.delete(key)).catch(() => {})
+    return undefined
+  })
 }
 export function deleteEmergencyDraft(workspaceId, scopeId, path, generation) {
   const key = emergencyDraftKey(workspaceId, scopeId, path)

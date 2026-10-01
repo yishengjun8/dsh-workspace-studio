@@ -14,14 +14,23 @@ export const OPEN_RESOURCE_BRIDGE_MARKER = Symbol('workspace-studio.open-resourc
 export const OPEN_RESOURCE_BRIDGE_ORIGINAL = Symbol('workspace-studio.open-resource-bridge.original')
 /* Bounded 50 ms retries while a session's input binding is not ready; a binding that never becomes ready must not spin a timer forever. */
 export const ENSURE_RETRY_MAX = 20
-export const PREVIEW_SESSION_STORE_KEY = 'dsh.workspace.studio.preview-sessions.v1'
+/* Persisted UI state carries the FORMAT version in its key: a shape change bumps the
+   key and the previous key is deleted outright (see persisted-state.js), so no reader
+   ever has to interpret an older shape. */
+export const PREVIEW_SESSION_STORE_KEY = 'dsh.workspace.studio.preview-sessions.v2'
 export const PREVIEW_SESSION_MAX = 25
 /* Quick-calculator unit prices in the token-stats panel (shared defaults, per-model overrides and the currency symbol); tiny, local-only and never sent anywhere. */
-export const TOKEN_PRICES_STORE_KEY = 'dsh.workspace.studio.token-prices.v1'
+export const TOKEN_PRICES_STORE_KEY = 'dsh.workspace.studio.token-prices.v2'
 /* Currency symbols are one or two glyphs; the input is capped so a paste cannot bloat the persisted value. */
 export const TOKEN_CURRENCY_MAX_LENGTH = 3
 /* Sanity cap per price field: 7 integer digits plus a 6-digit fraction is far beyond any real per-million price. */
 export const TOKEN_PRICE_MAX_LENGTH = 14
+/* The priced fields, in display order. Cache-write tokens are excluded on purpose: they are
+   neither displayed nor priced, so no field exists for them — a value stored under any other
+   name (including a field a previous format wrote) is simply not part of the schema and is
+   dropped by the persisted-state gate. */
+export const TOKEN_PRICE_FIELDS = Object.freeze(['input', 'cacheRead', 'output'])
+export const TOKEN_PRICE_DEFAULT_CURRENCY = '¥'
 export const SIDEBAR_DEFAULT = 280, SIDEBAR_COLLAPSED = 56, SIDEBAR_MIN = 240, SIDEBAR_MAX_RATIO = 0.8, SIDEBAR_MAX_FALLBACK = 420
 export const EXPLORER_MAX_RATIO = 0.8
 export const TREE_DEFAULT = 280, TREE_MIN = 220, TREE_MAX = 520
@@ -126,7 +135,11 @@ export const clampMountBulge = (value) => {
     : MINDMAP_MOUNT_BULGE_DEFAULT_X
   return Math.round(bounded * 10) / 10
 }
-export const EXPLORER_SETTINGS_STORE_KEY = 'dsh.workspace.studio.settings.v1'
+export const EXPLORER_SETTINGS_STORE_KEY = 'dsh.workspace.studio.settings.v2'
+/* Mind-map sidebar presentation, per workspace group (entry order) and per map root
+   (last selected session): pure UI state, so both ride the same strict schema gate. */
+export const MINDMAP_ORDER_STORE_KEY = 'dsh.workspace.studio.mindmap-order.v2'
+export const MINDMAP_LAST_SESSION_STORE_KEY = 'dsh.workspace.studio.mindmap-last-session.v2'
 /* Mind-map highlight colors (hover / selected): user hex or the harness theme default, published as --dsh-ws-mindmap-hover / --dsh-ws-mindmap-selected. */
 export const MINDMAP_HOVER_THEME_VAR = '--dsw-alias-state-warn-primary'
 export const MINDMAP_SELECTED_THEME_VAR = '--dsw-alias-state-business-primary'
@@ -184,7 +197,7 @@ export const mindmapEffectiveColor = (value, themeVar, fallback) => {
   }
   return fallback
 }
-export const EXPLORER_LAYOUT_STORE_KEY = 'dsh.workspace.studio.layout.v1'
+export const EXPLORER_LAYOUT_STORE_KEY = 'dsh.workspace.studio.layout.v2'
 /* Debounce (ms) before a dirty tab's draft is auto-saved; restores edits after refresh but never clears the dirty marker. */
 export const AUTOSAVE_DELAY_MS = 1000
 /* Above this many base lines, skip the three-way merge (Myers is O(N*D) worst case). */
@@ -269,6 +282,35 @@ export const FILE_CACHE_MAX_BYTES = 12 * 1024 * 1024
 export const FILE_CACHE_MAX_ENTRY_BYTES = 4 * 1024 * 1024
 /* A fast activation serve skips its background change check only when the mount's poll confirmed the disk state equals the served content within this window. */
 export const FILE_CACHE_REVALIDATE_SKIP_MS = 2 * AUTO_SYNC_CHECK_MS + 1000
+/* Executable-file run console (preview column's lower half). The poll cadence is the console's
+   liveness: the Host keeps the process and a bounded output ring buffer, the client asks for the
+   slice past its own offset. Slow enough to be cheap on a quiet script, fast enough to read as live. */
+export const RUN_POLL_MS = 400
+/* Rendered output lines kept per file: a build log can be enormous, and the console is a tail.
+   Older lines are dropped with a "…已省略 N 行" marker (the Host's byte ring drops independently). */
+export const RUN_OUTPUT_LINE_MAX = 2000
+/* Lower half's share of the preview body on first open, then whatever the user dragged. */
+export const RUN_PANEL_RATIO_DEFAULT = 0.38
+/* Neither half may be squeezed shut: the panel collapses explicitly (its header button), and the
+   code pane must stay readable while the console is dragged open. */
+export const RUN_PANEL_MIN_PX = 96
+export const RUN_CODE_MIN_PX = 120
+/* The editable tail of the command line; mirrors the Host's own bound. */
+export const RUN_ARGS_MAX_LENGTH = 4096
+/* Status polls are local and tiny: a hung one must not freeze the console behind the store's
+   in-flight guard for the generic 30 s request timeout, so they get their own short budget. */
+export const RUN_STATUS_TIMEOUT_MS = 8000
+/* Follow-the-tail default: a console that stops scrolling mid-run reads as frozen. */
+export const RUN_FOLLOW_DEFAULT = true
+/* Interpreter configuration (settings page + console dialog). The bounds mirror the Host's own:
+   a path is an absolute path or nothing, and the per-file map is capped there too. */
+export const RUN_INTERPRETER_PATH_MAX_LENGTH = 4096
+export const RUN_FILE_OVERRIDE_MAX = 200
+/* A version probe is one short-lived process; the request budget covers the Host's 5 s probe timeout
+   plus IPC rounding, so a slow interpreter still answers instead of tripping the generic timeout. */
+export const RUN_PROBE_TIMEOUT_MS = 5000
+export const RUN_PROBE_OUTPUT_MAX = 4096
+export const RUN_PROBE_REQUEST_TIMEOUT_MS = 9000
 /* Byte cap on the read-only preview of a file OUTSIDE the workspace (read through
    the harness workspace-files Remote, page by page): past it the preview keeps
    what it read and reports itself truncated, like the Host's own preview cap. */

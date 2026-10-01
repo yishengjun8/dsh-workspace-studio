@@ -33,6 +33,8 @@ import { usePreviewScrollbar } from './hooks/scrollbar.js'
 import { useSearchState } from './hooks/search.js'
 import { useSessionRename } from './hooks/session-rename.js'
 import { isByteKind, isHtmlName, isImageName, isMarkdownName, isOfficeName, isPdfName, VIEW_EDIT, VIEW_PREVIEW, viewerCandidates } from '../../renderers/registry.js'
+import { isRunnableName } from '../../run-detect.js'
+import { setRunCollapsed, useRunEntry } from '../../run-store.js'
 import { PlanView } from '../../renderers/plan-view.js'
 import { ReviewView } from '../../renderers/review-view.js'
 
@@ -96,7 +98,8 @@ export function WorkspaceExplorer({
   const settings = useSyncExternalStore(settingsStore.subscribe, settingsStore.getSnapshot)
   /* Draft scope follows the shared persistence key: inside a mind map every member session shares one draft scope (the map's root), since the tab strip and its in-memory draft are shared. */
   const draftScopeId = sessionId === undefined ? `workspace:${workspace.workspaceId}` : `session:${previewSessionId ?? sessionId}`
-  /* Restore under this mount's persistence family: a docked mind-map tab whose dockedAt (or root session id) does not match previewSessionId must not reappear here. */
+  /* Restore under this mount's persistence family: a docked mind-map tab whose dockedAt stamp
+     names another family must not reappear here. */
   const initialPreviewSession = normalizePreviewSession(storedPreviewSession, previewSessionId)
   const [directories, setDirectories] = useState(() => new Map())
   const [expanded, setExpanded] = useState(() => new Set(['', ...(initialPreviewSession.expanded ?? [])]))
@@ -1554,10 +1557,22 @@ export function WorkspaceExplorer({
     return viewerCandidates(preview, activeTab.name, activeTab.external === true && activeTab.outside !== true)
   }, [activeTab, preview])
   const currentViewer = viewerItems.find(item => item.id === (byteKind ?? viewMode)) ?? viewerItems[0]
-  /* The toggle button's tooltip names the view it switches to. */
+  /* The viewer toggle button's tooltip names the view it switches to. */
   const viewerToggleTitle = currentViewer?.id === VIEW_PREVIEW
     ? (isMarkdown ? translate('mdPreview.edit.title') : isHtmlFile ? translate('htmlPreview.edit.title') : translate('editor.edit.title'))
     : (isMarkdown ? translate('mdPreview.preview.title') : isHtmlFile ? translate('htmlPreview.preview.title') : translate('renderer.browse.title'))
+  /* The active file's run console, when it has one: drives the file header's 控制台 toggle. The
+     console itself is rendered by PreviewPane, and the tab strip reads the same store for its
+     "still running" badge, so one subscription here is enough. */
+  const runTabPath = activeTab !== undefined
+    && !isSyntheticTab(activeTab)
+    && activeTab.external !== true
+    && activeTab.outside !== true
+    && isRunnableName(activeTab.name)
+    ? activeTab.path
+    : null
+  const runTabEntry = useRunEntry(runTabPath)
+  const runPanelOpen = runTabEntry?.collapsed !== true
   /* A mind-map tab renders nothing here: this div is a placeholder the global host parks its stable map-body container into; parking is a plain appendChild move, so the doc, pan/zoom and highlight survive a session switch. */
   const mindmapTabs = tabs.filter(isMindmapTab)
   /* A plan tab renders the harness plan document inline; every plan body stays mounted (hidden when inactive) so switching tabs keeps its scroll and resource hold. */
@@ -1651,6 +1666,7 @@ export function WorkspaceExplorer({
     sessionId: previewSessionId,
     settings,
     viewMode,
+    workspaceId: workspace.workspaceId,
   }))
     : h(PreviewPane, {
     activePath,
@@ -1696,6 +1712,7 @@ export function WorkspaceExplorer({
     sessionId: previewSessionId,
     settings,
     viewMode,
+    workspaceId: workspace.workspaceId,
   })
   const searchBody = h(SearchResults, { expanded: searchExpanded, onOpenEntry: openSearchEntry, onOpenMatch: openSearchMatch, onToggleFile: toggleSearchFile, state: searchState })
   const entryDialogTrimmed = entryDraft.trim()
@@ -1926,6 +1943,17 @@ export function WorkspaceExplorer({
                   ? translate('external.externalFile', { name: activeTab.name })
                   : activeTab.path)
             : workspace.title),
+        runTabPath === null
+          ? null
+          : h('button', {
+            'aria-label': translate('run.panel'),
+            className: 'dsh-ws-text-button',
+            /* Active = the console is showing: the same filled/quiet button language as the viewer toggle. */
+            'data-active': runPanelOpen || undefined,
+            onClick: () => setRunCollapsed(runTabPath, runPanelOpen),
+            title: translate('run.panel.title'),
+            type: 'button',
+          }, translate('run.panel')),
         preview.state === 'ready'
           ? h(Fragment, null,
             /* Viewer toggle (registry-driven): exactly two candidates exist for every file that shows the button, so it flips directly instead of opening a menu. */

@@ -2,22 +2,15 @@ import { defineStore } from '@deepseek-ai/dsh-client-store'
 import { AUTO_SYNC_MODE_AUTO, AUTO_SYNC_MODE_WATCH_ONLY, clampMountBulge, CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MAX, CONFLICT_FONT_SIZE_MIN, cssColorToHex, DIFF_RULER_DEFAULT, DIFF_RULER_SPAN_DEFAULT, DIFF_RULER_THUMB_DEFAULT, DIFF_RULER_WIDTH_DEFAULT, DIFF_RULER_WIDTH_MAX, DIFF_RULER_WIDTH_MIN, DIFF_TINT_DEFAULT, EDIT_LINES_DEFAULT, EDIT_LINES_MAX, EDIT_LINES_MIN, EXPLORER_LAYOUT_STORE_KEY, EXPLORER_SETTINGS_STORE_KEY, MINDMAP_END_COLOR_DEFAULT, MINDMAP_HEAD_COLOR_DEFAULT, MINDMAP_HOVER_COLOR_FALLBACK, MINDMAP_HOVER_THEME_VAR, MINDMAP_MOUNT_BULGE_DEFAULT_X, MINDMAP_SELECTED_COLOR_FALLBACK, MINDMAP_SELECTED_THEME_VAR, MINDMAP_SPIN_SPEED_DEFAULT_X, MINDMAP_SPIN_SPEED_MAX_X, MINDMAP_SPIN_SPEED_MIN_X, MINDMAP_SUMMARY_DEFAULT_LENGTH, MINDMAP_SUMMARY_LENGTH_STEP, MINDMAP_SUMMARY_MAX_LENGTH, MINDMAP_SUMMARY_MIN_LENGTH, MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH, MINDMAP_SUMMARY_SESSION_LENGTH_STEP, MINDMAP_SUMMARY_SESSION_MAX_LENGTH, MINDMAP_SUMMARY_SESSION_MIN_LENGTH, mindmapEffectiveColor, PREVIEW_DEFAULT, PREVIEW_MAX, PREVIEW_MIN, PREVIEW_RIGHT_DEFAULT, PREVIEW_SESSION_STORE_KEY, ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MAX, ROW_HEIGHT_MIN, SEARCH_MATCH_EXPAND_DEFAULT, SIDEBAR_DEFAULT, SIDEBAR_MAX_FALLBACK, SIDEBAR_MIN, THINK_LINES_DEFAULT, THINK_LINES_MAX, THINK_LINES_MIN, TREE_DEFAULT, TREE_MAX, TREE_MIN, VCS_HIDE_METADATA_DEFAULT, WATCH_FILES_DEFAULT } from './constants.js'
 import { clamp, diffColorDefault, fileColorDefault, highlightPresetDefaultFor, vcsStatusColorDefault } from './format.js'
 import { normalizePreviewSession, prunePreviewSessions } from './preview-tabs.js'
+import { readPersistedState } from './persisted-state.js'
 
 // The persisted sidebar width lives with the explorer pane geometry
 // (EXPLORER_LAYOUT_STORE_KEY), so this rehydrates it on load; 0 means
-// collapsed, and missing/invalid data falls back to the default width.
+// collapsed. The schema in persisted-state.js owns the shape, so the value is
+// either canonical or absent — a missing key falls back to the default width.
 export function readPersistedSidebarWidth() {
-  if (typeof localStorage === 'undefined') return SIDEBAR_DEFAULT
-  try {
-    const raw = localStorage.getItem(EXPLORER_LAYOUT_STORE_KEY)
-    if (raw === null) return SIDEBAR_DEFAULT
-    const sidebar = JSON.parse(raw)?.sidebar
-    if (sidebar === 0) return 0
-    if (typeof sidebar === 'number' && Number.isFinite(sidebar)) return Math.max(SIDEBAR_MIN, Math.round(sidebar))
-    return SIDEBAR_DEFAULT
-  } catch {
-    return SIDEBAR_DEFAULT
-  }
+  const layout = readPersistedState(EXPLORER_LAYOUT_STORE_KEY)
+  return layout === null ? SIDEBAR_DEFAULT : layout.sidebar
 }
 export function createLayoutStore() {
   return defineStore({
@@ -67,7 +60,8 @@ export function createPreviewSessionStore() {
     persist: PREVIEW_SESSION_STORE_KEY,
     actions: {
       rememberPreviewSession: (draft, key, value) => {
-        // Rehydrated wholesale from localStorage; a polluted or legacy key must not throw.
+        // Live values arrive from the explorer; the persisted shape is owned by
+        // persisted-state.js, so a malformed call only has to keep the map usable.
         if (draft.previewSessions === undefined || draft.previewSessions === null || typeof draft.previewSessions !== 'object') draft.previewSessions = {}
         const normalized = normalizePreviewSession(value)
         if (normalized.tabs.length === 0 && (normalized.expanded ?? []).length === 0) delete draft.previewSessions[String(key)]
@@ -115,8 +109,7 @@ export function createExplorerSettingsStore() {
       /* Editor change gutter: its own tone palette (defaults green / blue / red) plus the line wash. */
       diffColors: {},
       diffLineTint: DIFF_TINT_DEFAULT,
-      /* Scrollbar change ruler: the widened track and its mark geometry. Display-only, so an
-         out-of-range persisted value is snapped back on read instead of breaking the bar. */
+      /* Scrollbar change ruler: the widened track and its mark geometry. */
       diffRuler: DIFF_RULER_DEFAULT,
       diffRulerWidth: DIFF_RULER_WIDTH_DEFAULT,
       diffRulerSpan: DIFF_RULER_SPAN_DEFAULT,
@@ -209,8 +202,7 @@ export function createExplorerSettingsStore() {
       setAutoSyncMode: (draft, value) => {
         draft.autoSyncMode = value === AUTO_SYNC_MODE_WATCH_ONLY ? AUTO_SYNC_MODE_WATCH_ONLY : AUTO_SYNC_MODE_AUTO
       },
-      /* Version-control display preferences: every one of them only affects rendering, so a
-         corrupted/legacy persisted value can safely fall back to the default. */
+      /* Version-control display preferences: every one of them only affects rendering. */
       setVcsEnabled: (draft, value) => { draft.vcsEnabled = Boolean(value) },
       setVcsShowIgnored: (draft, value) => { draft.vcsShowIgnored = Boolean(value) },
       setVcsHideDirs: (draft, value) => { draft.vcsHideDirs = Boolean(value) },
@@ -231,8 +223,7 @@ export function createExplorerSettingsStore() {
       resetDiffColors: (draft) => { draft.diffColors = {} },
       setDiffLineTint: (draft, value) => { draft.diffLineTint = Boolean(value) },
       setDiffRuler: (draft, value) => { draft.diffRuler = Boolean(value) },
-      /* Snap onto the slider's 2px grid (10 / 12 / 14 / 16 / 18) so a stale or hand-edited value
-         never leaves the thumb between steps. */
+      /* Snap onto the slider's 2px grid (10 / 12 / 14 / 16 / 18) so the thumb always sits on a step. */
       setDiffRulerWidth: (draft, value) => {
         const number = Number(value)
         const bounded = Number.isFinite(number)

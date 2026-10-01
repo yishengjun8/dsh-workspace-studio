@@ -24,7 +24,8 @@ import { basename, dirname, join, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { homedir } from 'node:os'
 import { HttpError } from './errors.js'
-import { writeJsonAtomic } from './drafts.js'
+import { readJsonStrict, writeJsonAtomic } from './drafts.js'
+import { quarantineFile } from './quarantine.js'
 
 export const PACKAGE_NAME = '@yishengjun8/dsh-workspace-studio'
 const GITHUB_REPO = 'yishengjun8/dsh-workspace-studio'
@@ -138,15 +139,18 @@ async function inspectInstall() {
   }
 }
 
-function readCheckedMeta() {
-  try {
-    /* readFileSync comes from node:fs (imported above) — the promises API (fsp) has no readFileSync, and calling it would throw a TypeError that this catch swallows, making the check cache permanently empty. */
-    const meta = JSON.parse(readFileSync(join(CHECK_BASE, CHECKED_META), 'utf8'))
-    if (typeof meta?.version === 'string' && typeof meta?.at === 'number') return meta
-  } catch {
-    /* no cache yet */
+/* The check cache's metadata. A file that cannot be parsed, or that does not carry the current
+   fields, is unusable (it can never satisfy the version comparison below), so it is quarantined and
+   treated as "no cache yet" — which only costs one re-download of the tarball. */
+async function readCheckedMeta() {
+  const path = join(CHECK_BASE, CHECKED_META)
+  const read = await readJsonStrict(path)
+  if (read.status === 'missing') return { version: null, at: 0 }
+  if (read.status !== 'ok' || typeof read.value.version !== 'string' || !Number.isFinite(Number(read.value.at))) {
+    await quarantineFile(path, 'unusable update-check cache metadata')
+    return { version: null, at: 0 }
   }
-  return { version: null, at: 0 }
+  return { version: read.value.version, at: Number(read.value.at) }
 }
 
 async function cachedContentValid(meta) {
@@ -239,7 +243,7 @@ async function downloadAndCache(timeoutMs) {
 export async function checkForUpdate(ctx, config, force) {
   if (config.enableUpdateCheck === false) return { enabled: false }
   let fresh = false
-  const meta = readCheckedMeta()
+  const meta = await readCheckedMeta()
   if (force !== true && meta.version !== null && Date.now() - meta.at < CHECK_CACHE_TTL_MS) {
     fresh = await cachedContentValid(meta)
   }
@@ -428,7 +432,7 @@ export async function downloadUpdate(ctx, config, payload) {
   updateInProgress = true
   try {
     const contentDir = join(CHECK_BASE, CHECKED_CONTENT)
-    const meta = readCheckedMeta()
+    const meta = await readCheckedMeta()
     if (!(meta.version === version && await cachedContentValid(meta))) {
       /* The checked payload is gone or stale (e.g. a cleared updates dir, or the user checked a long time ago): re-check NOW and compare — the install must match the version the user was shown. */
       const fresh = await downloadAndCache(DOWNLOAD_TIMEOUT_MS)

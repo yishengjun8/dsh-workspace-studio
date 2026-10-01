@@ -3,7 +3,8 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { isPlainObject } from './errors.js'
 import { sessionRowFingerprint, sessionRowId } from './session-rows.js'
-import { DRAFT_DIR_NAME, readJsonFileOrNull, writeJsonAtomic } from './drafts.js'
+import { DRAFT_DIR_NAME, readJsonStrict, writeJsonAtomic } from './drafts.js'
+import { quarantineFile } from './quarantine.js'
 
 const TOKEN_STATS_SUB_DIR = 'token-stats'
 const USAGE_INDEX_VERSION = 1
@@ -152,10 +153,22 @@ function syncUsageIndex(ctx, persistence, options) {
 
 async function refreshUsageIndex(ctx, persistence) {
   const indexPath = usageIndexPath()
-  let index = usageIndexMemory !== null ? usageIndexMemory : await readJsonFileOrNull(indexPath)
-  if (!isPlainObject(index) || index.version !== USAGE_INDEX_VERSION || !isPlainObject(index.sessions)) {
-    index = { version: USAGE_INDEX_VERSION, sessions: {} }
+  let index = usageIndexMemory
+  if (index === null) {
+    const read = await readJsonStrict(indexPath)
+    if (read.status === 'invalid') {
+      /* Present but unreadable: quarantine it, then rebuild from scratch — the index is derived
+         data, so a rebuild costs one background scan and loses nothing. */
+      await quarantineFile(indexPath, 'unreadable token-stats usage index')
+      index = null
+    } else if (read.status === 'ok' && read.value.version === USAGE_INDEX_VERSION && isPlainObject(read.value.sessions)) {
+      index = read.value
+    } else {
+      if (read.status === 'ok') await quarantineFile(indexPath, `token-stats usage index version ${String(read.value.version)} is not readable`)
+      index = null
+    }
   }
+  if (index === null) index = { version: USAGE_INDEX_VERSION, sessions: {} }
   usageIndexMemory = index
   const sessions = index.sessions
   let listed
@@ -194,7 +207,15 @@ async function refreshUsageIndex(ctx, persistence) {
     /* Attached sessions are read from memory, and their log may not be flushed yet: the snapshot length joins the fingerprint so a live session still refreshes between two durable appends. */
     const live = liveUsageEvents(ctx, key)
     const identity = live === null ? String(rev) : `${rev}#${live.events.length}`
-    const cached = sessions[key]
+    let cached = sessions[key]
+    /* A cached entry that does not satisfy the current per-session record shape (no string `rev`,
+       no row list and no verdict) can never be used: drop it here so the next write persists the
+       cleaned index. */
+    if (cached !== undefined && !(isPlainObject(cached) && typeof cached.rev === 'string')) {
+      delete sessions[key]
+      cached = undefined
+      changed = true
+    }
     /* A cached "unreadable" verdict is trusted only for UNREADABLE_RETRY_MS: beyond that the
        session is re-attempted once (see the constant), so a harness that learned to read the
        format is not locked out by a verdict minted before the upgrade. */
