@@ -33,7 +33,7 @@ import { useCollectionGroupBy, useCollectionsFilter, useWorkspaceCollectionMenu 
 import { useSidebarChrome } from './hooks/sidebar-chrome.js'
 import { useThinkCard } from './hooks/think-card.js'
 import { CollectionsDropdown, CollectionsWorkspaceMenu } from './components/collections.js'
-import { applyCollectionsPatch, collectionById, collectionsStore, loadCollections, newestSessionOfCollection } from './collections.js'
+import { applyCollectionsPatch, collectionById, collectionClickAction, collectionsStore, loadCollections, newestSessionOfCollection } from './collections.js'
 import { registerStudioFileMutationToolview } from './toolview.js'
 import { installOpenResourceRouter } from './open-resource.js'
 import { resourceNoticeStore } from './ui-notice.js'
@@ -236,6 +236,16 @@ export function AppFrame(props) {
   const workspaceCollectionMenu = useWorkspaceCollectionMenu({ doc: collectionsDoc, labels: collectionLabels })
   const patchCollections = useCallback(patch => applyCollectionsPatch(patch), [])
   const switchCollection = useCallback(async (id) => {
+    /* A click on the view already on screen is a no-op for state: it must not rewrite the same
+       selection to the Host, and it must certainly not re-run the auto-jump below (that would move
+       the user off the session they are working in). The LIVE store is read, not the render copy: a
+       click that follows another patch (delete, create) has to compare against the merged value. */
+    const live = collectionsStore.getSnapshot().doc
+    const click = collectionClickAction(live, id)
+    if (click.same === true) {
+      showSessionNotice(translate(click.notice.key, click.notice.params))
+      return
+    }
     const result = await applyCollectionsPatch({ selectedId: id })
     if (result?.ok !== true) {
       showSessionNotice(translate('collections.switchFailed'), true)

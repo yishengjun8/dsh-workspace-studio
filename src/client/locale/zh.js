@@ -1013,6 +1013,7 @@ export const zh = {
   'collections.none': '还没有合集；用下面的「＋ 新建合集…」创建第一个。',
   'collections.loadFailed': '合集设置读取失败（Host 可能还没重启），可稍后刷新重试。',
   'collections.switched': '已切换到合集「{name}」',
+  'collections.alreadyIn': '当前已在合集「{name}」',
   'collections.showAll': '已显示全部工作区',
   'collections.switchFailed': '切换合集失败。',
   'collections.failed': '合集操作失败。',

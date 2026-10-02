@@ -224,6 +224,27 @@ export function newestSessionOfCollection(doc, collectionId, workspaces, session
 }
 
 /**
+ * What one click in the collection dropdown does, as data the frame applies.
+ *
+ * A click on the view already on screen must not switch: the same selection would be written back to
+ * the Host unchanged, and — the reason this rule exists — the switch's auto-jump would move the user
+ * off the session they are writing in. Such a click only says which view is showing.
+ *
+ * Built-in views are named by their own copy; a user collection by its name.
+ * @returns `{ same: true, notice: { key, params? } }`, or `{ same: false }` when the click switches.
+ */
+export function collectionClickAction(doc, id) {
+  const selected = String(doc?.selectedId ?? COLLECTION_ALL_ID)
+  if (String(id) !== selected) return { same: false }
+  if (id === COLLECTION_ALL_ID) return { same: true, notice: { key: 'collections.showAll' } }
+  if (id === COLLECTION_UNOWNED_ID) return { same: true, notice: { key: 'collections.showUnowned' } }
+  /* A stored selection always names an existing collection (the Host refuses a dangling one), so the
+     id is the honest fallback here instead of a claim about a collection that is not there. */
+  const name = collectionById(doc, id)?.name ?? String(id)
+  return { same: true, notice: { key: 'collections.alreadyIn', params: { name } } }
+}
+
+/**
  * The Harness workspace-browser grouping mode, read from its persisted view store.
  *
  * This is a deliberate harness coupling point: `groupBy` lives in ui-workspace's own persisted store

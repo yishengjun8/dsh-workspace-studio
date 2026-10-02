@@ -1012,6 +1012,7 @@ export const en = {
   'collections.none': 'No collections yet — create the first one with “＋ New collection…”.',
   'collections.loadFailed': 'Could not read the collection settings (the Host may need a restart); reload later to retry.',
   'collections.switched': 'Switched to “{name}”',
+  'collections.alreadyIn': 'Already showing “{name}”',
   'collections.showAll': 'Showing all workspaces',
   'collections.switchFailed': 'Could not switch the collection.',
   'collections.failed': 'The collection operation failed.',
