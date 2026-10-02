@@ -17,9 +17,54 @@ import { mindmapRegistry } from './registry.js'
    replaced. The observer also watches class attributes, since React rewrites a
    row's className when it becomes the current session and would wipe the hidden
    class without a childList record; such rewrites are re-hidden within the same
-   animation frame so the row never flashes visible. */
+   animation frame so the row never flashes visible.
 
-export function installMindmapBranchHider(getSessionList, getArchivedSessionIds, getWorkspaces) {
+   Hiding has TWO outputs on purpose (a stylesheet plus the row class):
+   the Harness sidebar animates row movement with a FLIP that measures the
+   post-update row rects INSIDE the React commit (AnimatedRows'
+   getSnapshotBeforeUpdate / componentDidUpdate) and then translates each row by
+   the measured delta. A row this hider removes only AFTER that measurement
+   (the observer callback runs after the commit) makes every measured delta
+   below it stale by exactly the removed height — the rows below then start
+   above their final place and glide too far, which reads as "the group expands
+   and everything under it rolls down from far above". The decision is therefore
+   ALSO published as selectors (same idiom as the collections filter): a row the
+   census already knows about carries `display:none` from the moment React
+   inserts it, so it never enters that measurement. The class pass stays as the
+   belt-and-braces path — it is also what the overflow COUNT pass reads. */
+
+/* The published-sheet id; one sheet per install, removed on dispose. */
+const HIDDEN_ROWS_STYLE_ID = 'dsh-ws-mindmap-hidden-rows'
+/* Same ceiling as the collections filter: a pathological profile must not build
+   a giant sheet (the class pass still hides whatever falls outside it). */
+const HIDDEN_SESSION_RULE_MAX = 4000
+const REGION = '[data-slot="sidebar.workspaces"]'
+
+/* Selectors are built from ids the Harness minted (never from user text); they
+   are still escaped because a quote inside an id would break out of the
+   attribute selector. */
+const escapeAttribute = (value) => String(value).replaceAll('\\', '\\\\').replaceAll('"', '\\"')
+
+/** Selectors that keep the census-hidden rows and pointless overflow buttons out of layout.
+ *  @param hiddenIds - session ids the census decided to hide (data-side twin of the row pass).
+ *  @param buttonKeys - group keys (`workspaceId`, `''` for the ungrouped bucket) whose every
+ *    session is already hidden, i.e. whose overflow button has nothing left to reveal.
+ *  @returns the sheet text (empty when nothing is hidden). */
+function hiddenRowsCss(hiddenIds, buttonKeys) {
+  const rules = []
+  let count = 0
+  for (const id of hiddenIds) {
+    if (count >= HIDDEN_SESSION_RULE_MAX) break
+    rules.push(`${REGION} [data-row-key="session:${escapeAttribute(id)}"]{display:none}`)
+    count += 1
+  }
+  for (const key of buttonKeys) {
+    rules.push(`${REGION} [data-row-key="overflow:${escapeAttribute(key)}"]{display:none}`)
+  }
+  return rules.join('\n')
+}
+
+export function installMindmapBranchHider(getSessionList, getArchivedSessionIds, getWorkspaces, getArchivedFilter) {
   if (typeof document === 'undefined') return () => {}
   let timer = 0
   let lastRun = 0
@@ -43,6 +88,24 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
          (the marker deletion costs at most one extra no-op scan). */
       patchedButtons.delete(button)
     }
+  }
+  /* The published sheet (see the module header) and its last text, so a scan
+     that decides the same thing writes nothing. Created lazily; one element per
+     install, reused if a previous install left one behind. */
+  let styleEl = null
+  let lastHiddenRowsCss = ''
+  const publishHiddenRows = (css) => {
+    if (css === lastHiddenRowsCss) return
+    lastHiddenRowsCss = css
+    if (styleEl === null) {
+      styleEl = document.getElementById(HIDDEN_ROWS_STYLE_ID)
+      if (styleEl === null) {
+        styleEl = document.createElement('style')
+        styleEl.id = HIDDEN_ROWS_STYLE_ID
+        document.head.append(styleEl)
+      }
+    }
+    styleEl.textContent = css
   }
   /* Whether a mutation batch can change what this hider renders: a session
      row or an overflow button added / removed / rewritten — everything else
@@ -104,6 +167,7 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
           restoreButtonText(button)
         }
       }
+      publishHiddenRows('')
       lastSignature = null
       return
     }
@@ -201,6 +265,54 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
        every write (class toggles, count patches) and the per-group pass. */
     if (signature === lastSignature) return
     lastSignature = signature
+    /* Data-side twin of the row pass below — the SAME census, keyed by session
+       id instead of by rendered row. The sheet has to be in place BEFORE the
+       Harness renders these rows, which is exactly what keeps them out of its
+       row-animation measurement (see the module header). */
+    const hiddenIds = new Set()
+    for (const id of list.ids) {
+      const summary = list.byId[id]
+      if (summary === undefined) continue
+      const key = String(id)
+      const title = typeof summary.displayTitle === 'string' ? summary.displayTitle.trim() : ''
+      /* Exactly the row pass's rule: a title vote hides the row whatever its
+         archive flag (that pass matches rendered rows by title too), and a
+         blank row only ever renders for the CURRENT session — which is the
+         shape the structural branch there detects. */
+      const matched = summary.blank
+        ? blankFamilyCurrent && key === String(currentId)
+        : title !== '' && hideTitles.has(title)
+      if (matched) hiddenIds.add(key)
+    }
+    /* An overflow button whose whole group is hidden has nothing left to
+       reveal (that group's mind-map entries are its access path), so it must
+       leave the layout with those rows — hidden a frame later it would skew the
+       same animation by its own height. The condition is therefore the strict
+       one: EVERY session of the group is either already hidden, or one the
+       Harness would not render in this group anyway (its own sessionVisible:
+       an unknown id, a non-current blank session, or an archived session under
+       the default archived filter — never under `show` / `only`, where those
+       rows are exactly what the button would reveal). */
+    const archivedFilter = getArchivedFilter?.() ?? 'default'
+    const buttonKeys = []
+    const allHidden = (ids) => ids.length > 0 && ids.every((id) => {
+      const key = String(id)
+      if (hiddenIds.has(key)) return true
+      const summary = list.byId[key]
+      if (summary === undefined) return true
+      if (summary.blank === true && key !== String(currentId)) return true
+      return archivedFilter === 'default' && archived.has(key)
+    })
+    const accounted = new Set(workspaces.flatMap(workspace => (workspace.sessionIds ?? []).map(String)))
+    for (const workspace of workspaces) {
+      const workspaceId = String(workspace?.workspaceId ?? '')
+      if (workspaceId === '') continue
+      if (allHidden(workspace.sessionIds ?? [])) buttonKeys.push(workspaceId)
+    }
+    /* The ungrouped bucket (group key, and therefore button key, `''`) owns the
+       sessions no workspace lists — the same set the count pass derives. */
+    if (allHidden(list.ids.map(String).filter(id => !accounted.has(id)))) buttonKeys.push('')
+    publishHiddenRows(hiddenRowsCss(hiddenIds, buttonKeys))
     for (const decision of rowDecisions) {
       decision.row.classList.toggle('dsh-ws-mindmap-hidden-row', decision.matched)
     }
@@ -401,6 +513,12 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
         restoreButtonText(button)
       }
     }
+    /* And the published sheet, for the same reason: a stale one would hide rows
+       nothing owns any more, and no scan would ever clear it. Removed by id so
+       a sheet left behind by a previous install goes too. */
+    document.getElementById(HIDDEN_ROWS_STYLE_ID)?.remove()
+    styleEl = null
+    lastHiddenRowsCss = ''
   }
 }
 

@@ -710,6 +710,10 @@ export function mountStudio(ctx) {
     () => ctx.sessions.list.getSnapshot(),
     () => ctx.workspaces.list.getSnapshot().archivedSessionIds,
     () => ctx.workspaces.list.getSnapshot().items,
+    /* Archived-row visibility, so the hider knows whether an archived session
+       can be on screen (the button it may hide must never be the only way to
+       rows that ARE rendered). */
+    () => ctx.workspaces.list.getSnapshot().archivedFilter,
   ), 'workspace-studio: mind-map branch hider')
   /* Background mind-map doc index (feeds the sidebar entries and the hider). */
   ctx.effect(() => {
