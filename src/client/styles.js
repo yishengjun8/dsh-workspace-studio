@@ -751,8 +751,16 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-mindmap-status{display:flex;align-items:flex-start;justify-content:center;padding:48px 24px;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:20px;text-align:center}
 .dsh-ws-mindmap-loading-hint{margin-top:8px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
 .dsh-ws-mindmap-error{color:var(--dsw-alias-state-error-primary)}
-.dsh-ws-mindmap-fork-error{position:sticky;top:0;z-index:2;margin-bottom:10px;padding:6px 10px;border:1px solid var(--dsw-alias-state-error-primary);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:17px}
-.dsh-ws-mindmap-notice{margin-bottom:10px;padding:6px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:12px;line-height:17px}
+/* Transient map messages (fold/unfold notices, fork failures) are an absolutely
+   positioned OVERLAY, never in-flow flex rows: as siblings above the viewport
+   they used to push the whole canvas down by their own height (~31px + margin)
+   for as long as they lived and let it snap back when they expired, so a click
+   aimed at a card's fold pill landed on whatever had moved into that spot.
+   pointer-events:none keeps a message from ever eating a click; the shadow keeps
+   an opaque bubble legible over the cards. */
+.dsh-ws-mindmap-toasts{position:absolute;left:50%;bottom:14px;z-index:6;display:flex;flex-direction:column;align-items:center;gap:8px;max-width:min(560px,calc(100% - 32px));transform:translateX(-50%);pointer-events:none;box-sizing:border-box}
+.dsh-ws-mindmap-fork-error{padding:6px 10px;border:1px solid var(--dsw-alias-state-error-primary);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:17px;box-shadow:var(--dsw-shadow-lv3,0 8px 24px rgba(0,0,0,.24));box-sizing:border-box}
+.dsh-ws-mindmap-notice{padding:6px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:12px;line-height:17px;box-shadow:var(--dsw-shadow-lv3,0 8px 24px rgba(0,0,0,.24));box-sizing:border-box}
 .dsh-ws-mindmap-notice-error{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}
 .dsh-ws-mindmap-node[data-branch]{border-style:solid}
 /* Folded card: one compact card standing in for a maximal run of consecutive folded turns — dashed border + muted wash, fold icon + count badge in the title row, first-turn text in the body. Placed after the [data-branch] solid rule and before the ancestor/hover rules so the traces keep their border-color overrides. A RING card is exempt: this rule's background shorthand would otherwise wipe the streaming pair's flow layers (a folded card can be a streaming card's parent), and its dashed border would replace the flow border. */

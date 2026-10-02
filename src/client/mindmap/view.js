@@ -6,7 +6,7 @@ import { styles } from '../styles.js'
 import { regenerateAllMindmapSummaries, regenerateAllSessionSummaries, regenerateMindmapSummary, summarizeMindmapSession } from '../api.js'
 import { mindmapRegistry, readMindmapLastSession, removeMindmapLastSession, useMindmapDocHandoff, writeMindmapLastSession } from './registry.js'
 import { useMindmapSummaryModels } from '../components/settings.js'
-import { mindmapCardClickAction, mindmapClip, mindmapDeletePlan, mindmapDocFingerprint, mindmapDocKey, mindmapDocLayout, mindmapDocSessionKey, mindmapDocStructureFingerprint, mindmapEmptyKey, mindmapFoldedRunOf, mindmapGradientId, mindmapStreamPalette, normalizeMindmapWorkspacePath, useMindmapSessionView } from './helpers.js'
+import { mindmapApplyFoldIntent, mindmapCardClickAction, mindmapClip, mindmapDeletePlan, mindmapDocFingerprint, mindmapDocKey, mindmapDocLayout, mindmapDocSessionKey, mindmapDocStructureFingerprint, mindmapEmptyKey, mindmapFoldedRunOf, mindmapGradientId, mindmapStreamPalette, normalizeMindmapWorkspacePath, useMindmapSessionView } from './helpers.js'
 import { MindMapCard, MindMapFoldedCard, MindMapRootNode, MindMapSessionHead } from './cards.js'
 import { mindmapConvertedSessions } from './hider.js'
 import { MindMapToolbar } from './toolbar.js'
@@ -166,6 +166,30 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
      and drop any response that is no longer current (the next periodic sync
      re-fetches and stays consistent). */
   const localWriteSeqRef = useRef(0)
+  /* ---- fold/unfold write QUEUE (see queueFoldIntent/toggleFold below) ----
+     A fold pill click must NEVER be dropped: the old implementation refused
+     every click that arrived while a doc write was in flight (a return on the
+     shared forkingRef gate), which read as "点了折叠没反应，等一下才能再点" —
+     and because folding merges the clicked card into the previous folded run,
+     the NEXT card slides under the pointer, so that dropped click is exactly
+     the one the user makes. Clicks are queued as intents instead; the drain
+     composes them onto the optimistic doc and writes them (coalesced) as soon
+     as the doc-write gate is free.
+     `foldQueueRef` holds intents not yet APPLIED to the optimistic doc (they
+     only wait here while a structural write — fork/delete/archive/select —
+     owns the doc, since applying them onto a doc that write may still roll
+     back would persist a failed change). `foldWritingRef` marks this drain as
+     the current doc-write owner (it also holds `forkingRef` for the writer, so
+     structural writers cannot interleave their read-modify-write).
+     `foldAckRef` is the last doc the Host accepted (the rollback target when a
+     queued write fails; null = "seed me from the doc the next batch starts
+     from"). `foldIntentRef` carries the last applied intent so the settle can
+     word its notice. */
+  const foldQueueRef = useRef([])
+  const foldWritingRef = useRef(false)
+  const foldAckRef = useRef(null)
+  const foldIntentRef = useRef(null)
+  const drainFoldRef = useRef(null)
   /* Single-flight gate for THIS body's Host reads (periodic sync, run-edge sync,
      empty-phase probe). The Host runs mind-map work under a per-root lock and one
      full family refresh costs seconds, so the 2.5 s poll used to stack up to a
@@ -323,6 +347,12 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     setHoverKey(undefined)
     /* A temporary expand (peek) belongs to the previous family's runs. */
     setPeekedRuns(new Set())
+    /* Queued/optimistic fold writes belong to the previous family's doc: their
+       session ids cannot match the new map, and the rollback target (foldAckRef)
+       is the OLD doc. The load clears savingRef, so no drain can be running. */
+    foldQueueRef.current = []
+    foldAckRef.current = null
+    foldIntentRef.current = null
     /* A manual regeneration belongs to the previous family's cards; the new
        family's in-flight list arrives with the load payload. */
     setManualSummarizing([])
@@ -514,6 +544,10 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
            current highlight and the hider. */
         if (mindmapDocSessionKey(next) !== mindmapDocSessionKey(docRef.current)) mindmapRegistry.markDirty()
         lastFingerprintRef.current = fp
+        /* A server doc IS the server truth (this path only runs while no local
+           write is in flight): drop the fold queue's rollback target so the next
+           batch re-seeds it from the doc it actually starts from. */
+        foldAckRef.current = null
         setDoc(next)
         onTitleChangeRef.current?.(typeof next.rootTitle === 'string' ? next.rootTitle : '')
       }
@@ -972,6 +1006,8 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         forkingRef.current = false
         savingRef.current -= 1
         if (mountedRef.current) setForking(false)
+        /* A fold pill clicked while this write held the gate lands now. */
+        if (mountedRef.current && foldQueueRef.current.length > 0) drainFoldRef.current?.()
       })
   }, [doc, forking, rootId, showNotice, switchToSession])
 
@@ -1039,6 +1075,8 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         forkingRef.current = false
         savingRef.current -= 1
         if (mountedRef.current) setForking(false)
+        /* A fold pill clicked while this write held the gate lands now. */
+        if (mountedRef.current && foldQueueRef.current.length > 0) drainFoldRef.current?.()
       })
   }, [doc, forking, rootId, showNotice, switchToSession])
 
@@ -1062,11 +1100,16 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
      new session joins the SAME document — never a new mind map — and stays
      hidden from the sidebar list. */
   const openCard = useCallback((node) => {
-    if (node === undefined || forkingRef.current) return
+    if (node === undefined) return
     /* Single source of truth for the click outcome: the same decision tree the
        hover hint uses (mindmapCardClickAction), so the hint can never drift.
        'new' creates a top-level session at the root; 'switch' opens the node's
-       own session; 'fork' branches a new session at this card's turn. */
+       own session; 'fork' branches a new session at this card's turn.
+       The two WRITE branches guard themselves on the doc-write gate
+       (forkBranchAt / addRootSession); this callback deliberately does NOT gate
+       'switch' and 'peek' on it — they only move the chat/highlight, so a card
+       click during an unrelated write must keep working. Gating the whole
+       callback on forkingRef made those clicks silently do nothing. */
     const action = mindmapCardClickAction(node, docRef.current, runningFamilyIdsRef.current, lastTurnSeqBySessionRef.current)
     if (action === 'new') addRootSessionRef.current()
     else if (action === 'switch') openBranchRef.current(node.sessionId)
@@ -1254,89 +1297,188 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         lastFingerprintRef.current = mindmapDocFingerprint(base)
         showNoticeError(error instanceof Error ? error.message : String(error))
       })
-      .finally(() => { savingRef.current -= 1; forkingRef.current = false })
+      .finally(() => {
+        savingRef.current -= 1
+        forkingRef.current = false
+        /* A fold pill clicked while this write held the gate lands now. */
+        if (mountedRef.current && foldQueueRef.current.length > 0) drainFoldRef.current?.()
+      })
   }, [doc, menu, rootId, showNotice, showNoticeError])
 
-  /* Toggle the persisted folded attribute of ONE card (the menu checkbox):
-     checking folds the card (merging with consecutive folded neighbors),
-     unchecking permanently unfolds it (the run splits). A small doc write
-     with the standard guards (same shape as selectWorkspace). */
-  const toggleFold = useCallback((sessionId, seq, folded) => {
-    if (forkingRef.current || forking) return
-    forkingRef.current = true
-    const root = rootIdRef.current ?? rootId
-    const base = docRef.current ?? doc
-    if (root === null || base === null) { forkingRef.current = false; return }
-    localWriteSeqRef.current += 1
-    savingRef.current += 1
-    const next = {
-      ...base,
-      sessions: (base.sessions ?? []).map(s =>
-        String(s?.sessionId) !== String(sessionId)
-          ? s
-          : { ...s, turns: (s?.turns ?? []).map(t =>
-            t !== null && t !== undefined && Number(t?.seq) === Number(seq)
-              ? { ...t, folded: folded === true }
-              : t) }),
-      updatedAt: Date.now(),
+  /* Apply every fold intent waiting in the queue to the optimistic doc.
+     Idempotent by construction (mindmapApplyFoldIntent returns the same doc when
+     the change is already reflected), so the writer's loop can call it again
+     after a click that landed mid-flight. Returns the consumed intents. */
+  const applyQueuedFolds = useCallback(() => {
+    const pending = foldQueueRef.current
+    if (pending.length === 0) return pending
+    foldQueueRef.current = []
+    const base = docRef.current
+    if (base === null) return pending
+    /* This batch's rollback target: the last doc the Host accepted, or — before
+       the batch's first optimistic change — the doc it starts from. */
+    if (foldAckRef.current === null) foldAckRef.current = base
+    let next = base
+    for (const intent of pending) {
+      next = mindmapApplyFoldIntent(next, intent)
+      foldIntentRef.current = intent
     }
-    setDoc(next)
-    lastFingerprintRef.current = mindmapDocFingerprint(next)
-    Promise.resolve(saveDocRef.current(String(root), next))
-      .then(() => {
-        if (!mountedRef.current) return
-        mindmapRegistry.markDirty()
-        showNotice(translate(folded === true ? 'mindmap.fold.done' : 'mindmap.unfold.done'))
-      })
-      .catch((error) => {
-        if (!mountedRef.current) return
-        setDoc(prev => (prev === next ? base : prev))
-        lastFingerprintRef.current = mindmapDocFingerprint(base)
-        showNoticeError(error instanceof Error ? error.message : String(error))
-      })
-      .finally(() => { savingRef.current -= 1; forkingRef.current = false })
-  }, [doc, forking, rootId, showNotice, showNoticeError])
+    if (next !== base) {
+      docRef.current = next
+      localWriteSeqRef.current += 1
+      setDoc(next)
+      lastFingerprintRef.current = mindmapDocFingerprint(next)
+    }
+    return pending
+  }, [])
 
-  /* Permanently unfold a WHOLE folded run (the folded card's checkbox
-     uncheck): clear the folded attribute on every turn of the run. */
-  const unfoldRun = useCallback((sessionId, firstSeq) => {
-    if (forkingRef.current || forking) return
-    forkingRef.current = true
+  /* Is there fold work the drain must still land? A waiting intent, or an
+     optimistic doc the Host has not accepted yet — measured against the CURRENT
+     root, so a doc left behind by another family can never make the drain spin.
+     A null `foldAckRef` means "no accepted doc known yet", never "dirty": only
+     applyQueuedFolds ever creates optimistic changes and it always seeds the
+     ack first, so an unseeded ack with an empty queue has nothing to write. */
+  const foldWorkPending = useCallback(() => {
+    if (foldQueueRef.current.length > 0) return true
+    const current = docRef.current
+    const liveRoot = rootIdRef.current ?? null
+    if (current === null || liveRoot === null) return false
+    if (String(current.rootSessionId ?? '') !== String(liveRoot)) return false
+    return foldAckRef.current !== null && foldAckRef.current !== current
+  }, [])
+
+  /* Drain the fold queue: apply what waited behind a structural write, then keep
+     writing the optimistic doc until no click arrived during the POST — N rapid
+     clicks therefore cost at most one extra write and NONE of them is dropped.
+     Holds the same doc-write gate as the structural writers (`forkingRef`), so a
+     fold write can never interleave its read-modify-write with a fork/delete
+     and a structural writer's finally() kicks this drain when it lets go. */
+  const drainFoldQueue = useCallback(() => {
+    if (foldWritingRef.current) return
+    /* A structural write owns the doc right now: it kicks this drain when done. */
+    if (forkingRef.current) return
+    /* Something to write = a waiting intent OR a doc the Host has not accepted
+       yet. The queued clicks are applied the MOMENT they arrive (that is the
+       point), so an empty queue with a dirty doc is the normal shape of a first
+       click — checking the queue alone would drop every write. */
+    if (foldQueueRef.current.length === 0
+      && (foldAckRef.current === null || docRef.current === foldAckRef.current)) return
     const root = rootIdRef.current ?? rootId
-    const base = docRef.current ?? doc
-    if (root === null || base === null) { forkingRef.current = false; return }
-    const run = mindmapFoldedRunOf(base, sessionId, firstSeq)
-    if (run === null) { forkingRef.current = false; return }
-    localWriteSeqRef.current += 1
+    if (root === null || docRef.current === null) { foldQueueRef.current = []; return }
+    foldWritingRef.current = true
+    forkingRef.current = true
     savingRef.current += 1
-    const next = {
-      ...base,
-      sessions: (base.sessions ?? []).map(s => {
-        if (String(s?.sessionId) !== String(sessionId)) return s
-        return { ...s, turns: (s?.turns ?? []).map(t =>
-          t !== null && t !== undefined && t.folded === true
-            && Number(t?.seq) >= run.firstSeq && Number(t?.seq) <= run.lastSeq
-            ? { ...t, folded: false }
-            : t) }
-      }),
-      updatedAt: Date.now(),
-    }
-    setDoc(next)
-    lastFingerprintRef.current = mindmapDocFingerprint(next)
-    Promise.resolve(saveDocRef.current(String(root), next))
-      .then(() => {
-        if (!mountedRef.current) return
+    const write = async () => {
+      let wrote = false
+      /* Bounded rounds: an extra round means the doc moved during the POST (a
+         click, or a summary write landing). A pathological churn must never hold
+         the write gate open in a loop — the finally's re-kick (and the safety
+         effect) resumes the leftover work. */
+      let rounds = 0
+      try {
+        while (rounds < 8) {
+          rounds += 1
+          applyQueuedFolds()
+          const snapshot = docRef.current
+          if (snapshot === null) break
+          /* The family can change under a long write (a session switch reloads
+             the map, a sync re-anchors the doc): only a doc that still belongs
+             to the root this drain started with may be written, or the Host
+             rejects the POST (doc.rootSessionId mismatch) and the user gets an
+             error toast for a write they never asked for. */
+          if (String(snapshot.rootSessionId ?? '') !== String(root)
+            || String(rootIdRef.current ?? '') !== String(root)) break
+          if (snapshot === foldAckRef.current) break
+          await saveDocRef.current(String(root), snapshot)
+          /* This drain may have outlived its family: a switched-in map owns
+             foldAckRef now, so leave it to that family's own writes. */
+          if (String(rootIdRef.current ?? '') === String(root)) foldAckRef.current = snapshot
+          wrote = true
+          /* A click that arrived while this POST was in flight has already
+             applied itself optimistically and re-filled the queue: write the
+             newer doc too, never drop the click. */
+          if (foldQueueRef.current.length === 0 && docRef.current === snapshot) break
+        }
+        if (!mountedRef.current || !wrote) return
         mindmapRegistry.markDirty()
-        showNotice(translate('mindmap.unfold.done'))
-      })
-      .catch((error) => {
+        /* The notice names what the batch DID: a run intent and an explicit
+           folded:false are both unfolds (a run intent carries no flag). */
+        const settled = foldIntentRef.current
+        showNotice(translate(settled?.kind === 'run' || settled?.folded === false ? 'mindmap.unfold.done' : 'mindmap.fold.done'))
+      } catch (error) {
         if (!mountedRef.current) return
-        setDoc(prev => (prev === next ? base : prev))
-        lastFingerprintRef.current = mindmapDocFingerprint(base)
+        /* Roll the optimistic doc back to the last doc the Host ACCEPTED: a
+           failed write must not leave a folded card the document does not have
+           (the next sync would un-fold it under the user's cursor). */
+        const ack = foldAckRef.current
+        if (ack !== null) {
+          docRef.current = ack
+          setDoc(ack)
+          lastFingerprintRef.current = mindmapDocFingerprint(ack)
+        }
         showNoticeError(error instanceof Error ? error.message : String(error))
-      })
-      .finally(() => { savingRef.current -= 1; forkingRef.current = false })
-  }, [doc, forking, rootId, showNotice, showNoticeError])
+      } finally {
+        foldIntentRef.current = null
+        foldWritingRef.current = false
+        forkingRef.current = false
+        savingRef.current -= 1
+        /* A click may have landed while the failure path ran, and a click that
+           arrived for the family this drain just left is still unwritten even
+           with an empty queue: give the drain another look. `foldWorkPending`
+           keeps that honest — a doc that does not belong to the current root
+           would otherwise re-kick forever. */
+        if (mountedRef.current && foldWorkPending()) drainFoldRef.current?.()
+      }
+    }
+    void write()
+  }, [applyQueuedFolds, foldWorkPending, rootId, showNotice, showNoticeError])
+  drainFoldRef.current = drainFoldQueue
+
+  /* Queue ONE fold/unfold intent. With the doc free the change is applied
+     optimistically RIGHT NOW (instant canvas feedback) and written by the drain;
+     while a STRUCTURAL write owns the doc the intent waits and the drain applies
+     it once that write settles — applying it earlier would persist a change
+     through a doc that write may still roll back. Never returns without landing
+     the click. Same target twice = the last intent wins. */
+  const queueFoldIntent = useCallback((intent) => {
+    if (docRef.current === null || (rootIdRef.current ?? rootId) === null) return
+    const key = `${intent.kind}:${intent.sessionId}:${intent.seq}`
+    const queue = foldQueueRef.current
+    const existing = queue.findIndex(item => item.key === key)
+    if (existing !== -1) queue.splice(existing, 1)
+    queue.push({ ...intent, key })
+    /* The doc is ours to update unless a STRUCTURAL write owns it (this drain
+       holds the same gate, hence the foldWritingRef exemption). */
+    if (forkingRef.current && !foldWritingRef.current) return
+    applyQueuedFolds()
+    drainFoldRef.current?.()
+  }, [applyQueuedFolds, rootId])
+
+  /* Safety net for the queue: the structural writer that held the gate usually
+     kicks the drain from its finally; this effect lands a fold that any other
+     path left queued (state-only gate flip, a writer that settled during a
+     re-render). Two ref reads per render, and a no-op whenever the queue is
+     empty — which is the normal case. */
+  useEffect(() => {
+    if (foldWritingRef.current || forkingRef.current) return
+    if (foldQueueRef.current.length === 0) return
+    drainFoldRef.current?.()
+  }, [doc, forking])
+
+  /* Toggle the persisted folded attribute of ONE card (the hover 折叠 pill and
+     the right-click menu checkbox): checking folds the card (merging with
+     consecutive folded neighbors), unchecking permanently unfolds it (the run
+     splits). Both go through the queue above, so a click that arrives while a
+     previous fold is still being written is honored instead of refused. */
+  const toggleFold = useCallback((sessionId, seq, folded) => {
+    queueFoldIntent({ kind: 'turn', sessionId: String(sessionId), seq: Number(seq), folded: folded === true })
+  }, [queueFoldIntent])
+
+  /* Permanently unfold a WHOLE folded run (the folded card's checkbox uncheck):
+     clear the folded attribute on every turn of the run. */
+  const unfoldRun = useCallback((sessionId, firstSeq) => {
+    queueFoldIntent({ kind: 'run', sessionId: String(sessionId), seq: Number(firstSeq) })
+  }, [queueFoldIntent])
 
   /* Fold-now: end the temporary expand (peek) of the folded run that owns
      `seq` — pure view state, the folded attribute is untouched (no doc write).
@@ -1606,6 +1748,8 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         savingRef.current -= 1
         forkingRef.current = false
         if (mountedRef.current) setArchiveBranchBusy(false)
+        /* A fold pill clicked while this write held the gate lands now. */
+        if (mountedRef.current && foldQueueRef.current.length > 0) drainFoldRef.current?.()
       })
   }, [archiveBranchBusy, archiveBranchTarget, doc, rootId, sessionId, showNotice])
 
@@ -1672,7 +1816,12 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         setArchiveBusy(false)
         setArchiveError(error instanceof Error ? error.message : String(error))
       })
-      .finally(() => { savingRef.current -= 1; forkingRef.current = false })
+      .finally(() => {
+        savingRef.current -= 1
+        forkingRef.current = false
+        /* A fold pill clicked while this write held the gate lands now. */
+        if (mountedRef.current && foldQueueRef.current.length > 0) drainFoldRef.current?.()
+      })
   }, [archiveBusy, archiveTarget, archiveConfirmText, doc, rootId, sessionId, showNotice])
 
   const startDelete = useCallback(() => {
@@ -2280,6 +2429,8 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         savingRef.current -= 1
         forkingRef.current = false
         if (mountedRef.current) setDeleteBusy(false)
+        /* A fold pill clicked while this write held the gate lands now. */
+        if (mountedRef.current && foldQueueRef.current.length > 0) drainFoldRef.current?.()
       })
   }, [deleteBusy, deleteTarget, doc, rootId, sessionId, showNotice])
 
@@ -2621,8 +2772,17 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       h('div', { className: 'dsh-ws-mindmap-bar' },
         translate('mindmap.rootLabel'),
         h('span', { className: 'dsh-ws-mindmap-bar-title' }, rootTitle)),
-      noticeView,
-      forkError !== null ? h('div', { className: 'dsh-ws-mindmap-fork-error' }, translate('mindmap.forkFailed', { message: forkError })) : null,
+      /* Transient messages are an OVERLAY, never flex rows: as in-flow siblings
+         above the viewport they pushed the whole canvas down by their own height
+         (notice ~31px + 10px margin) for the three seconds they lived and let it
+         snap back when they expired — so a click aimed at a card pill landed on
+         whatever had moved into that spot instead. The wrapper also carries
+         pointer-events:none, so a notice can never eat a click. */
+      noticeView === null && forkError === null
+        ? null
+        : h('div', { className: 'dsh-ws-mindmap-toasts' },
+          noticeView,
+          forkError !== null ? h('div', { className: 'dsh-ws-mindmap-fork-error' }, translate('mindmap.forkFailed', { message: forkError })) : null),
       h('div', { className: 'dsh-ws-mindmap-viewport', 'data-dragging': dragging ? '' : undefined, onContextMenu: openBlankMenu, onPointerCancel: endPan, onPointerDown: startPan, onPointerMove: movePan, onPointerUp: endPan, ref: viewportRef },
         h('div', { className: 'dsh-ws-mindmap-canvas', ref: canvasRef, style: { height: layout.height, width: layout.width } },
           h('svg', { className: 'dsh-ws-mindmap-edges', width: layout.width, height: layout.height },

@@ -70,6 +70,50 @@ export function mindmapFoldedRunOf(doc, sessionId, seq) {
   return { firstSeq: Number(turns[start].seq), lastSeq: Number(turns[end].seq), count: end - start + 1 }
 }
 
+/* Apply ONE fold intent to a doc and return the NEXT doc (the SAME reference
+   when nothing can change: unknown session/turn, or the flag already holds the
+   requested value). Pure, so the fold WRITE QUEUE in the view can compose N
+   rapid clicks into ONE coherent document instead of letting N read-modify-write
+   round trips race each other. `kind: 'turn'` sets/clears the mark on exactly one
+   turn (the hover 折叠 pill and the menu checkbox on a single card);
+   `kind: 'run'` clears it on the WHOLE maximal folded run containing `seq` (the
+   folded card's menu uncheck). */
+export function mindmapApplyFoldIntent(doc, intent) {
+  if (doc === null || doc === undefined || intent === null || intent === undefined) return doc
+  const sessionId = String(intent.sessionId)
+  const seq = Number(intent.seq)
+  if (!Number.isSafeInteger(seq)) return doc
+  let firstSeq = 0
+  let lastSeq = 0
+  if (intent.kind === 'run') {
+    const run = mindmapFoldedRunOf(doc, sessionId, seq)
+    if (run === null) return doc
+    firstSeq = run.firstSeq
+    lastSeq = run.lastSeq
+  }
+  let changed = false
+  const sessions = (doc.sessions ?? []).map(s => {
+    if (s === null || s === undefined || String(s?.sessionId) !== sessionId) return s
+    let turnsChanged = false
+    const turns = (s.turns ?? []).map(t => {
+      if (t === null || t === undefined || !Number.isSafeInteger(t?.seq)) return t
+      const targeted = intent.kind === 'run'
+        ? (t.folded === true && Number(t.seq) >= firstSeq && Number(t.seq) <= lastSeq)
+        : Number(t.seq) === seq
+      if (!targeted) return t
+      const folded = intent.kind === 'run' ? false : intent.folded === true
+      if (t.folded === folded) return t
+      turnsChanged = true
+      return { ...t, folded }
+    })
+    if (!turnsChanged) return s
+    changed = true
+    return { ...s, turns }
+  })
+  if (!changed) return doc
+  return { ...doc, sessions, updatedAt: Date.now() }
+}
+
 /* Plan of a card deletion: the card and every later card in its session chain are cut, the
    session is re-created from the previous card via a fork, and the old session (plus every
    session hanging off a removed card) is archived. An empty placeholder or a session's first
