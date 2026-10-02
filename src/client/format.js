@@ -81,7 +81,7 @@ export function vcsStatusColorVars(settings) {
 
 /* Editor change-gutter tones. Deliberately their own palette (not the tree's badge tones): the
    gutter follows the code-editor convention — green added, BLUE modified, red deleted — while the
-   tree keeps its amber "modified" badge. User-recolorable in Workspace Settings → File Browsing. */
+   tree keeps its amber "modified" badge. User-recolorable in Workspace Settings → Version Control. */
 export const DIFF_TONE_GROUPS = Object.freeze([
   { group: 'added', label: '新增', color: '#1a7f37' },
   { group: 'modified', label: '修改', color: '#1a63d8' },

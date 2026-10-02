@@ -53,9 +53,12 @@ export function HtmlPreview({ sessionId, path, draft }) {
   }, [draft, faces, path, sessionId])
   return h('div', { className: 'dsh-ws-html-preview' },
     assetFailed ? h('div', { className: 'dsh-ws-banner' }, translate('renderer.assetFailed')) : null,
+    /* The rendered page is a preview state: the preview text size sizes the source editor only, and
+       the header hides its control here, so the frame keeps the page's own type sizes. */
     h('iframe', {
       sandbox: 'allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms allow-modals allow-downloads',
       srcDoc,
       title: translate('htmlPreview.preview'),
-    }))
+    }),
+  )
 }

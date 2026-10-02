@@ -1,10 +1,11 @@
 import { createElement as h, Fragment, useRef, useState, useEffect, useLayoutEffect, useMemo, useCallback, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
-import { CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MAX, CONFLICT_FONT_SIZE_MIN, CONTEXT_MENU_WIDTH, DIFF_RULER_WIDTH_DEFAULT, DIFF_RULER_WIDTH_MAX, DIFF_RULER_WIDTH_MIN, DISK_STATE_CLEAN, DISK_STATE_CONFLICT, DISK_STATE_GONE, DISK_STATE_STALE, ENCODING_FALLBACK } from '../../constants.js'
+import { clampFontPercent, CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MAX, CONFLICT_FONT_SIZE_MIN, CONTEXT_MENU_WIDTH, DIFF_RULER_WIDTH_DEFAULT, DIFF_RULER_WIDTH_MAX, DIFF_RULER_WIDTH_MIN, DISK_STATE_CLEAN, DISK_STATE_CONFLICT, DISK_STATE_GONE, DISK_STATE_STALE, ENCODING_FALLBACK, FONT_SCALE_DEFAULT, FONT_SCALE_MAX, FONT_SCALE_MIN, FONT_SCALE_STEP, stepFontPercent } from '../../constants.js'
 import { translate } from '../../locale/index.js'
 import { clamp, diffColorVars, fileLabel, formatBytes, readOnlyReason, vcsStatusColorVars } from '../../format.js'
 import { copyText, defaultEntryName, entryNameError, entryPath, joinAbsolutePath, parentPath, pathBaseName, rewriteDirectoryMap, rewritePathMap, rewritePathSet, rewriteRelativePath, selectedLevelPath } from '../../paths.js'
 import { ancestorDirectoryPaths, dropIndexFromEvent, entryFromPreviewTab, isMindmapTab, isPlanTab, isReviewTab, isSyntheticTab, isTemporaryTab, isUnpersistedTab, mindmapRootIdOfTab, mindmapTabPath, normalizePreviewSession, openPermanentTab, openPreviewTab, orderPinnedFirst, planAddressOfTab, planTabPath, promoteTemporaryTab, reviewAddressOfTab, reviewTabPath, rewritePreviewTabs, serializePreviewSession } from '../../preview-tabs.js'
+import { registerPreviewFontReset } from '../../preview-font.js'
 import { IconFolder, IconNewFile, IconNewFolder, IconRefresh, IconSearch } from '../../icons.js'
 import { encodingLabel, fetchEncodings, hostAbsoluteHref, rawFileUrl, requestFsOperation, revealInExplorer, uploadExternalFile, WorkspaceApiError } from '../../api.js'
 import { hasDraggedFiles, hasNormalFile } from '../../utils.js'
@@ -127,6 +128,10 @@ export function WorkspaceExplorer({
   const [previewToast, setPreviewToast] = useState()
   /* Viewer mode for the active file (registry-driven): 'edit' = the editor, 'preview' = the rendered view; per-file, reset on switch, and deliberately not persisted. */
   const [viewMode, setViewMode] = useState(VIEW_EDIT)
+  /* Preview text size: the header stepper edits the ACTIVE tab's own percentage, and clicking its
+     number swaps it for an input. `fontDraft` is that input's text ('' = nothing typed yet). */
+  const [fontEditing, setFontEditing] = useState(false)
+  const [fontDraft, setFontDraft] = useState('')
   const [entryDialog, setEntryDialog] = useState()
   const [entryDraft, setEntryDraft] = useState('')
   const [entryBusy, setEntryBusy] = useState(false)
@@ -459,6 +464,22 @@ export function WorkspaceExplorer({
     readController: readControllerRef, saveController: saveControllerRef,
     flushAutosavesRef, migratePendingAutosavesRef,
   } = editorSession
+  /* Preview text size, part 2 of 2: the settings page's "every tab back to the base size" action
+     lives in another slot tree, so it reaches this mounted explorer through a module-level
+     registry. The handler is re-created every render (it reads the current tabs) but registered
+     once, and forwards through a ref so the registry never holds a stale closure. */
+  const clearFontOverridesRef = useRef(null)
+  clearFontOverridesRef.current = () => {
+    setTabs(current => (current.some(tab => Number.isFinite(tab.fontPercent))
+      ? current.map(tab => (Number.isFinite(tab.fontPercent) ? { ...tab, fontPercent: undefined } : tab))
+      : current))
+    setStatus({ text: translate('status.textSizeClearedAll', { percent: clampFontPercent(settings.previewFontScale ?? FONT_SCALE_DEFAULT) }) })
+  }
+  useEffect(() => registerPreviewFontReset(() => { clearFontOverridesRef.current?.() }), [])
+  /* Switching tabs commits (or cancels) the size input through its own blur, but a synthetic tab
+     (mind map / plan / review) removes the whole file header unmounting the input without a blur —
+     so the draft must not survive into the next file tab that shows the header again. */
+  useEffect(() => { setFontEditing(false); setFontDraft('') }, [activePath])
   /* Retain CodeMirror EditorSessions per open file tab so re-activating a tab passes the entry back as `restore` and undo/selection/folds survive the view swap. */
   const retainEditorState = useCallback((path, session) => {
     retainedStatesRef.current.set(path, session)
@@ -1736,6 +1757,52 @@ export function WorkspaceExplorer({
         : undefined)
   const entryDialogBlocked = entryBusy || entryDialog === undefined || entryDialogError !== undefined
   const reason = preview.state === 'ready' ? readOnlyReason(preview) : translate('editor.notLoaded')
+  /* ---- Preview text size (part 1 of 2): the file header's stepper ----
+   * This control sizes the SOURCE EDITOR's text, so it is shown only while the source editor is the
+   * view on screen. Every rendered view is a preview state — a Markdown / HTML tab opens straight
+   * into it, a read-only file's paged browse is VIEW_PREVIEW too — and there the size has nothing
+   * to act on, so the header hides it rather than offering a control with no effect.
+   * The ACTIVE tab's own percentage wins; a tab without one follows the settings page's base size,
+   * so "no value of mine" and "follow the base" are one state (clearing the input returns to it).
+   * Byte-rendered tabs (image / PDF / Office conversions) have no text to size and no control;
+   * synthetic tabs (mind map / plan / review) draw no file header at all. */
+  const fontBase = clampFontPercent(settings.previewFontScale ?? FONT_SCALE_DEFAULT, FONT_SCALE_DEFAULT)
+  const fontOwn = activeTab !== undefined && Number.isFinite(activeTab.fontPercent)
+  const fontPercent = clampFontPercent(fontOwn ? activeTab.fontPercent : fontBase, fontBase)
+  const fontControlVisible = viewMode === VIEW_EDIT
+    && activeTab !== undefined && !isSyntheticTab(activeTab)
+    && !isImageName(activeTab.name) && !isPdfName(activeTab.name) && !isOfficeName(activeTab.name)
+  /* Write this tab's own value (undefined = "follow the base size" again). */
+  const setFontPercent = (next) => {
+    if (!fontControlVisible) return
+    updateActiveTab({ fontPercent: next })
+  }
+  const stepFont = (delta) => {
+    if (!fontControlVisible) return
+    const next = stepFontPercent(fontPercent, delta)
+    setFontPercent(next)
+    setStatus({ text: translate('status.textSizeChanged', { percent: next }) })
+  }
+  /* Commit the input: Enter, or the blur that follows a click anywhere else. An empty value (or a
+     plain 0) is the "my own value" reset, and a typed value is used as typed — only clamped to the
+     range, never snapped to the stepper's grid (137% is a legitimate size). */
+  const commitFontPercent = () => {
+    if (!fontEditing) return
+    setFontEditing(false)
+    const text = fontDraft.trim()
+    setFontDraft('')
+    if (!fontControlVisible) return
+    if (text === '' || Number(text) === 0) {
+      setFontPercent(undefined)
+      setStatus({ text: translate('status.textSizeBase', { percent: fontBase }) })
+      return
+    }
+    const typed = Number(text)
+    setFontPercent(clampFontPercent(typed))
+    if (typed > FONT_SCALE_MAX) setStatus({ text: translate('status.textSizeMax', { percent: FONT_SCALE_MAX }) })
+    else if (typed < FONT_SCALE_MIN) setStatus({ text: translate('status.textSizeMin', { percent: FONT_SCALE_MIN }) })
+    else setStatus({ text: translate('status.textSizeChanged', { percent: clampFontPercent(typed) }) })
+  }
   /* Status-bar recap of the editor's change marks, fused into the EXISTING bottom bar: one divider
      plus one item, never a third row. Nothing renders while the base is unknown or the file is
      clean, and a known-unusable base says so instead of silently showing nothing. */
@@ -1925,7 +1992,7 @@ export function WorkspaceExplorer({
       'data-drop-active': dropActive || undefined,
       className: 'dsh-ws-preview',
       ref: previewSectionRef,
-      style: { ...diffColorVars(settings), '--dsh-ws-vscroll-w': `${diffRulerWidth}px` },
+      style: { ...diffColorVars(settings), '--dsh-ws-vscroll-w': `${diffRulerWidth}px`, '--dsh-ws-content-scale': String(fontPercent / 100) },
     },
       tabs.length ? h(PreviewTabs, { activePath, containerRef: previewTabsRef, draggingPath, dropIndex, onChoose: activateTab, onClose: closeTab, onContextMenu: (path, x, y) => setTabContextMenu({ path, x, y }), onDragEnd: () => { setDraggingPath(null); setDropIndex(null) }, onDragLeave: handleTabsDragLeave, onDragOver: updateDropIndex, onDragStart: (path, event) => { setDraggingPath(path); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', path) }, onDrop: handleTabsDrop, onMouseEnter: handleTabsMouseEnter, onMouseLeave: handleTabsMouseLeave, onPromote: promoteTab, onReload: reloadTab, onScroll: handleTabsScroll, onUnpin: unpinTab, tabs }) : null,
       tabs.length ? h('div', { className: 'dsh-ws-preview-scrollbar', onMouseEnter: handleScrollbarMouseEnter, onMouseLeave: handleScrollbarMouseLeave, onPointerCancel: handleScrollbarPointerEnd, onPointerDown: handleScrollbarPointerDown, onPointerMove: handleScrollbarPointerMove, onPointerUp: handleScrollbarPointerEnd, ref: previewScrollbarRef }, h('div', { className: 'dsh-ws-preview-scrollbar-thumb', ref: previewScrollThumbRef })) : null,
@@ -1943,6 +2010,66 @@ export function WorkspaceExplorer({
                   ? translate('external.externalFile', { name: activeTab.name })
                   : activeTab.path)
             : workspace.title),
+        /* Preview text size: the right-hand button group's FIRST control, i.e. left of 控制台.
+           The value button becomes an input on click; a tab that has no value of its own shows the
+           base size with a dotted underline (its tooltip names the base). */
+        fontControlVisible
+          ? h('span', { className: 'dsh-ws-font-size', key: 'font-size' },
+            h('button', {
+              'aria-label': translate('preview.textSize.decrease.title'),
+              className: 'dsh-ws-text-button dsh-ws-font-step',
+              disabled: fontPercent <= FONT_SCALE_MIN || undefined,
+              onClick: () => stepFont(-FONT_SCALE_STEP),
+              title: translate('preview.textSize.decrease.title'),
+              type: 'button',
+            }, h('span', { className: 'dsh-ws-font-a', 'data-glyph': 'sm', 'aria-hidden': true }, 'A'), h('span', { className: 'dsh-ws-font-sign', 'aria-hidden': true }, '−')),
+            fontEditing
+              ? h('span', { className: 'dsh-ws-font-input' },
+                h('input', {
+                  'aria-label': translate('preview.textSize.input'),
+                  autoFocus: true,
+                  className: 'dsh-ws-font-field',
+                  inputMode: 'numeric',
+                  maxLength: 3,
+                  onBlur: commitFontPercent,
+                  onChange: (event) => setFontDraft(event.target.value.replace(/[^0-9]/gu, '').slice(0, 3)),
+                  onFocus: (event) => event.target.select(),
+                  onKeyDown: (event) => {
+                    /* IME composition must never commit the value (same guard as every other input). */
+                    if (event.isComposing) return
+                    if (event.key === 'Enter') { event.preventDefault(); commitFontPercent(); return }
+                    if (event.key === 'Escape') { event.preventDefault(); setFontEditing(false); setFontDraft(''); return }
+                    /* Arrow keys nudge by one step, staying in the input so a few taps can be dialled in. */
+                    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
+                    event.preventDefault()
+                    const next = stepFontPercent(fontPercent, event.key === 'ArrowUp' ? FONT_SCALE_STEP : -FONT_SCALE_STEP)
+                    setFontPercent(next)
+                    setFontDraft(String(next))
+                    setStatus({ text: translate('status.textSizeChanged', { percent: next }) })
+                  },
+                  /* Emptying the field is the reset gesture, not an error: the ghosted number is the
+                     base size the tab would fall back to. */
+                  placeholder: String(fontBase),
+                  type: 'text',
+                  value: fontDraft,
+                }),
+                h('span', { className: 'dsh-ws-font-pct', 'aria-hidden': true }, '%'))
+              : h('button', {
+                className: 'dsh-ws-text-button dsh-ws-font-value',
+                'data-inherit': fontOwn ? undefined : true,
+                onClick: () => { setFontDraft(String(fontPercent)); setFontEditing(true) },
+                title: translate('preview.textSize.value.title', { percent: fontBase }),
+                type: 'button',
+              }, `${fontPercent}%`),
+            h('button', {
+              'aria-label': translate('preview.textSize.increase.title'),
+              className: 'dsh-ws-text-button dsh-ws-font-step',
+              disabled: fontPercent >= FONT_SCALE_MAX || undefined,
+              onClick: () => stepFont(FONT_SCALE_STEP),
+              title: translate('preview.textSize.increase.title'),
+              type: 'button',
+            }, h('span', { className: 'dsh-ws-font-a', 'data-glyph': 'lg', 'aria-hidden': true }, 'A'), h('span', { className: 'dsh-ws-font-sign', 'aria-hidden': true }, '+')))
+          : null,
         runTabPath === null
           ? null
           : h('button', {

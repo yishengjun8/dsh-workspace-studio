@@ -1,4 +1,4 @@
-import { PREVIEW_SESSION_MAX } from './constants.js'
+import { clampFontPercent, PREVIEW_SESSION_MAX } from './constants.js'
 import { isAbsoluteWorkspacePath, rewriteRelativePath } from './paths.js'
 
 export function entryFromPreviewTab(tab) { return { kind: 'file', name: tab.name, path: tab.path, symlink: Boolean(tab.symlink) } }
@@ -50,6 +50,10 @@ export function clonePreviewTab(tab) {
     editing: Boolean(tab.editing),
     encoding: typeof tab.encoding === 'string' && tab.encoding !== '' ? tab.encoding : 'utf-8',
     external: Boolean(tab.external),
+    /* This tab's own preview text size (percent). ABSENT means "follow the settings page's base
+       size" — the state a tab returns to when its own value is cleared — so the field is left
+       undefined rather than defaulted to 100, and it rides the same snapshot as the tab itself. */
+    fontPercent: Number.isFinite(tab.fontPercent) ? clampFontPercent(tab.fontPercent) : undefined,
     /* A read-only preview of a file OUTSIDE the workspace: it carries BOTH
        `external` (no draft, no save, no change poll, no persistence) and
        `outside` (the Remote may read its absolute path), which is what lets its
@@ -260,8 +264,9 @@ export function previewSnapshotFingerprint(value) {
   const tabs = Array.isArray(value?.tabs) ? value.tabs : []
   // Restored-but-not-volatile metadata (e.g. encoding) participates, or the decode would revert after a refresh.
   // JSON.stringify (not ','/':' joins): file names may contain commas and colons, which could otherwise collide into the same fingerprint.
+  // The per-tab text size participates too: it is restored state, so changing ONLY it must still reach localStorage.
   const tabPart = JSON.stringify(tabs.map(tab =>
-    [tab.path, tab.kind === 'mindmap' ? 'm' : 'f', tab.kind === 'mindmap' ? (tab.sessionId ?? '') : '', tab.kind === 'mindmap' ? (tab.dockedAt ?? '') : '', tab.name, tab.dirty ? 1 : 0, tab.pinned ? 1 : 0, tab.encoding ?? '', tab.editing ? 1 : 0, tab.lineEnding ?? '', tab.bom ? 1 : 0, tab.baseRevision ?? '']))
+    [tab.path, tab.kind === 'mindmap' ? 'm' : 'f', tab.kind === 'mindmap' ? (tab.sessionId ?? '') : '', tab.kind === 'mindmap' ? (tab.dockedAt ?? '') : '', tab.name, tab.dirty ? 1 : 0, tab.pinned ? 1 : 0, tab.encoding ?? '', tab.editing ? 1 : 0, tab.lineEnding ?? '', tab.bom ? 1 : 0, tab.baseRevision ?? '', tab.fontPercent ?? '']))
   const expandedPart = JSON.stringify(Array.isArray(value?.expanded) ? [...value.expanded].sort() : [])
   return `${value?.activePath ?? ''}|${tabPart}|${expandedPart}`
 }

@@ -75,6 +75,62 @@ if (backticks !== 2) {
     + '    write CSS selectors bare (or in "double quotes") inside the stylesheet comments')
 }
 
+/* Undeclared SCREAMING_SNAKE constants: a module constant used but never imported is a free
+   identifier, so `tsdown` bundles it, `node --check` passes and the module imports fine — it only
+   throws `ReferenceError: X is not defined` when the handler that mentions it finally RUNS (a
+   click, a keystroke). Evaluating modules cannot catch that: nothing executes the callback.
+   Every SCREAMING_SNAKE identifier in these sources is a module constant, which makes a textual
+   check exact enough: after comments and literals are stripped, each one must be DECLARED (import
+   clause, export, declarator, object key) rather than merely used. See development-notes §45. */
+const CONSTANT = /(?<![.\w$])([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)\b/g
+
+/** Blank out comments and string/template literals so the scan never reads prose or data. */
+function stripLiterals(source) {
+  let out = ''
+  let index = 0
+  while (index < source.length) {
+    const two = source.slice(index, index + 2)
+    const char = source[index]
+    if (two === '//') {
+      const end = source.indexOf('\n', index)
+      index = end === -1 ? source.length : end
+    } else if (two === '/*') {
+      const end = source.indexOf('*/', index + 2)
+      index = end === -1 ? source.length : end + 2
+      out += ' '
+    } else if (char === '"' || char === '\'' || char === '`') {
+      index += 1
+      while (index < source.length && source[index] !== char) index += source[index] === '\\' ? 2 : 1
+      index += 1
+      out += '""'
+    } else {
+      out += char
+      index += 1
+    }
+  }
+  return out
+}
+
+for (const file of sources(CLIENT)) {
+  const where = relative(ROOT, file).split(sep).join('/')
+  const source = stripLiterals(readFileSync(file, 'utf8'))
+  const missing = [...new Set([...source.matchAll(CONSTANT)].map(match => match[1]))].filter((name) => {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    /* Declared or assigned: `const X = 1`, a declarator inside a comma list, `X = value`. The
+       lookahead keeps `==`, `===` and `=>` from reading as an assignment. */
+    if (new RegExp(`(?:^|[^\\w$.])\\s*${escaped}\\s*=(?![=>])`).test(source)) return false
+    /* Member of an import/export clause, a destructuring pattern, a declarator list or an object
+       literal — always written right after `{` or `,`, then the name, then `,` `}` or `:`. A ternary
+       (`? X :`) and a bare call argument (`f(X)`) do NOT satisfy the leading brace/comma. */
+    if (new RegExp(`[{,]\\s*${escaped}\\s*[,}:]`).test(source)) return false
+    return true
+  })
+  if (missing.length > 0) {
+    failures.push(`${where}  uses undeclared constant${missing.length > 1 ? 's' : ''} ${missing.join(', ')}\n`
+      + '    import it (or fix the typo): a free identifier throws ReferenceError only when the code runs')
+  }
+}
+
 if (failures.length > 0) {
   console.error('check:client-modules FAILED — these throw when the plugin is imported (AGENTS.md「交付铁律」):\n')
   for (const failure of failures) console.error(`  ${failure}\n`)

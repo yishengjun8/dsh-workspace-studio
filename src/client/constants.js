@@ -43,6 +43,21 @@ export const CONTEXT_MENU_WIDTH = 176, CONTEXT_MENU_HEIGHT = 280, COMPACT_MENU_H
 export const ROW_HEIGHT_DEFAULT = 20, ROW_HEIGHT_MIN = 12, ROW_HEIGHT_MAX = 36
 /* Save-conflict dialog comparison text size (px); default matches .dsh-ws-conflict-code. */
 export const CONFLICT_FONT_SIZE_DEFAULT = 12, CONFLICT_FONT_SIZE_MIN = 6, CONFLICT_FONT_SIZE_MAX = 24
+/* Preview content text size. Each file tab may carry its own percentage (fontPercent); a tab
+   WITHOUT one follows the settings page's base size, so "clear my own value" and "follow the
+   base" are the same state. Published on the preview column as --dsh-ws-content-scale
+   (1 = 100% = the harness's own body size, so 100% is pixel-identical to having no feature). */
+export const FONT_SCALE_DEFAULT = 100, FONT_SCALE_MIN = 60, FONT_SCALE_MAX = 200, FONT_SCALE_STEP = 10
+/* A typed value keeps its exact integer (137% stays 137%); only the stepper walks the 10% grid. */
+export const clampFontPercent = (value, fallback = FONT_SCALE_DEFAULT) => {
+  const percent = Number(value)
+  if (!Number.isFinite(percent)) return fallback
+  return Math.min(FONT_SCALE_MAX, Math.max(FONT_SCALE_MIN, Math.round(percent)))
+}
+export const stepFontPercent = (value, delta) => {
+  const stepped = Math.round((clampFontPercent(value) + delta) / FONT_SCALE_STEP) * FONT_SCALE_STEP
+  return Math.min(FONT_SCALE_MAX, Math.max(FONT_SCALE_MIN, stepped))
+}
 /* Search-result rows expanded by default (user-tunable in explorer settings). */
 export const SEARCH_MATCH_EXPAND_DEFAULT = true
 /* File-browser pane sits on the right side of the conversation column instead of the left (user-tunable). */

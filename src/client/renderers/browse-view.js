@@ -25,6 +25,8 @@ export function BrowseView({ sessionId, path, name, kind, readEpoch }) {
   const copyLabel = translate('renderer.copy')
   const copiedLabel = translate('renderer.copied')
   return h('div', { className: 'dsh-ws-renderer-view dsh-ws-renderer-browse', onScroll },
+    /* The paged browse is a preview state: the preview text size sizes the source editor only, and
+       the header hides its control here, so these harness primitives keep their own type sizes. */
     kind === 'markdown'
       ? h(MarkdownText, { text, streaming: !eof, labels: markdownLabels })
       : h(CodeBlock, {
