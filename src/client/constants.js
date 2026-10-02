@@ -330,3 +330,23 @@ export const RUN_PROBE_REQUEST_TIMEOUT_MS = 9000
    the harness workspace-files Remote, page by page): past it the preview keeps
    what it read and reports itself truncated, like the Host's own preview cap. */
 export const OUTSIDE_PREVIEW_MAX_BYTES = 2 * 1024 * 1024
+/* Workspace collections (a named, ordered set of workspaces). The BUILT-IN views ("all workspaces",
+   "unowned workspaces") are client constants and are never persisted; the Host store holds user
+   collections only, so these bounds mirror host/collections.js (COLLECTIONS_MAX / COLLECTION_NAME_MAX). */
+export const COLLECTION_ALL_ID = '__all__'
+/** Built-in view: only workspaces that belong to no collection at all. */
+export const COLLECTION_UNOWNED_ID = '__unowned__'
+export const COLLECTION_LIMIT = 50
+export const COLLECTION_NAME_MAX = 40
+/* The harness's persisted workspace-browser view store (`dsh.workspace.view.v5`): its `groupBy`
+   decides whether the collection dropdown and its filtering are active at all. Both the key and the
+   field are a harness coupling point (dev-notes §46); an unreadable value falls back to the
+   harness's own default, 'workspace'. */
+export const WORKSPACE_VIEW_STORE_KEY = 'dsh.workspace.view.v5'
+export const WORKSPACE_GROUP_BY_DEFAULT = 'workspace'
+/* Auto-jump budget after switching collections: the session list must be ready before the newest
+   member session can be picked, so the attempt retries for a few frames. */
+export const COLLECTION_JUMP_RETRY_MS = 120
+export const COLLECTION_JUMP_RETRY_MAX = 12
+/* Transient notice lifetime for collection edits and switches (the session-menu notice channel). */
+export const COLLECTION_NOTICE_MS = 2200

@@ -209,5 +209,8 @@ export function useSessionMenu({ props, mountedRef, currentSession }) {
     sessionInlineRenameError, sessionNotice, beginSessionInlineRename,
     cancelSessionInlineRename, confirmSessionInlineRename, archiveSessionFromMenu,
     revealSessionById, revealSessionFromMenu, openMindmapSession,
+    /* One notice channel for the whole sidebar: the workspace-collection surfaces raise their
+       transient messages through the same element the session verbs use. */
+    showSessionNotice,
   }
 }

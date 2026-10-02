@@ -5,5 +5,9 @@
 # This repository pairs the Chinese README.md with README.en.md instead of the harness's
 # README.md + README.zh.md convention, so `pnpm run verify-translation-pairing --write`
 # cannot record it; the hashes below come from git hash-object.
-README.md: 140b7f94d4a33435d7b66b6621f8e1d1864e0a2f
-README.en.md: 530f4874788b9302d4bb704a45502cddc1b103be
+README.md: 30d8c344baa0cf150b08478d2e3238e83cdc3520
+README.en.md: e8e530fe83448ad01a45d9fd3aa018f4eeb0284a
+
+
+
+

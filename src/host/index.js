@@ -2,6 +2,7 @@
 import z from '@deepseek-ai/schemastery'
 import { Buffer } from 'node:buffer'
 import { HttpError } from './errors.js'
+import { applyCollectionsPatch, readCollectionsStore } from './collections.js'
 import { isTrustedRequest, normalizeFailure, readJsonObject, requiredQuery, sendError, sendJson, sendRaw } from './http.js'
 import { normalizeRelativePath } from './paths.js'
 import { ENCODINGS } from './encodings.js'
@@ -52,6 +53,9 @@ export const Config = z.object({
   vcsTimeoutMs: z.natural().min(1000).max(120_000).default(10_000),
   vcsCacheTtlMs: z.natural().min(0).max(600_000).default(8000),
   vcsMaxEntries: z.natural().min(100).max(50_000).default(5000),
+  /* User-created workspace collections (the built-in "all workspaces" view is not counted): a bound
+     keeps the dropdown usable, and the Host enforces it as well as the client. */
+  maxCollections: z.natural().min(1).max(200).default(50),
 })
 
 const API_PREFIX = '/workspace-studio/api'
@@ -71,6 +75,27 @@ const RUN_ROUTES = Object.freeze({
 /* The runner's request body bound: the argument text is capped at 4 KiB by run.js, so the JSON
    envelope only needs a little headroom over the shared mutation cap. */
 const RUN_BODY_MAX_BYTES = 16 * 1024
+/* Workspace collections (collection.js): plugin-level (no workspaceId) and its own table, for the
+   same reason the runner routes have one — the long chain below owns method/404 bookkeeping. */
+const COLLECTIONS_ROUTES = Object.freeze({
+  [`${API_PREFIX}/collections`]: 'GET, HEAD, PUT',
+})
+/* 50 collections x 40-char names x up to 2000 workspace ids: the honest bound is a few hundred KiB,
+   and the envelope never carries file content. */
+const COLLECTIONS_BODY_MAX_BYTES = 512 * 1024
+
+/** Handle one collections request: GET/HEAD answer the store, PUT merges one patch into it. */
+async function handleCollectionsRoute(config, url, req, res, writeQueues) {
+  if (url.pathname === `${API_PREFIX}/collections`) {
+    if (req.method === 'PUT') {
+      const payload = await readJsonObject(req, config, COLLECTIONS_BODY_MAX_BYTES)
+      sendJson(req, res, 200, await applyCollectionsPatch(payload, writeQueues, config.maxCollections))
+      return
+    }
+    sendJson(req, res, 200, await readCollectionsStore())
+    return
+  }
+}
 
 /** Handle one runner request. Workspace-scoped except the stop verb, which only needs its run id
  *  (a run must stay stoppable even when its workspace entry went away mid-flight). */
@@ -198,6 +223,15 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
         return
       }
       await handleRunRoute(ctx, config, url, req, res, writeQueues)
+      return
+    }
+    const collectionsRoute = COLLECTIONS_ROUTES[url.pathname]
+    if (collectionsRoute !== undefined) {
+      if (!collectionsRoute.split(', ').includes(req.method ?? '')) {
+        sendError(req, res, 405, 'method-not-allowed', `该接口只允许 ${collectionsRoute} 请求`, { allow: collectionsRoute })
+        return
+      }
+      await handleCollectionsRoute(config, url, req, res, writeQueues)
       return
     }
     const contextEndpoint = url.pathname === `${API_PREFIX}/context`

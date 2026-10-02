@@ -599,3 +599,12 @@ export function probeRunInterpreter(path, family, signal) {
     'run-probe-failed',
   )
 }
+/* Workspace collections: one plugin-level store (no workspaceId — a collection spans workspaces).
+   GET answers the whole store; PUT merges one patch into it and answers the merged store, so the
+   client never has to rebase a whole-document write. */
+export function fetchCollections(signal) {
+  return runRequest('/collections', { method: 'GET' }, signal, 'collections-failed')
+}
+export function patchCollections(patch, signal) {
+  return runRequest('/collections', { method: 'PUT', body: patch }, signal, 'collections-failed')
+}

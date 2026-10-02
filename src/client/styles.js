@@ -1123,4 +1123,77 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-preview-tab-run{flex:none;width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-state-business-primary);animation:dsh-ws-run-pulse 1.4s ease-out infinite}
 @keyframes dsh-ws-run-pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--dsw-alias-state-business-primary) 55%,transparent)}70%{box-shadow:0 0 0 6px transparent}100%{box-shadow:0 0 0 0 transparent}}
 @media (prefers-reduced-motion:reduce){.dsh-ws-preview-tab-run{animation:none}}
+/* ================= Workspace collections (dev-notes 46) =================
+   Dropdown replacing the Harness section title, its member dialog, the workspace-row membership
+   menu, and the sidebar chips. The chips' CONTENT is generated per workspace by the filter
+   stylesheet (that rule sets content); these rules only style the box it draws. */
+.dsh-ws-sidebar-collections{flex:none;display:flex;align-items:center;min-width:0}
+/* The Harness section label steps aside only while this seat exists (it is removed with the seat). */
+.dsh-ws-sidebar-collections ~ [class*="sectionLabel"]{display:none}
+.dsh-ws-collection-button{flex:none;display:inline-flex;align-items:center;gap:5px;max-width:100%;min-width:0;height:24px;padding:0 5px 0 4px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;line-height:20px;cursor:pointer}
+.dsh-ws-collection-button:hover,.dsh-ws-collection-button[aria-expanded=true]{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dsh-ws-collection-button:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}
+.dsh-ws-collection-glyph{flex:none;font-size:11px;color:var(--dsw-alias-label-tertiary)}
+.dsh-ws-collection-button[aria-expanded=true] .dsh-ws-collection-glyph{color:var(--dsw-alias-state-business-primary)}
+.dsh-ws-collection-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-ws-collection-caret{flex:none;font-size:9px;color:var(--dsw-alias-label-tertiary)}
+.dsh-ws-collection-menu{position:fixed;z-index:60;width:250px;padding:6px;overflow-y:auto;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-elevated,0 12px 36px rgba(0,0,0,.24));box-sizing:border-box}
+.dsh-ws-collection-menu-title{padding:4px 10px 6px;color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:14px;user-select:none}
+.dsh-ws-collection-row{display:flex;align-items:center;gap:6px;width:100%;height:28px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;line-height:28px;text-align:left;cursor:pointer}
+.dsh-ws-collection-row:hover,.dsh-ws-collection-row[data-current]{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dsh-ws-collection-row[data-dragging]{opacity:.6;box-shadow:var(--dsw-shadow-elevated,0 12px 36px rgba(0,0,0,.24))}
+.dsh-ws-collection-grip{flex:none;width:10px;color:var(--dsw-alias-label-tertiary);font-size:11px;opacity:0;cursor:grab}
+.dsh-ws-collection-row:hover .dsh-ws-collection-grip,.dsh-ws-collection-row[data-dragging] .dsh-ws-collection-grip{opacity:1}
+.dsh-ws-collection-check{flex:none;width:12px;color:var(--dsw-alias-state-business-primary);font-size:11px;font-weight:700}
+.dsh-ws-collection-rowname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-ws-collection-count{flex:none;color:var(--dsw-alias-label-caption);font-size:11px;font-variant-numeric:tabular-nums}
+.dsh-ws-collection-dots{flex:none;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:6px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:1;opacity:0}
+.dsh-ws-collection-row:hover .dsh-ws-collection-dots{opacity:1}
+.dsh-ws-collection-dots:hover{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary)}
+.dsh-ws-collection-insert{height:2px;margin:2px 6px;border-radius:1px;background:var(--dsw-alias-state-business-primary)}
+.dsh-ws-collection-separator{height:1px;margin:4px 6px;background:var(--dsw-alias-border-l2)}
+.dsh-ws-collection-edit{display:flex;align-items:center;gap:6px;padding:2px 6px}
+.dsh-ws-collection-subedit{margin-top:4px}
+.dsh-ws-collection-input{flex:1;min-width:0;height:26px;padding:0 7px;border:1px solid var(--dsw-alias-state-business-primary);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;outline:none;box-sizing:border-box}
+.dsh-ws-collection-input[data-invalid]{border-color:var(--dsw-alias-state-error-primary)}
+.dsh-ws-collection-error{padding:2px 10px 4px;color:var(--dsw-alias-state-error-primary);font-size:11px;line-height:16px}
+.dsh-ws-collection-hint{padding:4px 10px 2px;color:var(--dsw-alias-label-caption);font-size:11px;line-height:16px}
+.dsh-ws-collection-rowmenu{margin:2px 0 2px 18px;padding:4px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2)}
+.dsh-ws-collection-rowitem{display:block;width:100%;height:26px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;text-align:left;cursor:pointer}
+.dsh-ws-collection-rowitem:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.dsh-ws-collection-rowitem:disabled{cursor:not-allowed;opacity:.5}
+.dsh-ws-collection-rowitem-danger{color:var(--dsw-alias-state-error-primary)}
+.dsh-ws-collection-submenu{position:absolute;left:calc(100% - 6px);top:30px;min-width:170px}
+.dsh-ws-collection-submark{margin-left:auto;color:var(--dsw-alias-label-tertiary);font-size:10px}
+.dsh-ws-collection-dialog{width:min(420px,100%)}
+.dsh-ws-collection-members{display:flex;flex-direction:column;gap:2px;max-height:240px;padding:2px;overflow:auto;border:1px solid var(--dsw-alias-border-l1);border-radius:8px}
+.dsh-ws-collection-member{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;cursor:pointer}
+.dsh-ws-collection-member:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.dsh-ws-collection-member input{flex:none;width:15px;height:15px;margin:0;accent-color:var(--dsw-alias-state-business-primary);cursor:pointer}
+.dsh-ws-collection-membertext{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.dsh-ws-collection-membername{color:var(--dsw-alias-label-primary);font-size:12.5px;line-height:18px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-ws-collection-memberpath{color:var(--dsw-alias-label-caption);font-family:var(--dsw-font-family-code,ui-monospace,SFMono-Regular,Consolas,monospace);font-size:11px;line-height:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-ws-collection-membercount{flex:none;color:var(--dsw-alias-label-tertiary);font-size:11px;font-variant-numeric:tabular-nums}
+.dsh-ws-collection-ok{border:1px solid var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent)}
+.dsh-ws-collection-ok:hover{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 16%,transparent)}
+.dsh-ws-collection-ok:disabled{cursor:not-allowed;opacity:.55}
+.dsh-ws-collection-cancel{border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary)}
+.dsh-ws-collection-new{display:flex;align-items:center;gap:6px;width:100%;height:28px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-state-business-primary);font:inherit;font-size:13px;text-align:left;cursor:pointer}
+.dsh-ws-collection-new:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.dsh-ws-collection-new:disabled{cursor:not-allowed;opacity:.5}
+.dsh-ws-collection-new:disabled:hover{background:transparent}
+/* Per-workspace chips on the Harness group rows (content comes from the filter stylesheet). */
+[data-slot="sidebar.workspaces"] [data-row-key^="workspace:"]::after{flex:none;align-self:center;margin-left:6px;padding:0 5px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:15px;white-space:nowrap;pointer-events:none}
+/* The permanent per-row collection control: a real node injected as a direct child of the group row
+   (the Harness's own .rowActions is display:none until hover, so it cannot host a permanent button).
+   Always visible by request; dimmed when the workspace is in no collection, accented when it is. */
+[data-slot="sidebar.workspaces"] .dsh-ws-collection-rowicon{flex:none;display:inline-flex;align-items:center;justify-content:center;width:22px;height:20px;margin-left:4px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:12px;line-height:1;cursor:pointer;opacity:.5}
+[data-slot="sidebar.workspaces"] .dsh-ws-collection-rowicon[data-owned="true"]{color:var(--dsw-alias-state-business-primary);opacity:1}
+[data-slot="sidebar.workspaces"] .dsh-ws-collection-rowicon:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary);opacity:1}
+[data-slot="sidebar.workspaces"] .dsh-ws-collection-rowicon:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px;opacity:1}
+.dsh-ws-frame[data-sidebar-collapsed] .dsh-ws-collection-rowicon{display:none}
+/* The empty-view message: the filter stylesheet sets only its content property, so this box only ever
+   appears in a view that filtered everything away (an unset content generates no pseudo-element). */
+[data-slot="sidebar.workspaces"]::after{display:block;padding:10px 10px 4px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;pointer-events:none}
+.dsh-ws-frame[data-sidebar-collapsed] [data-slot="sidebar.workspaces"]::after{display:none}
 `

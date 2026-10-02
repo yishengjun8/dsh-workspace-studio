@@ -1,7 +1,7 @@
 import { createElement as h, Fragment, useRef, useState, useEffect, useLayoutEffect, useMemo, useCallback, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
-import { CONTEXT_MENU_WIDTH, EDITOR_CONTEXT_PROVIDER, EXPLORER_MAX_RATIO, MINDMAP_END_COLOR_DEFAULT, MINDMAP_HEAD_COLOR_DEFAULT, MINDMAP_SPIN_BASE_DURATION_S, MINDMAP_SPIN_STOP_DURATION_S, MOBILE_HEADER_FALLBACK_H, PACKAGE_ID, PREVIEW_MAX, PREVIEW_MIN, SIDEBAR_COLLAPSED, SIDEBAR_MAX_FALLBACK, SIDEBAR_MAX_RATIO, SIDEBAR_MIN, TREE_MAX, TREE_MIN } from './constants.js'
-import { installLocaleService, translate } from './locale/index.js'
+import { COLLECTION_ALL_ID, COLLECTION_UNOWNED_ID, CONTEXT_MENU_WIDTH, EDITOR_CONTEXT_PROVIDER, EXPLORER_MAX_RATIO, MINDMAP_END_COLOR_DEFAULT, MINDMAP_HEAD_COLOR_DEFAULT, MINDMAP_SPIN_BASE_DURATION_S, MINDMAP_SPIN_STOP_DURATION_S, MOBILE_HEADER_FALLBACK_H, PACKAGE_ID, PREVIEW_MAX, PREVIEW_MIN, SIDEBAR_COLLAPSED, SIDEBAR_MAX_FALLBACK, SIDEBAR_MAX_RATIO, SIDEBAR_MIN, TREE_MAX, TREE_MIN, WORKSPACE_GROUP_BY_DEFAULT } from './constants.js'
+import { installLocaleService, translate, useLocaleText } from './locale/index.js'
 import { setDrawerOpen, setMobile, useMobile } from './mobile.js'
 import { styles } from './styles.js'
 import { clamp, FILE_COLOR_GROUPS, fileColorOf } from './format.js'
@@ -29,8 +29,11 @@ import { buildMindmapActions } from './mindmap-actions.js'
 import { useChatDropMask } from './hooks/chat-drop.js'
 import { useChatTailPin } from './hooks/chat-tail-pin.js'
 import { useSessionMenu } from './hooks/session-menu.js'
+import { useCollectionGroupBy, useCollectionsFilter, useWorkspaceCollectionMenu } from './hooks/sidebar-collections.js'
 import { useSidebarChrome } from './hooks/sidebar-chrome.js'
 import { useThinkCard } from './hooks/think-card.js'
+import { CollectionsDropdown, CollectionsWorkspaceMenu } from './components/collections.js'
+import { applyCollectionsPatch, collectionById, collectionsStore, loadCollections, newestSessionOfCollection } from './collections.js'
 import { registerStudioFileMutationToolview } from './toolview.js'
 import { installOpenResourceRouter } from './open-resource.js'
 import { resourceNoticeStore } from './ui-notice.js'
@@ -152,6 +155,10 @@ export function AppFrame(props) {
   const currentCwd = currentSummary?.cwd
   const detailsCapable = currentSession !== undefined && currentSummary?.blank === false
   const workspaces = props.useWorkspaces(state => state.items)
+  /* Archived sessions are hidden from the collection switch's auto-jump target. */
+  const archivedSessionIds = props.useWorkspaces(state => state.archivedSessionIds)
+  const collections = useSyncExternalStore(collectionsStore.subscribe, collectionsStore.getSnapshot)
+  const collectionsDoc = collections.doc
   /* No session selected → follow the workspace the harness itself would
      reconnect (the same recent-workspace policy it applies to New Session). */
   const recent = useMemo(
@@ -170,8 +177,13 @@ export function AppFrame(props) {
   const chatDrop = useChatDropMask({ chatSectionRef })
   useThinkCard({ chatSectionRef })
   useChatTailPin({ chatSectionRef, currentSession })
-  const sidebarChromeState = useSidebarChrome()
-  /* One notice for interactions the resource router could not complete (an
+  /* Locale changes re-render the frame so the collection chips/copy follow the active language. */
+  const localeRevision = useLocaleText()
+  /* Workspace collections own the section title only in the Harness's 按工作区 grouping mode; the
+     mode lives in the Harness's own persisted view store (see collections.js). */
+  const collectionGroupBy = useCollectionGroupBy()
+  const collectionsActive = collectionGroupBy === WORKSPACE_GROUP_BY_DEFAULT
+  const sidebarChromeState = useSidebarChrome({ collections: collectionsActive })  /* One notice for interactions the resource router could not complete (an
      address of a type this layout does not host); it replaces what used to be an
      uncaught throw inside the harness's own click handler. */
   const resourceNotice = useSyncExternalStore(resourceNoticeStore.subscribe, resourceNoticeStore.getSnapshot)
@@ -182,7 +194,7 @@ export function AppFrame(props) {
     sessionContextMenu, sessionMenuRef, sessionInlineRename, sessionInlineRenameBusy,
     sessionInlineRenameError, sessionNotice, beginSessionInlineRename,
     cancelSessionInlineRename, confirmSessionInlineRename, archiveSessionFromMenu,
-    revealSessionById, revealSessionFromMenu, openMindmapSession,
+    revealSessionById, revealSessionFromMenu, openMindmapSession, showSessionNotice,
   } = sessionMenu
 
   /* Same two-stage resolution as workspaceOfSession (membership first, then
@@ -193,6 +205,58 @@ export function AppFrame(props) {
     : workspaces.find(item => item.workspaceId === recent),
   [currentCwd, currentSession, recent, workspaces])
   const workspaceId = workspace?.workspaceId
+  /* Workspace collections: read once per page load (the Host owns the durable copy), filtered in the
+     sidebar by a generated stylesheet, and switched with an explicit jump to the collection's newest
+     session. `collectionsActive` is false in the Harness's own 按工作区树 / 单列表 modes, where the
+     feature stays out of the way entirely (dropdown removed, no filtering). */
+  useEffect(() => {
+    const controller = new AbortController()
+    void loadCollections(controller.signal)
+    return () => controller.abort()
+  }, [])
+  const collectionLabels = useMemo(() => ({
+    outside: translate('collections.badge.outside'),
+    /* The unowned view is a filter, not a collection: its "kept visible" marker must not claim the
+       workspace is outside a collection. */
+    outsideView: translate('collections.badge.outsideView'),
+    iconNone: translate('collections.icon.none'),
+    iconMember: translate('collections.icon.member'),
+    emptyUnowned: translate('collections.empty.unowned'),
+    emptyCollection: translate('collections.empty.collection'),
+  }), [localeRevision])
+  useCollectionsFilter({
+    currentWorkspaceId: workspaceId,
+    doc: collectionsDoc,
+    labels: collectionLabels,
+    paused: !collectionsActive,
+    workspaces,
+  })
+  /* The icon's tooltips need the same document/membership the filter uses, so both hooks share one
+     localized copy object (a fresh object per render would re-apply the icons every time). */
+  const workspaceCollectionMenu = useWorkspaceCollectionMenu({ doc: collectionsDoc, labels: collectionLabels })
+  const patchCollections = useCallback(patch => applyCollectionsPatch(patch), [])
+  const switchCollection = useCallback(async (id) => {
+    const result = await applyCollectionsPatch({ selectedId: id })
+    if (result?.ok !== true) {
+      showSessionNotice(translate('collections.switchFailed'), true)
+      return
+    }
+    const collection = collectionById(result.doc, id)
+    /* A built-in view is not a collection: say what actually happened, and do not jump (there is no
+       "newest member session" to open — under "all workspaces" every session qualifies). */
+    if (id === COLLECTION_ALL_ID) {
+      showSessionNotice(translate('collections.showAll'))
+      return
+    }
+    if (id === COLLECTION_UNOWNED_ID) {
+      showSessionNotice(translate('collections.showUnowned'))
+      return
+    }
+    const name = collection === undefined ? translate('collections.all') : collection.name
+    showSessionNotice(translate('collections.switched', { name }))
+    const target = newestSessionOfCollection(result.doc, id, workspaces, sessionsById, archivedSessionIds)
+    if (target !== undefined) props.openSession(target)
+  }, [archivedSessionIds, props.openSession, sessionsById, showSessionNotice, workspaces])
   const publishEditorContext = useCallback((value) => {
     if (currentSession !== undefined) props.publishEditorContext(String(currentSession), value)
   }, [currentSession, props.publishEditorContext])
@@ -309,7 +373,7 @@ export function AppFrame(props) {
   const preview = filesActive || panes.explorerOpen ? clamp(panes.preview, PREVIEW_MIN, previewMax) : 0
   const previewBoundary = sidebar + preview
   const treePortalTarget = sidebarChrome?.files ?? null
-  return h('div',{ref:viewportRef,className:'dsh-ws-viewport'},h('main',{className:'dsh-ws-frame','data-explorer-closed':!panes.explorerOpen&&!filesActive||undefined,'data-sidebar-collapsed':collapsed||undefined,'data-sidebar-files':filesActive||undefined,'data-resizing':resizing||undefined,'data-preview-right':settings.previewRight===true||undefined,style:{'--dsh-ws-preview':`${preview}px`,'--dsh-ws-sidebar':`${sidebar}px`,'--dsh-ws-row-height':`${settings.rowHeight}px`,'--dsh-ws-mobile-header-h':`${mobileHeaderHeight}px`,'--dsh-ws-mindmap-spin-duration':mindmapSpinDuration,...fileColorVars}},h('aside',{className:'dsh-ws-sidebar',ref:asideRef},props.renderSlot('sidebar',{collapsed,width:sidebar}),sidebarChrome?.top?createPortal(h(SidebarTopActions,{collapsed,view,width:sidebar,onSelectSessions:()=>{props.actions.setView('sessions')},onSelectFiles:()=>{if(collapsed)props.toggleSidebar();props.actions.setView('files')}}),sidebarChrome.top):null,sidebarChrome&&(sidebarChrome.groups.length>0?sidebarChrome.groups.map(group=>createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:group.title,openSession:openMindmapSession,revealSession:revealSessionById}),group.container)):sidebarChrome.fallback?createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:undefined,openSession:openMindmapSession,revealSession:revealSessionById}),sidebarChrome.fallback):null)),workspace?h(WorkspaceExplorer,{key:`${workspace.workspaceId}:${previewSessionId ?? 'workspace'}`,createEntry:props.createEntry,listDirectory:props.listDirectory,mindmapActions:props.mindmapActions,persistPreviewSession,previewSessionId,publishEditorContext,readFile:props.readFile,renameEntry:props.renameEntry,saveFile:props.saveFile,loadDraft:props.loadDraft,persistDraftFile:props.persistDraftFile,removeDraftFile:props.removeDraftFile,draftTree:props.draftTree,checkFileChange:props.checkFileChange,settingsStore:props.settingsStore,sessionCwdOf,storedPreviewSession,sessionTitle,sessionId,renameSession:props.renameSession,treePortalTarget,useSessions:props.useSessions,workspace}):h(EmptyWorkspaceExplorer,{sessionTitle,treePortalTarget}),h(MindMapHost,{currentSession,mindmapActions:props.mindmapActions,previewSessionsStore:props.previewSessionsStore,settingsStore:props.settingsStore,useSessions:props.useSessions}),h('section',{className:'dsh-ws-chat',ref:chatSectionRef},props.renderSlot('main',{}, {entryKey:panels.panelInfo.activePanelId ?? 'conversation'}),chatDropActive?h('div',{className:'dsh-ws-chat-drop-mask',role:'presentation'},h('button',{'aria-label':translate('drop.closeAria'),className:'dsh-ws-chat-drop-close',onClick:()=>{chatDropSuppressed.current=true;setChatDropActive(false)},title:translate('drop.closeTitle'),type:'button'},'×'),h('div',{className:'dsh-ws-chat-drop-card'},translate('drop.releaseImages'))):null),!collapsed?h(ResizeHandle,{label:translate('resize.sidebar'),left:sidebar,max:sidebarMax,min:SIDEBAR_MIN,onDragging:setResizing,onResize:width=>props.actions.setSidebar(width,sidebarMax),value:sidebar}):null,(panes.explorerOpen||filesActive)?h(ResizeHandle,{label:translate('resize.preview'),left:settings.previewRight===true?Math.max(0,viewportWidth-preview):previewBoundary,max:previewMax,min:PREVIEW_MIN,onDragging:setResizing,onResize:width=>props.explorerPaneStore.actions.setPreview(width,previewMax),value:preview,invert:settings.previewRight===true||undefined}):null,h('aside',{className:'dsh-ws-details','data-closed':!panels.detailsOpen||!detailsCapable||undefined},h(props.SessionProvider,null,props.renderSlot('details',{}))),mobile.on&&mobile.drawerOpen?h('div',{className:'dsh-ws-mobile-scrim',onClick:()=>setDrawerOpen(false)}):null,h('div',{className:'dsh-ws-overlay','data-shell-overlay':true},props.renderSlot('shell.overlay',{})),sessionContextMenu?h('div',{className:'dsh-ws-context-menu',ref:sessionMenuRef,role:'menu',style:{left:Math.max(4,Math.min(sessionContextMenu.x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top:Math.max(4,Math.min(sessionContextMenu.y,window.innerHeight-SESSION_CONTEXT_MENU_HEIGHT-8))}},h('button',{className:'dsh-ws-context-item',onClick:beginSessionInlineRename,role:'menuitem',type:'button',title:sessionContextMenu.ambiguous?translate('context.ambiguousTitle',{id:String(sessionContextMenu.sessionId).slice(0,8)}):undefined},translate('context.renameSession')+(sessionContextMenu.ambiguous?` · ${String(sessionContextMenu.sessionId).slice(0,8)}`:'')),h('button',{className:'dsh-ws-context-item',onClick:archiveSessionFromMenu,role:'menuitem',type:'button',title:sessionContextMenu.ambiguous?translate('context.ambiguousTitle',{id:String(sessionContextMenu.sessionId).slice(0,8)}):undefined},translate('context.archiveSession')+(sessionContextMenu.ambiguous?` · ${String(sessionContextMenu.sessionId).slice(0,8)}`:'')),h('div',{className:'dsh-ws-context-separator',role:'separator'}),h('button',{className:'dsh-ws-context-item',onClick:revealSessionFromMenu,role:'menuitem',type:'button'},translate('context.reveal'))):null,sessionInlineRename?h(SessionInlineRename,{busy:sessionInlineRenameBusy,error:sessionInlineRenameError,key:sessionInlineRename.sessionId,onCancel:cancelSessionInlineRename,onConfirm:confirmSessionInlineRename,row:sessionInlineRename.row,title:sessionInlineRename.title}):null,sessionNotice?h('div',{className:'dsh-ws-copy-notice','data-error':sessionNotice.error||undefined,role:'status'},sessionNotice.text):null,resourceNotice?h('div',{className:'dsh-ws-copy-notice','data-error':resourceNotice.error||undefined,role:'status'},resourceNotice.text):null))}
+  return h('div',{ref:viewportRef,className:'dsh-ws-viewport'},h('main',{className:'dsh-ws-frame','data-explorer-closed':!panes.explorerOpen&&!filesActive||undefined,'data-sidebar-collapsed':collapsed||undefined,'data-sidebar-files':filesActive||undefined,'data-resizing':resizing||undefined,'data-preview-right':settings.previewRight===true||undefined,style:{'--dsh-ws-preview':`${preview}px`,'--dsh-ws-sidebar':`${sidebar}px`,'--dsh-ws-row-height':`${settings.rowHeight}px`,'--dsh-ws-mobile-header-h':`${mobileHeaderHeight}px`,'--dsh-ws-mindmap-spin-duration':mindmapSpinDuration,...fileColorVars}},h('aside',{className:'dsh-ws-sidebar',ref:asideRef},props.renderSlot('sidebar',{collapsed,width:sidebar}),sidebarChrome?.top?createPortal(h(SidebarTopActions,{collapsed,view,width:sidebar,onSelectSessions:()=>{props.actions.setView('sessions')},onSelectFiles:()=>{if(collapsed)props.toggleSidebar();props.actions.setView('files')}}),sidebarChrome.top):null,sidebarChrome&&(sidebarChrome.groups.length>0?sidebarChrome.groups.map(group=>createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:group.title,openSession:openMindmapSession,revealSession:revealSessionById}),group.container)):sidebarChrome.fallback?createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:undefined,openSession:openMindmapSession,revealSession:revealSessionById}),sidebarChrome.fallback):null)),workspace?h(WorkspaceExplorer,{key:`${workspace.workspaceId}:${previewSessionId ?? 'workspace'}`,createEntry:props.createEntry,listDirectory:props.listDirectory,mindmapActions:props.mindmapActions,persistPreviewSession,previewSessionId,publishEditorContext,readFile:props.readFile,renameEntry:props.renameEntry,saveFile:props.saveFile,loadDraft:props.loadDraft,persistDraftFile:props.persistDraftFile,removeDraftFile:props.removeDraftFile,draftTree:props.draftTree,checkFileChange:props.checkFileChange,settingsStore:props.settingsStore,sessionCwdOf,storedPreviewSession,sessionTitle,sessionId,renameSession:props.renameSession,treePortalTarget,useSessions:props.useSessions,workspace}):h(EmptyWorkspaceExplorer,{sessionTitle,treePortalTarget}),h(MindMapHost,{currentSession,mindmapActions:props.mindmapActions,previewSessionsStore:props.previewSessionsStore,settingsStore:props.settingsStore,useSessions:props.useSessions}),h('section',{className:'dsh-ws-chat',ref:chatSectionRef},props.renderSlot('main',{}, {entryKey:panels.panelInfo.activePanelId ?? 'conversation'}),chatDropActive?h('div',{className:'dsh-ws-chat-drop-mask',role:'presentation'},h('button',{'aria-label':translate('drop.closeAria'),className:'dsh-ws-chat-drop-close',onClick:()=>{chatDropSuppressed.current=true;setChatDropActive(false)},title:translate('drop.closeTitle'),type:'button'},'×'),h('div',{className:'dsh-ws-chat-drop-card'},translate('drop.releaseImages'))):null),!collapsed?h(ResizeHandle,{label:translate('resize.sidebar'),left:sidebar,max:sidebarMax,min:SIDEBAR_MIN,onDragging:setResizing,onResize:width=>props.actions.setSidebar(width,sidebarMax),value:sidebar}):null,(panes.explorerOpen||filesActive)?h(ResizeHandle,{label:translate('resize.preview'),left:settings.previewRight===true?Math.max(0,viewportWidth-preview):previewBoundary,max:previewMax,min:PREVIEW_MIN,onDragging:setResizing,onResize:width=>props.explorerPaneStore.actions.setPreview(width,previewMax),value:preview,invert:settings.previewRight===true||undefined}):null,h('aside',{className:'dsh-ws-details','data-closed':!panels.detailsOpen||!detailsCapable||undefined},h(props.SessionProvider,null,props.renderSlot('details',{}))),mobile.on&&mobile.drawerOpen?h('div',{className:'dsh-ws-mobile-scrim',onClick:()=>setDrawerOpen(false)}):null,h('div',{className:'dsh-ws-overlay','data-shell-overlay':true},props.renderSlot('shell.overlay',{})),sidebarChrome?.header&&collectionsActive?createPortal(h(CollectionsDropdown,{doc:collectionsDoc,notice:showSessionNotice,onPatch:patchCollections,onSelect:switchCollection,unavailable:collections.phase==='error',workspaces}),sidebarChrome.header):null,workspaceCollectionMenu.menu?h(CollectionsWorkspaceMenu,{anchor:{x:workspaceCollectionMenu.menu.x,y:workspaceCollectionMenu.menu.y},doc:collectionsDoc,notice:showSessionNotice,onClose:workspaceCollectionMenu.closeMenu,onPatch:patchCollections,workspaceId:workspaceCollectionMenu.menu.workspaceId,workspaces}):null,sessionContextMenu?h('div',{className:'dsh-ws-context-menu',ref:sessionMenuRef,role:'menu',style:{left:Math.max(4,Math.min(sessionContextMenu.x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top:Math.max(4,Math.min(sessionContextMenu.y,window.innerHeight-SESSION_CONTEXT_MENU_HEIGHT-8))}},h('button',{className:'dsh-ws-context-item',onClick:beginSessionInlineRename,role:'menuitem',type:'button',title:sessionContextMenu.ambiguous?translate('context.ambiguousTitle',{id:String(sessionContextMenu.sessionId).slice(0,8)}):undefined},translate('context.renameSession')+(sessionContextMenu.ambiguous?` · ${String(sessionContextMenu.sessionId).slice(0,8)}`:'')),h('button',{className:'dsh-ws-context-item',onClick:archiveSessionFromMenu,role:'menuitem',type:'button',title:sessionContextMenu.ambiguous?translate('context.ambiguousTitle',{id:String(sessionContextMenu.sessionId).slice(0,8)}):undefined},translate('context.archiveSession')+(sessionContextMenu.ambiguous?` · ${String(sessionContextMenu.sessionId).slice(0,8)}`:'')),h('div',{className:'dsh-ws-context-separator',role:'separator'}),h('button',{className:'dsh-ws-context-item',onClick:revealSessionFromMenu,role:'menuitem',type:'button'},translate('context.reveal'))):null,sessionInlineRename?h(SessionInlineRename,{busy:sessionInlineRenameBusy,error:sessionInlineRenameError,key:sessionInlineRename.sessionId,onCancel:cancelSessionInlineRename,onConfirm:confirmSessionInlineRename,row:sessionInlineRename.row,title:sessionInlineRename.title}):null,sessionNotice?h('div',{className:'dsh-ws-copy-notice','data-error':sessionNotice.error||undefined,role:'status'},sessionNotice.text):null,resourceNotice?h('div',{className:'dsh-ws-copy-notice','data-error':resourceNotice.error||undefined,role:'status'},resourceNotice.text):null))}
 
 export const inject = ['slots', 'theme', 'sessions', 'workspaces']
 export function mountStudio(ctx) {
