@@ -684,8 +684,8 @@ export function normalizeMindmapWorkspacePath(path) {
 }
 
 /* The action a click on a layout node performs — 'new' (new top-level session at the root),
-   'fork' (nested branch at this card) or 'switch' (jump the right-side chat to this node's own
-   session). Exact mirror of the openCard decision tree, shared by hover hint and click handler
+   'fork' (nested branch at this card), 'switch' (jump the right-side chat to this node's own
+   session) or 'peek' (temporarily expand a folded run). Exact mirror of the openCard decision tree, shared by hover hint and click handler
    so the hint can never drift from the real behavior. A generating session's last completed
    card is semantically a middle card (its real tail is the streaming card), hence it forks. */
 export const mindmapCardClickAction = (node, doc, runningFamilyIds, lastSeqBySession) => {

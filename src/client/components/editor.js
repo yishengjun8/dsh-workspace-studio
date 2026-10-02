@@ -410,10 +410,10 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
             foldGutter({ markerDOM: foldMarkerDOM }), drawSelection(), dropCursor(),
             EditorState.allowMultipleSelections.of(true), indentOnInput(), bracketMatching(), closeBrackets(),
             highlightSelectionMatches(), highlightActiveLine(), syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-            /* The search panel renders into a container div between the status
-               bar and the preview body: top:true puts it in the top panel group,
-               and panels({ topContainer }) places that group in the
-               plugin-owned container. */
+            /* The search panel renders into a container div between the file
+               header (and its notices) and the preview body: top:true puts it
+               in the top panel group, and panels({ topContainer }) places that
+               group in the plugin-owned container. */
             search({ top: true }),
             panels(searchPanelContainer?.current ? { topContainer: searchPanelContainer.current } : undefined),
             /* Search/goto-line panel labels render through EditorState.phrase();

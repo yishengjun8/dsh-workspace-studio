@@ -32,7 +32,7 @@ export const MINDMAP_ICON = h('g', { fill: 'none', stroke: 'currentColor', strok
 /* Self-drawn sidebar entries replacing the hidden ordinary session rows.
    Rendered per workspace group (all docs when groupTitle is undefined);
    click opens the root session, drag reorders (persisted per group),
-   right-click renames the root session or reveals its workspace. */
+   right-click renames the mind map's own title (doc.rootTitle) or reveals its workspace. */
 export const MINDMAP_ORDER_ALL_KEY = '__all__'
 export function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, openSession, revealSession }) {
   useMindmapRegistry()

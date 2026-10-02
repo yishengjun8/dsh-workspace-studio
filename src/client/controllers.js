@@ -160,7 +160,7 @@ export function workspaceOfSession(ctx, id) {
   return selectWorkspaceForSession(items, id, row.cwd)
 }
 
-/* The current session, derived the way DSH 0.1.7 itself derives it.
+/* The current session, derived the way the harness itself derives it (dev-notes §26).
    `SessionListState.current` was removed with the navigation move: the main
    view's session is now the one retained by the `mainView` source
    (ui-workspace selects it through ctx.sessions.retain), which is exactly what
@@ -206,9 +206,9 @@ export function recentWorkspaceIdOf(items, sessionsById) {
   return selected
 }
 
-/* Show a session in the main view. DSH 0.1.7 removed `ctx.sessions.open` and
-   gave navigation to the view owner (ui-workspace's `uiWorkspace` service), so
-   the new path is tried first and the pre-0.1.7 service second; a build with
+/* Show a session in the main view. The harness gave navigation to the view owner
+   (ui-workspace's `uiWorkspace` service), so the new path is tried first and the
+   older `ctx.sessions.open` service second (migration table: dev-notes §26); a build with
    neither throws instead of leaving a silently dead click. `reflect.get` reads
    a service without an inject declaration — `uiWorkspace` must stay optional,
    since older harness builds do not provide it at all. */
@@ -272,7 +272,7 @@ export class PromptContextBridge {
       originalSendSession = originalSendSession[SEND_SESSION_BRIDGE_ORIGINAL] ?? originalSendSession
     }
     if (typeof originalSendSession !== 'function') {
-      throw new Error('workspace-studio requires the Harness 0.1.x conversation.sendSession seam')
+      throw new Error('workspace-studio requires the Harness conversation.sendSession seam')
     }
     const token = this.installToken + 1
     this.installToken = token

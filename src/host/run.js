@@ -567,7 +567,8 @@ export async function buildRunPlan(workspace, relativePath, options = {}) {
     interpreter: null,
     interpreterName: null,
     interpreterOverride: false,
-    /* Where the resolved interpreter came from ('file' | 'extension' | 'family' | 'auto' | 'direct'),
+    /* Where the resolved interpreter came from ('file' | 'extension' | 'auto' | 'direct' — the client
+       also understands the retired 'family' tier, which only an unrestarted older Host can send),
        which path an override requested, and the highest-priority tier that was skipped because its
        path is no longer executable. `fileKey` is this file's own policy key (its absolute path). */
     interpreterSource: null,

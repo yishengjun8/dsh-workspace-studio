@@ -230,8 +230,8 @@ export function CollectionsDropdown({ doc, workspaces, onSelect, onPatch, notice
   }, [closeAll, doc, onSelect, run])
 
   /**
-   * Commit a drag. The rows are indexed with the built-in collection at 0, so a landing slot of
-   * `index` (insert before that row) is slot `index - 1` in the stored user order.
+   * Commit a drag. The rows start with the built-in views, so a landing slot of `index` (insert
+   * before that row) is slot `index - BUILTIN_ROWS.length` in the stored user order.
    */
   const commitOrder = useCallback(async (fromId, displayIndex) => {
     const ids = doc.collections.map(collection => collection.id)

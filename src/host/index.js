@@ -75,7 +75,7 @@ const RUN_ROUTES = Object.freeze({
 /* The runner's request body bound: the argument text is capped at 4 KiB by run.js, so the JSON
    envelope only needs a little headroom over the shared mutation cap. */
 const RUN_BODY_MAX_BYTES = 16 * 1024
-/* Workspace collections (collection.js): plugin-level (no workspaceId) and its own table, for the
+/* Workspace collections (collections.js): plugin-level (no workspaceId) and its own table, for the
    same reason the runner routes have one — the long chain below owns method/404 bookkeeping. */
 const COLLECTIONS_ROUTES = Object.freeze({
   [`${API_PREFIX}/collections`]: 'GET, HEAD, PUT',

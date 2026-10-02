@@ -47,7 +47,7 @@ export const mindmapRegistry = {
     /* Only a signature change (doc added/removed, rootTitle rename, branch-set
        fork, or updatedAt bump from a folded turn) may bump the version and
        re-render subscribers — unconditional notify re-ran them on every idle
-       5 s poll. updatedAt is included so a doc that gained a turn re-sorts to
+       poll tick. updatedAt is included so a doc that gained a turn re-sorts to
        the top of its sidebar group. */
     const signature = docs
       .map(doc => `${String(doc.sessionId)}\u0001${String(doc.rootTitle ?? '')}\u0001${(doc.branchSessionIds ?? []).map(String).sort().join('\u0003')}\u0001${Number(doc.updatedAt) || 0}`)

@@ -39,7 +39,7 @@ export function isBuiltinCollectionId(id) {
 }
 /** User collections per store. The built-in collection is not counted (it is not user content). */
 export const COLLECTIONS_MAX = 50
-/** Display-name length bound, in UTF-16 code units, after trimming. */
+/** Display-name length bound, in code points, after trimming. */
 export const COLLECTION_NAME_MAX = 40
 /** Workspace ids one collection may hold. */
 export const COLLECTION_WORKSPACE_MAX = 2000

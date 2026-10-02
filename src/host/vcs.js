@@ -504,6 +504,9 @@ function effectiveConfig(config) {
     vcsTimeoutMs: config.vcsTimeoutMs,
     vcsCacheTtlMs: config.vcsCacheTtlMs,
     vcsMaxEntries: config.vcsMaxEntries,
+    /* readVcsBase refuses a base larger than this instead of serving a truncated one, so the
+       field must travel through this view (it was missing, which silently disabled the guard). */
+    maxPreviewBytes: config.maxPreviewBytes,
     platform: process.platform,
     env: process.env,
   }

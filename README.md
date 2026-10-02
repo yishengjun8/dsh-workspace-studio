@@ -200,11 +200,11 @@ Host 仍是完整 Web 组合），因此本插件**没有单独的桌面端构�
 - **版本控制状态不假设 PATH**：桌面端（尤其 macOS 的 GUI 进程）继承的 PATH 往往找不到 `git` / `svn`。插件在按名字探不到命令时会再按平台常见安装位置探一次（macOS：`/usr/local/bin`、`/opt/homebrew/bin`、`/opt/local/bin`、`/usr/bin`；Windows：`%ProgramFiles%\Git\cmd`、`%ProgramFiles%\TortoiseSVN\bin`、`%ProgramFiles%\Subversion\bin`），Windows 上用环境变量拼路径、不写死盘符。两者都探不到时，状态条显示「未检测到 git / svn 命令」（琥珀色，点击可重试），**不会假装没有仓库**；也可以在 Host 配置里用 `gitExecutable` / `svnExecutable` 指定绝对路径——一旦指定就只用它，不再回退。这与 Web 端是同一段代码（能力探测，不是桌面端分支）。
 - **运行控制台两端一致，无降级**：脚本 / `.exe` 都在**运行 Host 的那台机器**上执行（Web 端 = 跑 `dsh web` 的机器，桌面端 = 你本机），两端走同一份 `src/host/run.js`、同一组 `/workspace-studio/api/run*` 相对路径接口、同一份 `run/policy.json` 信任与解释器设置，因此「首次运行确认」「不再询问」「指定解释器路径」在两端共享；输出回看依赖 Host 侧缓冲，页面源变化不影响它。平台差异只在命令解析上（Windows 支持 `.bat / .cmd / .exe / .com / .ps1` 与 `py -3`；macOS / Linux 支持 `.sh / .bash / .zsh / 带可执行位的文件`，`.exe` 与 `.bat` 会直接显示「当前系统无法运行该文件」而不是报错），这与 Web 端是同一段能力探测代码，不是桌面端分支。
 - **预览文字大小两端一致，无降级**：它是纯客户端设置，走与标签列表、其它界面设置相同的 localStorage（页面源不同各自存一份，两端互不影响），不新增 Host 接口、不涉及端口与窗口 chrome，因此桌面端不需要任何额外处理；同一个标签在 Web 端与桌面端各自记住自己的字号是预期行为（与标签列表本身一致）。
-- **工作区合集两端共用一份，无降级**：合集清单存在 Host 侧（`~/.dsh-plugin/dsh-workspace-studio/collections/collections.json`，与草稿、导图文档同一层），因此两端读到的是同一份、改一端另一端刷新即见；合集下拉本身是相对 URL 的插件接口 + 客户端 DOM 覆盖层，不涉及端口 / 窗口 chrome，「加入合集」也不弹系统对话框。唯一与环境相关的是**分组方式判断**：它读 Harness 自己持久化的视图状态（`dsh.workspace.view.v5` 的 `groupBy`，见维护者本地文档的开发笔记 §46），两端是同一份前端、同一个键；读不到时按 Harness 的默认值（按工作区）处理，功能照常可用。
+- **工作区合集两端共用一份，无降级**：合集清单存在 Host 侧（`~/.dsh-plugin/dsh-workspace-studio/collections/collections.json`，与草稿、导图文档同一层），因此两端读到的是同一份、改一端另一端刷新即见；合集下拉本身是相对 URL 的插件接口 + 客户端 DOM 覆盖层，不涉及端口 / 窗口 chrome，「加入合集」也不弹系统对话框。唯一与环境相关的是**分组方式判断**：它读 Harness 自己持久化的视图状态（`dsh.workspace.view.v5` 的 `groupBy`，见维护者本地文档的开发笔记 §47），两端是同一份前端、同一个键；读不到时按 Harness 的默认值（按工作区）处理，功能照常可用。
 - **起不来怎么办**：若插件让桌面端 Host 启动失败，原生恢复对话框提供「禁用第三方插件，备份 profile patch
   并重启」；已装好的包文件不会被删除，修好后在「插件」页重新启用即可。
 - **已实测**：官方桌面端 nightly（Electron 44 / Node 24.18.1 / 内置 dsh 0.2.0-rc.2 / pnpm 11.7.0）+
-  从 GitHub 安装的本插件（实测 1.0.20）可正常加载——Host 侧 `/workspace-studio/api/*` 返回本插件的
+  从 GitHub 安装的本插件可正常加载（首次实测版本 1.0.20）——Host 侧 `/workspace-studio/api/*` 返回本插件的
   响应，客户端侧在
   `dsh-app://app` 源下写入了本插件的界面状态（localStorage）。桌面端内置的 dsh 版本由发行版固定：
   若它与你在用的 Web 端版本不同，先按维护者本地文档里的 harness 耦合点清单复核一次即可——那是版本
@@ -270,7 +270,7 @@ bash ./uninstall.sh
 
 一个包内封装三个端面：
 
-- **Host 端**（`lib/index.js`）注册 `/workspace-studio/api`，按 Workspace ID 授权当前 Session（membership projection 或规范化 cwd），并分为七组接口：**读**（`/tree`、`/search`、`/file` GET/HEAD、`/raw`、`/external-file`、`/encodings`、`/reveal`）；**写**（仅在显式启用编辑时接受：`/file` PUT 保存、`/entry` 新建与重命名、`/fs` 复制 / 移动 / 删除，全部经修订版本校验、单段名称校验与原子替换，过期修订返回冲突而不静默覆盖）；**运行**（`/run` 启动、`/run/status` 增量取输出、`/run/stop` 中止、`/run/plan` 解析将执行的命令、`/run/policy` 读写「不再询问」与解释器路径，见 `src/host/run.js`，只执行白名单内的可运行文件且不经 shell，结束记录保留 10 分钟供刷新回看）；**上下文**（`/context` 按磁盘修订校验 clean 选区并渲染 `<opened_file>` / `<selection>` 封套，发送前调用）；**草稿**（`/draft`、`/draft-tree`，持久化到工作区之外的暂存盘，带 owner 校验、generation fence 与 tombstone）；**导图**（`/mindmap-doc` 读 / 写 / 删与 `/mindmap-doc/sync`、`/index`、`/rename`、`/models`、`/fork-cleanup`、`/regenerate-summary`、`/regenerate-all`、`/regenerate-session-summaries`、`/summarize-session`，按会话持久化导图文档、反向解析完整事件日志折叠所有会话的轮次，重命名只更新导图标题而不整份往返，AI 摘要的生成 / 重算 / 会话总结由 Host 串行调度）；**插件级**（`/update/check` 与 `/update/download` 支撑「插件更新」组，替换后需重启 dsh 生效；`/token-stats` 按客户端给定的 `[from, to)` 毫秒窗口汇总所有会话日志的 `assistant/message` usage 记录，`archived=0` 排除已归档会话，Host 以 `~/.dsh-plugin/dsh-workspace-studio/token-stats/usage-index.json` 增量缓存按日按模型的汇总结果，并以 `sessionRowFingerprint`（单会话物理修订 + `sizeBytes`，legacy 行的全库语料尾串已剥离）为变更信号）。
+- **Host 端**（`lib/index.js`）注册 `/workspace-studio/api`，按 Workspace ID 授权当前 Session（membership projection 或规范化 cwd），并分为八组接口：**读**（`/tree`、`/search`、`/file` GET/HEAD、`/raw`、`/external-file`、`/encodings`、`/reveal`、`/vcs` 与 `/vcs-base`（只读 Git / SVN 状态与单文件基线））；**写**（仅在显式启用编辑时接受：`/file` PUT 保存、`/entry` 新建与重命名、`/fs` 复制 / 移动 / 删除，全部经修订版本校验、单段名称校验与原子替换，过期修订返回冲突而不静默覆盖）；**运行**（`/run` 启动、`/run/status` 增量取输出、`/run/stop` 中止、`/run/plan` 解析将执行的命令、`/run/policy` 读写「不再询问」与解释器路径、`/run/interpreters` 返回每个可运行后缀解析到的解释器、`/run/probe` 做一次性版本探测，见 `src/host/run.js`，只执行白名单内的可运行文件且不经 shell，结束记录保留 10 分钟供刷新回看）；**上下文**（`/context` 按磁盘修订校验 clean 选区并渲染 `<opened_file>` / `<selection>` 封套，发送前调用）；**草稿**（`/draft`、`/draft-tree`，持久化到工作区之外的暂存盘，带 owner 校验、generation fence 与 tombstone）；**导图**（`/mindmap-doc` 读 / 写 / 删与 `/mindmap-doc/sync`、`/index`、`/rename`、`/models`、`/fork-cleanup`、`/regenerate-summary`、`/regenerate-all`、`/regenerate-session-summaries`、`/summarize-session`，按会话持久化导图文档、反向解析完整事件日志折叠所有会话的轮次，重命名只更新导图标题而不整份往返，AI 摘要的生成 / 重算 / 会话总结由 Host 串行调度）；**合集**（`/collections` 读 / 补丁写工作区合集，插件级、不要求 workspaceId，与草稿、导图文档同一层存储）；**插件级**（`/update/installed` 纯本地读取已装版本，`/update/check` 与 `/update/download` 支撑「插件更新」组，替换后需重启 dsh 生效；`/token-stats` 按客户端给定的 `[from, to)` 毫秒窗口汇总所有会话日志的 `assistant/message` usage 记录，`archived=0` 排除已归档会话，Host 以 `~/.dsh-plugin/dsh-workspace-studio/token-stats/usage-index.json` 增量缓存按日按模型的汇总结果，并以 `sessionRowFingerprint`（单会话物理修订 + `sizeBytes`，legacy 行的全库语料尾串已剥离）为变更信号）。
 - **Browser 端**（`lib/client.js`）提供兼容的 `ctx.layout` 服务与 `usePanelInfo` 标准 Hook（`panelInfo` 根贡献），占用根 Slot，声明 `sidebar`、`main`（keyed，承载新版 Harness 的会话面板）、`details` 与 `shell.overlay`，并加入文件树、CodeMirror 6 浏览器 / 编辑器、编辑器上下文行、工作区设置页、`/init` 命令、渲染视图与会话分支导图（预览标签页）。
 - **共享不变量**（`lib/invariant.js`）：只向 Harness 的 invariant 注册表登记本包的归属，当前**为空实现**；每次 Host 请求的路径包含、符号链接与写入资格校验都在 `src/host/paths.js` 与 `src/host/write.js` 里完成。
 
@@ -324,8 +324,11 @@ Browser 发送桥把渲染后的文本拼接到直接用户提示前，因此普
 │   ├── http.js / paths.js / workspace.js # 信任围栏、路径校验、归属查询
 │   ├── errors.js / session-rows.js       # 结构化错误原语、persistence.list 行原语
 │   ├── fs.js / write.js / encodings.js   # 读侧、写侧与编解码
-│   └── drafts.js / prompt-context.js / markdown.js / mindmap.js / token-stats.js / update.js
-├── lib/index.js                         # Host：有界的 Workspace 读、保存、新建、重命名、草稿、导图、统计与自更新 API
+│   ├── run.js / vcs.js                   # 运行控制台（唯一执行代码的模块）与只读版本控制状态
+│   ├── drafts.js / collections.js        # 暂存盘草稿、工作区合集
+│   ├── quarantine.js                     # 读不出当前格式的持久化内容的隔离区
+│   └── prompt-context.js / markdown.js / mindmap.js / token-stats.js / update.js
+├── lib/index.js                         # Host：有界的 Workspace 读、保存、新建、重命名、草稿、合集、导图、统计、版本控制状态、运行与自更新 API
 ├── lib/invariant.js                     # 向 Harness invariant 注册表登记本包（空实现，见「双面实现」）
 └── lib/client.js                        # 预构建三栏布局、文件树、编辑器、渲染视图与导图
 ```

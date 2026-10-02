@@ -466,9 +466,9 @@ export function mountStudio(ctx) {
      HTML relative assets, paged read-only browse, and the read-only preview of
      paths OUTSIDE the workspace): installed when the harness Remote service is
      available; the views degrade to a failure line without it.
-     DSH 0.1.7 merged the former `readAll` / `readRelated` into one
+     The workspace-files Remote exposes a single
      `readBytes(scope, path, { baseFile, range })` whose `data` is native bytes,
-     not base64 — calling a method that is not there throws SYNCHRONOUSLY inside
+     not base64 (migration table: dev-notes §26) — calling a method that is not there throws SYNCHRONOUSLY inside
      the renderer's effect, which the harness root error boundary answers by
      replacing the whole layout. So: install no face at all when the methods are
      absent (the views then report "unavailable"), and defer every call through a
@@ -739,9 +739,9 @@ export function mountStudio(ctx) {
   ctx.slots.inject('shell.overlay', () => ctx.slots.register({
     name: 'shell.overlay', id: 'workspace-mobile-hero', order: -100,
   }, MobileHeroControls))
-  // The browser Settings page owns every explorer preference in one section,
-  // grouped into plugin update, session browsing, mind-map browsing, file
-  // browsing, content browsing, and dialog settings.
+  // The browser Settings page owns every explorer preference as one stack of seven cards
+  // (maintenance & statistics, browsing & preview, icon & highlight colours, version
+  // control, mind map, conversation, interpreters; dev-notes §46).
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section', id: 'workspace-explorer', order: 5, label: () => translate('settings.section.title'),
     inject: () => ({ settingsStore }),

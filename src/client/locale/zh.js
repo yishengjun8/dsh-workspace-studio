@@ -478,7 +478,6 @@ export const zh = {
   'settings.interpreters.files': '文件级覆盖（{count}）',
   'settings.interpreters.filesEmpty': '暂无文件级覆盖。在运行控制台点「解释器」即可为单个文件指定。',
   'settings.interpreters.filesClearAll': '清除全部',
-  'settings.group.vcs': '版本控制',
   'settings.vcs.enabled': '显示版本控制状态',
   'settings.vcs.ignored': '弱化显示忽略项',
   'settings.vcs.hideDirs': '隐藏版本控制目录',
@@ -969,7 +968,7 @@ export const zh = {
   'error.run-status-failed': '读取运行状态失败',
   'error.run-stop-failed': '中止运行失败',
   'error.run-policy-failed': '读取或保存运行设置失败',
-  /* Workspace collections (dev-notes 46): the section-title dropdown, its member dialog, the
+  /* Workspace collections (dev-notes §47): the section-title dropdown, its member dialog, the
      workspace-row membership menu, and the sidebar chips. */
   'collections.title': '工作区合集',
   'collections.all': '全部工作区',

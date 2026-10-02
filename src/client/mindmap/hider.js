@@ -522,9 +522,6 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
   }
 }
 
-/* Whether a session (or any fork ancestor, subagent hops aside) belongs to a
-   mind-map family: a documented root/branch or a fork descendant of one. */
-
 /* Sessions the user has converted to a mind map this app session. The doc
    index refreshes only every 30 s, so right after a conversion `isMember` is
    still false: without this set the button would re-offer the convert dialog.

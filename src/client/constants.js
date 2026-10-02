@@ -340,7 +340,7 @@ export const COLLECTION_LIMIT = 50
 export const COLLECTION_NAME_MAX = 40
 /* The harness's persisted workspace-browser view store (`dsh.workspace.view.v5`): its `groupBy`
    decides whether the collection dropdown and its filtering are active at all. Both the key and the
-   field are a harness coupling point (dev-notes §46); an unreadable value falls back to the
+   field are a harness coupling point (dev-notes §47); an unreadable value falls back to the
    harness's own default, 'workspace'. */
 export const WORKSPACE_VIEW_STORE_KEY = 'dsh.workspace.view.v5'
 export const WORKSPACE_GROUP_BY_DEFAULT = 'workspace'

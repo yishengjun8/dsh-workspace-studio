@@ -21,7 +21,7 @@ export function reviewAddressOfTab(tab) {
   return path.startsWith('review:') ? path.slice('review:'.length) : ''
 }
 export function isReviewTab(tab) { return tab !== null && tab !== undefined && tab.kind === 'review' }
-/* A tab that renders something other than a workspace file — a docked mind map, an opened plan, or a turn's change review. Such a tab has no file read, draft, editor state, or tree selection, and never enters the persisted snapshot. */
+/* A tab that renders something other than a workspace file — a docked mind map, an opened plan, or a turn's change review. Such a tab has no file read, draft, editor state, or tree selection; the plan/review ones are also dropped from every persisted snapshot, while a docked mind map DOES persist under its dockedAt family key. */
 export function isSyntheticTab(tab) { return isMindmapTab(tab) || isPlanTab(tab) || isReviewTab(tab) }
 /* Whether a tab is dropped from every persisted snapshot: an external (dropped-in
    or outside-workspace) tab whose content lives only in memory, an opened plan, or

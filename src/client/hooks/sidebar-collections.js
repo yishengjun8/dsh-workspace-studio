@@ -1,6 +1,6 @@
 /** Sidebar DOM work for workspace collections.
  *
- * Two couplings to the Harness sidebar live here (see dev-notes §46):
+ * Two couplings to the Harness sidebar live here (see dev-notes §47):
  *
  *  1. Filtering is a generated STYLESHEET, not a per-frame DOM pass. Harness workspace groups carry
  *     `data-row-key="workspace:<workspaceId>"` (the ungrouped bucket has the empty id) and session

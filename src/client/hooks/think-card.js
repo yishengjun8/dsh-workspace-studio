@@ -21,7 +21,7 @@ export function useThinkCard({ chatSectionRef }) {
      blocks collapses both conservatively. */
   const userInteractedRef = useRef(new WeakSet())
   const interactedKeysRef = useRef(new Set())
-  /* Per think root, the attached body tracker: { body, observer, resize, onScroll, pinned }. */
+  /* Per think root, the attached body tracker: { body, observer, resize, onScroll, pinned, gate }. */
   const trackersRef = useRef(new Map())
   useEffect(() => {
     const section = chatSectionRef.current

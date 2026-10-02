@@ -479,7 +479,6 @@ export const en = {
   'settings.interpreters.files': 'Per-file overrides ({count})',
   'settings.interpreters.filesEmpty': 'No per-file override yet. Use the interpreter button in the run console to set one.',
   'settings.interpreters.filesClearAll': 'Clear all',
-  'settings.group.vcs': 'Version control',
   'settings.vcs.enabled': 'Show version control status',
   'settings.vcs.ignored': 'Dim ignored entries',
   'settings.vcs.hideDirs': 'Hide version control directories',
@@ -970,7 +969,7 @@ export const en = {
   'error.run-status-failed': 'Could not read the run status',
   'error.run-stop-failed': 'Could not stop the run',
   'error.run-policy-failed': 'Could not read or save the run settings',
-  /* Workspace collections (dev-notes 46). */
+  /* Workspace collections (dev-notes §47). */
   'collections.title': 'Workspace collections',
   'collections.all': 'All workspaces',
   'collections.unowned': 'Unowned workspaces',

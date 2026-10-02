@@ -964,7 +964,7 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-token-foot{padding:10px 14px;border-top:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:17px;display:flex;flex-direction:column;gap:2px}
 .dsh-ws-token-failed{color:var(--dsw-alias-state-error-primary)}
 .dsh-ws-token-warming{color:var(--dsw-alias-label-secondary)}
-/* ---- Quick calculator at the bottom of the token-stats panel: shared unit prices (per 1M tokens) as one bordered chip per field, plus a per-model amount table whose price line sits on its own row so the table stays at six columns and never needs a horizontal scrollbar. No new colors — the money column reuses the success tint, everything else the shared aliases. ---- */
+/* ---- Quick calculator at the bottom of the token-stats panel: shared unit prices (per 1M tokens) as one bordered chip per field, plus a per-model amount table whose price line sits on its own row so the table stays at five columns and never needs a horizontal scrollbar. No new colors — the money column reuses the success tint, everything else the shared aliases. ---- */
 .dsh-ws-token-cost{display:flex;flex-direction:column;gap:8px;padding-top:10px;border-top:1px solid var(--dsw-alias-border-l2)}
 .dsh-ws-token-cost-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .dsh-ws-token-cost-title{display:inline-flex;align-items:center;gap:8px;color:var(--dsw-alias-label-primary);font-size:13px;font-weight:600;line-height:20px}
@@ -1131,7 +1131,7 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-preview-tab-run{flex:none;width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-state-business-primary);animation:dsh-ws-run-pulse 1.4s ease-out infinite}
 @keyframes dsh-ws-run-pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--dsw-alias-state-business-primary) 55%,transparent)}70%{box-shadow:0 0 0 6px transparent}100%{box-shadow:0 0 0 0 transparent}}
 @media (prefers-reduced-motion:reduce){.dsh-ws-preview-tab-run{animation:none}}
-/* ================= Workspace collections (dev-notes 46) =================
+/* ================= Workspace collections (dev-notes §47) =================
    Dropdown replacing the Harness section title, its member dialog, the workspace-row membership
    menu, and the sidebar chips. The chips' CONTENT is generated per workspace by the filter
    stylesheet (that rule sets content); these rules only style the box it draws. */
