@@ -239,6 +239,22 @@ async function downloadAndCache(timeoutMs) {
   }
 }
 
+/** Local-only facts about this installation, for the settings panel's permanently visible 「当前版本」 badge: the version sitting on disk in this profile, the install mode, whether the swap target is a profile copy, and whether the running code is stale (an update landed after startup). Reads one file and walks the directory layout — no network, no cache write, no install mutation, so the panel can call it the moment it opens (and offline). */
+export async function installedInfo(config) {
+  const disk = readOwnPackageJson()
+  const current = typeof disk?.version === 'string' ? disk.version : null
+  const install = await inspectInstall()
+  return {
+    enabled: config.enableUpdateCheck !== false,
+    current,
+    installMode: install.installMode,
+    /* False when the swap target is not a copy inside a profile (a link: install resolves to the linked directory, a built-in one into the app bundle): the client then explains instead of offering a download whose request would be refused, and downloadUpdate refuses it too. */
+    updateSupported: install.insideProfile,
+    /* On-disk version differs from the version this loaded module was built with: an update (or a host rebuild) landed after startup, so the running code is stale until the user restarts dsh. */
+    restartPending: current !== null && LOADED_VERSION !== null && current !== LOADED_VERSION,
+  }
+}
+
 /** Query the repo (codeload tarball, cached for CHECK_CACHE_TTL_MS unless force) and compare against the installed version. Never mutates the installation. */
 export async function checkForUpdate(ctx, config, force) {
   if (config.enableUpdateCheck === false) return { enabled: false }
@@ -247,24 +263,17 @@ export async function checkForUpdate(ctx, config, force) {
   if (force !== true && meta.version !== null && Date.now() - meta.at < CHECK_CACHE_TTL_MS) {
     fresh = await cachedContentValid(meta)
   }
-  let latest = fresh ? meta.version : await downloadAndCache(CHECK_TIMEOUT_MS)
-  let disk = readOwnPackageJson()
-  if (disk === null) {
+  const latest = fresh ? meta.version : await downloadAndCache(CHECK_TIMEOUT_MS)
+  const local = await installedInfo(config)
+  if (local.current === null) {
     throw new HttpError(500, 'update-check-failed', '无法读取插件自身的 package.json')
   }
-  const current = typeof disk?.version === 'string' ? disk.version : null
-  const cmp = compareVersions(latest, current ?? '0.0.0')
-  const install = await inspectInstall()
+  const cmp = compareVersions(latest, local.current)
   return {
+    ...local,
     enabled: true,
-    current,
     latest,
     updateAvailable: cmp !== null && cmp > 0,
-    installMode: install.installMode,
-    /* False when the swap target is not a copy inside a profile (a link: install resolves to the linked directory, a built-in one into the app bundle): the client then explains instead of offering a download whose request would be refused, and downloadUpdate refuses it too. */
-    updateSupported: install.insideProfile,
-    /* On-disk version differs from the version this loaded module was built with: an update (or a host rebuild) landed after startup, so the running code is stale until the user restarts dsh. */
-    restartPending: current !== null && LOADED_VERSION !== null && current !== LOADED_VERSION,
   }
 }
 

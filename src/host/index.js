@@ -11,7 +11,7 @@ import { deleteDraftFile, draftTreeOperation, parseDraftGenerationQuery, readDra
 import { adoptMindmapOrphans, buildMindmapDoc, clearForkInheritedQueue, deleteMindmapDoc, findMindmapDocWithAncestors, indexMindmapDocs, isValidMindmapDoc, listMindmapModels, MINDMAP_DOC_MAX_BYTES, mindmapAnchorOf, mindmapDocPath, mindmapDrainPendingSessionSummaries, mindmapInvalidatePersistenceList, mindmapLock, mindmapLockedReanchorOp, mindmapSessionSummarizingOf, mindmapSummarizingOf, mindmapSyncCache, parseMindmapSummaryConfig, purgeArchivedMindmapDocs, readMindmapDocFile, refreshMindmapDocCore, regenerateAllMindmapSummaries, regenerateAllSessionSummaries, regenerateMindmapSummary, renameMindmapDoc, seedMindmapSyncCacheAfterLoad, summarizeMindmapSession, syncMindmapDoc, validateMindmapSession, warmMindmapParsedCache, writeMindmapDoc } from './mindmap.js'
 import { renderPromptContext } from './prompt-context.js'
 import { renderMarkdownDocument } from './markdown.js'
-import { checkForUpdate, downloadUpdate } from './update.js'
+import { checkForUpdate, downloadUpdate, installedInfo } from './update.js'
 import { computeTokenStats, warmTokenStatsIndex } from './token-stats.js'
 import { readVcsBase, readVcsStatus } from './vcs.js'
 import { buildRunPlan, clearExecutableCache, describeRunExtensions, probeInterpreter, readRunPolicy, readRunPolicyStore, readRunStatus, startRun, stopAllRuns, stopRun, writeRunPolicy } from './run.js'
@@ -223,6 +223,7 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
     const mindmapDocSummarizeSessionEndpoint = url.pathname === `${API_PREFIX}/mindmap-doc/summarize-session`
     const mindmapForkCleanupEndpoint = url.pathname === `${API_PREFIX}/mindmap-doc/fork-cleanup`
     const updateCheckEndpoint = url.pathname === `${API_PREFIX}/update/check`
+    const updateInstalledEndpoint = url.pathname === `${API_PREFIX}/update/installed`
     const updateDownloadEndpoint = url.pathname === `${API_PREFIX}/update/download`
     const tokenStatsEndpoint = url.pathname === `${API_PREFIX}/token-stats`
     const vcsEndpoint = url.pathname === `${API_PREFIX}/vcs`
@@ -281,12 +282,14 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
                                                     ? 'GET, HEAD, POST, DELETE'
                                                     : draftEndpoint
                                                       ? 'GET, HEAD, PUT, DELETE'
-                                                      : undefined
+                                                      : updateInstalledEndpoint
+                                                        ? 'GET, HEAD'
+                                                        : undefined
     if (allowed !== undefined && !allowed.split(', ').includes(req.method ?? '')) {
       sendError(req, res, 405, 'method-not-allowed', `该接口只允许 ${allowed} 请求`, { allow: allowed })
       return
     }
-    if (!contextEndpoint && !encodingsEndpoint && !entryEndpoint && !externalFileEndpoint && !fileEndpoint && !rawEndpoint && !fsEndpoint && !treeEndpoint && !searchEndpoint && !revealEndpoint && !draftEndpoint && !draftTreeEndpoint && !mindmapDocEndpoint && !mindmapDocIndexEndpoint && !mindmapDocSyncEndpoint && !mindmapDocRenameEndpoint && !mindmapDocModelsEndpoint && !mindmapDocRegenerateEndpoint && !mindmapDocRegenerateAllEndpoint && !mindmapDocRegenerateSessionSummariesEndpoint && !mindmapDocSummarizeSessionEndpoint && !mindmapForkCleanupEndpoint && !updateCheckEndpoint && !updateDownloadEndpoint && !tokenStatsEndpoint && !vcsEndpoint && !vcsBaseEndpoint) {
+    if (!contextEndpoint && !encodingsEndpoint && !entryEndpoint && !externalFileEndpoint && !fileEndpoint && !rawEndpoint && !fsEndpoint && !treeEndpoint && !searchEndpoint && !revealEndpoint && !draftEndpoint && !draftTreeEndpoint && !mindmapDocEndpoint && !mindmapDocIndexEndpoint && !mindmapDocSyncEndpoint && !mindmapDocRenameEndpoint && !mindmapDocModelsEndpoint && !mindmapDocRegenerateEndpoint && !mindmapDocRegenerateAllEndpoint && !mindmapDocRegenerateSessionSummariesEndpoint && !mindmapDocSummarizeSessionEndpoint && !mindmapForkCleanupEndpoint && !updateCheckEndpoint && !updateInstalledEndpoint && !updateDownloadEndpoint && !tokenStatsEndpoint && !vcsEndpoint && !vcsBaseEndpoint) {
       sendError(req, res, 404, 'endpoint-not-found', '接口不存在')
       return
     }
@@ -390,6 +393,11 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
       }
       /* force=1 from the explicit 检查更新/重试 buttons: bypass the check cache TTL and re-download the main-branch tarball. */
       sendJson(req, res, 200, await checkForUpdate(ctx, config, url.searchParams.get('force') === '1'))
+      return
+    }
+    if (updateInstalledEndpoint) {
+      /* Local read only, so the settings panel can show 「当前版本」 the moment it opens — offline included. Never touches the network or the check cache. */
+      sendJson(req, res, 200, await installedInfo(config))
       return
     }
     if (updateDownloadEndpoint) {

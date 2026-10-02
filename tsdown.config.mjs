@@ -1,6 +1,12 @@
+import { readFileSync } from 'node:fs'
 import { defineConfig } from 'tsdown'
 
 const ID = '@yishengjun8/dsh-workspace-studio'
+/* The version of the bundle being built, inlined into the client so the settings page can show
+   「当前版本」 the instant it opens, without waiting for a Host round-trip (the Host's own
+   /update/installed answer stays authoritative and is preferred when it arrives). package.json
+   remains the single source of truth. */
+const VERSION = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version
 const EXTERNALS = [
   'react',
   'react-dom',
@@ -26,6 +32,7 @@ const client = defineConfig({
   },
   define: {
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production'),
+    __DSH_WS_VERSION__: JSON.stringify(VERSION),
   },
   outputOptions: {
     entryFileNames: 'client.js',

@@ -470,6 +470,22 @@ export async function checkUpdate(signal, force) {
   }
   return payload
 }
+/* Locally answered update facts (Host reads the installed package.json, no network): the settings panel calls this on mount so 「当前版本」 is visible before any check, and so the install-mode note can be shown up front. A Host build without this route answers 404 — the caller treats it as «version unknown» and keeps working. */
+export async function fetchInstalledUpdateInfo(signal) {
+  const response = await fetch(`${API_PREFIX}/update/installed`, { method: 'GET', headers: { accept: 'application/json' }, credentials: 'same-origin', signal: withTimeout(signal, UPDATE_CHECK_TIMEOUT_MS) })
+  if (!response.ok) throw await responseFailure(response, 'update-failed', 'error.update-failed')
+  let payload
+  try {
+    payload = await response.json()
+  } catch (error) {
+    if (error?.name === 'AbortError') throw error
+    throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.update', { status: response.status }), response.status)
+  }
+  if (typeof payload?.enabled !== 'boolean') {
+    throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.update', { status: response.status }), response.status)
+  }
+  return payload
+}
 export async function downloadUpdate(version, signal) {
   const response = await fetch(`${API_PREFIX}/update/download`, { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ version }), signal: withTimeout(signal, UPDATE_DOWNLOAD_TIMEOUT_MS) })
   /* The download/install failure fallback is its own key, since the generic 'error.update-failed' copy would mislead on a failed download. */

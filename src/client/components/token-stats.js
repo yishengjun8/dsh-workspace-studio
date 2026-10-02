@@ -186,17 +186,16 @@ function highlightLabel(label, terms) {
   return parts
 }
 
-/* Settings entry point: the group renders after the plugin-update group; the dialog lives inside it so no external state wiring is needed. */
-export function TokenStatsGroup() {
+/* Settings entry point: one row inside the 维护与统计 card (label | action | reset slot) plus the dialog it owns, so the settings page needs no state wiring for it. */
+export function TokenStatsRow() {
   const [open, setOpen] = useState(false)
   return h(Fragment, null,
-    h('div', { className: 'dsh-ws-settings-group' },
-      h('div', { className: 'dsh-ws-settings-group-title' }, translate('settings.group.tokens')),
-      h('div', { className: 'dsh-ws-settings-row' },
-        h('span', { className: 'dsh-ws-settings-label' }, translate('settings.tokens.usage')),
+    h('div', { className: 'dsh-ws-row', 'data-unit': '' },
+      h('div', { className: 'dsh-ws-row-label' },
+        h('span', { className: 'dsh-ws-row-label-text' }, translate('settings.tokens.usage'))),
+      h('div', { className: 'dsh-ws-row-control' },
         h('button', { className: 'dsh-ws-text-button', onClick: () => setOpen(true), type: 'button' }, translate('settings.tokens.open'))),
-      h('div', { className: 'dsh-ws-settings-hint' }, translate('settings.tokens.hint'))),
-    h('div', { className: 'dsh-ws-explorer-divider' }),
+      h('span', { className: 'dsh-ws-row-reset' })),
     open ? h(TokenStatsDialog, { onClose: () => setOpen(false) }) : null,
   )
 }
