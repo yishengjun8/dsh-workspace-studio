@@ -105,8 +105,29 @@ export function rawFileUrl(workspaceId, path) {
   const query = new URLSearchParams({ workspaceId: String(workspaceId), path })
   return `${API_PREFIX}/raw?${query}`
 }
-/* Absolute form of a same-document API URL, used only by the new-window action.
-   A served Web page is same-origin with its Host, so the document-relative URL stays
+/* Mint the HTML preview's site token. The returned prefix becomes the preview frame's <base>, so
+   every relative URL of the previewed document — images and fonts, CSS url() references, and paths
+   a page script builds at runtime — is fetched from the token-gated, read-only site route inside
+   the workspace instead of from the GUI's own origin (which is what a srcdoc document otherwise
+   resolves against). Root-relative, exactly like every other API URL of this plugin. */
+export async function mintPreviewSite(workspaceId, path, signal) {
+  const query = new URLSearchParams({ path })
+  if (workspaceId !== undefined && workspaceId !== null && workspaceId !== '') query.set('workspaceId', String(workspaceId))
+  const response = await fetch(`${API_PREFIX}/site-token?${query}`, { method: 'GET', headers: { accept: 'application/json' }, credentials: 'same-origin', signal: withTimeout(signal, REQUEST_TIMEOUT_MS) })
+  if (!response.ok) throw await responseFailure(response, 'site-token-failed', 'error.request-failed')
+  let payload
+  try {
+    payload = await response.json()
+  } catch (error) {
+    if (error?.name === 'AbortError') throw error
+    throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.file', { status: response.status }), response.status)
+  }
+  if (typeof payload?.prefix !== 'string' || payload.prefix === '') {
+    throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.file', { status: response.status }), response.status)
+  }
+  return payload.prefix
+}
+/* Absolute form of a same-document API URL, used only by the new-window action.   A served Web page is same-origin with its Host, so the document-relative URL stays
    untouched (and a mounted deployment keeps working). The Desktop shell serves the page
    from dsh-app://app while the Host listens on a loopback HTTP origin, and its
    window-open handler routes http(s) to the system browser while denying every other
@@ -448,6 +469,26 @@ export async function revealInExplorer(workspaceId, path, signal) {
   } catch (error) {
     if (error?.name === 'AbortError') throw error
     throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.reveal', { status: response.status }), response.status)
+  }
+  return payload
+}
+/* Hand one workspace file to the operating system's default program (the default browser for .html, the file
+   association otherwise). The PAGE cannot do this itself: an http(s) origin may not navigate to file://, and
+   the Desktop shell forwards only http(s) to the system browser — so the path travels through the Host and the
+   browser ends up with the file's own URL and natively-resolved relative resources. */
+export async function openFileExternal(workspaceId, path, signal) {
+  const query = new URLSearchParams({ workspaceId: String(workspaceId), path })
+  const response = await fetch(`${API_PREFIX}/open?${query}`, { method: 'POST', headers: { accept: 'application/json' }, credentials: 'same-origin', signal: withTimeout(signal, REQUEST_TIMEOUT_MS) })
+  if (!response.ok) throw await responseFailure(response, 'open-failed', 'error.open-failed.http')
+  let payload
+  try {
+    payload = await response.json()
+  } catch (error) {
+    if (error?.name === 'AbortError') throw error
+    throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.open', { status: response.status }), response.status)
+  }
+  if (payload?.opened !== true) {
+    throw new WorkspaceApiError('invalid-response', apiErrorMessage(undefined, undefined, 'error.invalid-response.open', { status: response.status }), response.status)
   }
   return payload
 }

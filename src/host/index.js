@@ -6,7 +6,7 @@ import { applyCollectionsPatch, readCollectionsStore } from './collections.js'
 import { isTrustedRequest, normalizeFailure, readJsonObject, requiredQuery, sendError, sendJson, sendRaw } from './http.js'
 import { normalizeRelativePath } from './paths.js'
 import { ENCODINGS } from './encodings.js'
-import { listTree, readExternalPreview, readPreview, readPreviewHead, readRawFile, revealInExplorer, searchWorkspace } from './fs.js'
+import { listTree, openInDefaultApp, readExternalPreview, readPreview, readPreviewHead, readRawFile, revealInExplorer, searchWorkspace } from './fs.js'
 import { createEntry, fsOperation, renameEntry, saveFile } from './write.js'
 import { deleteDraftFile, draftTreeOperation, parseDraftGenerationQuery, readDraftFile, saveDraftFile, validateDraftOwner, validateDraftPayload, writeJsonAtomic } from './drafts.js'
 import { adoptMindmapOrphans, buildMindmapDoc, clearForkInheritedQueue, deleteMindmapDoc, findMindmapDocWithAncestors, indexMindmapDocs, isValidMindmapDoc, listMindmapModels, MINDMAP_DOC_MAX_BYTES, mindmapAnchorOf, mindmapDocPath, mindmapDrainPendingSessionSummaries, mindmapInvalidatePersistenceList, mindmapLock, mindmapLockedReanchorOp, mindmapSessionSummarizingOf, mindmapSummarizingOf, mindmapSyncCache, parseMindmapSummaryConfig, purgeArchivedMindmapDocs, readMindmapDocFile, refreshMindmapDocCore, regenerateAllMindmapSummaries, regenerateAllSessionSummaries, regenerateMindmapSummary, renameMindmapDoc, seedMindmapSyncCacheAfterLoad, summarizeMindmapSession, syncMindmapDoc, validateMindmapSession, warmMindmapParsedCache, writeMindmapDoc } from './mindmap.js'
@@ -16,6 +16,7 @@ import { checkForUpdate, downloadUpdate, installedInfo } from './update.js'
 import { computeTokenStats, warmTokenStatsIndex } from './token-stats.js'
 import { readVcsBase, readVcsStatus } from './vcs.js'
 import { buildRunPlan, clearExecutableCache, describeRunExtensions, probeInterpreter, readRunPolicy, readRunPolicyStore, readRunStatus, startRun, stopAllRuns, stopRun, writeRunPolicy } from './run.js'
+import { handleSiteRequest, isSiteRequest, mintPreviewSite } from './site.js'
 import { workspaceFor } from './workspace.js'
 /** Stable Cordis plugin name. */
 export const name = 'workspace-studio'
@@ -56,6 +57,9 @@ export const Config = z.object({
   /* User-created workspace collections (the built-in "all workspaces" view is not counted): a bound
      keeps the dropdown usable, and the Host enforces it as well as the client. */
   maxCollections: z.natural().min(1).max(200).default(50),
+  /* Upper bound for ONE preview-site read (site.js): a subresource of a previewed page is often a
+     screenshot or a clip, i.e. far larger than a text preview, so it gets its own bound. */
+  maxSiteBytes: z.natural().min(1024).max(256 * 1024 * 1024).default(32 * 1024 * 1024),
 })
 
 const API_PREFIX = '/workspace-studio/api'
@@ -210,12 +214,30 @@ async function refreshMindmapDocLoad(ctx, persistence, doc) {
   return { doc: result, warnings: refresh.warnings, refresh: { changed: refresh.changed, wrote, adoptIncomplete: refresh.adoptIncomplete, warnings: refresh.warnings } }
 }
 async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
+  const url = new URL(req.url ?? '/', 'http://127.0.0.1')
+  /* The HTML-preview "site" byte route is TOKEN-gated instead of fence-gated (see site.js): the
+     preview frame is an opaque origin, so its subresource requests are legitimately `cross-site`
+     and the shared fence refuses them by design. Nothing else changes: every other route keeps the
+     fence, and this one only ever reads inside the confinement root its token was minted for. */
+  if (isSiteRequest(url.pathname, API_PREFIX)) {
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      sendError(req, res, 405, 'method-not-allowed', '该接口只允许 GET, HEAD 请求', { allow: 'GET, HEAD' })
+      return
+    }
+    try {
+      await handleSiteRequest(req, res, url, API_PREFIX, config)
+    } catch (error) {
+      const failure = normalizeFailure(error)
+      if (failure.status === 500) ctx.logger.warn(error instanceof Error ? error : new Error(String(error)))
+      sendError(req, res, failure.status, failure.code, failure.message, undefined, failure.data)
+    }
+    return
+  }
   if (!isTrustedRequest(req, trustedHosts)) {
     sendError(req, res, 403, 'request-not-trusted', '请求来源未获授权')
     return
   }
   try {
-    const url = new URL(req.url ?? '/', 'http://127.0.0.1')
     const runRoute = RUN_ROUTES[url.pathname]
     if (runRoute !== undefined) {
       if (!runRoute.split(', ').includes(req.method ?? '')) {
@@ -240,10 +262,12 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
     const externalFileEndpoint = url.pathname === `${API_PREFIX}/external-file`
     const fileEndpoint = url.pathname === `${API_PREFIX}/file`
     const rawEndpoint = url.pathname === `${API_PREFIX}/raw`
+    const siteTokenEndpoint = url.pathname === `${API_PREFIX}/site-token`
     const fsEndpoint = url.pathname === `${API_PREFIX}/fs`
     const treeEndpoint = url.pathname === `${API_PREFIX}/tree`
     const searchEndpoint = url.pathname === `${API_PREFIX}/search`
     const revealEndpoint = url.pathname === `${API_PREFIX}/reveal`
+    const openEndpoint = url.pathname === `${API_PREFIX}/open`
     const draftEndpoint = url.pathname === `${API_PREFIX}/draft`
     const draftTreeEndpoint = url.pathname === `${API_PREFIX}/draft-tree`
     const mindmapDocEndpoint = url.pathname === `${API_PREFIX}/mindmap-doc`
@@ -274,7 +298,9 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
               ? 'GET, HEAD, PUT'
               : rawEndpoint
                 ? 'GET, HEAD'
-                : fsEndpoint
+                : siteTokenEndpoint
+                  ? 'GET, HEAD'
+                  : fsEndpoint
                 ? 'POST'
                 : treeEndpoint
                   ? 'GET, HEAD'
@@ -282,7 +308,9 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
                     ? 'GET, HEAD'
                     : revealEndpoint
                       ? 'POST'
-                      : draftTreeEndpoint
+                      : openEndpoint
+                        ? 'POST'
+                        : draftTreeEndpoint
                         ? 'POST'
                         : mindmapDocIndexEndpoint
                             ? 'GET, HEAD'
@@ -323,7 +351,7 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
       sendError(req, res, 405, 'method-not-allowed', `该接口只允许 ${allowed} 请求`, { allow: allowed })
       return
     }
-    if (!contextEndpoint && !encodingsEndpoint && !entryEndpoint && !externalFileEndpoint && !fileEndpoint && !rawEndpoint && !fsEndpoint && !treeEndpoint && !searchEndpoint && !revealEndpoint && !draftEndpoint && !draftTreeEndpoint && !mindmapDocEndpoint && !mindmapDocIndexEndpoint && !mindmapDocSyncEndpoint && !mindmapDocRenameEndpoint && !mindmapDocModelsEndpoint && !mindmapDocRegenerateEndpoint && !mindmapDocRegenerateAllEndpoint && !mindmapDocRegenerateSessionSummariesEndpoint && !mindmapDocSummarizeSessionEndpoint && !mindmapForkCleanupEndpoint && !updateCheckEndpoint && !updateInstalledEndpoint && !updateDownloadEndpoint && !tokenStatsEndpoint && !vcsEndpoint && !vcsBaseEndpoint) {
+    if (!contextEndpoint && !encodingsEndpoint && !entryEndpoint && !externalFileEndpoint && !fileEndpoint && !rawEndpoint && !siteTokenEndpoint && !fsEndpoint && !treeEndpoint && !searchEndpoint && !revealEndpoint && !openEndpoint && !draftEndpoint && !draftTreeEndpoint && !mindmapDocEndpoint && !mindmapDocIndexEndpoint && !mindmapDocSyncEndpoint && !mindmapDocRenameEndpoint && !mindmapDocModelsEndpoint && !mindmapDocRegenerateEndpoint && !mindmapDocRegenerateAllEndpoint && !mindmapDocRegenerateSessionSummariesEndpoint && !mindmapDocSummarizeSessionEndpoint && !mindmapForkCleanupEndpoint && !updateCheckEndpoint && !updateInstalledEndpoint && !updateDownloadEndpoint && !tokenStatsEndpoint && !vcsEndpoint && !vcsBaseEndpoint) {
       sendError(req, res, 404, 'endpoint-not-found', '接口不存在')
       return
     }
@@ -337,6 +365,20 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
     }
     if (externalFileEndpoint) {
       sendJson(req, res, 200, await readExternalPreview(url, config, req))
+      return
+    }
+    if (siteTokenEndpoint) {
+      /* Mint the HTML preview's site token. Handled BEFORE the workspaceId requirement because an
+         out-of-workspace document is addressed by its absolute path alone. The client injects the
+         returned prefix as the preview frame's <base>, so every relative URL of the previewed
+         document — including ones a page script builds at runtime, and CSS url() references —
+         resolves through the token-gated read route instead of the GUI's own origin. */
+      sendJson(req, res, 200, await mintPreviewSite(
+        ctx,
+        API_PREFIX,
+        url.searchParams.get('workspaceId') ?? undefined,
+        requiredQuery(url, 'path'),
+      ))
       return
     }
     /* Mind-map docs are keyed by session, not workspace, so they are handled before the workspaceId requirement. */
@@ -631,6 +673,13 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
     }
     if (revealEndpoint) {
       sendJson(req, res, 200, await revealInExplorer(workspace, relativePath))
+      return
+    }
+    if (openEndpoint) {
+      /* "Open the file in the browser" (fs.js openInDefaultApp): the Host hands the workspace file to the OS
+         default program instead of serving its bytes, so the browser gets the file's OWN path and the page's
+         relative resources resolve natively. Markdown keeps the /raw server-rendered document. */
+      sendJson(req, res, 200, await openInDefaultApp(workspace, relativePath))
       return
     }
     /* Cheap change check for open preview tabs: the client polls this on a fixed cadence (no SSE push). The previous snapshot is parsed once and passed into fileChangeSnapshot so an unchanged mtime/size short-circuits before the hash, then the returned snapshot is compared for the client's `changed` answer. Scoped to the FILE endpoint's read methods: a stray `check=1` on /tree, /entry or a PUT must never hijack the real operation. */

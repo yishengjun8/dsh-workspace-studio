@@ -7,7 +7,7 @@ import { copyText, defaultEntryName, entryNameError, entryPath, joinAbsolutePath
 import { ancestorDirectoryPaths, dropIndexFromEvent, entryFromPreviewTab, isMindmapTab, isPlanTab, isReviewTab, isSyntheticTab, isTemporaryTab, isUnpersistedTab, mindmapRootIdOfTab, mindmapTabPath, normalizePreviewSession, openPermanentTab, openPreviewTab, orderPinnedFirst, planAddressOfTab, planTabPath, promoteTemporaryTab, reviewAddressOfTab, reviewTabPath, rewritePreviewTabs, serializePreviewSession } from '../../preview-tabs.js'
 import { registerPreviewFontReset } from '../../preview-font.js'
 import { IconFolder, IconNewFile, IconNewFolder, IconRefresh, IconSearch } from '../../icons.js'
-import { encodingLabel, fetchEncodings, hostAbsoluteHref, rawFileUrl, requestFsOperation, revealInExplorer, uploadExternalFile, WorkspaceApiError } from '../../api.js'
+import { encodingLabel, fetchEncodings, hostAbsoluteHref, openFileExternal, rawFileUrl, requestFsOperation, revealInExplorer, uploadExternalFile, WorkspaceApiError } from '../../api.js'
 import { hasDraggedFiles, hasNormalFile } from '../../utils.js'
 import { deleteEmergencyDraft, rewriteEmergencyDraftPath } from '../../drafts.js'
 import { invalidateCachedSubtree, rewriteCachedPaths } from '../../file-cache.js'
@@ -1853,13 +1853,39 @@ export function WorkspaceExplorer({
         : activeTab.diskState === DISK_STATE_STALE ? { text: translate('status.fileChanged') }
           : undefined
   const notice = status?.error === true ? status : (diskNotice ?? status)
-  /* "Open in new window" is limited to workspace file tabs the Host can serve as text: mind-map, plan, review, external, image, PDF, and Office tabs have no such content. The href is absolutized for a page whose origin is not the Host (the Desktop shell), whose window-open handler only forwards http(s) to the system browser. */
-  const canOpenInNewWindow = tabMenuTarget !== undefined && !isSyntheticTab(tabMenuTarget) && !tabMenuTarget.external
+  /* "Open in the browser" hands an HTML tab's file to the operating system, which passes the REAL PATH to the
+     default program, so the browser opens the file itself and its relative stylesheets, scripts and images
+     resolve natively. The page cannot do that itself: an http(s) origin may not navigate to file://, and the
+     Desktop shell forwards only http(s) to the system browser — hence the path travels through the Host.
+     EVERY OTHER file keeps the /raw browser tab on purpose. Handing a script to the OS default program RUNS
+     it (measured on Windows: `.js` is `WScript.exe "%1" %*`, and `.bat` / `.cmd` / `.ps1` / `.sh` are no
+     better), which would bypass the run console's first-run confirmation for one menu click; and the
+     remaining text types would merely open in Notepad or an editor instead of this plugin's clean text tab.
+     Mind-map, plan, review, external, image, PDF and Office tabs have no such file to open. */
+  const canOpenExternally = tabMenuTarget !== undefined && !isSyntheticTab(tabMenuTarget) && !tabMenuTarget.external
     && !isImageName(tabMenuTarget.name) && !isPdfName(tabMenuTarget.name) && !isOfficeName(tabMenuTarget.name)
-  const openTabInNewWindow = () => {
+  const openExternallyHtml = canOpenExternally && isHtmlName(tabMenuTarget.name)
+  const openExternallyLabel = translate(openExternallyHtml ? 'tab.openInBrowser' : 'tab.openInNewWindow')
+  const openExternallyTitle = translate(openExternallyHtml ? 'tab.openInBrowser.title' : 'tab.openInNewWindow.title')
+  const openTabExternally = () => {
     setTabContextMenu(undefined)
-    if (!canOpenInNewWindow) return
-    window.open(hostAbsoluteHref(rawFileUrl(workspace.workspaceId, tabMenuTarget.path)), '_blank', 'noopener')
+    if (!canOpenExternally) return
+    if (!openExternallyHtml) {
+      window.open(hostAbsoluteHref(rawFileUrl(workspace.workspaceId, tabMenuTarget.path)), '_blank', 'noopener')
+      return
+    }
+    const controller = new AbortController()
+    openFileExternal(workspace.workspaceId, tabMenuTarget.path, controller.signal).then(() => {
+      if (!mounted.current) return
+      setCopyNotice(translate('status.openedExternally'))
+      clearTimeout(copyNoticeTimer.current)
+      copyNoticeTimer.current = setTimeout(() => { if (mounted.current) setCopyNotice(undefined) }, 1600)
+    }).catch(error => {
+      if (!mounted.current || error?.name === 'AbortError') return
+      setCopyNotice(translate('status.revealFailed', { message: error instanceof Error ? error.message : String(error) }))
+      clearTimeout(copyNoticeTimer.current)
+      copyNoticeTimer.current = setTimeout(() => { if (mounted.current) setCopyNotice(undefined) }, 3000)
+    })
   }
   const treeSection = h('section', { className: 'dsh-ws-tree', style: vcsStatusColorVars(settings) },
       searchOpen
@@ -1996,7 +2022,7 @@ export function WorkspaceExplorer({
     },
       tabs.length ? h(PreviewTabs, { activePath, containerRef: previewTabsRef, draggingPath, dropIndex, onChoose: activateTab, onClose: closeTab, onContextMenu: (path, x, y) => setTabContextMenu({ path, x, y }), onDragEnd: () => { setDraggingPath(null); setDropIndex(null) }, onDragLeave: handleTabsDragLeave, onDragOver: updateDropIndex, onDragStart: (path, event) => { setDraggingPath(path); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', path) }, onDrop: handleTabsDrop, onMouseEnter: handleTabsMouseEnter, onMouseLeave: handleTabsMouseLeave, onPromote: promoteTab, onReload: reloadTab, onScroll: handleTabsScroll, onUnpin: unpinTab, tabs }) : null,
       tabs.length ? h('div', { className: 'dsh-ws-preview-scrollbar', onMouseEnter: handleScrollbarMouseEnter, onMouseLeave: handleScrollbarMouseLeave, onPointerCancel: handleScrollbarPointerEnd, onPointerDown: handleScrollbarPointerDown, onPointerMove: handleScrollbarPointerMove, onPointerUp: handleScrollbarPointerEnd, ref: previewScrollbarRef }, h('div', { className: 'dsh-ws-preview-scrollbar-thumb', ref: previewScrollThumbRef })) : null,
-      tabContextMenu ? h(TabContextMenu, { menuRef: tabMenuRef, onCloseOthers: () => { setTabContextMenu(undefined); closeOtherTabs(tabContextMenu.path) }, onTogglePin: () => { setTabContextMenu(undefined); if (tabMenuTarget?.pinned) unpinTab(tabContextMenu.path); else pinTab(tabContextMenu.path) }, onOpenInNewWindow: openTabInNewWindow, canOpenInNewWindow, canReload: tabMenuTarget !== undefined && !isSyntheticTab(tabMenuTarget) && !tabMenuTarget.external && tabMenuTarget.dirty !== true && tabMenuTarget.saving !== true, onReload: () => { setTabContextMenu(undefined); reloadTab(tabContextMenu.path) }, pinned: Boolean(tabMenuTarget?.pinned), reloadTitle: tabMenuTarget?.dirty === true ? translate('tab.reloadBlocked') : translate('tab.reload.title'), x: tabContextMenu.x, y: tabContextMenu.y }) : null,
+      tabContextMenu ? h(TabContextMenu, { menuRef: tabMenuRef, onCloseOthers: () => { setTabContextMenu(undefined); closeOtherTabs(tabContextMenu.path) }, onTogglePin: () => { setTabContextMenu(undefined); if (tabMenuTarget?.pinned) unpinTab(tabContextMenu.path); else pinTab(tabContextMenu.path) }, onOpenExternally: openTabExternally, canOpenExternally, openLabel: openExternallyLabel, openTitle: openExternallyTitle, canReload: tabMenuTarget !== undefined && !isSyntheticTab(tabMenuTarget) && !tabMenuTarget.external && tabMenuTarget.dirty !== true && tabMenuTarget.saving !== true, onReload: () => { setTabContextMenu(undefined); reloadTab(tabContextMenu.path) }, pinned: Boolean(tabMenuTarget?.pinned), reloadTitle: tabMenuTarget?.dirty === true ? translate('tab.reloadBlocked') : translate('tab.reload.title'), x: tabContextMenu.x, y: tabContextMenu.y }) : null,
       /* A mind-map tab hides the file header: the map draws its own toolbar
          and title bar. A plan tab hides it too: the document carries its own
          heading and has no file chrome to offer. A review tab hides it as

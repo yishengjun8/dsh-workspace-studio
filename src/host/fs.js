@@ -57,8 +57,8 @@ async function revealCommandFor(target, directory, platform = process.platform) 
   return undefined
 }
 
-/** Spawn a detached native reveal command and wait for it to actually launch. */
-function launchNativeReveal(command) {
+/** Spawn a detached native command and wait for it to actually launch. */
+function launchNativeCommand(command) {
   return new Promise((resolveLaunch, reject) => {
     const child = spawn(command.file, command.args, { detached: true, stdio: 'ignore' })
     child.once('error', reject)
@@ -79,10 +79,49 @@ export async function revealInExplorer(workspace, relativePath) {
     if (command === undefined) {
       throw new HttpError(501, 'unsupported-platform', '当前系统没有可用的桌面文件管理器')
     }
-    await launchNativeReveal(command)
+    await launchNativeCommand(command)
   } catch (error) {
     if (error instanceof HttpError) throw error
     throw new HttpError(500, 'reveal-failed', '无法在资源管理器中打开该路径')
+  }
+  return { workspaceId: String(workspace.id), path: relativePath, opened: true }
+}
+
+/** Resolve the native "open with the default program" command for one FILE: unlike the reveal command this
+ *  hands the file ITSELF to the shell, so the operating system picks its default handler (a browser for
+ *  .html). undefined on platforms with no desktop handler. */
+async function openCommandFor(target, platform = process.platform) {
+  if (platform === 'win32') return { file: 'explorer.exe', args: [target] }
+  if (platform === 'darwin') return { file: 'open', args: [target] }
+  if (platform === 'linux') {
+    if (isWslHost()) {
+      const windowsPath = await translateToWindowsPath(target)
+      return { file: 'explorer.exe', args: [windowsPath] }
+    }
+    return { file: 'xdg-open', args: [target] }
+  }
+  return undefined
+}
+
+/** Hand one workspace-confined FILE to the operating system's default program. This is the only way a page
+ *  can let the browser open a local file itself: an http(s) page origin may not navigate to file://, and the
+ *  Desktop shell forwards only http(s) to the system browser (every other scheme is denied). No bytes cross
+ *  this route — the Host only resolves the path inside the workspace and launches the native command. */
+export async function openInDefaultApp(workspace, relativePath) {
+  if (relativePath === '') throw new HttpError(400, 'invalid-path', '请选择要打开的文件')
+  const root = await realpath(workspace.path)
+  const target = await resolveWorkspacePath(root, relativePath)
+  const targetStat = await stat(target)
+  if (!targetStat.isFile()) throw new HttpError(400, 'not-a-file', '所选路径不是普通文件')
+  try {
+    const command = await openCommandFor(target)
+    if (command === undefined) {
+      throw new HttpError(501, 'open-unsupported', '当前系统没有可用的桌面程序')
+    }
+    await launchNativeCommand(command)
+  } catch (error) {
+    if (error instanceof HttpError) throw error
+    throw new HttpError(500, 'open-failed', '无法用系统默认程序打开该文件')
   }
   return { workspaceId: String(workspace.id), path: relativePath, opened: true }
 }

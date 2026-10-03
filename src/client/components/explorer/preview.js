@@ -100,9 +100,9 @@ export function PreviewPane({ preview, settings, editing, activeTab, draft, view
       isMarkdown && viewMode === 'preview'
         ? h('div', { className: 'dsh-ws-md-preview' }, h(MarkdownText, { text: draft, labels: markdownLabels }))
         : null,
-      // Rendered-page overlay for HTML files: the iframe draws the current draft via srcDoc, sandboxed to a unique origin so scripts run but cannot read dsh storage or call the plugin API.
+      // Rendered-page overlay for HTML files: the iframe draws the current draft via srcDoc, sandboxed to a unique origin so scripts run but cannot read dsh storage or call the plugin API; relative classic scripts/stylesheets are packed in, and every other relative URL (images, fonts, CSS url(), runtime-built paths) resolves through the token-gated site route installed as the frame's <base>.
       isHtmlFile && viewMode === 'preview'
-        ? h(HtmlPreview, { draft, path: preview.path, sessionId })
+        ? h(HtmlPreview, { draft, path: preview.path, readEpoch, sessionId, workspaceId })
         : null),
   ))
 }

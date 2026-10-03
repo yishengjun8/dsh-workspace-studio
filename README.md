@@ -23,9 +23,9 @@
 ### 1️⃣ 工作区文件浏览与预览标签页
 
 - 文件树融合在**左侧栏**：顶部按钮在「会话列表 / 文件浏览」间互切；当前会话属于某 Workspace 时自动显示其文件树（会话 `cwd` 与 Workspace 路径一致时同样识别），目录优先、逐级展开、可手动刷新。展开状态**按会话持久化**，刷新后自动恢复；点击「刷新」重新列目录后树的滚动位置也会还原（预览标签的垂直滚动位置同样随会话恢复）。
-- **预览标签页按 Session 保存**：可关闭、拖拽重排、滚轮横向滚动、跨重载恢复；右键可**固定**（图钉图标、自动排前，「关闭其他标签页」只关未固定）或**在新窗口内打开**。存在未保存修改时，标签名与面板标题的文件名末尾显示 `·`。
+- **预览标签页按 Session 保存**：可关闭、拖拽重排、滚轮横向滚动、跨重载恢复；右键可**固定**（图钉图标、自动排前，「关闭其他标签页」只关未固定）或**在外部打开**（HTML 标签走「在浏览器中打开文件」——交给系统默认浏览器打开文件本身；其余文本文件与 Markdown 仍在新标签页里打开）。存在未保存修改时，标签名与面板标题的文件名末尾显示 `·`。
 - **文件树单击 = 临时标签（斜体），双击 = 正式标签**：单击文件只是**临时预览**——再单击其它文件时**不新增标签**，而是在原位置把斜体标签换成为新文件；**双击**（或双击标签栏里的斜体标签、右键固定、在该标签里开始编辑）才转成正式标签。任何时点最多一个临时标签；替换永不吞掉未保存内容（有编辑就先转正式），刷新后恢复出来的标签一律为正式标签。搜索结果与聊天里的文件直达仍按原语义打开正式标签。
-- **查看方式菜单**（渲染器注册表驱动，与 Harness 右侧栏文档预览同源）：Markdown 在「源码编辑 / 渲染预览」间切换并**默认渲染预览**（GFM：表格、任务列表、删除线）；HTML 在「源码编辑 / 页面预览」间切换并**默认页面预览**，相对脚本与样式表经标准工作区文件接口打包进沙箱 iframe（编辑内容实时生效，打包防抖 400 ms）；图片（png / jpg / jpeg / gif / webp / bmp / ico / svg）直接预览；只读文本可分页浏览完整文件。查看方式按文件切换时重置为该文件的默认视图、不持久化。
+- **查看方式菜单**（渲染器注册表驱动，与 Harness 右侧栏文档预览同源）：Markdown 在「源码编辑 / 渲染预览」间切换并**默认渲染预览**（GFM：表格、任务列表、删除线）；HTML 在「源码编辑 / 页面预览」间切换并**默认页面预览** —— 预览帧注入一个由 Host 签发的一次性令牌基址，于是**页面的每一个相对 URL 都由浏览器原生解析**：`<img>`（静态的与脚本运行时生成的）、`srcset`、`video[poster]`、样式表里的 `url()`、字体 / 媒体、`<script src>` / `<link rel=stylesheet>`、页面自己的 `fetch()` / XHR，以及同目录的其它 HTML；编辑内容实时生效（防抖 400 ms）。图片（png / jpg / jpeg / gif / webp / bmp / ico / svg）直接预览；只读文本可分页浏览完整文件。查看方式按文件切换时重置为该文件的默认视图、不持久化。
 - **PDF 与 Office 文档预览**（渲染器注册表新增 `pdf` / `office` 两类）：`.pdf` 经标准工作区文件接口取原始字节直接预览；`.doc / .docx / .ppt / .pptx / .xls / .xlsx` 交给 Harness Host 的 `officeToPdf` 服务在**本机用 LibreOffice 转成 PDF** 后预览（有界队列 + 按内容摘要缓存，重复打开不再重转）。两者都以 blob URL 交给**浏览器自带 PDF 阅读器**渲染，因此缩放、翻页、文字选择与打印都可用，且不向产物里塞 PDF 引擎；转换缺字体时在顶部横幅列出字体名。这类标签与图片一样**只读、无草稿、不进编辑器上下文**，磁盘变更时自动重新转换。Host 未挂载转换服务时给出「当前 dsh 未提供文档转换服务」提示而不是空白。
 - **编码**：自动检测 14 种编码（UTF-8 / UTF-8 BOM / UTF-16 LE / BE / GBK / GB18030 / Big5 / Shift_JIS / EUC-JP / EUC-KR / ISO-8859-1 / Windows-1252 / Windows-1251 / ASCII）；右键预览头可「以编码打开…」重新解码或「另存为编码…」写回磁盘，面板头显示编码徽标；编码清单以 Host `/workspace-studio/api/encodings` 为准，请求失败回退内置清单，操作不会中断。
 - **聊天里的文件直达预览**：聊天中打开工作区文件（`dsh-resource://file/...` 地址）不再落到 Harness 右侧栏，而是解析为当前会话工作区内的路径，直接在本插件的预览标签页中打开；**工作区外的文件**转为会话内的只读外部预览标签（标签名标注「工作区外文件」，不写工作区、不落盘），只有「会话没有关联的工作区」才给出明确提示。
@@ -82,7 +82,7 @@
 | 🌿 **版本控制状态** | 工作区是 Git / SVN 仓库时，变更信息**全部直接长在文件树上**（不额外占一块面板）：行上显示状态徽标（已修改 / 已新增 / 未跟踪 / 已删除 / 已重命名 / 冲突 / 已忽略），目录显示子树变更数，**已删除**的文件以删除线幽灵行出现在它原本的父目录里（不可预览）；树上方一条状态条给出仓库类型、分支（Git）或 `r<版本>`（SVN）与变更总数，并提供「仅变更」「忽略项」两个开关——「仅变更」时同一棵树只留有变更的文件并**自动展开所有含变更的目录**（无需逐层点开，会话内有效、刷新恢复）。**编辑器**里同一套语义还会画在行号右侧（差异色标，见「内置编辑器」），**底部状态栏**在原有内容之间补一枚 `+n ~n −n` 摘要（有变更才出现，未计算时说明原因）。状态来自本机 `git` / `svn` 命令，**只读**：不联网、不暂存、不提交、不写 `index.lock`；未安装命令或读取失败时状态条显式提示（可点击重试），不会静默无状态 |
 | 💬 **聊天增强** | Think 条与编辑 / 写入 diff 以**常驻卡片**显示，正文视口行数可调（5–30，默认 10）、可滚动回看、可点击标题收起 |
 | 🏃 **运行控制台** | 预览可执行文件（脚本 / `.exe`）时下方给出运行控制台：运行 / 停止 / 重跑 / 清空 / 复制 / 跟随自动滚底，stdout 与 stderr 分色、退出码与用时、可拖动高度、按标签记住折叠；命令不经 shell、首次运行需确认、可中止整个进程树，详见「工作区文件浏览与预览标签页」 |
-| 🪟 **新窗口预览** | 右键标签「在新窗口内打开」：Markdown 渲染为文档（GFM，页面无脚本），HTML 原样运行页面脚本，其余文件显示原始文本；链接与图片仅放行 http / https / mailto（图片 / PDF / Office 标签不提供此项） |
+| 🪟 **在外部打开** | 右键标签：**HTML** 走「在浏览器中打开文件」——Host 把文件的**真实路径**交给系统默认浏览器，页面因此以 `file://` 打开，相对样式 / 脚本 / 图片照常加载（`file://` 页面自己的 `fetch()` / `XHR` / ES module 仍受浏览器 CORS 限制）；**Markdown** 仍走「在新窗口内打开」，由 Host 渲染成文档（GFM，页面无脚本；链接与图片仅放行 http / https / mailto）；**其余文本文件**同样留在「在新窗口内打开」的浏览器标签页里——**不**交给系统默认程序，因为那等于直接执行脚本（Windows 上 `.js` 关联 `WScript.exe`、`.bat` / `.cmd` / `.ps1` / `.sh` 同理），会绕过运行控制台的首次确认；图片 / PDF / Office 标签不提供此项，工作区外的只读标签也没有可打开的文件 |
 | 📄 **文档预览** | PDF 直接预览；Word / PowerPoint / Excel（.doc/.docx/.ppt/.pptx/.xls/.xlsx）由 Harness Host 在本机转 PDF 后预览，缺字体时给出横幅提示 |
 | 📊 **Token 统计** | 设置页按标准周 / 自然月（本周、上周、本月、上月、全部）或自定义起止日期统计所有会话日志的 token 用量，可查看总计或按模型明细（输入、缓存读取、输出；缓存写入既不显示也不计价），默认包含已归档会话；「按模型」明细下还可用「模型筛选」按名称片段（不区分大小写；多个关键词用空格 / 逗号分隔）只看匹配的模型；面板底部提供「快速计算」，填入输入 / 缓存读取 / 输出单价（每百万 tokens，货币符号可改、每行可单独覆盖）后，按当前显示与勾选的模型自动算出金额 |
 | 🔄 **插件更新** | 设置页从 GitHub（yishengjun8/dsh-workspace-studio）main 分支检查新版本，一键下载并替换**本端 profile** 中的安装文件；生效方式按端提示（Web 端重启进程并刷新页面，桌面端退出并重新打开 App；本地 `file:` 安装只替换 profile 副本） |
@@ -188,9 +188,17 @@ Host 仍是完整 Web 组合），因此本插件**没有单独的桌面端构�
 - **界面状态按源隔离，数据共享**：localStorage 以页面源为界，所以设置、预览标签、文件树展开、导图视口
   等界面状态在两端各存一份；而会话、`$DSH_HOME` 配置与 `~/.dsh-plugin/dsh-workspace-studio/`
   （编辑器草稿、导图文档、更新缓存）是同一份。两端同时开着并编辑同一份导图文档时按最后写入者为准。
-- **「在新窗口打开」**：桌面端窗口只把 `http(s)` 交给系统浏览器、其余 scheme 一律拒绝，因此该菜单项在
-  桌面端打开的是**系统默认浏览器**（插件接口与内置 `/api` 同形，loopback 请求不需要 cookie 也能读 raw）；
-  Web 端行为不变，仍是浏览器新标签页。
+- **「在浏览器中打开文件」（只对 HTML 标签）**：这一项不经 `window.open`，而是让 Host 用系统默认程序打开那个文件
+  （Windows `explorer.exe <路径>`、macOS `open <路径>`、Linux `xdg-open <路径>`，WSL 先 `wslpath -w` 换路径），
+  所以两端行为一致、交给浏览器的也是**文件的真实路径**：桌面端此前只有 `/raw` 接口 URL，现在 HTML 打开的是
+  `file:///…`，相对样式 / 脚本 / 图片随即可用。桌面端窗口只把 `http(s)` 交给系统浏览器、其余 scheme 一律拒绝，
+  所以这是唯一能让浏览器拿到本地文件的路子（页面自己 `window.open('file://…')` 会被浏览器拦掉）。
+  **为什么只对 HTML**：把脚本文件交给系统默认程序等于**直接执行它**（实测 Windows 上 `.js` 关联
+  `WScript.exe "%1" %*`，`.bat` / `.cmd` / `.ps1` / `.sh` 同理），一个菜单点击就会绕过运行控制台的首次确认；
+  其余文本文件交给系统默认程序也只是在记事本 / 编辑器里打开，不如本插件自己的文本标签页。所以它们与 Markdown
+  一样留在 `window.open('/workspace-studio/api/raw…')` 这条既有路径上。**降级**：打开的是**系统默认程序**，
+  无法指定「你现在正在用的那个浏览器」；Host 跑在远端（挂载部署）时文件在 **Host 那台机器**上打开，
+  与「在资源管理器中打开」同语义。
 - **标题栏条带由插件接管**：Windows 桌面端把标题栏那一行（拖动窗口的条带、`应用` / `编辑` 菜单、右上角
   原生窗口按钮）画在页面之上，harness 原本由 `ui-layout` 在自己的根框架里预留这一行——而本插件用根布局
   补丁禁用了 `ui-layout`，所以改由本插件的三栏框架预留同样的 40px 条带，并让条带继续负责拖动窗口、同时
@@ -228,6 +236,7 @@ bash ./uninstall.sh
 | `maxPreviewBytes` | `1048576` | 单文件读取并返回的最大字节（1024–10485760）。 |
 | `maxEditableBytes` | `1048576` | 单文件可保存的最大 UTF-8 字节（1024–10485760）。 |
 | `maxExternalUploadBytes` | `8388608` | 拖入的非工作区文件上传上限；预览仍按 `maxPreviewBytes` 截断（1024–268435456）。 |
+| `maxSiteBytes` | `33554432` | HTML 预览站点路由**单个子资源**的最大字节（1024–268435456）：截图 / 录像远大于文本预览，所以与 `maxPreviewBytes` 分开。 |
 | `maxEntryNameBytes` | `255` | 新建 / 重命名条目名称最大 UTF-8 字节（1–1024）。 |
 | `maxMutationBodyBytes` | `4096` | create / rename 请求最大 JSON 字节（128–65536）。 |
 | `maxContextBytes` | `65536` | 选中文本 UTF-8 预检上限（1024–1048576）；仅路径上下文不提交文件字节。 |
@@ -270,7 +279,7 @@ bash ./uninstall.sh
 
 一个包内封装三个端面：
 
-- **Host 端**（`lib/index.js`）注册 `/workspace-studio/api`，按 Workspace ID 授权当前 Session（membership projection 或规范化 cwd），并分为八组接口：**读**（`/tree`、`/search`、`/file` GET/HEAD、`/raw`、`/external-file`、`/encodings`、`/reveal`、`/vcs` 与 `/vcs-base`（只读 Git / SVN 状态与单文件基线））；**写**（仅在显式启用编辑时接受：`/file` PUT 保存、`/entry` 新建与重命名、`/fs` 复制 / 移动 / 删除，全部经修订版本校验、单段名称校验与原子替换，过期修订返回冲突而不静默覆盖）；**运行**（`/run` 启动、`/run/status` 增量取输出、`/run/stop` 中止、`/run/plan` 解析将执行的命令、`/run/policy` 读写「不再询问」与解释器路径、`/run/interpreters` 返回每个可运行后缀解析到的解释器、`/run/probe` 做一次性版本探测，见 `src/host/run.js`，只执行白名单内的可运行文件且不经 shell，结束记录保留 10 分钟供刷新回看）；**上下文**（`/context` 按磁盘修订校验 clean 选区并渲染 `<opened_file>` / `<selection>` 封套，发送前调用）；**草稿**（`/draft`、`/draft-tree`，持久化到工作区之外的暂存盘，带 owner 校验、generation fence 与 tombstone）；**导图**（`/mindmap-doc` 读 / 写 / 删与 `/mindmap-doc/sync`、`/index`、`/rename`、`/models`、`/fork-cleanup`、`/regenerate-summary`、`/regenerate-all`、`/regenerate-session-summaries`、`/summarize-session`，按会话持久化导图文档、反向解析完整事件日志折叠所有会话的轮次，重命名只更新导图标题而不整份往返，AI 摘要的生成 / 重算 / 会话总结由 Host 串行调度）；**合集**（`/collections` 读 / 补丁写工作区合集，插件级、不要求 workspaceId，与草稿、导图文档同一层存储）；**插件级**（`/update/installed` 纯本地读取已装版本，`/update/check` 与 `/update/download` 支撑「插件更新」组，替换后需重启 dsh 生效；`/token-stats` 按客户端给定的 `[from, to)` 毫秒窗口汇总所有会话日志的 `assistant/message` usage 记录，`archived=0` 排除已归档会话，Host 以 `~/.dsh-plugin/dsh-workspace-studio/token-stats/usage-index.json` 增量缓存按日按模型的汇总结果，并以 `sessionRowFingerprint`（单会话物理修订 + `sizeBytes`，legacy 行的全库语料尾串已剥离）为变更信号）。
+- **Host 端**（`lib/index.js`）注册 `/workspace-studio/api`，按 Workspace ID 授权当前 Session（membership projection 或规范化 cwd），并分为八组接口：**读**（`/tree`、`/search`、`/file` GET/HEAD、`/raw`、`/open`、`/external-file`、`/encodings`、`/reveal`、`/vcs` 与 `/vcs-base`（只读 Git / SVN 状态与单文件基线））；**写**（仅在显式启用编辑时接受：`/file` PUT 保存、`/entry` 新建与重命名、`/fs` 复制 / 移动 / 删除，全部经修订版本校验、单段名称校验与原子替换，过期修订返回冲突而不静默覆盖）；**运行**（`/run` 启动、`/run/status` 增量取输出、`/run/stop` 中止、`/run/plan` 解析将执行的命令、`/run/policy` 读写「不再询问」与解释器路径、`/run/interpreters` 返回每个可运行后缀解析到的解释器、`/run/probe` 做一次性版本探测，见 `src/host/run.js`，只执行白名单内的可运行文件且不经 shell，结束记录保留 10 分钟供刷新回看）；**上下文**（`/context` 按磁盘修订校验 clean 选区并渲染 `<opened_file>` / `<selection>` 封套，发送前调用）；**草稿**（`/draft`、`/draft-tree`，持久化到工作区之外的暂存盘，带 owner 校验、generation fence 与 tombstone）；**导图**（`/mindmap-doc` 读 / 写 / 删与 `/mindmap-doc/sync`、`/index`、`/rename`、`/models`、`/fork-cleanup`、`/regenerate-summary`、`/regenerate-all`、`/regenerate-session-summaries`、`/summarize-session`，按会话持久化导图文档、反向解析完整事件日志折叠所有会话的轮次，重命名只更新导图标题而不整份往返，AI 摘要的生成 / 重算 / 会话总结由 Host 串行调度）；**合集**（`/collections` 读 / 补丁写工作区合集，插件级、不要求 workspaceId，与草稿、导图文档同一层存储）；**插件级**（`/update/installed` 纯本地读取已装版本，`/update/check` 与 `/update/download` 支撑「插件更新」组，替换后需重启 dsh 生效；`/token-stats` 按客户端给定的 `[from, to)` 毫秒窗口汇总所有会话日志的 `assistant/message` usage 记录，`archived=0` 排除已归档会话，Host 以 `~/.dsh-plugin/dsh-workspace-studio/token-stats/usage-index.json` 增量缓存按日按模型的汇总结果，并以 `sessionRowFingerprint`（单会话物理修订 + `sizeBytes`，legacy 行的全库语料尾串已剥离）为变更信号）。
 - **Browser 端**（`lib/client.js`）提供兼容的 `ctx.layout` 服务与 `usePanelInfo` 标准 Hook（`panelInfo` 根贡献），占用根 Slot，声明 `sidebar`、`main`（keyed，承载新版 Harness 的会话面板）、`details` 与 `shell.overlay`，并加入文件树、CodeMirror 6 浏览器 / 编辑器、编辑器上下文行、工作区设置页、`/init` 命令、渲染视图与会话分支导图（预览标签页）。
 - **共享不变量**（`lib/invariant.js`）：只向 Harness 的 invariant 注册表登记本包的归属，当前**为空实现**；每次 Host 请求的路径包含、符号链接与写入资格校验都在 `src/host/paths.js` 与 `src/host/write.js` 里完成。
 
@@ -289,6 +298,8 @@ layout 提供方有意不硬注入 `conversation`：conversation 插件本身消
 上文这些 seam 适配的是 Harness 0.1.x 的具体 `sendSession`、输入提交、队列 steer、`ctx.sidebarRight.openResource` 与 `ctx.sessions.fork` 实现，因为跨包公开 face 不承载任意 Composer 上下文。它们都封装在本包内并在卸载时恢复，未来 Harness 版本可能只需更新本 bundle。
 
 预览覆盖 Markdown、HTML、图片、只读文本分页、代码高亮，以及 PDF 与 Office 文档（Word / PowerPoint / Excel 经 Host 转 PDF）。Office 预览**依赖 Harness 的 `officeToPdf` 服务与本地 LibreOffice kit**：服务缺失时该标签给出配置提示；转换受 Host 的输入 / 输出体积、并发与超时限制约束，超出时报错可重试。表格预览是转换后的静态 PDF，不做浏览器内可编辑表格；`.csv / .tsv` 仍按文本打开。
+
+HTML 页面预览靠 Host 的**一次性令牌**工作：打开时客户端为这份文档签发一个随机令牌（30 分钟、只读、只覆盖该文档所属工作区），并把它作为预览帧的基址，因此相对资源由浏览器原生加载 —— 静态与脚本生成的图片、CSS `url()`、字体 / 媒体、脚本与样式表、页面自己的 `fetch()` 都能用，单文件上限 32 MiB（可配置）。取不到令牌时回退为「只打包源码里静态声明的 js/css」。**工作区外**的预览标签（只读外部文件）不签发令牌，其相对子资源不解析。右键标签的「在浏览器中打开文件」（仅 HTML 标签）是另一条响应路径：它把文件的**真实路径**交给系统默认程序，HTML 由浏览器按 `file://` 自行解析相对资源，既不需要也不签发令牌；Markdown 与其余文本文件仍走 `/raw`。
 
 编辑器选区等瞬态状态属页面内存；预览标签、展开目录、侧栏 / 预览列宽度、预览标签的垂直滚动位置与暂存盘草稿状态都会恢复——标签、展开目录与宽度在重载后、以及返回原 Session 或 Workspace 时从本地持久化恢复（未保存内容本身存于暂存盘文件，见上文的暂存盘说明）。
 
