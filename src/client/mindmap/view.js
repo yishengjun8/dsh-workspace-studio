@@ -2,6 +2,7 @@ import { createElement as h, Fragment, useRef, useState, useEffect, useLayoutEff
 import { createPortal } from 'react-dom'
 import { clampMountBulge, CONTEXT_MENU_WIDTH, MINDMAP_LOAD_TIMEOUT_MS, MINDMAP_SLOW_LOAD_MS, MINDMAP_SUMMARY_DEFAULT_LENGTH, MINDMAP_SUMMARY_MAX_LENGTH, MINDMAP_SUMMARY_MIN_LENGTH, MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH, MINDMAP_SUMMARY_SESSION_MAX_LENGTH, MINDMAP_SUMMARY_SESSION_MIN_LENGTH, MINDMAP_SYNC_MS } from '../constants.js'
 import { translate } from '../locale/index.js'
+import { dismissesMenuOnScroll } from '../menu-dismiss.js'
 import { styles } from '../styles.js'
 import { regenerateAllMindmapSummaries, regenerateAllSessionSummaries, regenerateMindmapSummary, summarizeMindmapSession } from '../api.js'
 import { mindmapRegistry, readMindmapLastSession, removeMindmapLastSession, useMindmapDocHandoff, writeMindmapLastSession } from './registry.js'
@@ -1179,10 +1180,12 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     const onKeyDown = event => { if (event.key === 'Escape') closeMenu() }
     /* Same inside-menu guard as pointerdown: the root "choose workspace" menu
        is itself scrollable (max-height + overflow-y), so scrolling its list
-       must not close it. */
+       must not close it. Every other scroll closes the menu only when it can
+       move the canvas it is anchored to — the chat's streaming tail follow
+       must not (see menu-dismiss.js). */
     const onScroll = event => {
       if (menuRef.current !== null && event.target instanceof Node && menuRef.current.contains(event.target)) return
-      closeMenu()
+      if (dismissesMenuOnScroll(event, viewportRef.current)) closeMenu()
     }
     window.addEventListener('pointerdown', onPointerDown)
     window.addEventListener('keydown', onKeyDown)

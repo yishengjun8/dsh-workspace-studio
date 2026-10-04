@@ -1,8 +1,13 @@
 /** Dismiss a floating menu on outside press/context, Escape, resize or scroll. */
 import { useEffect } from 'react'
+import { dismissesMenuOnScroll } from '../../../menu-dismiss.js'
 
-/* Shared by every context menu and the encoding menu. */
-export function useDismissMenu(menuRef, isOpen, onClose) {
+/* Shared by every context menu and the encoding menu.
+   `anchorRef` names the element (or the scrolling region) the menu points at:
+   only a scroll that owns it dismisses the menu — see menu-dismiss.js, the
+   conversation's streaming tail follow must not close a menu opened on the
+   sidebar or the preview pane. */
+export function useDismissMenu(menuRef, isOpen, onClose, anchorRef) {
   useEffect(() => {
     if (!isOpen) return undefined
     const inside = event => {
@@ -13,17 +18,18 @@ export function useDismissMenu(menuRef, isOpen, onClose) {
     const onPointerDown = event => { if (!inside(event)) close() }
     const onContextMenu = event => { if (!inside(event)) close() }
     const onKeyDown = event => { if (event.key === 'Escape') close() }
+    const onScroll = event => { if (dismissesMenuOnScroll(event, anchorRef?.current ?? null)) close() }
     window.addEventListener('pointerdown', onPointerDown)
     window.addEventListener('contextmenu', onContextMenu, true)
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('resize', close)
-    window.addEventListener('scroll', close, true)
+    window.addEventListener('scroll', onScroll, true)
     return () => {
       window.removeEventListener('pointerdown', onPointerDown)
       window.removeEventListener('contextmenu', onContextMenu, true)
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('resize', close)
-      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('scroll', onScroll, true)
     }
-  }, [isOpen, menuRef, onClose])
+  }, [anchorRef, isOpen, menuRef, onClose])
 }

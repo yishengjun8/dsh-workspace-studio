@@ -1284,9 +1284,11 @@ export function WorkspaceExplorer({
   },[clipboard,contextMenu,copyEntryToClipboard,openDeleteConfirm,pasteEntry,selected,workspace.workspaceId])
   const openSearchMatch=useCallback((file,match)=>{const entry={kind:'file',name:file.name,path:file.path,symlink:false};chooseFile(entry);setSearchReveal({column:match.startLineColumn??match.startColumn,endColumn:match.endLineColumn??match.endColumn,line:match.line,path:file.path})},[chooseFile])
   const openSearchEntry=useCallback((file)=>{const entry={kind:file.kind==='directory'?'directory':'file',name:file.name,path:file.path,symlink:false};if(entry.kind==='directory'){chooseDirectory(entry);closeSearch()}else chooseFile(entry)},[chooseDirectory,chooseFile,closeSearch])
-  useDismissMenu(menuRef, contextMenu !== undefined, setContextMenu)
-  useDismissMenu(tabMenuRef, tabContextMenu !== undefined, setTabContextMenu)
-  useDismissMenu(titleMenuRef, titleContextMenu !== undefined, setTitleContextMenu)
+  /* Each menu names its own region: a scroll that cannot move that region (the
+     conversation's streaming tail follow above all) must not close the menu. */
+  useDismissMenu(menuRef, contextMenu !== undefined, setContextMenu, treeScrollRef)
+  useDismissMenu(tabMenuRef, tabContextMenu !== undefined, setTabContextMenu, previewTabsRef)
+  useDismissMenu(titleMenuRef, titleContextMenu !== undefined, setTitleContextMenu, previewHeaderRef)
 
   const openWithEncoding = useCallback((encodingId) => {
     // Same busy gate as confirmEncodingDialog: a reload racing an in-flight save-as applies a pre-save read result over the saved file (stale content + stale baselines).
@@ -1365,7 +1367,7 @@ export function WorkspaceExplorer({
       void save(selected)
     }
   }, [encodingDialog, encodingPick, openWithEncoding, save, saving])
-  useDismissMenu(encodingMenuRef, encodingMenu !== undefined, setEncodingMenu)
+  useDismissMenu(encodingMenuRef, encodingMenu !== undefined, setEncodingMenu, previewHeaderRef)
 
   const closeTab = useCallback((path) => {
     const current = tabsRef.current

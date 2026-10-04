@@ -7,6 +7,7 @@
  */
 import { createElement as h, Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { COLLECTION_ALL_ID, COLLECTION_LIMIT, COLLECTION_UNOWNED_ID, CONTEXT_MENU_WIDTH } from '../constants.js'
+import { dismissesMenuOnScroll } from '../menu-dismiss.js'
 import { translate, useLocaleText } from '../locale/index.js'
 import { clamp } from '../format.js'
 import { collectionById, collectionWorkspaceCount, isBuiltinCollection } from '../collections.js'
@@ -156,15 +157,22 @@ export function CollectionsDropdown({ doc, workspaces, onSelect, onPatch, notice
       else closeAll()
     }
     const onMove = () => closeAll()
+    /* The popup's own list scrolls (long collection lists): that scroll belongs
+       to the menu, not to the region behind it, so it must not close it. */
+    const onScroll = event => {
+      const target = event.target
+      if (menuRef.current !== null && target instanceof Node && menuRef.current.contains(target)) return
+      if (dismissesMenuOnScroll(event, buttonRef.current)) closeAll()
+    }
     window.addEventListener('pointerdown', onPointerDown)
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('resize', onMove)
-    window.addEventListener('scroll', onMove, true)
+    window.addEventListener('scroll', onScroll, true)
     return () => {
       window.removeEventListener('pointerdown', onPointerDown)
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('resize', onMove)
-      window.removeEventListener('scroll', onMove, true)
+      window.removeEventListener('scroll', onScroll, true)
     }
   }, [closeAll, creating, open, renaming])
 

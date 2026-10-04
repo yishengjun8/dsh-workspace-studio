@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { COLLECTION_ALL_ID } from '../constants.js'
 import { collectionFilterPlan, collectionsOfWorkspace, readHarnessGroupBy } from '../collections.js'
+import { dismissesMenuOnScroll } from '../menu-dismiss.js'
 
 /** Re-check the Harness grouping mode this often: its view store belongs to another package and does
  *  not notify us, and 按工作区 ⇄ 按工作区树 can leave the sidebar DOM identical. */
@@ -145,7 +146,14 @@ export function useWorkspaceCollectionMenu({ doc, labels } = {}) {
   const live = useRef({ doc, labels })
   live.current = { doc, labels }
   const closeMenu = useCallback(() => setMenu(undefined), [])
-  const openMenu = useCallback((workspaceId, x, y) => { setMenu({ workspaceId, x, y }) }, [])
+  /* The element the open menu points at (the row, or the injected icon that was
+     clicked): only a scroll that owns it may close the menu — see
+     menu-dismiss.js. */
+  const menuAnchorRef = useRef(null)
+  const openMenu = useCallback((workspaceId, x, y, anchor) => {
+    menuAnchorRef.current = anchor ?? null
+    setMenu({ workspaceId, x, y })
+  }, [])
   useEffect(() => {
     const onContextMenu = (event) => {
       if (event.defaultPrevented) return
@@ -158,7 +166,7 @@ export function useWorkspaceCollectionMenu({ doc, labels } = {}) {
       if (!key.startsWith('workspace:') || key === 'workspace:') return
       if (row.closest('[data-slot="sidebar.workspaces"]') === null) return
       event.preventDefault()
-      openMenu(key.slice('workspace:'.length), event.clientX, event.clientY)
+      openMenu(key.slice('workspace:'.length), event.clientX, event.clientY, row)
     }
     document.addEventListener('contextmenu', onContextMenu, true)
     return () => document.removeEventListener('contextmenu', onContextMenu, true)
@@ -190,7 +198,7 @@ export function useWorkspaceCollectionMenu({ doc, labels } = {}) {
             event.preventDefault()
             event.stopPropagation()
             const box = button.getBoundingClientRect()
-            openMenu(workspaceId, box.left, box.bottom + 2)
+            openMenu(workspaceId, box.left, box.bottom + 2, button)
           })
           /* Last child on purpose: the Harness reveals its own `+ / ⋯` buttons inside `.rowActions`
              on hover, so anything placed before them gets pushed leftwards. Appending keeps the
@@ -230,15 +238,23 @@ export function useWorkspaceCollectionMenu({ doc, labels } = {}) {
       closeMenu()
     }
     const onKeyDown = event => { if (event.key === 'Escape') closeMenu() }
+    /* Scrolling the menu's own list (its submenu is nested in the same element)
+       belongs to the menu; every other scroll closes it only when it can move
+       the anchor. */
+    const onScroll = (event) => {
+      const target = event.target
+      if (target instanceof Element && target.closest('.dsh-ws-context-menu') !== null) return
+      if (dismissesMenuOnScroll(event, menuAnchorRef.current)) closeMenu()
+    }
     window.addEventListener('pointerdown', onPointerDown)
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('resize', closeMenu)
-    window.addEventListener('scroll', closeMenu, true)
+    window.addEventListener('scroll', onScroll, true)
     return () => {
       window.removeEventListener('pointerdown', onPointerDown)
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('resize', closeMenu)
-      window.removeEventListener('scroll', closeMenu, true)
+      window.removeEventListener('scroll', onScroll, true)
     }
   }, [closeMenu, menu])
   return { menu, closeMenu }

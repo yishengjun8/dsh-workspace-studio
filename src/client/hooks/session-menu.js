@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { translate } from '../locale/index.js'
 import { revealInExplorer } from '../api.js'
+import { dismissesMenuOnScroll } from '../menu-dismiss.js'
 import { mindmapDescendantsOf } from '../mindmap/helpers.js'
 import { mindmapDockStore, mindmapRegistry, readMindmapLastSession } from '../mindmap/registry.js'
 
@@ -70,17 +71,25 @@ export function useSessionMenu({ props, mountedRef, currentSession }) {
     const onPointerDown = event => { if (!inside(event)) close() }
     const onContextMenu = event => { if (!inside(event)) close() }
     const onKeyDown = event => { if (event.key === 'Escape') close() }
+    /* The menu points at the row it was opened from: only a scroll that owns that
+       row (the sidebar list) may close it — the chat's streaming tail follow
+       scrolls the conversation and must not (see menu-dismiss.js). */
+    const onScroll = event => {
+      const node = sessionMenuRef.current
+      if (node !== null && event.target instanceof Node && node.contains(event.target)) return
+      if (dismissesMenuOnScroll(event, sessionContextRowRef.current)) close()
+    }
     window.addEventListener('pointerdown', onPointerDown)
     window.addEventListener('contextmenu', onContextMenu, true)
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('resize', close)
-    window.addEventListener('scroll', close, true)
+    window.addEventListener('scroll', onScroll, true)
     return () => {
       window.removeEventListener('pointerdown', onPointerDown)
       window.removeEventListener('contextmenu', onContextMenu, true)
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('resize', close)
-      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('scroll', onScroll, true)
     }
   }, [sessionContextMenu])
   const beginSessionInlineRename = useCallback(() => {

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { CONTEXT_MENU_WIDTH } from '../constants.js'
 import { translate } from '../locale/index.js'
 import { renameMindmapDoc } from '../api.js'
+import { dismissesMenuOnScroll } from '../menu-dismiss.js'
 import { SessionRenameDialog } from '../components/dialogs.js'
 import { mindmapRegistry, readMindmapOrder, updateMindmapOrder, useMindmapRegistry, writeMindmapOrder } from './registry.js'
 import { normalizeMindmapWorkspacePath } from './helpers.js'
@@ -45,6 +46,9 @@ export function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, o
     return () => { mountedRef.current = false }
   }, [])
   const menuRef = useRef(null)
+  /* The seat's own list: the menu points at an entry inside it, so only a scroll
+     that owns this element may close the menu (see menu-dismiss.js). */
+  const panelRef = useRef(null)
   const lastDragEndRef = useRef(0)
   const [dragId, setDragId] = useState(null)
   const [dropTarget, setDropTarget] = useState(null)
@@ -99,7 +103,7 @@ export function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, o
     /* Same inside-menu guard as pointerdown: scrolling the menu must not close it. */
     const onScroll = event => {
       if (menuRef.current !== null && event.target instanceof Node && menuRef.current.contains(event.target)) return
-      close()
+      if (dismissesMenuOnScroll(event, panelRef.current)) close()
     }
     window.addEventListener('pointerdown', onPointerDown)
     window.addEventListener('keydown', onKeyDown)
@@ -243,6 +247,7 @@ export function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, o
       ? h('div', { className: 'dsh-ws-sidebar-mindmaps-empty' }, translate('mindmap.sidebar.empty'))
       : h('div', {
         className: 'dsh-ws-sidebar-mindmaps-list',
+        ref: panelRef,
         onDragLeave: (event) => { if (!(event.currentTarget.contains(event.relatedTarget))) setDropTarget(null) },
         onDragOver: listDragOver,
         onDrop: (event) => { event.preventDefault(); commitDrop() },
