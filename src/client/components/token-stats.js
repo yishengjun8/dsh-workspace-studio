@@ -628,6 +628,6 @@ function TokenStatsDialog({ onClose }) {
               ? translate('tokens.filter.count', { n: fmtCount(rows.length) })
               : translate('tokens.filter.countFiltered', { shown: fmtCount(filteredRows.length), total: fmtCount(rows.length) }))) : null,
         content,
-          costSection
+        costSection,
   )
 }

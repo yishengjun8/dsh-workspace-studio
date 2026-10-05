@@ -396,9 +396,11 @@ export class PromptContextBridge {
       throw error
     }
   }
-  /* The /init command (Claude Code style): resolve the session's workspace and
-     instruct the model to analyze it and write AGENTS.md at its root. */
-  async runInitCommand(id) {
+  /* The /init entry point (Claude Code style): resolve the session's workspace
+     and send the picked task's instruction — `init.prompt` for AGENTS.md,
+     `init.prompt.audit` for the interface/architecture audit. The task key is
+     the option id the command surface already picked, so nothing is mapped. */
+  async runInitCommand(id, promptKey) {
     if (this.conversation === undefined || this.originalSendSession === undefined) {
       throw new Error(translate('init.error.send-failed', { message: translate('init.error.seams-unavailable') }))
     }
@@ -409,7 +411,7 @@ export class PromptContextBridge {
     if (session === undefined) {
       throw new Error(translate('init.error.send-failed', { message: translate('init.error.session-unavailable') }))
     }
-    const text = translate('init.prompt', { root: workspace.path })
+    const text = translate(promptKey, { root: workspace.path })
     return this.originalSendSession.call(this.conversation, session, text, [], 'queue')
   }
   enqueue(id, operation) {

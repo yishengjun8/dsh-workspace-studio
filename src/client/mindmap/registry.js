@@ -148,18 +148,17 @@ export function useMindmapRegistry() {
    tab. The explorer consumes the request only when its previewSessionId matches
    the request's expectFamily, so a later mount never re-applies a stale request
    and an unrelated session's explorer never adopts one. */
-const pendingDock = createRequestStore('expectFamily')
+const pendingDock = createRequestStore()
 
 export const mindmapDockStore = {
   ...pendingDock,
   dock(rootId, name, expectFamily) {
-    pendingDock.request({
+    /* Only the explorer whose previewSessionId faces expectFamily may consume the
+       request; otherwise the current session's explorer would stamp the tab onto
+       a session the click is about to leave. That family is the request's key. */
+    pendingDock.request(expectFamily ?? rootId, {
       rootId: String(rootId),
       name: typeof name === 'string' ? name : '',
-      /* Only the explorer whose previewSessionId equals expectFamily may
-         consume the request; otherwise the current session's explorer would
-         stamp the tab onto a session the click is about to leave. */
-      expectFamily: String(expectFamily ?? rootId),
     })
   },
 }

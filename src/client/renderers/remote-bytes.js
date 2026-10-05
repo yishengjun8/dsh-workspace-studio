@@ -30,9 +30,13 @@ function revoke(url) {
 }
 
 function remember(key, entry) {
-  /* A hit that was already cached keeps one URL: drop the previous entry for this key first. */
+  /* Revoke only what this insert REPLACES (an overlapping read of the same key that
+     finished second). Never the entry being re-inserted: the cache hit in the hook below
+     calls this to touch recency with the LIVE entry, and revoking it there would break
+     the very remount the cache exists to serve — a revoked object URL cannot be loaded
+     again, so switching away from an image or PDF and back would draw nothing. */
   const previous = cache.get(key)
-  if (previous !== undefined) revoke(previous.url)
+  if (previous !== undefined && previous !== entry) revoke(previous.url)
   cache.set(key, entry)
   let bytes = 0
   for (const value of cache.values()) bytes += value.bytes

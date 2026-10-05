@@ -111,19 +111,20 @@ export const planDocuments = {
 }
 
 /* Module-wide open-request bridge: the openResource router publishes one plan
-   open, and the explorer whose previewSessionId matches the request's
-   expectFamily consumes it. An unrelated session's explorer never adopts a
-   request aimed at another session, and a mount that arrives later still
-   consumes the pending request. */
-const pendingOpen = createRequestStore('expectFamily')
+   open, and the explorer whose previewSessionId faces the request's expectFamily
+   consumes it. An unrelated session's explorer never adopts a request aimed at
+   another session, and a mount that arrives later still consumes the pending
+   request. */
+const pendingOpen = createRequestStore()
 
 export const planOpenStore = {
   ...pendingOpen,
   open(address, name, expectFamily) {
-    pendingOpen.request({
+    /* The addressed session is the request's key, so the host explorer (which
+       only knows the addresses it accepts) is the whole match rule. */
+    pendingOpen.request(expectFamily, {
       address: String(address),
       name: typeof name === 'string' ? name : '',
-      expectFamily: expectFamily === undefined || expectFamily === null ? null : String(expectFamily),
     })
   },
 }

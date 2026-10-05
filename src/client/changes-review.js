@@ -252,15 +252,16 @@ export function loadChangesDiff(sessionId, seq, index, signal) {
    expectFamily consumes it. An unrelated session's explorer never adopts a
    request aimed at another session, and a mount that arrives later still
    consumes the pending request. */
-const pendingOpen = createRequestStore('expectFamily')
+const pendingOpen = createRequestStore()
 
 export const reviewOpenStore = {
   ...pendingOpen,
   open(address, index, expectFamily) {
-    pendingOpen.request({
+    /* The addressed session is the request's key, so the host explorer (which
+       only knows the addresses it accepts) is the whole match rule. */
+    pendingOpen.request(expectFamily, {
       address: String(address),
       index: Number.isSafeInteger(index) && index >= 0 ? index : 0,
-      expectFamily: expectFamily === undefined || expectFamily === null ? null : String(expectFamily),
     })
   },
 }

@@ -629,10 +629,11 @@ export function mountStudio(ctx) {
       'workspace-studio: prompt context bridge',
     )
   })
-  /* The /init slash command: a popupSelect contribution that resolves the
-     session's workspace and hands the model a Claude Code /init-style
-     instruction through the session's send seam. Only direct sessions can run
-     it; registered when ui-commands is present. */
+  /* The /init slash command: the workspace-task entry point. A popupSelect
+     contribution lists the tasks (AGENTS.md generation/merge, the project logic
+     audit, and the stale-content cleanup); the picked option's id IS the locale
+     key of the instruction handed to the model through the session's send seam.
+     Only direct sessions can run it; registered when ui-commands is present. */
   ctx.inject(['commandUi'], scope => {
     scope.effect(() => {
       const commandUi = scope.get('commandUi')
@@ -662,16 +663,35 @@ export function mountStudio(ctx) {
               // existence itself; this only decides the option wording.
               if (error?.name === 'AbortError') throw error
             }
-            const action = exists ? {
-              id: 'update', label: translate('init.option.update'), detail: translate('init.option.update.detail', { root }),
-            } : {
-              id: 'generate', label: translate('init.option.generate'), detail: translate('init.option.generate.detail', { root }),
+            const agents = {
+              id: 'init.prompt',
+              label: translate(exists ? 'init.option.update' : 'init.option.generate'),
+              detail: translate(exists ? 'init.option.update.detail' : 'init.option.generate.detail', { root }),
             }
-            return exists ? [action, { id: 'cancel', label: translate('dialog.cancel') }] : [action]
+            return [
+              agents,
+              { id: 'init.prompt.audit', label: translate('init.option.audit'), detail: translate('init.option.audit.detail', { root }) },
+              {
+                id: 'init.prompt.cleanup',
+                label: translate('init.option.cleanup'),
+                detail: translate('init.option.cleanup.detail', { root }),
+                /* Deletion is the one task here that cannot be undone in place, so
+                   the shared shell gates it behind its risk confirmation instead of
+                   running on the pick. */
+                confirmation: {
+                  title: translate('init.confirm.cleanup.title'),
+                  description: translate('init.confirm.cleanup.description', { root }),
+                  acknowledgeLabel: translate('init.confirm.cleanup.acknowledge'),
+                  cancelLabel: translate('dialog.cancel'),
+                  confirmLabel: translate('init.confirm.cleanup.confirm'),
+                },
+              },
+              { id: 'cancel', label: translate('dialog.cancel') },
+            ]
           },
           onSelect: async (option, session) => {
             if (option.id === 'cancel') return
-            await promptContextBridge.runInitCommand(String(session.sessionId))
+            await promptContextBridge.runInitCommand(String(session.sessionId), option.id)
           },
         },
       })

@@ -5,7 +5,7 @@ import { createRequestStore } from './request-store.js'
    request only when its workspace matches the request's workspaceId, so a
    later mount never re-applies a stale request; a request with no mounted
    explorer stays pending until the matching mount consumes it. */
-const pendingOpen = createRequestStore('workspaceId')
+const pendingOpen = createRequestStore()
 
 export const fileOpenRequestStore = {
   ...pendingOpen,
@@ -13,8 +13,9 @@ export const fileOpenRequestStore = {
      explorer opens it as the session-only read-only preview instead of a tree
      file, so it never becomes a tree selection, a draft, or a persisted tab. */
   request(workspaceId, path, name, line, outside) {
-    pendingOpen.request({
-      workspaceId: String(workspaceId),
+    /* The target workspace is the request's key, so the mounted explorer of that
+       workspace is the whole match rule. */
+    pendingOpen.request(workspaceId, {
       path,
       name: typeof name === 'string' && name !== '' ? name : path.slice(path.lastIndexOf('/') + 1),
       line: Number.isFinite(line) ? line : undefined,
