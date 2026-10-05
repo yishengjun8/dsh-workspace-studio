@@ -9,7 +9,9 @@
  */
 import { createElement as h, useCallback, useEffect, useState } from 'react'
 import { translate } from '../locale/index.js'
-import { RUN_FAMILY_BY_EXTENSION, pathBasename, runInterpreterLabel, runInterpreterSourceLabel, runInterpreterSourceOf, runSiblingExtensions, runStaleOverrideOf } from '../run-detect.js'
+import { Modal } from './dialogs.js'
+import { pathBasename, runInterpreterLabel, runInterpreterSourceLabel, runInterpreterSourceOf, runSiblingExtensions, runStaleOverrideOf } from '../run-detect.js'
+import { RUN_FAMILY_BY_EXTENSION } from '../../shared/run-extensions.js'
 import { clearFileInterpreter, probeInterpreter, saveExtensionInterpreter, saveFileInterpreter } from '../run-config.js'
 import { reloadRunPath } from '../run-store.js'
 
@@ -188,21 +190,29 @@ export function InterpreterDialog({ mode, workspaceId, path, plan, row, ext, fam
     ? h('div', { className: 'dsh-ws-interp-line', 'data-tone': 'warn' }, translate('run.unavailable.shellWindows'))
     : null
 
-  return h('div', {
-    className: 'dsh-ws-dialog-backdrop',
-    onMouseDown: (event) => { if (event.target === event.currentTarget) onClose?.() },
+  return h(Modal, {
+    actions: [
+      {
+        key: 'clear',
+        label: translate(view.mode === 'file' ? 'run.interp.dlg.clearFile' : 'run.interp.dlg.clear'),
+        onClick: () => void clear(),
+        disabled: saving || view.hasOverride !== true || (view.mode === 'file' && view.key === ''),
+      },
+      /* The clear action sits on the left, the cancel/save pair on the right. */
+      { key: 'spacer', element: h('div', { className: 'dsh-ws-interp-spacer' }) },
+      { key: 'cancel', label: translate('dialog.cancel'), onClick: () => onClose?.() },
+      {
+        key: 'save',
+        label: translate(view.mode === 'file' ? 'run.interp.dlg.saveFile' : 'run.interp.dlg.save'),
+        onClick: () => void save(),
+        disabled: saving || (view.mode === 'file' && view.key === ''),
+        className: 'dsh-ws-text-button dsh-ws-run-confirm-button',
+      },
+    ],
+    className: 'dsh-ws-interp-dialog',
+    onCancel: () => onClose?.(),
+    title,
   },
-  h('div', { 'aria-modal': true, className: 'dsh-ws-dialog dsh-ws-interp-dialog', role: 'dialog' },
-    h('div', { className: 'dsh-ws-dialog-header' },
-      h('div', { className: 'dsh-ws-dialog-title' }, title),
-      h('button', {
-        'aria-label': translate('dialog.close'),
-        className: 'dsh-ws-icon-button',
-        onClick: () => onClose?.(),
-        title: translate('dialog.close'),
-        type: 'button',
-      }, '×')),
-    h('div', { className: 'dsh-ws-dialog-body' },
       h('div', { className: 'dsh-ws-run-field' },
         h('i', null, translate(view.mode === 'file' ? 'run.interp.dlg.file' : 'run.interp.dlg.scope')),
         h('div', null, view.mode === 'file' ? view.scope : translate('run.interp.dlg.scopeValue', { ext: view.name }))),
@@ -250,20 +260,5 @@ export function InterpreterDialog({ mode, workspaceId, path, plan, row, ext, fam
           h('span', null, translate(view.mode === 'file' ? 'run.interp.dlg.alsoGlobal' : 'run.interp.dlg.alsoSiblings', {
             ext: view.mode === 'file' ? `.${view.ext}` : siblings.map(item => `.${item}`).join(' / '),
           }))),
-      h('div', { className: 'dsh-ws-interp-hint' }, translate(view.mode === 'file' ? 'run.interp.dlg.elsewhere' : 'run.interp.dlg.fileNote'))),
-    h('div', { className: 'dsh-ws-dialog-footer' },
-      h('button', {
-        className: 'dsh-ws-text-button',
-        disabled: saving || view.hasOverride !== true || (view.mode === 'file' && view.key === ''),
-        onClick: () => void clear(),
-        type: 'button',
-      }, translate(view.mode === 'file' ? 'run.interp.dlg.clearFile' : 'run.interp.dlg.clear')),
-      h('div', { className: 'dsh-ws-interp-spacer' }),
-      h('button', { className: 'dsh-ws-text-button', onClick: () => onClose?.(), type: 'button' }, translate('dialog.cancel')),
-      h('button', {
-        className: 'dsh-ws-text-button dsh-ws-run-confirm-button',
-        disabled: saving || (view.mode === 'file' && view.key === ''),
-        onClick: () => void save(),
-        type: 'button',
-      }, translate(view.mode === 'file' ? 'run.interp.dlg.saveFile' : 'run.interp.dlg.save')))))
+      h('div', { className: 'dsh-ws-interp-hint' }, translate(view.mode === 'file' ? 'run.interp.dlg.elsewhere' : 'run.interp.dlg.fileNote')))
 }

@@ -26,7 +26,7 @@ const PROMPT_COMMAND_CONTROL_WORDS = new Map([
 ])
 
 /** The prompt carried by one claim submission, or null when it carries none. */
-export function commandPromptText(name, args) {
+function commandPromptText(name, args) {
   const controlWords = PROMPT_COMMAND_CONTROL_WORDS.get(name)
   if (controlWords === undefined || typeof args !== 'string') return null
   const text = args.trim()

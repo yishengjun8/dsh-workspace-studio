@@ -9,6 +9,7 @@
  */
 import { createElement as h, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { translate } from '../locale/index.js'
+import { PanelState } from '../panel-state.js'
 import { cappedHunks, hunkHeader, hunkRows, loadChangesDiff, loadChangesSummary, MAX_RENDERED_LINES, parseChangesReviewAddress, readReviewSplit, resolveReviewFilePath, reviewListBounds, setReviewSplitWidth, subscribeReviewSplit } from '../changes-review.js'
 import { requestFileOpen } from '../open-resource.js'
 import { ResizeHandle } from '../components/menus.js'
@@ -31,12 +32,16 @@ function Counts({ file }) {
     h('span', { className: 'dsh-ws-review-deleted' }, translate('review.deletedCount', { count: String(file.deleted) })))
 }
 
-/* One status sentence, optionally with a retry. */
-function Message({ text, role, retry, retryLabel }) {
-  return h('div', { className: 'dsh-ws-review-message', role: role ?? undefined },
-    h('span', null, text),
-    retry === undefined ? null : h('button', { type: 'button', className: 'dsh-ws-text-button', onClick: retry }, retryLabel))
-}
+/* The review tab's panel messages: the shared message component (panel-state.js) pinned to this tab's
+   class, mapping the tab's `text` prop onto the shared `message`. */
+const Message = ({ text, role, retry, retryLabel }) => h(PanelState, {
+  className: 'dsh-ws-review-message',
+  layout: 'inline',
+  message: text,
+  retry,
+  retryLabel,
+  role,
+})
 
 /* The one-line fact about a text comparison worth stating above its hunks, if any. */
 function noteOf(diff) {

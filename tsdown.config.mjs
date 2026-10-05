@@ -66,4 +66,26 @@ const host = defineConfig({
   },
 })
 
-export default [client, host]
+/* The package-owned invariant companion package.json exports as
+   `./invariant`. Its own config (rather than a second entry of `host`) because
+   a multi-entry build requires code splitting, and this artifact must stay a
+   standalone ESM file. Building it from src/ keeps a clean rebuild complete:
+   the file used to exist only under lib/, with no source and no entry. */
+const invariant = defineConfig({
+  name: `${ID}/invariant`,
+  entry: { invariant: 'src/host/invariant.js' },
+  outDir: 'lib',
+  format: 'esm',
+  platform: 'node',
+  target: 'es2022',
+  dts: false,
+  sourcemap: false,
+  minify: false,
+  clean: false,
+  outputOptions: {
+    entryFileNames: 'invariant.js',
+    codeSplitting: false,
+  },
+})
+
+export default [client, host, invariant]

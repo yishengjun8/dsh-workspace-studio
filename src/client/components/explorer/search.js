@@ -1,5 +1,6 @@
 import { createElement as h, Fragment } from 'react'
 import { translate } from '../../locale/index.js'
+import { PanelState } from '../../panel-state.js'
 import { IconFolder } from '../../icons.js'
 import { TreeStatus } from '../menus.js'
 
@@ -14,7 +15,7 @@ export function SearchResults({ state, expanded, onToggleFile, onOpenEntry, onOp
   }
   if (state.state === 'error') {
     return h('div', { className: 'dsh-ws-empty' },
-      h('div', { className: 'dsh-ws-error-card' }, state.message))
+      h(PanelState, { className: 'dsh-ws-error-card', message: state.message }))
   }
   if (state.result.files.length === 0) {
     return h(Fragment, null,

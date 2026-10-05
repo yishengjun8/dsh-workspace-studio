@@ -395,7 +395,7 @@ function formatToolBody(argsRaw) {
 }
 
 /* The Studio edit/write row: always open, one card per changed file (diff hunks grouped by path), or a single generic card for body/output rows. */
-export function StudioFileMutationRow({ toolName, block, cwd, home, openFile, t }) {
+function StudioFileMutationRow({ toolName, block, cwd, home, openFile, t }) {
   const model = useMemo(() => fileMutationModel(toolName, block, cwd, home), [toolName, block, cwd, home])
   const diffs = useMemo(() => diffCardModel(block), [block])
   const labels = useMemo(() => diffLabels(t), [t])

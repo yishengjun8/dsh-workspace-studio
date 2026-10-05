@@ -11,6 +11,7 @@
 import { createElement as h, useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import { translate } from '../locale/index.js'
+import { PanelState } from '../panel-state.js'
 import { useMarkdownLabels } from './registry.js'
 import { isPlanReviewAddress, normalizePlanDocument, planDocuments, planResourceSource } from '../plan-open.js'
 
@@ -59,7 +60,7 @@ export function PlanView({ address, onTitle }) {
       : source === undefined || snapshot.status === 'failed'
         ? translate('plan.failed')
         : translate('plan.loading')
-    return h('div', { className: 'dsh-ws-plan-message', role: 'status' }, text)
+    return h(PanelState, { className: 'dsh-ws-plan-message', message: text, role: 'status' })
   }
   return h(MarkdownText, { labels: markdownLabels, text: document.markdown })
 }

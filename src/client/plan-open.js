@@ -10,6 +10,7 @@
  * (ctx.resources) so the logged plan's session-history read stays owned by
  * ui-plan — the plugin never re-implements that read.
  */
+import { createRequestStore } from './request-store.js'
 
 /* The two address grammars ui-plan publishes (mirrored locally so the bundle
    needs no harness dependency):
@@ -114,29 +115,16 @@ export const planDocuments = {
    expectFamily consumes it. An unrelated session's explorer never adopts a
    request aimed at another session, and a mount that arrives later still
    consumes the pending request. */
+const pendingOpen = createRequestStore('expectFamily')
+
 export const planOpenStore = {
-  _snapshot: { seq: 0, request: null },
-  _listeners: new Set(),
-  subscribe(listener) {
-    this._listeners.add(listener)
-    return () => { this._listeners.delete(listener) }
-  },
-  getSnapshot() { return this._snapshot },
+  ...pendingOpen,
   open(address, name, expectFamily) {
-    this._snapshot = {
-      seq: this._snapshot.seq + 1,
-      request: {
-        address: String(address),
-        name: typeof name === 'string' ? name : '',
-        expectFamily: expectFamily === undefined || expectFamily === null ? null : String(expectFamily),
-      },
-    }
-    for (const listener of [...this._listeners]) listener()
-  },
-  consume() {
-    if (this._snapshot.request === null) return
-    this._snapshot = { seq: this._snapshot.seq + 1, request: null }
-    for (const listener of [...this._listeners]) listener()
+    pendingOpen.request({
+      address: String(address),
+      name: typeof name === 'string' ? name : '',
+      expectFamily: expectFamily === undefined || expectFamily === null ? null : String(expectFamily),
+    })
   },
 }
 

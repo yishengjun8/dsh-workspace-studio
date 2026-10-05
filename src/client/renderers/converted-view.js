@@ -17,8 +17,10 @@
  * "unavailable" rather than thrown inside an effect (a synchronous throw there
  * trips the harness root error boundary, which replaces the whole layout). */
 import { createElement as h } from 'react'
-import { useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { translate } from '../locale/index.js'
+import { useRemoteBytes } from './remote-bytes.js'
+import { RendererStatus } from './status.js'
 import { useOfficeFaces, useRemoteFaces } from './remote.js'
 
 /* Localized copy for one Remote failure. The conversion provider declares its
@@ -46,67 +48,44 @@ function failureMessage(failure) {
 export function ConvertedView({ kind, sessionId, path, name, readEpoch }) {
   const faces = useRemoteFaces()
   const office = useOfficeFaces()
-  const [state, setState] = useState({ url: undefined, failure: undefined, fonts: undefined })
   /* Manual retry after a conversion failure (a locked source, a transient engine
-     fault): bumping the nonce re-runs the effect below. */
+     fault): bumping the nonce re-runs the read below and bypasses its cache. */
   const [retry, setRetry] = useState(0)
-  useEffect(() => {
-    const source = kind === 'office' ? office : faces
-    const read = source === undefined ? undefined : (kind === 'office' ? source.renderOffice : source.readAll)
-    if (typeof read !== 'function' || sessionId === undefined || sessionId === null) {
-      setState({ url: undefined, failure: { unavailable: true }, fonts: undefined })
-      return undefined
-    }
-    const controller = new AbortController()
-    setState({ url: undefined, failure: undefined, fonts: undefined })
-    let url
-    Promise.resolve()
-      .then(() => read(String(sessionId), path, controller.signal))
-      .then((result) => {
-        if (controller.signal.aborted) return
-        if (!result.ok) {
-          setState({ url: undefined, failure: result.error, fonts: undefined })
-          return
-        }
-        const fonts = Array.isArray(result.value?.missingFonts) ? result.value.missingFonts : []
-        /* Native bytes, never base64 (the readBytes Remote / the Office Remote). */
-        url = URL.createObjectURL(new Blob([result.value.data], { type: 'application/pdf' }))
-        setState({ url, failure: undefined, fonts })
-      })
-      .catch((error) => {
-        if (controller.signal.aborted || error?.name === 'AbortError') return
-        setState({
-          url: undefined,
-          failure: { code: 'renderer-remote-failed', message: error instanceof Error ? error.message : String(error) },
-          fonts: undefined,
-        })
-      })
-    return () => {
-      controller.abort()
-      if (url !== undefined) URL.revokeObjectURL(url)
-    }
-  }, [faces, kind, office, path, readEpoch, retry, sessionId])
-  if (state.failure !== undefined) {
-    return h('div', { className: 'dsh-ws-renderer-status', 'data-error': '' },
-      h('div', { className: 'dsh-ws-renderer-status-stack' },
-        h('div', null, failureMessage(state.failure)),
-        h('button', {
-          className: 'dsh-ws-renderer-retry',
-          type: 'button',
-          onClick: () => setRetry(value => value + 1),
-        }, translate('renderer.retry'))))
+  const source = kind === 'office' ? office : faces
+  const decorate = useCallback(
+    value => (Array.isArray(value?.missingFonts) ? value.missingFonts : []),
+    [],
+  )
+  const { url, failure, extra } = useRemoteBytes({
+    scope: kind === 'office' ? 'office' : 'pdf',
+    read: source === undefined ? undefined : (kind === 'office' ? source.renderOffice : source.readAll),
+    sessionId,
+    path,
+    mime: 'application/pdf',
+    readEpoch,
+    retry,
+    decorate,
+  })
+  if (failure !== undefined) {
+    return h(RendererStatus, {
+      message: failureMessage(failure),
+      error: true,
+      onRetry: () => setRetry(value => value + 1),
+      retryLabel: translate('renderer.retry'),
+    })
   }
-  if (state.url === undefined) {
-    return h('div', { className: 'dsh-ws-renderer-status' },
-      kind === 'office' ? translate('renderer.officeLoading') : translate('renderer.pdfLoading'))
+  if (url === undefined) {
+    return h(RendererStatus, {
+      message: kind === 'office' ? translate('renderer.officeLoading') : translate('renderer.pdfLoading'),
+    })
   }
   return h('div', { className: 'dsh-ws-renderer-view dsh-ws-renderer-converted' },
-    state.fonts !== undefined && state.fonts.length > 0
-      ? h('div', { className: 'dsh-ws-banner' }, translate('renderer.officeMissingFonts', { fonts: state.fonts.join(', ') }))
+    Array.isArray(extra) && extra.length > 0
+      ? h('div', { className: 'dsh-ws-banner' }, translate('renderer.officeMissingFonts', { fonts: extra.join(', ') }))
       : null,
     h('iframe', {
       className: 'dsh-ws-pdf-frame',
-      src: state.url,
+      src: url,
       title: name === undefined || name === null || name === '' ? translate('renderer.pdf') : String(name),
     }))
 }

@@ -23,13 +23,14 @@ import iconv from 'iconv-lite'
 import { HttpError } from './errors.js'
 import { decodeUtf8 } from './encodings.js'
 import { resolveWorkspacePath } from './paths.js'
+import { RUN_FAMILY_BY_EXTENSION, runFamilyOfName } from '../shared/run-extensions.js'
 import { readJsonStrict, writeJsonAtomic } from './drafts.js'
 import { quarantineFile } from './quarantine.js'
 import { serializeWrite } from './write.js'
 
 /* Bounded output per run: the client polls incrementally, so the cap only bounds Host memory for
    a chatty/noisy script. Past it the OLDEST text is dropped and the client is told about the gap. */
-export const RUN_OUTPUT_MAX_BYTES = 256 * 1024
+const RUN_OUTPUT_MAX_BYTES = 256 * 1024
 /* How long a finished run keeps its buffer on the Host: long enough that a page refresh (or a tab
    switch) re-attaches to the tail of what just ended, short enough that memory is reclaimed. */
 const RUN_SETTLED_KEEP_MS = 10 * 60 * 1000
@@ -62,20 +63,13 @@ export const RUN_FILE_OVERRIDE_MAX = 200
 export const RUN_PROBE_TIMEOUT_MS = 5000
 export const RUN_PROBE_OUTPUT_MAX = 4096
 
-/* Recipe table: extension → command family. `direct` executes the file itself. */
-const RUN_EXTENSION_RECIPES = Object.freeze({
-  py: 'python', pyw: 'python',
-  sh: 'shell', bash: 'shell', zsh: 'shell',
-  ps1: 'powershell', psm1: 'powershell',
-  bat: 'cmd', cmd: 'cmd',
-  exe: 'direct', com: 'direct',
-})
 /* Families the current platform can execute at all (a .bat needs cmd.exe, a .exe needs Windows). */
 const RUN_WINDOWS_ONLY_FAMILIES = new Set(['cmd', 'direct'])
-export const RUN_FAMILIES = Object.freeze(['python', 'shell', 'powershell', 'cmd', 'direct'])
-/* The runnable extensions in recipe order. The settings page renders exactly one row per entry, and
-   the policy accepts nothing else: an extension without a recipe could never resolve into a plan. */
-export const RUN_RUNNABLE_EXTENSIONS = Object.freeze(Object.keys(RUN_EXTENSION_RECIPES))
+const RUN_FAMILIES = Object.freeze(['python', 'shell', 'powershell', 'cmd', 'direct'])
+/* The runnable extensions in recipe order (the shared table, see src/shared/run-extensions.js). The
+   settings page renders exactly one row per entry, and the policy accepts nothing else: an extension
+   without a recipe could never resolve into a plan. */
+const RUN_RUNNABLE_EXTENSIONS = Object.freeze(Object.keys(RUN_FAMILY_BY_EXTENSION))
 
 const POLICY_SUB_DIR = 'run'
 const POLICY_FILE = 'policy.json'
@@ -84,22 +78,14 @@ function policyPath() {
   return join(homedir(), '.dsh-plugin', 'dsh-workspace-studio', POLICY_SUB_DIR, POLICY_FILE)
 }
 
-/** The command family of one file name, or null when the file is not runnable by extension. */
-export function runFamilyOf(name) {
-  const lower = String(name ?? '').toLowerCase()
-  const dot = lower.lastIndexOf('.')
-  if (dot < 0) return null
-  return RUN_EXTENSION_RECIPES[lower.slice(dot + 1)] ?? null
-}
-
 /** Whether a file may get a run plan at all: a whitelisted extension, or (POSIX) an executable bit. */
 export function isRunnableName(name) {
-  return runFamilyOf(name) !== null
+  return runFamilyOfName(name) !== null
 }
 
 /* ---- interpreter lookup (a PATH search, never a probe process) ---- */
 
-export async function isExecutableFile(target) {
+async function isExecutableFile(target) {
   try {
     const info = await stat(target)
     if (!info.isFile()) return false
@@ -133,7 +119,7 @@ function pathCandidates(name, env) {
 const executableCache = new Map()
 
 /** Resolve one executable name against PATH (an absolute path is checked directly). */
-export async function whichExecutable(name, env = process.env) {
+async function whichExecutable(name, env = process.env) {
   if (typeof name !== 'string' || name === '') return null
   if (name.includes('/') || name.includes('\\')) {
     return (await isExecutableFile(name)) ? name : null
@@ -168,7 +154,7 @@ function windowsSystem32(name, env = process.env) {
    interpreter override), and the "cannot run" card says so. */
 const WSL_LAUNCHERS = new Set(['bash.exe', 'wsl.exe', 'bash', 'wsl'])
 
-export function isWslLauncherPath(target, env = process.env) {
+function isWslLauncherPath(target, env = process.env) {
   if (process.platform !== 'win32' || typeof target !== 'string') return false
   const normalized = target.toLowerCase()
   for (const name of WSL_LAUNCHERS) {
@@ -198,7 +184,7 @@ function powershellFlags() {
 /** The interpreter candidates for a family, in preference order.
  *  Each entry is { name (shown in the console), flags, paths? } — `paths` lists absolute install
  *  locations tried BEFORE the PATH search, which is how Git Bash wins over a WSL launcher. */
-export function interpreterCandidatesFor(family, extension, env = process.env) {
+function interpreterCandidatesFor(family, extension, env = process.env) {
   switch (family) {
     case 'python':
       return process.platform === 'win32'
@@ -246,7 +232,7 @@ function basenameOf(target) {
  *  This is a correctness fix, not a nicety: `-3` is the `py` launcher's own flag, and inheriting the
  *  family's first-candidate flags would build `python.exe -3 script.py`, which CPython rejects with
  *  "Unknown option: -3" — i.e. pointing `.py` at a real python.exe would break the run. */
-export function flagsForOverride(family, overridePath, env = process.env) {
+function flagsForOverride(family, overridePath, env = process.env) {
   if (family === 'python') {
     const base = basenameOf(overridePath).toLowerCase()
     return process.platform === 'win32' && /^pyw?(\.exe)?$/.test(base) ? ['-3'] : []
@@ -257,7 +243,7 @@ export function flagsForOverride(family, overridePath, env = process.env) {
 /** The argv that asks one family's interpreter for its version, or null when probing is not allowed.
  *  `direct` has no entry on purpose: probing an .exe/.com would RUN the user's own program, which a
  *  settings button must never do. */
-export function probeArgsFor(family) {
+function probeArgsFor(family) {
   switch (family) {
     case 'python':
       return ['-V']
@@ -277,7 +263,7 @@ export function probeArgsFor(family) {
 
 /** Resolve one candidate to an absolute executable path, or null.
  *  Absolute install locations win first; a PATH hit is rejected when it is the WSL launcher. */
-export async function resolveInterpreterCandidate(candidate, env = process.env) {
+async function resolveInterpreterCandidate(candidate, env = process.env) {
   for (const path of candidate.paths ?? []) {
     if (await isExecutableFile(path)) return path
   }
@@ -334,7 +320,7 @@ function normalizePolicy(value) {
   if (isPlainObject(rawExtensions)) {
     for (const [extension, candidate] of Object.entries(rawExtensions)) {
       const key = extension.toLowerCase()
-      if (!Object.hasOwn(RUN_EXTENSION_RECIPES, key)) continue
+      if (!Object.hasOwn(RUN_FAMILY_BY_EXTENSION, key)) continue
       if (isPolicyInterpreter(candidate)) extensions[key] = candidate
     }
   }
@@ -405,7 +391,7 @@ async function validateInterpreterOverride(value) {
  *  different drive/directory case depending on how the workspace was opened, and a silent miss would
  *  look exactly like a lost setting. The map is capped at RUN_FILE_OVERRIDE_MAX, so the fallback scan
  *  is cheap by construction. */
-export function lookupFileOverride(files, target) {
+function lookupFileOverride(files, target) {
   if (!isPlainObject(files) || typeof target !== 'string' || target === '') return null
   const exact = files[target]
   if (typeof exact === 'string' && exact !== '') return exact
@@ -439,7 +425,7 @@ export async function writeRunPolicy(workspaceId, payload, queues) {
     extensionPatch = {}
     for (const [extension, value] of Object.entries(payload.extensions)) {
       const key = String(extension).toLowerCase()
-      if (!Object.hasOwn(RUN_EXTENSION_RECIPES, key)) {
+      if (!Object.hasOwn(RUN_FAMILY_BY_EXTENSION, key)) {
         throw new HttpError(400, 'invalid-run-policy', `未知的后缀 .${key}`)
       }
       extensionPatch[key] = await validateInterpreterOverride(value)
@@ -503,7 +489,7 @@ export async function writeRunPolicy(workspaceId, payload, queues) {
 
 /** Split user argument text into argv tokens: whitespace-separated, with "…" / '…' quoting.
  *  No shell ever sees the result, so this only has to be predictable, not POSIX-complete. */
-export function splitRunArgs(text) {
+function splitRunArgs(text) {
   const source = String(text ?? '')
   if (source.length > RUN_ARGS_MAX_LENGTH) {
     throw new HttpError(413, 'run-args-too-long', `运行参数不能超过 ${RUN_ARGS_MAX_LENGTH} 个字符`)
@@ -533,7 +519,7 @@ export function splitRunArgs(text) {
 }
 
 /** Render argv for display: quote only the tokens that would otherwise read as several. */
-export function displayCommand(parts) {
+function displayCommand(parts) {
   return parts.map((part) => (part === '' || /[\s"']/.test(part) ? `"${part.replace(/"/g, '\\"')}"` : part)).join(' ')
 }
 
@@ -550,7 +536,7 @@ export async function buildRunPlan(workspace, relativePath, options = {}) {
   const lower = name.toLowerCase()
   const dot = lower.lastIndexOf('.')
   const extension = dot < 0 ? '' : lower.slice(dot + 1)
-  const family = runFamilyOf(name)
+  const family = runFamilyOfName(name)
   const cwd = dirname(target)
   const cwdRelative = relativePath.includes('/') ? relativePath.slice(0, relativePath.lastIndexOf('/')) : ''
   const base = {
@@ -675,7 +661,7 @@ export async function describeRunExtensions(options = {}) {
   const env = options.env ?? process.env
   const rows = []
   for (const extension of RUN_RUNNABLE_EXTENSIONS) {
-    const family = RUN_EXTENSION_RECIPES[extension]
+    const family = RUN_FAMILY_BY_EXTENSION[extension]
     const candidates = family === 'direct' ? [] : interpreterCandidatesFor(family, extension, env)
     const row = {
       ext: extension,
@@ -875,7 +861,7 @@ const OUTPUT_CODEPAGE = legacyOutputCodepage()
 
 /** Bytes of `buffer` that end on a complete UTF-8 sequence boundary (a multi-byte character must
  *  never be split, or every chunk boundary would render as U+FFFD in the console). */
-export function utf8SafeLength(buffer) {
+function utf8SafeLength(buffer) {
   let index = buffer.length - 1
   let continuations = 0
   while (index >= 0 && continuations < 3) {
@@ -895,7 +881,7 @@ export function utf8SafeLength(buffer) {
  *  single NUL — let alone an ASCII run interleaved with them — is proof. The sample must be wide
  *  (1 KB, not the first few bytes), because a CJK message begins with many NUL-free characters
  *  (a Chinese WSL error message starts with 16 CJK chars before the first NUL byte). */
-export function detectStreamEncoding(pending) {
+function detectStreamEncoding(pending) {
   if (pending.length >= 2 && pending[0] === 0xff && pending[1] === 0xfe) return { encoding: 'utf16le', skip: 2 }
   if (pending.length >= 2 && pending[0] === 0xfe && pending[1] === 0xff) return { encoding: 'utf16be', skip: 2 }
   if (pending.length >= 3 && pending[0] === 0xef && pending[1] === 0xbb && pending[2] === 0xbf) return { encoding: 'utf8', skip: 3 }
@@ -1009,7 +995,7 @@ function isHighSurrogate(code) {
 }
 
 /** The status payload one poll returns: metadata plus the output slice starting at `offset`. */
-export function runStatusPayload(entry, offset = 0) {
+function runStatusPayload(entry, offset = 0) {
   const requested = Number.isFinite(offset) && offset > 0 ? Math.trunc(offset) : 0
   const start = Math.max(requested, entry.droppedLength)
   const chunks = []
@@ -1366,7 +1352,7 @@ export function stopRun(runId) {
 }
 
 /** Whether a path currently has a live process (used by the client's tab badge path). */
-export function hasLiveRun(workspace, relativePath) {
+function hasLiveRun(workspace, relativePath) {
   const entry = runsByKey.get(keyOf(workspace, relativePath))
   return entry !== undefined && entry.status === 'running'
 }

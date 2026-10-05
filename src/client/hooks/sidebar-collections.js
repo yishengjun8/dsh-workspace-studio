@@ -14,6 +14,8 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { COLLECTION_ALL_ID } from '../constants.js'
+import { createStyleSheet } from '../style-sheet.js'
+import { shouldSkipPoll } from '../poll-gate.js'
 import { collectionFilterPlan, collectionsOfWorkspace, readHarnessGroupBy } from '../collections.js'
 import { dismissesMenuOnScroll } from '../menu-dismiss.js'
 
@@ -21,6 +23,8 @@ import { dismissesMenuOnScroll } from '../menu-dismiss.js'
  *  not notify us, and 按工作区 ⇄ 按工作区树 can leave the sidebar DOM identical. */
 const GROUP_BY_POLL_MS = 1000
 const STYLE_ELEMENT_ID = 'dsh-ws-collection-filter'
+/* THE sheet this feature paints the collection filter through (see style-sheet.js). */
+const collectionFilterSheet = createStyleSheet(STYLE_ELEMENT_ID)
 /** The permanent per-row collection control (see useWorkspaceCollectionMenu). */
 const ROW_ICON_CLASS = 'dsh-ws-collection-rowicon'
 const ROW_ICON_GLYPH = '▤'
@@ -36,6 +40,7 @@ export function useCollectionGroupBy() {
   useEffect(() => {
     setMode(readHarnessGroupBy())
     const timer = setInterval(() => {
+      if (shouldSkipPoll()) return
       setMode(previous => {
         const next = readHarnessGroupBy()
         return next === previous ? previous : next
@@ -57,7 +62,6 @@ export function useCollectionGroupBy() {
  * @param props.labels - localized chip copy: `{ outside }`.
  */
 export function useCollectionsFilter({ doc, workspaces, paused, currentWorkspaceId, labels }) {
-  const styleRef = useRef(null)
   const titledRef = useRef(new Set())
   const currentId = doc?.selectedId ?? COLLECTION_ALL_ID
 
@@ -73,17 +77,7 @@ export function useCollectionsFilter({ doc, workspaces, paused, currentWorkspace
 
   useEffect(() => {
     if (typeof document === 'undefined') return undefined
-    let node = styleRef.current
-    if (node === null) {
-      node = document.getElementById(STYLE_ELEMENT_ID)
-      if (node === null) {
-        node = document.createElement('style')
-        node.id = STYLE_ELEMENT_ID
-        document.head.append(node)
-      }
-      styleRef.current = node
-    }
-    if (node.textContent !== plan.css) node.textContent = plan.css
+    collectionFilterSheet.publish(plan.css)
     return undefined
   }, [plan])
 
@@ -93,8 +87,7 @@ export function useCollectionsFilter({ doc, workspaces, paused, currentWorkspace
 
   useEffect(() => () => {
     /* The sheet is meaningless without the dropdown that owns it. */
-    styleRef.current?.remove()
-    styleRef.current = null
+    collectionFilterSheet.dispose()
   }, [])
 
   /* Best-effort chip tooltips: the Harness owns these rows, so a title it overwrites is reapplied on

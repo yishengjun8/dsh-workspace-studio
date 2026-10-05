@@ -170,17 +170,9 @@ async function readOwnerGenerationState(workspaceId, owner) {
   }
 }
 
-async function readOwnerGeneration(workspaceId, owner) {
-  return (await readOwnerGenerationState(workspaceId, owner)).generation
-}
-
-async function readDraftAtPath(workspaceId, relativePath, owner) {
-  return readDraftRecord(workspaceId, relativePath, owner)
-}
-
 export async function readDraftFile(workspaceId, relativePath, owner) {
-  const owned = await readDraftAtPath(workspaceId, relativePath, owner)
-  const ownerGeneration = await readOwnerGeneration(workspaceId, owner)
+  const owned = await readDraftRecord(workspaceId, relativePath, owner)
+  const ownerGeneration = (await readOwnerGenerationState(workspaceId, owner)).generation
   if (owned !== null) {
     if (owned.deleted === true) {
       return { exists: false, owner, generation: owned.generation ?? ownerGeneration, ownerGeneration }
@@ -317,7 +309,7 @@ function draftPayloadEqual(left, right) {
 
 async function ownerCurrentGeneration(workspaceId, owner, relativePath) {
   const ownerState = await readOwnerGenerationState(workspaceId, owner)
-  const existing = await readDraftAtPath(workspaceId, relativePath, owner)
+  const existing = await readDraftRecord(workspaceId, relativePath, owner)
   const recordGeneration = Number.isSafeInteger(existing?.generation) ? existing.generation : -1
   return { current: Math.max(ownerState.generation, recordGeneration), existing, ownerState }
 }

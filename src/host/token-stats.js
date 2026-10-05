@@ -81,7 +81,7 @@ async function coldUsageEvents(persistence, sessionId) {
 }
 
 /* Day-bucket rows for one session log: only assistant/message events with a plain usage object count; the fork-inherited prefix (already counted in the parent's log) is skipped. Each row collapses one (day, provider/model) pair. */
-export function usageRowsOfEvents(events, inheritedEventCount) {
+function usageRowsOfEvents(events, inheritedEventCount) {
   const rows = []
   if (!Array.isArray(events)) return rows
   const buckets = new Map() // `${t}\u0001${provider}\u0001${model}` -> row index

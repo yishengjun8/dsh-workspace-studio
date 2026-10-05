@@ -8,8 +8,8 @@ import { normalizeRelativePath } from './paths.js'
 import { ENCODINGS } from './encodings.js'
 import { listTree, openInDefaultApp, readExternalPreview, readPreview, readPreviewHead, readRawFile, revealInExplorer, searchWorkspace } from './fs.js'
 import { createEntry, fsOperation, renameEntry, saveFile } from './write.js'
-import { deleteDraftFile, draftTreeOperation, parseDraftGenerationQuery, readDraftFile, saveDraftFile, validateDraftOwner, validateDraftPayload, writeJsonAtomic } from './drafts.js'
-import { adoptMindmapOrphans, buildMindmapDoc, clearForkInheritedQueue, deleteMindmapDoc, findMindmapDocWithAncestors, indexMindmapDocs, isValidMindmapDoc, listMindmapModels, MINDMAP_DOC_MAX_BYTES, mindmapAnchorOf, mindmapDocPath, mindmapDrainPendingSessionSummaries, mindmapInvalidatePersistenceList, mindmapLock, mindmapLockedReanchorOp, mindmapSessionSummarizingOf, mindmapSummarizingOf, mindmapSyncCache, parseMindmapSummaryConfig, purgeArchivedMindmapDocs, readMindmapDocFile, refreshMindmapDocCore, regenerateAllMindmapSummaries, regenerateAllSessionSummaries, regenerateMindmapSummary, renameMindmapDoc, seedMindmapSyncCacheAfterLoad, summarizeMindmapSession, syncMindmapDoc, validateMindmapSession, warmMindmapParsedCache, writeMindmapDoc } from './mindmap.js'
+import { deleteDraftFile, draftTreeOperation, parseDraftGenerationQuery, readDraftFile, saveDraftFile, validateDraftOwner, validateDraftPayload } from './drafts.js'
+import { adoptMindmapOrphans, buildMindmapDoc, clearForkInheritedQueue, deleteMindmapDoc, findMindmapDocWithAncestors, indexMindmapDocs, isValidMindmapDoc, listMindmapModels, MINDMAP_DOC_MAX_BYTES, mindmapAnchorOf, mindmapDrainPendingSessionSummaries, mindmapInvalidatePersistenceList, mindmapLock, mindmapLockedReanchorOp, mindmapSessionSummarizingOf, mindmapSummarizingOf, parseMindmapSummaryConfig, purgeArchivedMindmapDocs, readMindmapDocFile, refreshMindmapDocCore, regenerateAllMindmapSummaries, regenerateAllSessionSummaries, regenerateMindmapSummary, renameMindmapDoc, seedMindmapSyncCacheAfterLoad, summarizeMindmapSession, syncMindmapDoc, validateMindmapSession, warmMindmapParsedCache, writeMindmapDoc, writeMindmapDocFile } from './mindmap.js'
 import { renderPromptContext } from './prompt-context.js'
 import { renderMarkdownDocument } from './markdown.js'
 import { checkForUpdate, downloadUpdate, installedInfo } from './update.js'
@@ -63,27 +63,68 @@ export const Config = z.object({
 })
 
 const API_PREFIX = '/workspace-studio/api'
-/* Executable-file runner routes (see run.js for the safety model). Kept as their own table so the
-   long route chain below — including its method/404 bookkeeping — stays untouched. */
-const RUN_ROUTES = Object.freeze({
-  [`${API_PREFIX}/run`]: 'POST',
-  [`${API_PREFIX}/run/plan`]: 'GET, HEAD',
-  [`${API_PREFIX}/run/status`]: 'GET, HEAD',
-  [`${API_PREFIX}/run/stop`]: 'POST',
-  [`${API_PREFIX}/run/policy`]: 'GET, HEAD, POST',
+/* THE route table: every endpoint this plugin serves, with the methods it accepts and the handler
+   group that owns it. The method list and the 404 decision are read from here and nowhere else, so a
+   route can never be reachable-yet-undocumented or documented-yet-unreachable.
+   `group` names the two endpoints whose handlers take their own arguments ('run', 'collections');
+   every other route is served by the chain below.
+
+   Dispatch convention — ONE rule, applied everywhere:
+     - the HTTP method selects the operation on a RESOURCE (read / replace / create / remove), and the
+       resource is the path;
+     - a TREE-scoped verb that is not resource CRUD (`copy` / `move` / `delete` of a whole subtree)
+       travels as `action` in the body of its one endpoint, because the same path may be a file or a
+       directory and the operation is a transaction over both;
+     - `/collections` PUT is a merge PATCH (`upsert` / `remove` / `order` / `selectedId` fields applied
+       in ONE queued step), not a verb dispatch: splitting it into per-field routes would cost the
+       atomicity the patch exists to provide.
+   A verb never gets a subpath purely to look like the others: two dispatch styles would then exist
+   where one does today. */
+const ROUTES = Object.freeze({
+  [`${API_PREFIX}/context`]: { methods: 'POST' },
+  [`${API_PREFIX}/encodings`]: { methods: 'GET, HEAD' },
+  [`${API_PREFIX}/entry`]: { methods: 'POST, PATCH' },
+  [`${API_PREFIX}/external-file`]: { methods: 'POST' },
+  [`${API_PREFIX}/file`]: { methods: 'GET, HEAD, PUT, POST' },
+  [`${API_PREFIX}/raw`]: { methods: 'GET, HEAD' },
+  [`${API_PREFIX}/site-token`]: { methods: 'GET, HEAD' },
+  [`${API_PREFIX}/fs`]: { methods: 'POST' },
+  [`${API_PREFIX}/tree`]: { methods: 'GET, HEAD' },
+  [`${API_PREFIX}/search`]: { methods: 'GET, HEAD' },
+  [`${API_PREFIX}/reveal`]: { methods: 'POST' },
+  [`${API_PREFIX}/open`]: { methods: 'POST' },
+  [`${API_PREFIX}/draft`]: { methods: 'GET, HEAD, PUT, DELETE' },
+  [`${API_PREFIX}/draft-tree`]: { methods: 'POST' },
+  [`${API_PREFIX}/vcs`]: { methods: 'GET, HEAD' },
+  [`${API_PREFIX}/vcs-base`]: { methods: 'GET, HEAD' },
+  [`${API_PREFIX}/token-stats`]: { methods: 'GET, HEAD' },
+  [`${API_PREFIX}/collections`]: { methods: 'GET, HEAD, PUT', group: 'collections' },
+  [`${API_PREFIX}/run`]: { methods: 'POST', group: 'run' },
+  [`${API_PREFIX}/run/plan`]: { methods: 'GET, HEAD', group: 'run' },
+  [`${API_PREFIX}/run/status`]: { methods: 'GET, HEAD', group: 'run' },
+  [`${API_PREFIX}/run/stop`]: { methods: 'POST', group: 'run' },
+  [`${API_PREFIX}/run/policy`]: { methods: 'GET, HEAD, POST', group: 'run' },
   /* Interpreter configuration, both ends of it: the settings page's per-extension table and the
      one-shot version probe behind the dialogs' 「测试」 button. */
-  [`${API_PREFIX}/run/interpreters`]: 'GET, HEAD',
-  [`${API_PREFIX}/run/probe`]: 'POST',
+  [`${API_PREFIX}/run/interpreters`]: { methods: 'GET, HEAD', group: 'run' },
+  [`${API_PREFIX}/run/probe`]: { methods: 'POST', group: 'run' },
+  [`${API_PREFIX}/update/check`]: { methods: 'GET, HEAD' },
+  [`${API_PREFIX}/update/installed`]: { methods: 'GET, HEAD' },
+  [`${API_PREFIX}/update/download`]: { methods: 'POST' },
+  [`${API_PREFIX}/mindmap-doc`]: { methods: 'GET, HEAD, POST, DELETE' },
+  [`${API_PREFIX}/mindmap-doc/index`]: { methods: 'GET, HEAD' },
+  [`${API_PREFIX}/mindmap-doc/sync`]: { methods: 'POST' },
+  [`${API_PREFIX}/mindmap-doc/rename`]: { methods: 'POST' },
+  [`${API_PREFIX}/mindmap-doc/models`]: { methods: 'GET, HEAD' },
+  [`${API_PREFIX}/mindmap-doc/regenerate-summary`]: { methods: 'POST' },
+  [`${API_PREFIX}/mindmap-doc/regenerate-all`]: { methods: 'POST' },
+  [`${API_PREFIX}/mindmap-doc/regenerate-session-summaries`]: { methods: 'POST' },
+  [`${API_PREFIX}/mindmap-doc/summarize-session`]: { methods: 'POST' },
+  [`${API_PREFIX}/mindmap-doc/fork-cleanup`]: { methods: 'POST' },
 })
 /* The runner's request body bound: the argument text is capped at 4 KiB by run.js, so the JSON
    envelope only needs a little headroom over the shared mutation cap. */
 const RUN_BODY_MAX_BYTES = 16 * 1024
-/* Workspace collections (collections.js): plugin-level (no workspaceId) and its own table, for the
-   same reason the runner routes have one — the long chain below owns method/404 bookkeeping. */
-const COLLECTIONS_ROUTES = Object.freeze({
-  [`${API_PREFIX}/collections`]: 'GET, HEAD, PUT',
-})
 /* 50 collections x 40-char names x up to 2000 workspace ids: the honest bound is a few hundred KiB,
    and the envelope never carries file content. */
 const COLLECTIONS_BODY_MAX_BYTES = 512 * 1024
@@ -143,23 +184,34 @@ async function handleRunRoute(ctx, config, url, req, res, writeQueues) {
     sendJson(req, res, 200, await readRunPolicy(policyWorkspaceId))
     return
   }
-  const workspaceId = requiredQuery(url, 'workspaceId')
-  const workspace = workspaceFor(ctx, workspaceId)
+  /* TWO shapes of one question, handled before the workspace requirement:
+     - by `runId` (a page re-attaching to a run it already knows) — the run registry is
+       workspace-independent, so this must stay readable after the workspace entry vanished, exactly
+       like /run/stop. Requiring a workspaceId here made `/run/status?runId=…` answer 404 for a run
+       that was still live and stoppable;
+     - by `workspaceId` + `path` (the console asking about its own file). */
   if (endpoint === `${API_PREFIX}/run/status`) {
     const runId = url.searchParams.get('runId') ?? ''
-    const relativePath = normalizeRelativePath(url.searchParams.get('path') ?? '')
-    if (runId === '' && relativePath === '') {
+    const pathRaw = url.searchParams.get('path') ?? ''
+    if (runId === '' && pathRaw === '') {
       throw new HttpError(400, 'invalid-path', '运行状态查询必须提供 path 或 runId')
     }
-    const offset = Number(url.searchParams.get('offset'))
+    const offsetRaw = Number(url.searchParams.get('offset'))
+    const offset = Number.isSafeInteger(offsetRaw) && offsetRaw > 0 ? offsetRaw : 0
+    if (runId !== '') {
+      sendJson(req, res, 200, readRunStatus({ runId, offset }))
+      return
+    }
+    const statusWorkspaceId = requiredQuery(url, 'workspaceId')
     sendJson(req, res, 200, readRunStatus({
-      runId,
-      workspace,
-      relativePath,
-      offset: Number.isSafeInteger(offset) && offset > 0 ? offset : 0,
+      workspace: workspaceFor(ctx, statusWorkspaceId),
+      relativePath: normalizeRelativePath(pathRaw),
+      offset,
     }))
     return
   }
+  const workspaceId = requiredQuery(url, 'workspaceId')
+  const workspace = workspaceFor(ctx, workspaceId)
   const relativePath = normalizeRelativePath(url.searchParams.get('path') ?? '')
   if (relativePath === '') throw new HttpError(400, 'invalid-path', '运行相关请求必须指定文件路径')
   const policy = await readRunPolicyStore()
@@ -195,14 +247,12 @@ async function refreshMindmapDocLoad(ctx, persistence, doc) {
       try { ctx.logger.warn(`[workspace-studio] mindmap doc exceeds ${MINDMAP_DOC_MAX_BYTES} bytes; refusing to fold new turns on open (${serialized})`) } catch { /* no logger */ }
     } else {
       try {
-        await writeJsonAtomic(mindmapDocPath(doc.rootSessionId), doc)
+        await writeMindmapDocFile(doc)
         wrote = true
       } catch (error) {
         ctx.logger.warn(`[workspace-studio] mindmap doc load write failed: ${String(error)}`)
       }
     }
-    /* This load path WRITES the doc without touching any log — invalidate the sync cache like every other doc write, or the next sync serves the stale pre-adopt doc for up to the TTL. */
-    mindmapSyncCache.delete(String(doc.rootSessionId))
   }
   /* A degraded reconcile/adopt may have PARTIALLY mutated `doc` in memory; `changed` is false so nothing was written — serve the last good DISK doc instead of the half-reconciled copy. */
   let result = doc
@@ -238,21 +288,21 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
     return
   }
   try {
-    const runRoute = RUN_ROUTES[url.pathname]
-    if (runRoute !== undefined) {
-      if (!runRoute.split(', ').includes(req.method ?? '')) {
-        sendError(req, res, 405, 'method-not-allowed', `该接口只允许 ${runRoute} 请求`, { allow: runRoute })
-        return
-      }
+    /* Method whitelist and 404 decision come from THE route table (see ROUTES above). */
+    const route = ROUTES[url.pathname]
+    if (route === undefined) {
+      sendError(req, res, 404, 'endpoint-not-found', '接口不存在')
+      return
+    }
+    if (!route.methods.split(', ').includes(req.method ?? '')) {
+      sendError(req, res, 405, 'method-not-allowed', `该接口只允许 ${route.methods} 请求`, { allow: route.methods })
+      return
+    }
+    if (route.group === 'run') {
       await handleRunRoute(ctx, config, url, req, res, writeQueues)
       return
     }
-    const collectionsRoute = COLLECTIONS_ROUTES[url.pathname]
-    if (collectionsRoute !== undefined) {
-      if (!collectionsRoute.split(', ').includes(req.method ?? '')) {
-        sendError(req, res, 405, 'method-not-allowed', `该接口只允许 ${collectionsRoute} 请求`, { allow: collectionsRoute })
-        return
-      }
+    if (route.group === 'collections') {
       await handleCollectionsRoute(config, url, req, res, writeQueues)
       return
     }
@@ -286,75 +336,8 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
     const tokenStatsEndpoint = url.pathname === `${API_PREFIX}/token-stats`
     const vcsEndpoint = url.pathname === `${API_PREFIX}/vcs`
     const vcsBaseEndpoint = url.pathname === `${API_PREFIX}/vcs-base`
-    const allowed = contextEndpoint
-      ? 'POST'
-      : encodingsEndpoint
-        ? 'GET, HEAD'
-        : entryEndpoint
-          ? 'POST, PATCH'
-          : externalFileEndpoint
-            ? 'POST'
-            : fileEndpoint
-              ? 'GET, HEAD, PUT'
-              : rawEndpoint
-                ? 'GET, HEAD'
-                : siteTokenEndpoint
-                  ? 'GET, HEAD'
-                  : fsEndpoint
-                ? 'POST'
-                : treeEndpoint
-                  ? 'GET, HEAD'
-                  : searchEndpoint
-                    ? 'GET, HEAD'
-                    : revealEndpoint
-                      ? 'POST'
-                      : openEndpoint
-                        ? 'POST'
-                        : draftTreeEndpoint
-                        ? 'POST'
-                        : mindmapDocIndexEndpoint
-                            ? 'GET, HEAD'
-                            : mindmapDocSyncEndpoint
-                              ? 'POST'
-                              : mindmapDocRenameEndpoint
-                                ? 'POST'
-                                : mindmapDocModelsEndpoint
-                                  ? 'GET, HEAD'
-                                  : mindmapDocRegenerateEndpoint
-                                    ? 'POST'
-                                    : mindmapDocRegenerateAllEndpoint
-                                      ? 'POST'
-                                      : mindmapDocRegenerateSessionSummariesEndpoint
-                                        ? 'POST'
-                                        : mindmapDocSummarizeSessionEndpoint
-                                          ? 'POST'
-                                          : mindmapForkCleanupEndpoint
-                                            ? 'POST'
-                                            : updateCheckEndpoint
-                                              ? 'GET, HEAD'
-                                              : updateDownloadEndpoint
-                                                ? 'POST'
-                                                : tokenStatsEndpoint
-                                                  ? 'GET, HEAD'
-                                                  : vcsEndpoint
-                                                    ? 'GET, HEAD'
-                                                    : vcsBaseEndpoint
-                                                      ? 'GET, HEAD'
-                                                      : mindmapDocEndpoint
-                                                    ? 'GET, HEAD, POST, DELETE'
-                                                    : draftEndpoint
-                                                      ? 'GET, HEAD, PUT, DELETE'
-                                                      : updateInstalledEndpoint
-                                                        ? 'GET, HEAD'
-                                                        : undefined
-    if (allowed !== undefined && !allowed.split(', ').includes(req.method ?? '')) {
-      sendError(req, res, 405, 'method-not-allowed', `该接口只允许 ${allowed} 请求`, { allow: allowed })
-      return
-    }
-    if (!contextEndpoint && !encodingsEndpoint && !entryEndpoint && !externalFileEndpoint && !fileEndpoint && !rawEndpoint && !siteTokenEndpoint && !fsEndpoint && !treeEndpoint && !searchEndpoint && !revealEndpoint && !openEndpoint && !draftEndpoint && !draftTreeEndpoint && !mindmapDocEndpoint && !mindmapDocIndexEndpoint && !mindmapDocSyncEndpoint && !mindmapDocRenameEndpoint && !mindmapDocModelsEndpoint && !mindmapDocRegenerateEndpoint && !mindmapDocRegenerateAllEndpoint && !mindmapDocRegenerateSessionSummariesEndpoint && !mindmapDocSummarizeSessionEndpoint && !mindmapForkCleanupEndpoint && !updateCheckEndpoint && !updateInstalledEndpoint && !updateDownloadEndpoint && !tokenStatsEndpoint && !vcsEndpoint && !vcsBaseEndpoint) {
-      sendError(req, res, 404, 'endpoint-not-found', '接口不存在')
-      return
-    }
+    /* Handlers below, in order. Each compares the path it serves; the method whitelist and the 404
+       answer were already settled by the ROUTES lookup above. */
     if (contextEndpoint) {
       sendJson(req, res, 200, await renderPromptContext(ctx, config, req))
       return
@@ -560,12 +543,11 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
             ctx.logger.warn(`[workspace-studio] mindmap doc conversion adopt failed: ${String(error)}`)
           }
           built.updatedAt = Date.now()
-          await writeJsonAtomic(mindmapDocPath(built.rootSessionId), built)
+          await writeMindmapDocFile(built)
         } catch (error) {
           ctx.logger.warn(`[workspace-studio] mindmap doc conversion write failed: ${String(error)}`)
           return { doc: null, created: false }
         }
-        mindmapSyncCache.delete(String(built.rootSessionId))
         return { doc: built, created: true }
       })
       /* First conversion also seeds the sync cache (its doc reached the disk): the 2.5 s sync after a first open must not re-run build+adopt. The conservative adoptIncomplete:true keeps adoptClean false for one cycle so the next sync re-checks orphans the conversion pass may have missed; the `created:false` branch is left unseeded. */
@@ -651,7 +633,7 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
       if (req.method === 'GET' || req.method === 'HEAD') {
         if (relativePath === '') throw new HttpError(400, 'invalid-path', '暂存读取必须指定文件路径')
         const value = await readDraftFile(workspaceId, relativePath, owner)
-        sendJson(req, res, 200, value ?? { exists: false })
+        sendJson(req, res, 200, value)
         return
       }
       if (req.method === 'DELETE') {
@@ -683,25 +665,29 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
       return
     }
     /* Cheap change check for open preview tabs: the client polls this on a fixed cadence (no SSE push). The previous snapshot is parsed once and passed into fileChangeSnapshot so an unchanged mtime/size short-circuits before the hash, then the returned snapshot is compared for the client's `changed` answer. Scoped to the FILE endpoint's read methods: a stray `check=1` on /tree, /entry or a PUT must never hijack the real operation. */
-    if (fileEndpoint && (req.method === 'GET' || req.method === 'HEAD') && url.searchParams.get('check') === '1') {
+    /* Cheap change check for open preview tabs: the client polls this on a fixed cadence (no SSE push).
+       POST (not GET) so the previous snapshot travels in the body: a JSON blob in a query string was
+       both opaque and length-bound, and the polling tab count decides how many of them are in flight.
+       The previous snapshot is parsed once and passed into fileChangeSnapshot so an unchanged
+       mtime/size short-circuits before the hash, then the returned snapshot is compared for the
+       client's `changed` answer. */
+    if (fileEndpoint && req.method === 'POST' && url.searchParams.get('check') === '1') {
       if (relativePath === '') throw new HttpError(400, 'invalid-path', '变更检查必须指定文件路径')
-      const previousRaw = url.searchParams.get('prev')
-      let previous
-      if (previousRaw !== null && previousRaw !== '') {
-        try {
-          const parsed = JSON.parse(previousRaw)
-          // Only a plain object may seed fileChangeSnapshot (its fast path reads .mtimeMs/.size/.hash); a malformed prev stays undefined = full re-check.
-          if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) previous = parsed
-        } catch { /* malformed prev: treat as unknown (full re-check) */ }
-      }
+      const body = await readJsonObject(req, config)
+      const previousInput = body?.previous
+      /* Only a plain object may seed fileChangeSnapshot (its fast path reads .mtimeMs/.size/.hash/.gone);
+         anything else means "no baseline" = full re-check. */
+      const previous = previousInput !== null && typeof previousInput === 'object' && !Array.isArray(previousInput)
+        ? previousInput
+        : undefined
       const snapshot = await readPreviewHead(workspace, relativePath, config.maxPreviewBytes, previous)
       let changed = false
-      if (snapshot !== null && previous !== undefined && previous !== null) {
+      if (snapshot !== null && previous !== undefined) {
         /* A { gone: true } baseline means the file was deleted and has now been re-created: report a change so the client reloads instead of keeping the stale content. When the baseline carries a STRING hash, content is the only change signal (a touch -r / rsync -t with identical content must NOT reload the tab). A non-string baseline falls back to mtime/size comparison. */
-        changed = previous?.gone === true
-          || (typeof previous?.hash === 'string'
+        changed = previous.gone === true
+          || (typeof previous.hash === 'string'
             ? previous.hash !== snapshot.hash
-            : previous?.mtimeMs !== snapshot.mtimeMs || previous?.size !== snapshot.size)
+            : previous.mtimeMs !== snapshot.mtimeMs || previous.size !== snapshot.size)
       }
       sendJson(req, res, 200, {
         workspaceId: String(workspace.id),

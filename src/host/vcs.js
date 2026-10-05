@@ -28,9 +28,9 @@ const PROBE_TTL_MS = 300_000
 const DETECT_TTL_MS = 60_000
 /** Hard cap on one tool invocation's stdout: an oversized working copy truncates instead of buffering.
  *  It doubles as the execFile maxBuffer, whose overflow is handled as truncation. */
-export const VCS_MAX_OUTPUT_BYTES = 8 * 1024 * 1024
+const VCS_MAX_OUTPUT_BYTES = 8 * 1024 * 1024
 /** Hard cap on the folded ignored-path prefix list. */
-export const VCS_IGNORED_MAX = 1000
+const VCS_IGNORED_MAX = 1000
 const PROBE_TIMEOUT_MS = 4000
 const MAXBUFFER_CODE = 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'
 
@@ -168,7 +168,7 @@ async function detectGit(file, root) {
 }
 
 /** Revision label of an `svn info --xml` document (`<commit revision="1234">`), else empty. */
-export function parseSvnInfoRevision(xml) {
+function parseSvnInfoRevision(xml) {
   const match = /<commit\b[^>]*\brevision="(\d+)"/.exec(xml)
   return match === null ? '' : match[1]
 }
@@ -212,7 +212,7 @@ async function detectRepo(workspaceId, root, config) {
 }
 
 /** Convert a repository-reported path (always repo-root-relative for git) into a workspace-relative one; null when it lies outside. */
-export function toWorkspaceRelative(rawPath, prefix) {
+function toWorkspaceRelative(rawPath, prefix) {
   const normalized = toForward(rawPath).replace(/^\.\//, '')
   if (normalized === '' || normalized === '.') return null
   if (prefix === '') return normalized
@@ -222,7 +222,7 @@ export function toWorkspaceRelative(rawPath, prefix) {
 }
 
 /** The single letter a badge shows: the worktree state wins, then the staged state, then "untracked". */
-export function gitStatusLetter(indexStatus, worktreeStatus) {
+function gitStatusLetter(indexStatus, worktreeStatus) {
   if (worktreeStatus !== ' ' && worktreeStatus !== '?') return worktreeStatus
   if (indexStatus !== ' ' && indexStatus !== '?') return indexStatus
   if (indexStatus === '?' || worktreeStatus === '?') return '?'
@@ -239,7 +239,7 @@ function isGitConflict(indexStatus, worktreeStatus) {
  *  Rename/copy records carry their source path in the NEXT NUL field. A stream
  *  whose last field was cut off by the output cap ends without NUL and has that
  *  fragment dropped. */
-export function parseGitPorcelain(stdout, prefix = '') {
+function parseGitPorcelain(stdout, prefix = '') {
   const bytes = Buffer.isBuffer(stdout) ? stdout : Buffer.from(String(stdout ?? ''), 'utf8')
   const complete = bytes.length > 0 && bytes[bytes.length - 1] === 0
   const fields = decodeText(bytes).split('\u0000')
@@ -281,7 +281,7 @@ export function parseGitPorcelain(stdout, prefix = '') {
 }
 
 /** Ignored paths (`!!`) from a `--ignored=traditional` run: directories arrive collapsed as `dir/`. */
-export function parseGitIgnored(stdout, prefix = '') {
+function parseGitIgnored(stdout, prefix = '') {
   const bytes = Buffer.isBuffer(stdout) ? stdout : Buffer.from(String(stdout ?? ''), 'utf8')
   const complete = bytes.length > 0 && bytes[bytes.length - 1] === 0
   const fields = decodeText(bytes).split('\u0000')
@@ -297,7 +297,7 @@ export function parseGitIgnored(stdout, prefix = '') {
 
 const XML_ENTITIES = Object.freeze({ amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" })
 /** Decode the five XML entities an `svn status --xml` path attribute can carry. */
-export function decodeXmlText(value) {
+function decodeXmlText(value) {
   return value.replace(/&(amp|lt|gt|quot|apos);/g, (match, name) => XML_ENTITIES[name] ?? match)
 }
 
@@ -319,7 +319,7 @@ const SVN_STATUS_LETTERS = Object.freeze({
 
 /** Parse an `svn status --xml --depth infinity` document into workspace-relative entries.
  *  `svn status` prints CWD-relative paths, so no prefix conversion applies. */
-export function parseSvnStatusXml(xml) {
+function parseSvnStatusXml(xml) {
   const entries = []
   const entryPattern = /<entry\b([^>]*)>([\s\S]*?)<\/entry>/g
   let match
@@ -359,7 +359,7 @@ export function parseSvnStatusXml(xml) {
 }
 
 /** Fold a path list into the smallest set of directory prefixes (a directory already covered is dropped). */
-export function foldIgnoredPaths(paths, limit = VCS_IGNORED_MAX) {
+function foldIgnoredPaths(paths, limit = VCS_IGNORED_MAX) {
   const kept = []
   const sorted = [...new Set(paths)].sort((left, right) => left.localeCompare(right, 'en'))
   for (const path of sorted) {

@@ -421,7 +421,7 @@ export async function readPreview(workspace, relativePath, config, encodingId = 
     workspaceId: String(workspace.id), path: relativePath, content, size: targetStat.size,
     truncated, encoding: effectiveEncoding, editable: readOnlyReason === undefined,
     readOnlyReason: readOnlyReason ?? null, maxContextBytes: config.maxContextBytes,
-    mtimeMs: targetStat.mtimeMs, sizeBytes: targetStat.size, ...metadata,
+    mtimeMs: targetStat.mtimeMs, ...metadata,
   }
   if (!truncated) result.revision = revisionFor(previewBytes)
   return result
@@ -513,10 +513,7 @@ async function fileChangeSnapshot(target, previous, maxPreviewBytes) {
   const hash = await previewHash(target, maxPreviewBytes)
   /* A baseline WITHOUT a string hash (a file larger than the preview window, or an old client) has nothing to compare: mtime/size stay the only change signal, and a same-mtime/size file is reported unchanged instead of "changed on every poll". */
   if (sameMtime && typeof previous?.hash !== 'string') return { ...previous, checkedAt: Date.now() }
-  if (hash !== null && previous?.hash === hash) {
-    /* Same CONTENT but new mtime/size (touch -r, rsync -t): carry the CURRENT stat fields so the next poll's mtime+size fast path engages again; echoing the old mtime would force a full re-hash on every poll. */
-    return { mtimeMs: current.mtimeMs, size: current.size, hash, checkedAt: Date.now() }
-  }
+  /* Same CONTENT but new mtime/size (touch -r, rsync -t) and a genuinely changed file land on the SAME answer: carry the CURRENT stat fields so the next poll's mtime+size fast path engages again (echoing the old mtime would force a full re-hash on every poll). */
   return { mtimeMs: current.mtimeMs, size: current.size, hash, checkedAt: Date.now() }
 }
 

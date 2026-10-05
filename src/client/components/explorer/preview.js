@@ -1,13 +1,14 @@
 import { createElement as h, Fragment } from 'react'
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import { translate } from '../../locale/index.js'
+import { PanelState } from '../../panel-state.js'
 import { colorGroupOf, diffColorVars, highlightPresetOf, readOnlyReason } from '../../format.js'
 import { CodeEditor } from '../editor.js'
 import { BrowseView } from '../../renderers/browse-view.js'
 import { ConvertedView } from '../../renderers/converted-view.js'
 import { HtmlPreview } from '../../renderers/html-preview.js'
 import { ImageView } from '../../renderers/image-view.js'
-import { useMarkdownLabels } from '../../renderers/registry.js'
+import { RENDERER_IMAGE, RENDERER_OFFICE, RENDERER_PDF, useMarkdownLabels } from '../../renderers/registry.js'
 import { isRunnableName } from '../../run-detect.js'
 import { isSyntheticTab } from '../../preview-tabs.js'
 import { RunConsole } from './run-panel.js'
@@ -43,16 +44,16 @@ export function PreviewPane({ preview, settings, editing, activeTab, draft, view
   }
   if (preview.state === 'error') {
     return h('div', { className: 'dsh-ws-empty' },
-      h('div', { className: 'dsh-ws-error-card' }, preview.message))
+      h(PanelState, { className: 'dsh-ws-error-card', message: preview.message }))
   }
   /* Image files never enter the text read path; the standalone view fetches complete bytes through the standard workspace-files Remote. */
-  if (preview.kind === 'image') {
+  if (preview.kind === RENDERER_IMAGE) {
     return withRun(h('div', { className: 'dsh-ws-preview-body', onClick: onBodyClick },
       h(ImageView, { name: preview.name, path: preview.path, readEpoch, sessionId })))
   }
   /* PDF and Office documents render from bytes too: a PDF as it is, an Office
      source as the Host-converted PDF of it (see ConvertedView). */
-  if (preview.kind === 'pdf' || preview.kind === 'office') {
+  if (preview.kind === RENDERER_PDF || preview.kind === RENDERER_OFFICE) {
     return withRun(h('div', { className: 'dsh-ws-preview-body', onClick: onBodyClick },
       h(ConvertedView, { kind: preview.kind, name: preview.name, path: preview.path, readEpoch, sessionId })))
   }

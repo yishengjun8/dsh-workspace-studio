@@ -22,7 +22,7 @@ import { randomBytes } from 'node:crypto'
 import { mkdir, readdir, rename, stat, unlink } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 
-export const QUARANTINE_DIR_NAME = '.corrupt'
+const QUARANTINE_DIR_NAME = '.corrupt'
 /* Same window as the draft tombstones: long enough to notice and recover, short enough that a
    repeatedly-corrupted store cannot grow without bound. */
 const QUARANTINE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000

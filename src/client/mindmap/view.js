@@ -3,10 +3,11 @@ import { createPortal } from 'react-dom'
 import { clampMountBulge, CONTEXT_MENU_WIDTH, MINDMAP_LOAD_TIMEOUT_MS, MINDMAP_SLOW_LOAD_MS, MINDMAP_SUMMARY_DEFAULT_LENGTH, MINDMAP_SUMMARY_MAX_LENGTH, MINDMAP_SUMMARY_MIN_LENGTH, MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH, MINDMAP_SUMMARY_SESSION_MAX_LENGTH, MINDMAP_SUMMARY_SESSION_MIN_LENGTH, MINDMAP_SYNC_MS } from '../constants.js'
 import { translate } from '../locale/index.js'
 import { dismissesMenuOnScroll } from '../menu-dismiss.js'
+import { shouldSkipPoll } from '../poll-gate.js'
 import { styles } from '../styles.js'
 import { regenerateAllMindmapSummaries, regenerateAllSessionSummaries, regenerateMindmapSummary, summarizeMindmapSession } from '../api.js'
 import { mindmapRegistry, readMindmapLastSession, removeMindmapLastSession, useMindmapDocHandoff, writeMindmapLastSession } from './registry.js'
-import { useMindmapSummaryModels } from '../components/settings.js'
+import { useMindmapSummaryModels } from '../hooks/mindmap-summary-models.js'
 import { mindmapApplyFoldIntent, mindmapCardClickAction, mindmapClip, mindmapDeletePlan, mindmapDocFingerprint, mindmapDocKey, mindmapDocLayout, mindmapDocSessionKey, mindmapDocStructureFingerprint, mindmapEmptyKey, mindmapFoldedRunOf, mindmapGradientId, mindmapStreamPalette, normalizeMindmapWorkspacePath, useMindmapSessionView } from './helpers.js'
 import { MindMapCard, MindMapFoldedCard, MindMapRootNode, MindMapSessionHead } from './cards.js'
 import { mindmapConvertedSessions } from './hider.js'
@@ -492,7 +493,10 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         .catch(() => { /* transient: keep polling */ })
         .finally(endRead)
     }
-    const timer = window.setInterval(probe, MINDMAP_SYNC_MS)
+    const timer = window.setInterval(() => {
+      if (shouldSkipPoll()) return
+      probe()
+    }, MINDMAP_SYNC_MS)
     return () => { cancelled = true; window.clearInterval(timer) }
   }, [beginRead, endRead, phase.status, restoreLastSession, sessionId, showNotice])
 
@@ -617,6 +621,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   useEffect(() => {
     if (rootId === null) return undefined
     const timer = window.setInterval(() => {
+      if (shouldSkipPoll()) return
       if (savingRef.current) return
       if (!beginRead()) return
       const root = rootIdRef.current ?? rootId

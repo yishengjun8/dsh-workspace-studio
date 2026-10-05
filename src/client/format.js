@@ -33,8 +33,8 @@ export const FILE_COLOR_GROUPS = Object.freeze([
   { group: 'other', label: '其他', color: '#9aa3ad' },
   { group: 'blocked', label: '受阻', color: '#e5484d' },
 ])
-export const DEFAULT_FILE_COLOR = '#9aa3ad'
-export const FILE_COLOR_DEFAULTS = Object.fromEntries(FILE_COLOR_GROUPS.map(({ group, color }) => [group, color]))
+const DEFAULT_FILE_COLOR = '#9aa3ad'
+const FILE_COLOR_DEFAULTS = Object.fromEntries(FILE_COLOR_GROUPS.map(({ group, color }) => [group, color]))
 /** The accent color a group falls back to when the user has not set one. */
 export function fileColorDefault(group) {
   return FILE_COLOR_DEFAULTS[group] ?? DEFAULT_FILE_COLOR
@@ -56,8 +56,8 @@ export const VCS_STATUS_GROUPS = Object.freeze([
   { group: 'conflict', label: '冲突', color: '#d92f24' },
   { group: 'ignored', label: '已忽略', color: '#8a9099' },
 ])
-export const DEFAULT_VCS_STATUS_COLOR = '#8a9099'
-export const VCS_STATUS_DEFAULTS = Object.fromEntries(VCS_STATUS_GROUPS.map(({ group, color }) => [group, color]))
+const DEFAULT_VCS_STATUS_COLOR = '#8a9099'
+const VCS_STATUS_DEFAULTS = Object.fromEntries(VCS_STATUS_GROUPS.map(({ group, color }) => [group, color]))
 /** Localized label of one VCS tone; falls back to the constant label. */
 export function vcsStatusGroupLabel(group) {
   const localized = translate(`vcsColor.${group}`)
@@ -87,8 +87,8 @@ export const DIFF_TONE_GROUPS = Object.freeze([
   { group: 'modified', label: '修改', color: '#1a63d8' },
   { group: 'deleted', label: '删除', color: '#d92f24' },
 ])
-export const DEFAULT_DIFF_COLOR = '#8a9099'
-export const DIFF_TONE_DEFAULTS = Object.fromEntries(DIFF_TONE_GROUPS.map(({ group, color }) => [group, color]))
+const DEFAULT_DIFF_COLOR = '#8a9099'
+const DIFF_TONE_DEFAULTS = Object.fromEntries(DIFF_TONE_GROUPS.map(({ group, color }) => [group, color]))
 /** Localized label of one gutter tone; falls back to the constant label. */
 export function diffGroupLabel(group) {
   const localized = translate(`diffTone.${group}`)
@@ -111,7 +111,7 @@ export function diffColorVars(settings) {
 }
 
 /* Extension -> color group; mirrors EXTENSION_LANGUAGES so badge and editor highlighting agree. */
-export const FILE_GROUP_BY_EXTENSION = Object.freeze({
+const FILE_GROUP_BY_EXTENSION = Object.freeze({
   ts: 'typescript', tsx: 'typescript', mts: 'typescript', cts: 'typescript',
   js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript',
   json: 'json', jsonc: 'json',
@@ -126,13 +126,13 @@ export const FILE_GROUP_BY_EXTENSION = Object.freeze({
   cs: 'csharp', csx: 'csharp',
 })
 /* Dot-less or conventionally-uppercase names that extension splitting would miss. */
-export const FILE_GROUP_BY_EXACT_NAME = Object.freeze({
+const FILE_GROUP_BY_EXACT_NAME = Object.freeze({
   'package.json': 'json', 'tsconfig.json': 'json',
   '.gitignore': 'config', '.npmrc': 'config', '.editorconfig': 'config', '.env': 'config',
   'dockerfile': 'config', 'dockerfile.dev': 'config', 'dockerfile.prod': 'config', 'dockerfile.test': 'config',
   'makefile': 'config', 'license': 'config',
 })
-export const DEFAULT_FILE_GROUP = 'other'
+const DEFAULT_FILE_GROUP = 'other'
 /** The color group one tree entry belongs to, from its kind and file name. */
 export function colorGroupOf(entry) {
   if (entry.kind === 'directory') return 'directory'
@@ -166,7 +166,7 @@ export const HIGHLIGHT_PRESETS = Object.freeze([
 ])
 export const HIGHLIGHT_PRESET_DEFAULT = 'default'
 /* Per-group default highlight presets; a group with no entry here follows the app theme's palette ('default'). */
-export const HIGHLIGHT_PRESET_DEFAULT_BY_GROUP = Object.freeze({
+const HIGHLIGHT_PRESET_DEFAULT_BY_GROUP = Object.freeze({
   markup: 'vscode-xml',
   python: 'vscode-python',
   json: 'vscode-json',
@@ -195,7 +195,7 @@ export function lineSeparator(value) {
 }
 
 /* Read-only reason codes the preview may carry, mapped to dictionary keys (including server alias spellings). */
-export const READ_ONLY_REASON_KEYS = Object.freeze({
+const READ_ONLY_REASON_KEYS = Object.freeze({
   binary: 'readonly.binary',
   encoding: 'readonly.encoding',
   'unsupported-encoding': 'readonly.encoding',

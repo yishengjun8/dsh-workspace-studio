@@ -1,6 +1,7 @@
 import { createElement as h, Fragment, useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { translate } from '../locale/index.js'
+import { Modal } from '../components/dialogs.js'
 import { mindmapConvertedSessions } from './hider.js'
 import { MINDMAP_ICON } from './panel.js'
 import { mindmapDockStore, mindmapRegistry, useMindmapRegistry } from './registry.js'
@@ -65,19 +66,17 @@ export function MindmapHeaderButton({ sessionId }) {
   /* Portal the confirm dialog to body: .dsh-ws-chat clips fixed-position
      descendants, so the modal would be cut to the chat column. */
   const confirmView = confirmTarget !== null ? createPortal(
-    h('div', {
-      className: 'dsh-ws-dialog-backdrop',
-      onMouseDown: event => { if (event.target === event.currentTarget) closeConfirm() },
+    h(Modal, {
+      actions: [
+        /* The confirm keeps its own button classes (the mind-map confirm has extra styling hooks). */
+        { key: 'cancel', label: translate('dialog.cancel'), onClick: closeConfirm, className: 'dsh-ws-text-button dsh-ws-mindmap-confirm-button dsh-ws-mindmap-confirm-cancel' },
+        { key: 'ok', label: translate('mindmap.confirm.action'), onClick: confirmConvert, className: 'dsh-ws-text-button dsh-ws-mindmap-confirm-button dsh-ws-mindmap-confirm-ok' },
+      ],
+      className: 'dsh-ws-mindmap-confirm-dialog',
+      onCancel: closeConfirm,
+      title: translate('mindmap.confirm.title'),
     },
-      h('div', { 'aria-modal': true, className: 'dsh-ws-dialog dsh-ws-mindmap-confirm-dialog', role: 'dialog' },
-        h('div', { className: 'dsh-ws-dialog-header' },
-          h('div', { className: 'dsh-ws-dialog-title' }, translate('mindmap.confirm.title')),
-          h('button', { 'aria-label': translate('dialog.close'), className: 'dsh-ws-icon-button', onClick: closeConfirm, title: translate('dialog.close'), type: 'button' }, '×')),
-        h('div', { className: 'dsh-ws-dialog-body' },
-          h('div', { className: 'dsh-ws-dialog-message' }, translate('mindmap.confirm.message'))),
-        h('div', { className: 'dsh-ws-dialog-footer' },
-          h('button', { className: 'dsh-ws-text-button dsh-ws-mindmap-confirm-button dsh-ws-mindmap-confirm-cancel', onClick: closeConfirm, type: 'button' }, translate('dialog.cancel')),
-          h('button', { className: 'dsh-ws-text-button dsh-ws-mindmap-confirm-button dsh-ws-mindmap-confirm-ok', onClick: confirmConvert, type: 'button' }, translate('mindmap.confirm.action'))))),
+    h('div', { className: 'dsh-ws-dialog-message' }, translate('mindmap.confirm.message'))),
     document.body) : null
   return h(Fragment, null,
     h('button', {

@@ -63,8 +63,8 @@ export const tokenHighlight = HighlightStyle.define([
    2. Rebuild on tree identity change, not just docChanged: the Lezer parse
       advances in background chunks, so a docChanged-only rebuild misses
       imports beyond the synchronously parsed prefix. */
-export const pythonModuleMark = Decoration.mark({ class: 'dsh-ws-token-module' })
-export const pythonImportModules = Prec.highest(ViewPlugin.fromClass(class {
+const pythonModuleMark = Decoration.mark({ class: 'dsh-ws-token-module' })
+const pythonImportModules = Prec.highest(ViewPlugin.fromClass(class {
   constructor(view) { this.view = view; this.tree = syntaxTree(view.state); this.decorations = this.build(view); this.pending = false; this.raf = 0 }
   update(update) {
     const tree = syntaxTree(update.state)
@@ -318,38 +318,38 @@ export const pythonImportModules = Prec.highest(ViewPlugin.fromClass(class {
   }
 }, { decorations: (v) => v.decorations }))
 
-export const PLAIN_LANGUAGE = Object.freeze({ label: 'text', extension: [] })
+const PLAIN_LANGUAGE = Object.freeze({ label: 'text', extension: [] })
 export const language = (label, extension) => Object.freeze({ label, extension })
-export const JS_LANGUAGE = language('js', javascript())
-export const JSX_LANGUAGE = language('jsx', javascript({ jsx: true }))
-export const TS_LANGUAGE = language('ts', javascript({ typescript: true }))
-export const TSX_LANGUAGE = language('tsx', javascript({ typescript: true, jsx: true }))
-export const JSON_LANGUAGE = language('json', json())
-export const HTML_LANGUAGE = language('html', html())
-export const CSS_LANGUAGE = language('css', css())
-export const MARKDOWN_LANGUAGE = language('md', markdown())
-export const PYTHON_LANGUAGE = language('py', [python(), pythonImportModules])
-export const SQL_LANGUAGE = language('sql', sql())
-export const XML_LANGUAGE = language('xml', xml())
-export const YAML_LANGUAGE = language('yaml', yaml())
+const JS_LANGUAGE = language('js', javascript())
+const JSX_LANGUAGE = language('jsx', javascript({ jsx: true }))
+const TS_LANGUAGE = language('ts', javascript({ typescript: true }))
+const TSX_LANGUAGE = language('tsx', javascript({ typescript: true, jsx: true }))
+const JSON_LANGUAGE = language('json', json())
+const HTML_LANGUAGE = language('html', html())
+const CSS_LANGUAGE = language('css', css())
+const MARKDOWN_LANGUAGE = language('md', markdown())
+const PYTHON_LANGUAGE = language('py', [python(), pythonImportModules])
+const SQL_LANGUAGE = language('sql', sql())
+const XML_LANGUAGE = language('xml', xml())
+const YAML_LANGUAGE = language('yaml', yaml())
 /* C uses the legacy clike C mode (not the C++ Lezer parser) so C++-only constructs are not highlighted with C++ semantics in .c/.h files. */
-export const C_LANGUAGE = language('c', StreamLanguage.define(clikeC))
-export const CPP_LANGUAGE = language('c++', cpp())
-export const JAVA_LANGUAGE = language('java', java())
-export const RUST_LANGUAGE = language('rust', rust())
-export const PHP_LANGUAGE = language('php', php())
-export const GO_LANGUAGE = language('go', go())
-export const SHELL_LANGUAGE = language('sh', StreamLanguage.define(shell))
-export const POWERSHELL_LANGUAGE = language('powershell', StreamLanguage.define(powerShell))
-export const RUBY_LANGUAGE = language('ruby', StreamLanguage.define(ruby))
-export const TOML_LANGUAGE = language('toml', StreamLanguage.define(toml))
-export const DOCKER_LANGUAGE = language('docker', StreamLanguage.define(dockerFile))
-export const MAKE_LANGUAGE = language('make', [])
-export const TEXT_LANGUAGE = language('text', [])
-export const SCSS_LANGUAGE = language('scss', CSS_LANGUAGE.extension)
-export const LESS_LANGUAGE = language('less', CSS_LANGUAGE.extension)
-export const MDX_LANGUAGE = language('mdx', MARKDOWN_LANGUAGE.extension)
-export const INI_LANGUAGE = language('ini', [])
+const C_LANGUAGE = language('c', StreamLanguage.define(clikeC))
+const CPP_LANGUAGE = language('c++', cpp())
+const JAVA_LANGUAGE = language('java', java())
+const RUST_LANGUAGE = language('rust', rust())
+const PHP_LANGUAGE = language('php', php())
+const GO_LANGUAGE = language('go', go())
+const SHELL_LANGUAGE = language('sh', StreamLanguage.define(shell))
+const POWERSHELL_LANGUAGE = language('powershell', StreamLanguage.define(powerShell))
+const RUBY_LANGUAGE = language('ruby', StreamLanguage.define(ruby))
+const TOML_LANGUAGE = language('toml', StreamLanguage.define(toml))
+const DOCKER_LANGUAGE = language('docker', StreamLanguage.define(dockerFile))
+const MAKE_LANGUAGE = language('make', [])
+const TEXT_LANGUAGE = language('text', [])
+const SCSS_LANGUAGE = language('scss', CSS_LANGUAGE.extension)
+const LESS_LANGUAGE = language('less', CSS_LANGUAGE.extension)
+const MDX_LANGUAGE = language('mdx', MARKDOWN_LANGUAGE.extension)
+const INI_LANGUAGE = language('ini', [])
 /* C# legacy mode: replicates the clike `csharp` export plus a C/C++-style '#' preprocessor hook so #if/#define/#region render as directives. */
 const csharpWords = (str) => {
   const obj = {}
@@ -374,7 +374,7 @@ const csharpVerbatimString = (stream, state) => {
   }
   return 'string'
 }
-export const CSHARP_MODE = clike({
+const CSHARP_MODE = clike({
   name: 'csharp',
   keywords: csharpWords('abstract as async await base break case catch checked class const continue default delegate do else enum event explicit extern finally fixed for foreach goto if implicit in init interface internal is lock namespace new operator out override params private protected public readonly record ref required return sealed sizeof stackalloc static struct switch this throw try typeof unchecked unsafe using virtual void volatile while add alias ascending descending dynamic from get global group into join let orderby partial remove select set value var yield'),
   types: csharpWords('Action Boolean Byte Char DateTime DateTimeOffset Decimal Double Func Guid Int16 Int32 Int64 Object SByte Single String Task TimeSpan UInt16 UInt32 UInt64 bool byte char decimal double short int long object sbyte float string ushort uint ulong'),
@@ -394,9 +394,9 @@ export const CSHARP_MODE = clike({
     '#': csharpDirectiveHook,
   },
 })
-export const CS_LANGUAGE = language('cs', StreamLanguage.define(CSHARP_MODE))
+const CS_LANGUAGE = language('cs', StreamLanguage.define(CSHARP_MODE))
 
-export const EXACT_LANGUAGES = Object.freeze({
+const EXACT_LANGUAGES = Object.freeze({
   dockerfile: DOCKER_LANGUAGE,
   'dockerfile.dev': DOCKER_LANGUAGE,
   'dockerfile.prod': DOCKER_LANGUAGE,

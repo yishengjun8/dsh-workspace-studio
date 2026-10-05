@@ -1,7 +1,9 @@
-/* Standalone image preview: complete bytes via the readBytes Remote face, rendered as a blob URL; re-fetches when the read epoch bumps. */
+/* Standalone image preview: complete bytes via the readBytes Remote face, rendered as a blob URL.
+   The read (and its blob-URL cache) lives in remote-bytes.js, shared with the PDF/Office view. */
 import { createElement as h } from 'react'
-import { useEffect, useState } from 'react'
 import { translate } from '../locale/index.js'
+import { useRemoteBytes } from './remote-bytes.js'
+import { RendererStatus } from './status.js'
 import { useRemoteFaces } from './remote.js'
 
 const MIME_BY_EXTENSION = Object.freeze({
@@ -16,41 +18,24 @@ function mimeOf(name) {
 }
 
 export function ImageView({ sessionId, path, name, readEpoch }) {
-  const [state, setState] = useState({ url: undefined, failure: undefined })
-  /* Re-fetch when the Remote faces install or the read epoch bumps. */
   const faces = useRemoteFaces()
-  useEffect(() => {
-    if (faces === undefined || sessionId === undefined || sessionId === null) {
-      setState({ url: undefined, failure: { unavailable: true } })
-      return undefined
-    }
-    const controller = new AbortController()
-    setState({ url: undefined, failure: undefined })
-    let url
-    void faces.readAll(String(sessionId), path, controller.signal).then((result) => {
-      if (controller.signal.aborted) return
-      if (!result.ok) {
-        setState({ url: undefined, failure: result.error })
-        return
-      }
-      /* The readBytes Remote answers native bytes (`Uint8Array`), never base64. */
-      url = URL.createObjectURL(new Blob([result.value.data], { type: mimeOf(name) }))
-      setState({ url, failure: undefined })
-    })
-    return () => {
-      controller.abort()
-      if (url !== undefined) URL.revokeObjectURL(url)
-    }
-  }, [faces, name, path, readEpoch, sessionId])
-  if (state.failure !== undefined) {
-    const message = state.failure?.unavailable === true
+  const { url, failure } = useRemoteBytes({
+    scope: 'image',
+    read: faces?.readAll,
+    sessionId,
+    path,
+    mime: mimeOf(name),
+    readEpoch,
+  })
+  if (failure !== undefined) {
+    const message = failure?.unavailable === true
       ? translate('renderer.unavailable')
-      : translate('renderer.loadFailed', { message: state.failure?.message ?? '' })
-    return h('div', { className: 'dsh-ws-renderer-status', 'data-error': '' }, message)
+      : translate('renderer.loadFailed', { message: failure?.message ?? '' })
+    return h(RendererStatus, { message, error: true })
   }
-  if (state.url === undefined) {
-    return h('div', { className: 'dsh-ws-renderer-status' }, translate('renderer.loading'))
+  if (url === undefined) {
+    return h(RendererStatus, { message: translate('renderer.loading') })
   }
   return h('div', { className: 'dsh-ws-renderer-view dsh-ws-renderer-image' },
-    h('img', { alt: name, src: state.url }))
+    h('img', { alt: name, src: url }))
 }

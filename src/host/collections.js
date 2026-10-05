@@ -28,13 +28,13 @@ const COLLECTIONS_SUB_DIR = 'collections'
 const COLLECTIONS_FILE = 'collections.json'
 
 /** The only store format this code reads or writes (see quarantine.js). */
-export const COLLECTIONS_VERSION = 1
+const COLLECTIONS_VERSION = 1
 /** Built-in collection ids: client constants, never persisted here, valid as `selectedId`. */
 export const COLLECTION_ALL_ID = '__all__'
 /** Built-in "workspaces in no collection" view. */
 export const COLLECTION_UNOWNED_ID = '__unowned__'
 /** Whether an id names a built-in view (it is never a stored collection). */
-export function isBuiltinCollectionId(id) {
+function isBuiltinCollectionId(id) {
   return id === COLLECTION_ALL_ID || id === COLLECTION_UNOWNED_ID
 }
 /** User collections per store. The built-in collection is not counted (it is not user content). */
@@ -42,7 +42,7 @@ export const COLLECTIONS_MAX = 50
 /** Display-name length bound, in code points, after trimming. */
 export const COLLECTION_NAME_MAX = 40
 /** Workspace ids one collection may hold. */
-export const COLLECTION_WORKSPACE_MAX = 2000
+const COLLECTION_WORKSPACE_MAX = 2000
 /** Workspace id length bound (Harness ids are short slugs; this only rejects junk). */
 const WORKSPACE_ID_MAX = 128
 /** Generated ids are opaque to the client, which may also propose its own to keep one round trip. */
@@ -52,7 +52,7 @@ const COLLECTION_ID_RE = /^col_[a-z0-9]{8,32}$/u
 const CONTROL_CHARS_RE = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u
 
 /** Location of the collections store (its own directory, so the quarantine dir sits beside it). */
-export function collectionsPath() {
+function collectionsPath() {
   return join(homedir(), '.dsh-plugin', 'dsh-workspace-studio', COLLECTIONS_SUB_DIR, COLLECTIONS_FILE)
 }
 
@@ -84,7 +84,7 @@ function normalizeWorkspaceIds(value) {
  * @param value - parsed file contents, or undefined for the defaults.
  * @returns `{ version, selectedId, collections }`.
  */
-export function normalizeCollectionsStore(value) {
+function normalizeCollectionsStore(value) {
   const source = isPlainObject(value) && Array.isArray(value.collections) ? value.collections : []
   const collections = []
   const seen = new Set()

@@ -46,14 +46,14 @@ const LABEL_KEY_BY_LETTER = Object.freeze({
 })
 
 /** Localized one-line explanation of one entry's state (badge tooltip). */
-export function vcsStatusLabel(entry) {
+function vcsStatusLabel(entry) {
   const letter = typeof entry?.status === 'string' ? entry.status : ''
   const key = LABEL_KEY_BY_LETTER[letter]
   return key === undefined ? '' : translate(key)
 }
 
 /** The full badge tooltip: state, staged marker, property marker, rename source. */
-export function vcsBadgeTitle(entry) {
+function vcsBadgeTitle(entry) {
   const parts = []
   const label = vcsStatusLabel(entry)
   if (label !== '') parts.push(label)
@@ -64,7 +64,7 @@ export function vcsBadgeTitle(entry) {
 }
 
 /** Badge descriptor of one entry: letter, tone, shape, staged/props flags and its tooltip. */
-export function vcsBadgeOf(entry) {
+function vcsBadgeOf(entry) {
   const raw = typeof entry?.status === 'string' ? entry.status.trim() : ''
   const letter = raw === '' ? (entry?.untracked === true ? '?' : 'M') : raw.slice(0, 1)
   let tone = TONE_BY_LETTER[letter] ?? 'modified'
@@ -132,7 +132,7 @@ export function buildVcsOverlay(payload) {
 }
 
 /** The folded ignored-path prefixes of one payload (always an array). */
-export function ignoredPrefixesOf(payload) {
+function ignoredPrefixesOf(payload) {
   return Array.isArray(payload?.ignoredPrefixes) ? payload.ignoredPrefixes.filter(prefix => typeof prefix === 'string' && prefix !== '') : []
 }
 
@@ -148,12 +148,12 @@ export function isIgnoredPath(prefixes, path) {
 }
 
 /** Version-control metadata directories the tree hides by default (display only). */
-export function isVcsMetadataName(name) {
+function isVcsMetadataName(name) {
   return name === '.git' || name === '.svn'
 }
 
 /** Whether a directory path (or the workspace root, '') holds at least one change in its subtree. */
-export function vcsDirectoryChanged(overlay, path) {
+function vcsDirectoryChanged(overlay, path) {
   return overlay !== undefined && overlay.dirCounts.has(path)
 }
 

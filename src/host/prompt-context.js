@@ -84,16 +84,24 @@ function validatePromptContextPayload(value, config) {
     startColumn: requiredInteger(value.selection.startColumn, 'selection.startColumn', 1),
     endLine: requiredInteger(value.selection.endLine, 'selection.endLine', 1),
     endColumn: requiredInteger(value.selection.endColumn, 'selection.endColumn', 1),
-    text: typeof value.selection.text === 'string' ? value.selection.text : '',
+    /* A CLEAN selection's text is OPTIONAL: the Host re-reads the file and derives the slice itself
+       (verifyCleanSelection), so a client never has to upload up to maxContextBytes of text that the
+       file on disk already contains. A DIRTY selection must carry it — those edits exist nowhere else. */
+    text: typeof value.selection.text === 'string' ? value.selection.text : undefined,
   }
-  if (selection.text !== value.selection.text || selection.text.includes('\0') || selection.to <= selection.from) {
+  if (selection.text !== undefined && selection.text.includes('\0')) {
     throw new HttpError(400, 'invalid-context', '选区内容无效')
   }
-  const selectedBytes = Buffer.byteLength(selection.text, 'utf8')
-  if (selectedBytes > config.maxContextBytes) {
-    throw new HttpError(413, 'context-too-large', `选中文本不能超过 ${config.maxContextBytes} 个 UTF-8 字节`)
+  if (selection.to <= selection.from) throw new HttpError(400, 'invalid-context', '选区内容无效')
+  if (selection.text !== undefined) {
+    const selectedBytes = Buffer.byteLength(selection.text, 'utf8')
+    if (selectedBytes > config.maxContextBytes) {
+      throw new HttpError(413, 'context-too-large', `选中文本不能超过 ${config.maxContextBytes} 个 UTF-8 字节`)
+    }
+    /* Offsets and coordinates must agree with the text when it IS supplied (a dirty selection, or an
+       older client); a text-free clean selection is checked against the file instead. */
+    validateDirtySelection(selection)
   }
-  validateDirtySelection(selection)
   return {
     sessionId,
     workspaceId,
@@ -144,8 +152,8 @@ async function readCleanPromptContext(file, maximum) {
   /* openRegularFile: O_NONBLOCK + post-open fstat so a FIFO/device swapped in after verifyPromptContextFile's stat can never hang /context. */
   const handle = await openRegularFile(file.target)
   try {
+    /* openRegularFile already rejected anything that is not a plain file (post-open fstat), so only the size bound is left to check here. */
     const opened = await handle.stat()
-    if (!opened.isFile()) throw new HttpError(400, 'not-a-file', '编辑器上下文目标不是普通文件')
     if (opened.size > maximum) {
       throw new HttpError(413, 'context-source-too-large', `上下文源文件不能超过 ${maximum} 字节`)
     }
@@ -199,7 +207,8 @@ async function verifyCleanSelection(file, context, maximum) {
   }
   const logicalSlice = logical.slice(selection.from, selection.to)
   // The client LF-normalizes offsets and selection text before sending (see publishContextState in src/client/components/explorer/hooks/editor-session.js), so the slice is compared directly without re-adding the file's original line endings.
-  if (logicalSlice !== selection.text) {
+  // A text-free request (the modern clean-selection shape) is verified by the coordinate recomputation below instead: the slice IS the file's own content at those offsets.
+  if (selection.text !== undefined && logicalSlice !== selection.text) {
     throw new HttpError(409, 'context-content-mismatch', '选中文本与当前文件内容不一致')
   }
   const start = promptContextPosition(logical, selection.from)
@@ -208,6 +217,8 @@ async function verifyCleanSelection(file, context, maximum) {
     || end.line !== selection.endLine || end.column !== selection.endColumn) {
     throw new HttpError(409, 'context-coordinate-mismatch', '选区行列与当前文件不一致')
   }
+  /* Hand the derived slice back: the renderer uses it whenever the request carried no text. */
+  return logicalSlice
 }
 export async function renderPromptContext(ctx, config, req) {
   const context = await readPromptContextRequest(req, config)
@@ -216,16 +227,18 @@ export async function renderPromptContext(ctx, config, req) {
     throw new HttpError(403, 'context-session-denied', '当前会话不属于所选工作区')
   }
   const file = await verifyPromptContextFile(workspace, context.path)
-  if (context.mode === 'selection' && !context.dirty) {
-    await verifyCleanSelection(file, context, config.maxContextSourceBytes)
-  }
+  /* A clean selection is verified against the file; the Host keeps the slice it derived, so a
+     text-free request renders from the file's own content. */
+  const derived = context.mode === 'selection' && !context.dirty
+    ? await verifyCleanSelection(file, context, config.maxContextSourceBytes)
+    : undefined
   const text = context.mode === 'path'
     ? [
         `<opened_file>The user opened the file ${context.path} in the IDE. This may or may not be related to the current task.</opened_file>`,
       ].join('\n')
     : (() => {
         /* CDATA-wrap the selection: the raw text may legally contain `</selection>` (a string literal in the code the user selected), which would terminate the envelope early and let the trailing instruction text be read as content. The standard CDATA escape (`]]>` → `]]]]><![CDATA[>`) keeps the wrapper unbreakable. */
-        const escaped = context.selection.text.replace(/]]>/g, ']]]]><![CDATA[>')
+        const escaped = String(context.selection.text ?? derived ?? '').replace(/]]>/g, ']]]]><![CDATA[>')
         return [
           `<selection>The user selected the lines ${context.selection.startLine} to ${context.selection.endLine} from ${context.path}:`,
           '<![CDATA[',

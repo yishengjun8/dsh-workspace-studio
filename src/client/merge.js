@@ -67,11 +67,11 @@ export function myersDiff(base, mine, alt = false) {
   return coalesced
 }
 
-export function linesEqual(left, right) {
+function linesEqual(left, right) {
   return left.length === right.length && left.every((line, index) => line === right[index])
 }
 
-export function changesTouch(left, right) {
+function changesTouch(left, right) {
   const leftInsertion = left.from === left.to
   const rightInsertion = right.from === right.to
   if (leftInsertion && rightInsertion) return left.from === right.from
@@ -81,7 +81,7 @@ export function changesTouch(left, right) {
   return left.from < right.to && right.from < left.to
 }
 
-export function changeTouchesSpan(change, start, end) {
+function changeTouchesSpan(change, start, end) {
   if (change.from === change.to) {
     // A degenerate span (start === end) is touched by insertions exactly at that point; otherwise the half-open rule holds.
     return end === start
@@ -91,14 +91,14 @@ export function changeTouchesSpan(change, start, end) {
   return change.from < end && change.to > start
 }
 
-export function appendMergeText(parts, lines) {
+function appendMergeText(parts, lines) {
   if (lines.length === 0) return
   const previous = parts[parts.length - 1]
   if (previous?.kind === 'text') previous.lines.push(...lines)
   else parts.push({ kind: 'text', lines: [...lines] })
 }
 
-export function applyChangesToSpan(base, start, end, changes) {
+function applyChangesToSpan(base, start, end, changes) {
   const output = []
   let cursor = start
   for (const change of changes) {
@@ -111,7 +111,7 @@ export function applyChangesToSpan(base, start, end, changes) {
 }
 
 /* Map a base-coordinate span to the corresponding slice of the side array through the side's edit script, used to verify a conflict region's segments against the real side text. */
-export function sideSliceForSpan(base, side, changes, start, end) {
+function sideSliceForSpan(base, side, changes, start, end) {
   const result = []
   let basePos = 0
   let sidePos = 0
@@ -142,7 +142,7 @@ export function sideSliceForSpan(base, side, changes, start, end) {
   return result
 }
 
-export function wholeFileConflict(base, mine, theirs, reason) {
+function wholeFileConflict(base, mine, theirs, reason) {
   return {
     status: 'conflict',
     fallbackReason: reason,
@@ -169,7 +169,7 @@ export function resolveMergeParts(parts, conflicts, choices) {
 }
 
 /* Merge both edit scripts by clustering every transitively overlapping change; conflicts stay structural (`parts`), so user text can never collide with a marker string. Returns { parts, conflicts } on a consistent walk, or { fallback: reason } when the scripts are unusable. */
-export function runMergeWalk(base, mine, theirs, mineChanges, theirsChanges) {
+function runMergeWalk(base, mine, theirs, mineChanges, theirsChanges) {
   const parts = []
   const conflicts = []
   let mi = 0
@@ -245,7 +245,7 @@ export function runMergeWalk(base, mine, theirs, mineChanges, theirsChanges) {
 }
 
 /* Finalize a merge walk: clean when no conflicts, a structural conflict list after the round-trip soundness check, or { fallback: reason } when the walk cannot reconstruct one side. Shared by the primary and the alternate-tie-break retry; `mineText` / `theirsText` are the original side texts used by the round-trip check. */
-export function tryMergeWithScripts(base, mine, theirs, mineChanges, theirsChanges, mineText, theirsText) {
+function tryMergeWithScripts(base, mine, theirs, mineChanges, theirsChanges, mineText, theirsText) {
   const walked = runMergeWalk(base, mine, theirs, mineChanges, theirsChanges)
   if (walked.fallback !== undefined) return walked
   const { parts, conflicts } = walked
@@ -302,7 +302,7 @@ export function threeWayMerge(baseText, mineText, theirsText) {
 }
 
 /* Character-level diff of one conflict side against the common base: coalesced { text, kind } segments ('same' | 'add' | 'del'); codepoint splitting keeps surrogate pairs intact. Returns null when too large. */
-export const INLINE_DIFF_MAX_CHARS = 20000
+const INLINE_DIFF_MAX_CHARS = 20000
 export function inlineDiffSegments(baseText, sideText) {
   const baseChars = Array.from(baseText)
   const sideChars = Array.from(sideText)
@@ -350,7 +350,7 @@ export function diffRows(baseLines, sideLines) {
 }
 
 /* Line-level diff rows for one conflict side: { text, kind }[] with kind 'same' | 'add' | 'del'; the oversized fallback for the inline diff. */
-export function diffSideLines(baseLines, sideLines) {
+function diffSideLines(baseLines, sideLines) {
   if (baseLines.length > MERGE_MAX_LINES || sideLines.length > MERGE_MAX_LINES) {
     return sideLines.map(text => ({ text, kind: 'same' }))
   }

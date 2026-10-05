@@ -129,17 +129,26 @@ export async function saveFile(workspace, relativePath, config, queues, req, enc
       await tempHandle.close()
       tempHandle = undefined
       if (await hasSymlinkComponent(root, relativePath)) throw new HttpError(403, 'symlink-write-denied', '拒绝通过符号链接写入文件')
-      const latest = await openRegularFile(candidate)
-      let latestBytes
-      try {
-        latestBytes = await readFileHandleBounded(latest, config.maxEditableBytes)
-      } finally {
-        await latest.close()
+      /* The revision fence is re-checked immediately before the rename. A stat fast path (same dev/ino/size/mtime)
+         answers "untouched" without a second full read; only a file that MOVED pays for the re-read and content
+         hash, so a `touch -r` / `rsync -t` that preserved the content still saves while a real concurrent edit
+         still answers 409. */
+      const latestStat = await lstat(candidate)
+      const moved = latestStat.dev !== targetStat.dev || latestStat.ino !== targetStat.ino
+        || latestStat.size !== targetStat.size || latestStat.mtimeMs !== targetStat.mtimeMs
+      if (moved) {
+        const latest = await openRegularFile(candidate)
+        let latestBytes
+        try {
+          latestBytes = await readFileHandleBounded(latest, config.maxEditableBytes)
+        } finally {
+          await latest.close()
+        }
+        if (revisionFor(latestBytes) !== ifMatch) throw new HttpError(409, 'file-conflict', '文件已被修改，请重新加载后再保存')
       }
-      if (revisionFor(latestBytes) !== ifMatch) throw new HttpError(409, 'file-conflict', '文件已被修改，请重新加载后再保存')
       // Recheck the directory just before the rename: narrows the symlink-swap window and rejects a parent changed after the temp was created. A directory-handle rename is unavailable in Node's cross-platform API, so this is the final best-effort fence for hostile local writers.
       const finalParent = await realpath(parent)
-      if (finalParent !== realParent || !isInside(root, finalParent) || await hasSymlinkComponent(root, relativePath)) {
+      if (finalParent !== realParent || !isInside(root, finalParent)) {
         throw new HttpError(403, 'symlink-write-denied', '拒绝通过符号链接写入文件')
       }
       /* Windows MoveFileEx cannot replace a read-only destination (EPERM) even though the temp file itself was written fine: clear the attribute just before the rename so a read-only file saves like on POSIX. The temp already carries the original mode, so the saved file stays read-only; a failed rename restores the attribute below. */

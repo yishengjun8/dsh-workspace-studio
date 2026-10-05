@@ -132,7 +132,7 @@ export const MINDMAP_SPIN_SPEED_MAX_X = 3
 /* Speed 0 would divide by zero: freeze the spin with a huge duration instead. */
 export const MINDMAP_SPIN_STOP_DURATION_S = 1e6
 /* Fractional clamp: preserves 0.1-granular decimals, which the shared clamp() would round to integers. */
-export const clampSpinSpeed = (value) => {
+const clampSpinSpeed = (value) => {
   const speed = Number(value ?? MINDMAP_SPIN_SPEED_DEFAULT_X)
   const bounded = Number.isFinite(speed)
     ? Math.min(MINDMAP_SPIN_SPEED_MAX_X, Math.max(MINDMAP_SPIN_SPEED_MIN_X, speed))
@@ -187,7 +187,7 @@ export const cssColorToHex = (color) => {
   }
   return `#${toChannel(rgb[1])}${toChannel(rgb[2])}${toChannel(rgb[3])}`
 }
-export const resolveCssColorToHex = (value) => {
+const resolveCssColorToHex = (value) => {
   const direct = cssColorToHex(value)
   if (direct !== null) return direct
   if (typeof document === 'undefined' || typeof getComputedStyle !== 'function' || document.body === null || typeof value !== 'string') return null
@@ -319,7 +319,7 @@ export const RUN_STATUS_TIMEOUT_MS = 8000
 export const RUN_FOLLOW_DEFAULT = true
 /* Interpreter configuration (settings page + console dialog). The bounds mirror the Host's own:
    a path is an absolute path or nothing, and the per-file map is capped there too. */
-export const RUN_INTERPRETER_PATH_MAX_LENGTH = 4096
+const RUN_INTERPRETER_PATH_MAX_LENGTH = 4096
 export const RUN_FILE_OVERRIDE_MAX = 200
 /* A version probe is one short-lived process; the request budget covers the Host's 5 s probe timeout
    plus IPC rounding, so a slow interpreter still answers instead of tripping the generic timeout. */
@@ -344,9 +344,3 @@ export const COLLECTION_NAME_MAX = 40
    harness's own default, 'workspace'. */
 export const WORKSPACE_VIEW_STORE_KEY = 'dsh.workspace.view.v5'
 export const WORKSPACE_GROUP_BY_DEFAULT = 'workspace'
-/* Auto-jump budget after switching collections: the session list must be ready before the newest
-   member session can be picked, so the attempt retries for a few frames. */
-export const COLLECTION_JUMP_RETRY_MS = 120
-export const COLLECTION_JUMP_RETRY_MAX = 12
-/* Transient notice lifetime for collection edits and switches (the session-menu notice channel). */
-export const COLLECTION_NOTICE_MS = 2200

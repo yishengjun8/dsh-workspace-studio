@@ -1,4 +1,5 @@
 import { MINDMAP_HIDER_THROTTLE_MS } from '../constants.js'
+import { createStyleSheet } from '../style-sheet.js'
 import { currentSessionOf } from '../controllers.js'
 import { isMindmapFamilySession } from './panel.js'
 import { mindmapRegistry } from './registry.js'
@@ -35,6 +36,8 @@ import { mindmapRegistry } from './registry.js'
 
 /* The published-sheet id; one sheet per install, removed on dispose. */
 const HIDDEN_ROWS_STYLE_ID = 'dsh-ws-mindmap-hidden-rows'
+/* THE sheet the census hides rows through (see style-sheet.js). */
+const hiddenRowsSheet = createStyleSheet(HIDDEN_ROWS_STYLE_ID)
 /* Same ceiling as the collections filter: a pathological profile must not build
    a giant sheet (the class pass still hides whatever falls outside it). */
 const HIDDEN_SESSION_RULE_MAX = 4000
@@ -89,24 +92,9 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
       patchedButtons.delete(button)
     }
   }
-  /* The published sheet (see the module header) and its last text, so a scan
-     that decides the same thing writes nothing. Created lazily; one element per
-     install, reused if a previous install left one behind. */
-  let styleEl = null
-  let lastHiddenRowsCss = ''
-  const publishHiddenRows = (css) => {
-    if (css === lastHiddenRowsCss) return
-    lastHiddenRowsCss = css
-    if (styleEl === null) {
-      styleEl = document.getElementById(HIDDEN_ROWS_STYLE_ID)
-      if (styleEl === null) {
-        styleEl = document.createElement('style')
-        styleEl.id = HIDDEN_ROWS_STYLE_ID
-        document.head.append(styleEl)
-      }
-    }
-    styleEl.textContent = css
-  }
+  /* The published sheet (see the module header): one shared style-sheet primitive, so "create lazily,
+     reuse a leftover element, write only on change, remove on dispose" exists once. */
+  const publishHiddenRows = (css) => hiddenRowsSheet.publish(css)
   /* Whether a mutation batch can change what this hider renders: a session
      row or an overflow button added / removed / rewritten — everything else
      (the mind-map panel's own button/label renders, seat re-anchors,
@@ -514,11 +502,8 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
       }
     }
     /* And the published sheet, for the same reason: a stale one would hide rows
-       nothing owns any more, and no scan would ever clear it. Removed by id so
-       a sheet left behind by a previous install goes too. */
-    document.getElementById(HIDDEN_ROWS_STYLE_ID)?.remove()
-    styleEl = null
-    lastHiddenRowsCss = ''
+       nothing owns any more, and no scan would ever clear it. */
+    hiddenRowsSheet.dispose()
   }
 }
 

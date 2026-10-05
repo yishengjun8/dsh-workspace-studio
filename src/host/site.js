@@ -99,7 +99,7 @@ const CONTENT_TYPE_BY_EXTENSION = Object.freeze({
 })
 
 /** The response Content-Type for one served path. */
-export function contentTypeForSitePath(path) {
+function contentTypeForSitePath(path) {
   const leaf = path.slice(path.lastIndexOf(sep) + 1)
   const dot = leaf.lastIndexOf('.')
   const extension = dot === -1 ? '' : leaf.slice(dot + 1).toLowerCase()

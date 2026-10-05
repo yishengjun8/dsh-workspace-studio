@@ -16,7 +16,9 @@
  * bundle needs no new harness dependency.
  */
 import { REVIEW_DIFF_MIN, REVIEW_LIST_DEFAULT, REVIEW_LIST_MAX_FALLBACK, REVIEW_LIST_MIN } from './constants.js'
+import { readHarnessJson } from './api.js'
 import { isAbsoluteWorkspacePath, joinAbsolutePath, normalizeAbsolutePath } from './paths.js'
+import { createRequestStore } from './request-store.js'
 
 /* Resource-address prefix of one turn's review; the tail is
    `<percent-encoded sessionId>/<seq>/<turn>`. */
@@ -26,8 +28,8 @@ const REVIEW_PREFIX = 'dsh-resource://changes-review/session/'
    client fetches: they sit inside the connection's authentication fence, so a
    same-origin fetch from this bundle is authenticated exactly like the harness's
    own read. */
-export const CHANGES_SUMMARY_ROUTE = 'api/changes.summary'
-export const CHANGES_DIFF_ROUTE = 'api/changes.diff'
+const CHANGES_SUMMARY_ROUTE = 'api/changes.summary'
+const CHANGES_DIFF_ROUTE = 'api/changes.diff'
 
 /* The view draws at most this many comparison lines, the same cap
    ui-deliverables applies in its own review tab. */
@@ -61,7 +63,7 @@ export function parseChangesReviewAddress(address) {
  * @param seq - the announcing event's sequence.
  * @returns the document-relative route with its coordinates.
  */
-export function changesSummaryUrl(sessionId, seq) {
+function changesSummaryUrl(sessionId, seq) {
   return `${CHANGES_SUMMARY_ROUTE}?${new URLSearchParams({ sessionId: String(sessionId), seq: String(seq) })}`
 }
 
@@ -72,7 +74,7 @@ export function changesSummaryUrl(sessionId, seq) {
  * @param index - the file's index in the summary.
  * @returns the document-relative route with its coordinates.
  */
-export function changesDiffUrl(sessionId, seq, index) {
+function changesDiffUrl(sessionId, seq, index) {
   return `${CHANGES_DIFF_ROUTE}?${new URLSearchParams({ sessionId: String(sessionId), seq: String(seq), index: String(index) })}`
 }
 
@@ -89,7 +91,7 @@ function isCount(value) {
  * @param value - decoded JSON.
  * @returns whether the record carries a path, a display path, and line counts.
  */
-export function isChangedFile(value) {
+function isChangedFile(value) {
   if (!isRecord(value)) return false
   const { path, display, added, deleted, binary, oversized } = value
   return typeof path === 'string' && path.length > 0 && typeof display === 'string' && display.length > 0
@@ -102,7 +104,7 @@ export function isChangedFile(value) {
  * @param value - decoded JSON.
  * @returns whether the value identifies a turn, a complete file list, and the line totals.
  */
-export function isChangesSummary(value) {
+function isChangesSummary(value) {
   if (!isRecord(value)) return false
   const { turn, files, total, added, deleted } = value
   return Number.isSafeInteger(turn) && turn >= 1 && isCount(total) && isCount(added) && isCount(deleted)
@@ -121,7 +123,7 @@ function isHunk(value) {
  * @param value - decoded JSON.
  * @returns whether the value is a text comparison with well-formed hunks, or a binary or oversized refusal.
  */
-export function isChangesDiff(value) {
+function isChangesDiff(value) {
   if (!isRecord(value)) return false
   const { kind, path, display } = value
   if (typeof path !== 'string' || path.length === 0 || typeof display !== 'string' || display.length === 0) return false
@@ -193,22 +195,24 @@ export function resolveReviewFilePath(cwd, path) {
   return normalized.split('/').includes('..') ? undefined : normalized
 }
 
-/* Read one JSON route into its view state. The response decides: a non-OK answer
-   is the `failed` state, a payload that fails validation is that same state (the
-   Host and this bundle disagree about the shape, which is not something the view
-   could render), and an aborted read stays a rejection so its caller ignores it.
-   Nothing is cached module-wide: one mounted tab holds its own state, so a Host
-   restart can never leave a stale "missing" answer standing for the page. */
+/* Read one JSON route into its view state through the plugin's single network layer (api.js
+   `readHarnessJson` keeps the URL document-relative but reuses the shared timeout/error contract).
+   The response decides: a non-OK answer is the `failed` state, a payload that fails validation is
+   that same state (the Host and this bundle disagree about the shape, which is not something the
+   view could render), and an aborted read stays a rejection so its caller ignores it. Nothing is
+   cached module-wide: one mounted tab holds its own state, so a Host restart can never leave a
+   stale "missing" answer standing for the page. */
 async function readJson(url, signal, failed, decode) {
-  const response = await fetch(url, { signal })
-  if (!response.ok) return failed
-  let value
   try {
-    value = await response.json()
-  } catch {
+    const value = await readHarnessJson(url, signal)
+    return decode(value) ?? failed
+  } catch (error) {
+    if (error?.name === 'AbortError') throw error
+    /* A 404 is re-thrown: the diff route maps it to `missing`, which is a different answer from a
+       transport failure. */
+    if (error?.status === 404) throw error
     return failed
   }
-  return decode(value) ?? failed
 }
 
 /**
@@ -236,19 +240,10 @@ export function loadChangesSummary(sessionId, seq, signal) {
  * @returns the comparison, or the `'missing'` / `'error'` state a retry may replace.
  */
 export function loadChangesDiff(sessionId, seq, index, signal) {
-  return fetch(changesDiffUrl(sessionId, seq, index), { signal }).then(async (response) => {
-    if (response.status === 404) return 'missing'
-    if (!response.ok) return 'error'
-    let value
-    try {
-      value = await response.json()
-    } catch {
-      return 'error'
-    }
-    return isChangesDiff(value) ? value : 'error'
-  }).catch((error) => {
+  return readJson(changesDiffUrl(sessionId, seq, index), signal, 'error',
+    value => (isChangesDiff(value) ? value : undefined)).catch((error) => {
     if (error?.name === 'AbortError') throw error
-    return 'error'
+    return error?.status === 404 ? 'missing' : 'error'
   })
 }
 
@@ -257,29 +252,16 @@ export function loadChangesDiff(sessionId, seq, index, signal) {
    expectFamily consumes it. An unrelated session's explorer never adopts a
    request aimed at another session, and a mount that arrives later still
    consumes the pending request. */
+const pendingOpen = createRequestStore('expectFamily')
+
 export const reviewOpenStore = {
-  _snapshot: { seq: 0, request: null },
-  _listeners: new Set(),
-  subscribe(listener) {
-    this._listeners.add(listener)
-    return () => { this._listeners.delete(listener) }
-  },
-  getSnapshot() { return this._snapshot },
+  ...pendingOpen,
   open(address, index, expectFamily) {
-    this._snapshot = {
-      seq: this._snapshot.seq + 1,
-      request: {
-        address: String(address),
-        index: Number.isSafeInteger(index) && index >= 0 ? index : 0,
-        expectFamily: expectFamily === undefined || expectFamily === null ? null : String(expectFamily),
-      },
-    }
-    for (const listener of [...this._listeners]) listener()
-  },
-  consume() {
-    if (this._snapshot.request === null) return
-    this._snapshot = { seq: this._snapshot.seq + 1, request: null }
-    for (const listener of [...this._listeners]) listener()
+    pendingOpen.request({
+      address: String(address),
+      index: Number.isSafeInteger(index) && index >= 0 ? index : 0,
+      expectFamily: expectFamily === undefined || expectFamily === null ? null : String(expectFamily),
+    })
   },
 }
 

@@ -18,7 +18,25 @@
  * scrollport except the conversation column", which keeps the streaming-scroll
  * bug from coming back through a missing anchor.
  */
+import { clamp } from './format.js'
 import { CONVERSATION_SCROLLPORT_SELECTOR } from './scroll-gate.js'
+
+/* Every floating menu in this plugin keeps the same 4 px gutter from the window edge; the ceiling is
+   floored at the gutter so a menu wider/taller than the viewport still starts on screen. */
+const MENU_GUTTER = 4
+
+/**
+ * Where a floating menu goes: `x`/`y` are the preferred left/top (a click point or an anchor's edge)
+ * and `width`/`height` its measured size. One implementation for every menu, so the trailing gutter
+ * cannot be forgotten on one caller and kept on another — which is exactly what happened while this
+ * rule was copy-pasted into five call sites.
+ */
+export function anchorBox(x, y, width, height) {
+  return {
+    left: clamp(x, MENU_GUTTER, Math.max(MENU_GUTTER, window.innerWidth - width - MENU_GUTTER)),
+    top: clamp(y, MENU_GUTTER, Math.max(MENU_GUTTER, window.innerHeight - height - MENU_GUTTER)),
+  }
+}
 
 /**
  * @param event - the capture-phase scroll event (window listener).

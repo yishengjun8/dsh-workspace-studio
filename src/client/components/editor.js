@@ -12,7 +12,7 @@ import { DIFF_GUTTER_DEBOUNCE_MS, DIFF_GUTTER_MAX_LINES } from '../constants.js'
 import { diffMarks, rulerLayers } from '../diff-gutter.js'
 
 /* CodeMirror search/goto-line panel phrases (EditorState.phrases keys; keep the $ placeholders); only installed for the Chinese surface, since English is CodeMirror's default. */
-export const CM_PHRASES_ZH = Object.freeze({
+const CM_PHRASES_ZH = Object.freeze({
   'Find': '查找',
   'Replace': '替换为',
   'next': '下一个',
@@ -32,7 +32,7 @@ export const CM_PHRASES_ZH = Object.freeze({
   'replaced $ matches': '已替换 $ 个匹配项',
 })
 
-export function revealPosition(view, reveal) {
+function revealPosition(view, reveal) {
   /* NaN/non-numeric line data must not reach Text.line: Math.min/max propagate
      NaN and the line() guard treats NaN as in-bounds, so the search would land
      on a wrong line. */
@@ -56,7 +56,7 @@ export function revealPosition(view, reveal) {
 
 /* Code-folding helpers backing Ctrl+K+J / Ctrl+K+<n>; nesting depth is
    1-based. */
-export function collectFoldableRanges(view) {
+function collectFoldableRanges(view) {
   const state = view.state
   const seen = new Set()
   const ranges = []
@@ -76,7 +76,7 @@ export function collectFoldableRanges(view) {
 }
 /* Nesting depth per foldable range: 1 for top-level, +1 per enclosing region;
    one stack sweep computes all depths in linear time. */
-export function foldLevelsOf(ranges) {
+function foldLevelsOf(ranges) {
   const ordered = [...ranges].sort((a, b) => a.from - b.from || b.to - a.to)
   const levels = new Array(ordered.length)
   const stack = []
@@ -89,7 +89,7 @@ export function foldLevelsOf(ranges) {
   return { ordered, levels }
 }
 /* Fold every foldable region whose nesting depth is exactly `level`. */
-export function foldLevel(view, level) {
+function foldLevel(view, level) {
   const ranges = collectFoldableRanges(view)
   const { ordered, levels } = foldLevelsOf(ranges)
   const effects = []

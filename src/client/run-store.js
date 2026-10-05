@@ -10,28 +10,55 @@
  * (line list) plus the poll cursor. Nothing here is persisted: a refresh is a re-attach, not a
  * restore, and the Host is the single source of truth for every run.
  *
- * Components subscribe through useRunEntry/useRunVersion (useSyncExternalStore over a version
- * counter, the same shape as the mind-map registry).
+ * Components subscribe per PATH (useRunEntry) or globally (useRunVersion, the tab strip). The
+ * per-path subscription is what keeps the 400 ms poll cheap: only the console of the path that
+ * changed re-renders, instead of every consumer in the layout on every tick.
  */
-import { useSyncExternalStore } from 'react'
+import { useCallback, useSyncExternalStore } from 'react'
 import { RUN_FOLLOW_DEFAULT, RUN_POLL_MS } from './constants.js'
 import { appendRunChunks, emptyRunBuffer } from './run-detect.js'
 import { fetchRunPlan, fetchRunPolicy, fetchRunStatus, setRunPolicy, startRunRequest, stopRunRequest } from './api.js'
+import { shouldSkipPoll } from './poll-gate.js'
 
 const entries = new Map()
+/* Global subscribers: the tab strip's badge row, which must react to ANY path's status. */
 const listeners = new Set()
+/* Per-path subscribers and their published snapshot. The entry object is MUTATED in place by
+   setEntry's shallow copy semantics on the poll path, so React cannot compare it by identity: each
+   publish replaces a tiny wrapper object instead, which is the value useSyncExternalStore sees. */
+const pathListeners = new Map()
+const pathSnapshots = new Map()
 const inflight = new Set()
 let version = 0
 let timer = null
 
-function bump() {
+function bump(path) {
   version += 1
-  for (const listener of listeners) listener()
+  pathSnapshots.set(path, { entry: entries.get(path) })
+  const perPath = pathListeners.get(path)
+  if (perPath !== undefined) for (const listener of [...perPath]) listener()
+  for (const listener of [...listeners]) listener()
 }
 
-export function subscribeRunStore(listener) {
+function subscribeRunStore(listener) {
   listeners.add(listener)
   return () => { listeners.delete(listener) }
+}
+
+function subscribeRunPath(path, listener) {
+  let set = pathListeners.get(path)
+  if (set === undefined) {
+    set = new Set()
+    pathListeners.set(path, set)
+  }
+  set.add(listener)
+  return () => {
+    set.delete(listener)
+    if (set.size === 0) {
+      pathListeners.delete(path)
+      pathSnapshots.delete(path)
+    }
+  }
 }
 
 function getVersion() {
@@ -42,10 +69,21 @@ export function getRunEntry(path) {
   return path === null || path === undefined ? undefined : entries.get(path)
 }
 
-/** The console's entry for one path (undefined until something loads it). */
+/** The console's entry for one path (undefined until something loads it): re-renders only when THIS
+ *  path changes, which is what keeps a running process's 400 ms poll from re-rendering the layout. */
 export function useRunEntry(path) {
-  useSyncExternalStore(subscribeRunStore, getVersion, getVersion)
-  return getRunEntry(path)
+  const subscribe = useCallback(listener => subscribeRunPath(path, listener), [path])
+  const getSnapshot = useCallback(() => {
+    /* A consumer may mount after the entry was created (or after the last subscriber's cleanup
+       dropped the snapshot): materialize it from the live entry rather than reporting undefined. */
+    let snapshot = pathSnapshots.get(path)
+    if (snapshot === undefined) {
+      snapshot = { entry: entries.get(path) }
+      pathSnapshots.set(path, snapshot)
+    }
+    return snapshot
+  }, [path])
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)?.entry
 }
 
 /** Version-only subscription for consumers that read MANY paths at once (the tab strip): one
@@ -98,7 +136,7 @@ function setEntry(path, patch) {
   const next = typeof patch === 'function' ? patch(current) : { ...current, ...patch }
   if (next === current) return
   entries.set(path, next)
-  bump()
+  bump(path)
 }
 
 function messageOf(error, fallbackKey) {
@@ -121,7 +159,10 @@ function ensureTimer() {
   for (const entry of entries.values()) {
     if (needsPolling(entry)) { live = true; break }
   }
-  if (live && timer === null) timer = setInterval(tick, RUN_POLL_MS)
+  if (live && timer === null) timer = setInterval(() => {
+    if (shouldSkipPoll()) return
+    tick()
+  }, RUN_POLL_MS)
   if (!live && timer !== null) {
     clearInterval(timer)
     timer = null
@@ -349,6 +390,6 @@ export function setRunFollow(path, follow) {
   setEntry(path, { follow: follow === true })
 }
 
-export function dismissRunNotice(path) {
+function dismissRunNotice(path) {
   setEntry(path, { notice: undefined })
 }

@@ -195,8 +195,6 @@ const LAYOUT_SCHEMA = Object.freeze({
   tree: { kind: 'number', min: TREE_MIN, max: TREE_MAX, default: TREE_DEFAULT },
   preview: { kind: 'number', min: PREVIEW_MIN, max: PREVIEW_MAX, default: PREVIEW_DEFAULT },
   sidebar: { kind: 'number', min: SIDEBAR_MIN, max: SIDEBAR_PERSIST_SANITY_MAX, zeroAllowed: true, default: SIDEBAR_DEFAULT },
-  /* The explorer footer toggle is gone: the panes are always on screen, so the value never changes. */
-  explorerOpen: { kind: 'bool', default: true },
 })
 
 /* Token-price records drop every field the current schema does not name. */
@@ -310,7 +308,7 @@ export function readPersistedState(key, storage) {
 }
 
 /** Remove the keys of every previous format. Their content is never interpreted. */
-export function dropLegacyPersistedState(storage) {
+function dropLegacyPersistedState(storage) {
   const target = storageOf(storage)
   if (target === undefined) return
   for (const key of LEGACY_STORE_KEYS) {

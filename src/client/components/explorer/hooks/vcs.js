@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { fetchVcsStatus } from '../../../api.js'
 import { buildVcsOverlay, reportVcsHostEnabled } from '../../../vcs.js'
 import { VCS_REFRESH_DEBOUNCE_MS, VCS_STATUS_POLL_MS } from '../../../constants.js'
+import { shouldSkipPoll } from '../../../poll-gate.js'
 
 /**
  * Working-copy status (git / svn) of the mounted workspace, shared by the status bar,
@@ -92,8 +93,7 @@ export function useVcsStatus({ workspaceId, enabled, autoRefresh, includeIgnored
   useEffect(() => {
     if (enabled !== true || autoRefresh !== true) return undefined
     const timer = setInterval(() => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
-      if (isPaneVisible?.() === false) return
+      if (shouldSkipPoll(isPaneVisible)) return
       void run(false)
     }, VCS_STATUS_POLL_MS)
     return () => clearInterval(timer)

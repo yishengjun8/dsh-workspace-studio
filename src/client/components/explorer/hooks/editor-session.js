@@ -3,15 +3,16 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { AUTO_RELOAD_COOLDOWN_MS, AUTO_SYNC_CHECK_MS, AUTO_SYNC_MODE_AUTO, AUTOSAVE_DELAY_MS, DISK_STATE_CLEAN, DISK_STATE_CONFLICT, DISK_STATE_GONE, DISK_STATE_STALE, FILE_CACHE_REVALIDATE_SKIP_MS, TAB_FLASH_MS, WATCH_FILES_DEFAULT } from '../../../constants.js'
 import { translate } from '../../../locale/index.js'
+import { shouldSkipPoll } from '../../../poll-gate.js'
+import { draftHasUnsavedWork, draftRestoreDecision, isRestorableDraftRecord } from './editor-draft-restore.js'
 import { readOnlyReason } from '../../../format.js'
 import { encodingLabel } from '../../../api.js'
 import { resolveMergeParts, threeWayMerge } from '../../../merge.js'
-import { entryFromPreviewTab, isSyntheticTab } from '../../../preview-tabs.js'
+import { entryFromPreviewTab, hasTabPath, isSyntheticTab } from '../../../preview-tabs.js'
 import { byteKindOf, isByteKind } from '../../../renderers/registry.js'
 import { useRemoteFaces } from '../../../renderers/remote.js'
 import { readRemoteText } from '../../../renderers/remote-text.js'
 import { rewriteRelativePath } from '../../../paths.js'
-import { deleteEmergencyDraft, readEmergencyDraft, writeEmergencyDraft } from '../../../drafts.js'
 import { diskSnapshot, getCachedPreview, invalidateCachedPath, refreshCachedSnapshot, sameDiskSnapshot, storeCachedPreview } from '../../../file-cache.js'
 
 export function useEditorSession({
@@ -25,13 +26,38 @@ export function useEditorSession({
      the read-only preview of an outside-workspace file has no other trigger. */
   const faces = useRemoteFaces()
   const [preview, setPreview] = useState({ state: 'idle' })
-  const [editing, setEditing] = useState(false)
-  const [dirty, setDirty] = useState(false)
-  const [saving, setSaving] = useState(false)
+  /* `editing` / `dirty` / `saving` have ONE owner: the tab. The hook used to hold local copies and mirror
+     them into the tab at ~39 call sites, which is how the two could disagree — the cache-hit read path
+     even cleared the local `dirty` while the tab kept saying dirty, so the "unsaved changes" gate read
+     false for a tab the rest of the explorer (the tab strip, the save-all sweep, the delete confirmation)
+     treated as dirty. The setters below write the tab; these values read it back, so a tab switch needs no
+     re-seeding at all.
+     `draft` stays local: it changes on every keystroke, and routing that through the tab would re-render
+     the whole explorer per character.
+     `status` stays local: it is a SESSION-TRANSIENT banner (a cancelled save, a just-refreshed note) that
+     must NOT survive a tab switch, while the tab carries the durable banner the read pass reconciles. */
+  const editing = Boolean(activeTab?.editing)
+  const dirty = Boolean(activeTab?.dirty)
+  const saving = Boolean(activeTab?.saving)
   const [draft, setDraft] = useState('')
   const [status, setStatus] = useState()
   const [readEpoch, setReadEpoch] = useState(0)
   const [conflictDialog, setConflictDialog] = useState()
+  /* The three tab-field setters keep the signatures the ~39 existing call sites already use, but write the
+     tab instead of a local mirror. With no active file (a mind-map / plan / review tab, an outside file, no
+     tab at all) there is nothing to write, and the derived values above are already false. */
+  const setEditing = useCallback((value) => {
+    const path = activePathRef.current
+    if (path !== null) updateTab(path, { editing: value === true })
+  }, [activePathRef, updateTab])
+  const setDirty = useCallback((value) => {
+    const path = activePathRef.current
+    if (path !== null) updateTab(path, { dirty: value === true })
+  }, [activePathRef, updateTab])
+  const setSaving = useCallback((value) => {
+    const path = activePathRef.current
+    if (path !== null) updateTab(path, { saving: value === true })
+  }, [activePathRef, updateTab])
   /* Monotonic sequence for file reads: a stale in-flight read can resolve after a newer same-path pass, so each pass applies its result only while still latest. */
   const readSeqRef = useRef(0)
   const readController = useRef()
@@ -200,7 +226,7 @@ export function useEditorSession({
           const result = await checkFileChange(String(workspace.workspaceId), tab.path, snapshot, controller.signal)
           if (controller.signal.aborted || result === undefined) return
           /* The tab may have closed while the check was in flight; do not re-seed a baseline for a path with no tab. */
-          if (!tabsRef.current.some(item => item.path === tab.path)) return
+          if (!hasTabPath(tabsRef.current, tab.path)) return
           /* Only write the result back when the baseline is still the snapshot this check was issued against, or the next tick would report our own save as an external change. */
           const nextSnapshot = result.snapshot ?? null
           if (watchSnapshotsRef.current.get(tab.path) !== snapshot) return
@@ -229,7 +255,11 @@ export function useEditorSession({
       }))
     }
     tick()
-    timer = window.setInterval(tick, AUTO_SYNC_CHECK_MS)
+    timer = window.setInterval(() => {
+      /* Nothing to compare while the page is hidden: no edits can be made, and the first tick after it comes back catches external changes. */
+      if (shouldSkipPoll()) return
+      tick()
+    }, AUTO_SYNC_CHECK_MS)
     return () => {
       controller.abort()
       if (timer !== 0) window.clearInterval(timer)
@@ -510,9 +540,7 @@ export function useEditorSession({
       const content = typeof payload.content === 'string' ? payload.content : ''
       const savedScrollTop = scrollTopRef.current.get(activePath) ?? candidateTab.scrollTop ?? 0
       reloadingPathsRef.current.add(activePath)
-      setEditing(Boolean(candidateTab.editing))
-      setDirty(false)
-      setSaving(false)
+      /* editing / dirty / saving are the tab's own fields now — nothing to re-seed. */
       setStatus(candidateTab.status?.error === true ? undefined : candidateTab.status)
       const ready = {
         state: 'ready',
@@ -659,9 +687,7 @@ export function useEditorSession({
     requestedEncodingRef.current = undefined
     const selection = tab === undefined ? { kind: 'file', name: activePath.slice(activePath.lastIndexOf('/') + 1), path: activePath } : entryFromPreviewTab(tab)
     setSelected(selection)
-    setEditing(Boolean(tab?.editing))
-    setDirty(Boolean(tab?.dirty))
-    setSaving(Boolean(tab?.saving))
+    /* editing / dirty / saving are the tab's own fields now — nothing to re-seed on a tab switch. */
     /* Error statuses are session-transient; replaying a stale failure banner on tab switch would mislead the user. */
     setStatus(tab?.status?.error === true ? undefined : tab?.status)
     // Mark the path as reloading so the polling tick skips it until the pass settles; idempotent with the marks set by applyFileChanged / refreshFile / openWithEncoding.
@@ -674,101 +700,45 @@ export function useEditorSession({
       if (!mounted.current || readSeq !== readSeqRef.current || activePathRef.current !== activePath) return
       requestedEncodingRef.current = undefined
       // Read the draft file so a refresh restores the editing session from disk; a failed read falls back to the source.
-      return Promise.all([
+      return loadDraft(workspace.workspaceId, activePath, controller.signal, draftScopeId)
         /* A failed draft read must not silently degrade to "no draft"; mark the failure so the read pass surfaces a warning banner. */
-        loadDraft(workspace.workspaceId, activePath, controller.signal, draftScopeId)
-          .catch(() => ({ exists: false, failed: true })),
-        readEmergencyDraft(workspace.workspaceId, draftScopeId, activePath).catch(() => undefined),
-      ]).then(([hostDraft, emergencyDraft]) => {
+        .catch(() => ({ exists: false, failed: true }))
+        .then((hostDraft) => {
         if (!mounted.current || readSeq !== readSeqRef.current || activePathRef.current !== activePath) return
         const hostReadFailed = hostDraft?.failed === true
         const hostGeneration = Number.isSafeInteger(hostDraft?.generation) ? hostDraft.generation : 0
-        const emergencyGeneration = Number.isSafeInteger(emergencyDraft?.generation) ? emergencyDraft.generation : 0
-        const emergencyTombstone = emergencyDraft !== null && emergencyDraft !== undefined
-          && emergencyDraft?.state === 'deleted'
-        /* A mirror tombstone may suppress the host draft only when the host holds no live draft of its own; a live host draft wins over a possibly stale tombstone. */
-        const hostDraftLive = hostDraft !== null && hostDraft !== undefined
-          && hostDraft?.exists === true && typeof hostDraft?.draft === 'string'
-          && hostDraft.draft !== hostDraft.baseText
-        const draftData = emergencyTombstone && !hostDraftLive && emergencyGeneration >= hostGeneration
-          ? { exists: false }
-          : emergencyDraft?.state !== 'deleted' && typeof emergencyDraft?.draft === 'string'
-            && emergencyGeneration >= hostGeneration
-            ? emergencyDraft
-            : hostDraft
+        const draftData = hostDraft
         const tabDraft = tab?.dirty ? tab : undefined
         const editable = result.editable === true
-        /* A restorable draft record carries its baseline: the Host enforces the same field
-           contract when it writes and reads the record, so a record missing baseText (or whose
-           baseRevision is neither a string nor an explicit null) is not restorable instead of
-           being silently patched up from the current disk revision. */
-        const diskDraftPresent = draftData !== null && typeof draftData === 'object'
-          && draftData.exists !== false && typeof draftData.draft === 'string'
-          && typeof draftData.baseText === 'string'
-          && (typeof draftData.baseRevision === 'string' || draftData.baseRevision === null)
-        // A clean fallback draft (draft===baseText) or a stale draft equal to
-        // the source carries no unsaved work and must never override a later
-        // disk revision.
-        const hasDiskDraft = diskDraftPresent
-          && draftData.draft !== draftData.baseText
-          && draftData.draft !== result.content
-        if (diskDraftPresent && !hasDiskDraft) {
-          void removeDraftFile(workspace.workspaceId, activePath, undefined, draftScopeId, Math.max(hostGeneration, emergencyGeneration) + 1).catch(() => {})
-          if (emergencyDraft?.state !== 'deleted') {
-            void deleteEmergencyDraft(workspace.workspaceId, draftScopeId, activePath, Math.max(hostGeneration, emergencyGeneration)).catch(() => {})
-          }
+        /* The draft-record contract and the restore decision live in editor-draft-restore.js: pure
+           functions over data, so the Host's field contract is checkable by reading one file. */
+        const diskDraftPresent = isRestorableDraftRecord(draftData)
+        /* A restorable record whose draft is equal to its baseline, or to the source on disk, carries no
+           unsaved work: drop the leftover rather than let it override a later disk revision. */
+        const diskDraftHasWork = diskDraftPresent && draftHasUnsavedWork(draftData, result.content)
+        if (diskDraftPresent && !diskDraftHasWork) {
+          void removeDraftFile(workspace.workspaceId, activePath, undefined, draftScopeId, hostGeneration + 1).catch(() => {})
         }
-        /* A live tab knows whether its in-memory draft is materialized, so a deliberate empty edit stays distinct from a content-free dirty marker restored from localStorage. */
-        const hasTabDraft = tabDraft !== undefined && tabDraft.draftKnown === true
-          && typeof tabDraft.draft === 'string' && tabDraft.draft !== result.content
-        /* In-session the in-memory tab draft is always at least as new as any disk draft, so prefer it; on a cold restore the disk draft rehydrates the session. */
-        const restored = hasTabDraft
-          ? { content: tabDraft.draft, baseText: tabDraft.baseText, baseRevision: tabDraft.revision }
-          : hasDiskDraft
-            ? {
-                content: draftData.draft,
-                baseText: draftData.baseText,
-                baseRevision: draftData.baseRevision,
-              }
-            : { content: result.content, baseText: result.content, baseRevision: result.revision }
+        const decision = draftRestoreDecision({
+          activePath,
+          diskDraft: draftData,
+          diskDraftHasWork,
+          editable,
+          effectiveEncoding,
+          hostReadFailed,
+          result,
+          selection,
+          tabDraft,
+          translate,
+        })
+        const { canRestore, externallyChanged, hasDiskDraft, hasRestoredContent, hasTabDraft, ready, restored, restoredDirty, status } = decision
         const content = restored.content
-        const hasRestoredContent = hasDiskDraft || hasTabDraft
-        const canRestore = hasRestoredContent && editable
-        const restoredDirty = hasRestoredContent && content !== restored.baseText
-        // Compare the SOURCE content to the snapshot: if an external tool
-        // changed it, restore still shows the draft and defers to the save-time
-        // three-way merge.
-        const diskText = typeof result.content === 'string' ? result.content : ''
-        const externallyChanged = canRestore && diskText !== restored.baseText
-        const ready = {
-          state: 'ready',
-          ...result,
-          name: selection.name,
-          path: activePath,
-          symlink: Boolean(selection.symlink),
-          content,
-          revision: result.revision ?? null,
-          encoding: result.encoding ?? effectiveEncoding,
-          lineEnding: result.lineEnding ?? 'none',
-          bom: Boolean(result.bom),
-          size: result.size,
-        }
-        const restoredStatus = canRestore && externallyChanged
-          ? { error: true, text: translate('status.draftRestoredConflict') }
-          : { text: translate('status.draftRestored') }
-        const notRestorableStatus = (hasDiskDraft || hasTabDraft) && !editable
-          ? { error: true, text: translate('status.draftNotRestorable') }
-          : undefined
-        /* A failed Host draft read with no usable emergency mirror must not silently degrade to a clean tab; warn that unsaved work may be hidden. */
-        const draftReadFailedStatus = hostReadFailed && !hasDiskDraft && !hasTabDraft
-          ? { error: true, text: translate('status.draftReadFailed') }
-          : undefined
         // The source content stays separate from the editing baseline so cancel restores the committed snapshot even after a draft restore with a stale base.
         diskBaseRef.current = result.content
         baseText.current = restored.baseText
         // Seed the auto-save dedup with the restored draft (or source when
         // clean) so the next auto-save only fires after an edit.
-        const restoredGeneration = Math.max(hostGeneration, emergencyGeneration)
+        const restoredGeneration = hostGeneration
         // Seed the owner generation counter with the highest the Host knows so the next write strictly exceeds it and never collides with the owner fence.
         const ownerGeneration = Number.isSafeInteger(hostDraft?.ownerGeneration) ? hostDraft.ownerGeneration : 0
         draftGenerationCounterRef.current = Math.max(draftGenerationCounterRef.current, restoredGeneration, ownerGeneration)
@@ -796,13 +766,9 @@ export function useEditorSession({
         setPreview(ready)
         setEditing(editable)
         setDirty(restoredDirty)
-        if (canRestore) {
-          setStatus(restoredStatus)
-        } else if (hasDiskDraft || hasTabDraft) {
-          setStatus(notRestorableStatus)
-        } else if (draftReadFailedStatus !== undefined) {
-          setStatus(draftReadFailedStatus)
-        }
+        /* The decision already encodes the banner precedence (restored → not restorable → read failed →
+           leave the status alone). */
+        if (status !== undefined) setStatus(status)
         if (cancelRestore) setStatus({ text: translate('editor.cancelRestored') })
         else if (refreshPending) setStatus({ text: translate('editor.refreshed') })
         /* Editor-session retention: a same-content re-read rebuilds from the retained EditorState; any real content change, rename, or cancel/discard restore drops it. */
@@ -835,7 +801,7 @@ export function useEditorSession({
           saving: false,
           scrollTop: savedScrollTop,
           size: Number.isFinite(result.size) ? result.size : null,
-          status: cancelRestore ? { text: translate('editor.cancelRestored') } : (refreshPending ? { text: translate('editor.refreshed') } : (canRestore ? restoredStatus : ((hasDiskDraft || hasTabDraft) ? notRestorableStatus : (draftReadFailedStatus ?? (tab?.status?.error === true ? undefined : tab?.status))))),
+          status: cancelRestore ? { text: translate('editor.cancelRestored') } : (refreshPending ? { text: translate('editor.refreshed') } : (status ?? (tab?.status?.error === true ? undefined : tab?.status))),
           symlink: Boolean(selection.symlink),
           truncated: Boolean(result.truncated),
         })
@@ -932,8 +898,6 @@ export function useEditorSession({
   const clearDraftFile = useCallback((path, content, encoding, lineEnding, bom, revision) => {
     const generation = invalidateDraftPath(path)
     return enqueueDraftOperation(path, generation, async () => {
-      /* Tombstone the emergency mirror first so a tab switch between the DELETE and this write cannot restore the stale mirror record. */
-      await deleteEmergencyDraft(workspace.workspaceId, draftScopeId, path, generation).catch(() => {})
       let result
       try {
         result = await removeDraftFile(workspace.workspaceId, path, undefined, draftScopeId, generation)
@@ -1032,8 +996,6 @@ export function useEditorSession({
         baseText.current = content
         diskBaseRef.current = content
         setDraft(content)
-        setDirty(false)
-        setEditing(true)
         setPreview(current => current.state === 'ready' && current.path === path
           ? { ...current, content, encoding: savedEncoding, bom: savedBom, revision: result.revision ?? current.revision, size }
           : current)
@@ -1046,13 +1008,14 @@ export function useEditorSession({
   }, [activePathRef, clearDraftFile, saveFile, updateTab, workspace.workspaceId])
 
   /* Auto-save an immutable snapshot. No active-editor ref is read after the
-     snapshot is created, so switching files cannot cross-wire merge bases. */
-  const performAutosave = useCallback(async (path, snapshot, generation) => {
+     snapshot is created, so switching files cannot cross-wire merge bases.
+     `keepalive` is the page-hide flush's last chance: the request outlives the document. */
+  const performAutosave = useCallback(async (path, snapshot, generation, keepalive = false) => {
     try {
       const result = await enqueueDraftOperation(path, generation, () => persistDraftFile(workspace.workspaceId, path, {
         ...snapshot,
         generation,
-      }, undefined))
+      }, undefined, keepalive ? { keepalive: true } : undefined))
       if (result?.stale === true || draftGenerationsRef.current.get(path) !== generation) {
         /* A stale write (a tree op advanced the generation fence) must not leave its pending entry behind. */
         const pending = pendingAutosavesRef.current.get(path)
@@ -1100,21 +1063,7 @@ export function useEditorSession({
     // Drop the pending timer first so an edit reverting to the last-written text cannot let an earlier timer fire.
     clearAutosaveTimer(path)
     // Skip a redundant write when the draft equals the last content this owner persisted.
-    if (lastWriteRef.current.get(path)?.content === text) {
-      /* The dedup skips the generation bump, but the emergency mirror is written synchronously on every keystroke, so reconcile it with a live record at a fresh generation carrying the current text. */
-      const reconcileGeneration = nextDraftGeneration(path)
-      void writeEmergencyDraft(workspace.workspaceId, draftScopeId, path, {
-        owner: draftScopeId,
-        encoding: tab.encoding ?? 'utf-8',
-        lineEnding: tab.lineEnding ?? 'none',
-        bom: Boolean(tab.bom),
-        baseText: typeof tab.baseText === 'string' ? tab.baseText : '',
-        baseRevision: tab.baseRevision ?? tab.revision ?? null,
-        draft: text,
-        generation: reconcileGeneration,
-      }).catch(() => {})
-      return
-    }
+    if (lastWriteRef.current.get(path)?.content === text) return
     const generation = nextDraftGeneration(path)
     const snapshot = Object.freeze({
       owner: draftScopeId,
@@ -1126,26 +1075,25 @@ export function useEditorSession({
       draft: text,
     })
     pendingAutosavesRef.current.set(path, { generation, snapshot })
-    void writeEmergencyDraft(workspace.workspaceId, draftScopeId, path, { ...snapshot, generation }).catch(error => {
-      if (!mounted.current || activePathRef.current !== path) return
-      const message = error instanceof Error ? error.message : String(error)
-      setStatus({ error: true, text: translate('editor.autosaveFailed', { message }) })
-    })
     const timer = setTimeout(() => {
       autosaveTimers.current.delete(path)
       void performAutosave(path, snapshot, generation)
     }, AUTOSAVE_DELAY_MS)
     autosaveTimers.current.set(path, timer)
-  }, [clearAutosaveTimer, draftScopeId, nextDraftGeneration, performAutosave, workspace.workspaceId])
+  }, [clearAutosaveTimer, draftScopeId, nextDraftGeneration, performAutosave])
 
-  const flushAutosaves = useCallback(() => {
+  /* Fire every pending auto-save immediately. `options.keepalive` is what the page-hide path passes:
+     the draft PUT then survives the document being torn down, which is the whole reason this hook is
+     also wired to pagehide/visibilitychange (it replaced the IndexedDB emergency mirror). */
+  const flushAutosaves = useCallback((options) => {
+    const keepalive = options?.keepalive === true
     for (const timer of autosaveTimers.current.values()) clearTimeout(timer)
     autosaveTimers.current.clear()
     /* Swap the pending map out up front so a failed write cannot leave an entry pending forever. */
     const pending = pendingAutosavesRef.current
     pendingAutosavesRef.current = new Map()
     for (const [path, entry] of pending) {
-      void performAutosave(path, entry.snapshot, entry.generation)
+      void performAutosave(path, entry.snapshot, entry.generation, keepalive)
     }
   }, [performAutosave])
 
@@ -1438,7 +1386,6 @@ export function useEditorSession({
       updateTab(path, { dirty: false, draft: '', draftKnown: false, editing: true, saving: false, status: { text: translate('editor.cancelRestored') } })
       if (activePathRef.current === path) {
         setDraft('')
-        setDirty(false)
         cancelRestoreRef.current = path
         setReloadToken(token => token + 1)
       }
@@ -1476,7 +1423,6 @@ export function useEditorSession({
       updateTab(path, { dirty: false, draft: '', draftKnown: false, editing: false, saving: false, status: { text: translate('editor.cancelRestored') } })
       if (activePathRef.current === path) {
         setDraft('')
-        setDirty(false)
         cancelRestoreRef.current = path
         setReloadToken(token => token + 1)
       }

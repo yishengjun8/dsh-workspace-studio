@@ -1,5 +1,5 @@
 // Whether a dropped File is an image; images go to the chat composer, not the preview.
-export function isImageFile(file) {
+function isImageFile(file) {
   const type = typeof file?.type === 'string' ? file.type : ''
   return type.startsWith('image/')
 }

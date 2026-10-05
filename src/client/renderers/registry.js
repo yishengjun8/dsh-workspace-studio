@@ -6,7 +6,7 @@ export const VIEW_EDIT = 'edit'
 export const VIEW_PREVIEW = 'preview'
 
 export const RENDERER_MARKDOWN = 'markdown'
-export const RENDERER_HTML = 'html'
+const RENDERER_HTML = 'html'
 export const RENDERER_IMAGE = 'image'
 export const RENDERER_CODE = 'code'
 /* Byte renderers: their content never travels through the Host text preview,
@@ -26,7 +26,7 @@ const RENDERERS = Object.freeze([
 ])
 
 /* Rank matching renderers: longest suffix first, then registration order. */
-export function matchingRenderers(name) {
+function matchingRenderers(name) {
   const normalized = String(name ?? '').replaceAll('\\', '/').toLowerCase()
   const base = normalized.slice(normalized.lastIndexOf('/') + 1)
   return RENDERERS

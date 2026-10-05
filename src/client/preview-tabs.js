@@ -79,7 +79,7 @@ export function clonePreviewTab(tab) {
   }
 }
 /* Persisted copy of a tab: like the live clone, but clean tabs carry no text — persisting every full draft hit the localStorage quota. Clean content is re-read on restore; only dirty tabs need their draft to survive. */
-export function serializePreviewTab(tab) {
+function serializePreviewTab(tab) {
   const clone = clonePreviewTab(tab)
   if (clone === null) return null
   // "Saving…" only exists while a save is in flight; never persist it as a stale banner.
@@ -119,6 +119,23 @@ export function prunePreviewSessions(draft) {
 export function isTemporaryTab(tab) {
   return tab !== null && tab !== undefined && tab.temporary === true && tab.pinned !== true
 }
+/** Whether `path` already has a tab. THE existence predicate: six call sites used to spell out
+ *  `tabs.some(tab => tab.path === path)` (and one of them used `item`), so a future tab kind that
+ *  keys on something other than `path` would have to be fixed in six places. */
+export function hasTabPath(tabs, path) {
+  return (Array.isArray(tabs) ? tabs : []).some(tab => tab.path === path)
+}
+/** Apply `patch` (an object, or a function of the tab) to the tab at `path`, returning the SAME array
+ *  when no tab matches — so a patch for a closed tab cannot re-render or rewrite the snapshot. */
+export function patchTab(tabs, path, patch) {
+  const current = Array.isArray(tabs) ? tabs : []
+  if (!hasTabPath(current, path)) return current
+  return current.map(tab => {
+    if (tab.path !== path) return tab
+    const nextPatch = typeof patch === 'function' ? patch(tab) : patch
+    return { ...tab, ...nextPatch }
+  })
+}
 /* Make the named tab permanent. Returns the SAME array when nothing changes, so a
    no-op promotion cannot re-render or rewrite the preview snapshot. */
 export function promoteTemporaryTab(tabs, path) {
@@ -130,7 +147,7 @@ export function promoteTemporaryTab(tabs, path) {
    target is promoted in place when it is already open, appended otherwise. */
 export function openPermanentTab(tabs, tab) {
   const current = Array.isArray(tabs) ? tabs : []
-  return current.some(item => item.path === tab.path) ? promoteTemporaryTab(current, tab.path) : [...current, tab]
+  return hasTabPath(current, tab.path) ? promoteTemporaryTab(current, tab.path) : [...current, tab]
 }
 /* Single-click preview open. A target that is already open is returned untouched
    (the caller only activates it: re-clicking a temporary tab must not promote it,
@@ -278,7 +295,7 @@ export function dropIndexFromEvent(event) {
   }
   return tabNodes.length
 }
-export function rewritePreviewTab(tab, from, to, replacement) {
+function rewritePreviewTab(tab, from, to, replacement) {
   const path = rewriteRelativePath(tab.path, from, to)
   if (path === tab.path) return tab
   const renamed = tab.path === from

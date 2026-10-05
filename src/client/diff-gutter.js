@@ -11,7 +11,7 @@ import { myersDiff } from './merge.js'
 
 /** Split text into lines exactly like a CodeMirror document does (CRLF / CR / LF, no terminators).
  *  An empty text is ONE empty line, matching `Text.lines`. */
-export function splitLines(text) {
+function splitLines(text) {
   return String(text ?? '').split(/\r\n|\r|\n/)
 }
 

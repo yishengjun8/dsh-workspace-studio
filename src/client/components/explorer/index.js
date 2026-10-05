@@ -4,18 +4,18 @@ import { clampFontPercent, CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MAX, C
 import { translate } from '../../locale/index.js'
 import { clamp, diffColorVars, fileLabel, formatBytes, readOnlyReason, vcsStatusColorVars } from '../../format.js'
 import { copyText, defaultEntryName, entryNameError, entryPath, joinAbsolutePath, parentPath, pathBaseName, rewriteDirectoryMap, rewritePathMap, rewritePathSet, rewriteRelativePath, selectedLevelPath } from '../../paths.js'
-import { ancestorDirectoryPaths, dropIndexFromEvent, entryFromPreviewTab, isMindmapTab, isPlanTab, isReviewTab, isSyntheticTab, isTemporaryTab, isUnpersistedTab, mindmapRootIdOfTab, mindmapTabPath, normalizePreviewSession, openPermanentTab, openPreviewTab, orderPinnedFirst, planAddressOfTab, planTabPath, promoteTemporaryTab, reviewAddressOfTab, reviewTabPath, rewritePreviewTabs, serializePreviewSession } from '../../preview-tabs.js'
+import { ancestorDirectoryPaths, dropIndexFromEvent, entryFromPreviewTab, isMindmapTab, isPlanTab, isReviewTab, isSyntheticTab, isTemporaryTab, hasTabPath, isUnpersistedTab, mindmapRootIdOfTab, mindmapTabPath, normalizePreviewSession, openPermanentTab, openPreviewTab, orderPinnedFirst, patchTab, planAddressOfTab, planTabPath, promoteTemporaryTab, reviewAddressOfTab, reviewTabPath, rewritePreviewTabs, serializePreviewSession } from '../../preview-tabs.js'
 import { registerPreviewFontReset } from '../../preview-font.js'
-import { IconFolder, IconNewFile, IconNewFolder, IconRefresh, IconSearch } from '../../icons.js'
+import { IconNewFile, IconNewFolder, IconRefresh, IconSearch } from '../../icons.js'
 import { encodingLabel, fetchEncodings, hostAbsoluteHref, openFileExternal, rawFileUrl, requestFsOperation, revealInExplorer, uploadExternalFile, WorkspaceApiError } from '../../api.js'
 import { hasDraggedFiles, hasNormalFile } from '../../utils.js'
-import { deleteEmergencyDraft, rewriteEmergencyDraftPath } from '../../drafts.js'
 import { invalidateCachedSubtree, rewriteCachedPaths } from '../../file-cache.js'
 import { mindmapDockStore } from '../../mindmap/registry.js'
 import { mindmapViewHost } from '../../mindmap/host.js'
 import { fileOpenRequestStore } from '../../open-request.js'
 import { parseChangesReviewAddress, reviewOpenStore } from '../../changes-review.js'
 import { planDocuments, planOpenStore } from '../../plan-open.js'
+import { usePendingRequest } from '../../request-store.js'
 import { EncodingMenu, PanelHeader, PreviewToast, TabContextMenu, TreeContextMenu } from '../menus.js'
 import { DeleteDialog, EncodingDialog, EntryDialog, SaveConflictDialog, SessionRenameDialog } from '../dialogs.js'
 import { DropOverlay } from './drop.js'
@@ -33,7 +33,7 @@ import { useEditorSession } from './hooks/editor-session.js'
 import { usePreviewScrollbar } from './hooks/scrollbar.js'
 import { useSearchState } from './hooks/search.js'
 import { useSessionRename } from './hooks/session-rename.js'
-import { isByteKind, isHtmlName, isImageName, isMarkdownName, isOfficeName, isPdfName, VIEW_EDIT, VIEW_PREVIEW, viewerCandidates } from '../../renderers/registry.js'
+import { isByteKind, isHtmlName, isImageName, isMarkdownName, isOfficeName, isPdfName, RENDERER_CODE, RENDERER_IMAGE, RENDERER_MARKDOWN, VIEW_EDIT, VIEW_PREVIEW, viewerCandidates } from '../../renderers/registry.js'
 import { isRunnableName } from '../../run-detect.js'
 import { setRunCollapsed, useRunEntry } from '../../run-store.js'
 import { PlanView } from '../../renderers/plan-view.js'
@@ -243,22 +243,16 @@ export function WorkspaceExplorer({
     if (dirtyTabCount < previousDirtyCountRef.current) vcsRef.current.refreshSoon()
     previousDirtyCountRef.current = dirtyTabCount
   }, [dirtyTabCount])
+  /* ONE owner for "patch the tab at this path" (preview-tabs.js patchTab): updateTab names the path,
+     updateActiveTab takes it from the active ref. They were two verbatim copies of the transform. */
+  const updateTab = useCallback((path, patch) => {
+    setTabs(current => patchTab(current, path, patch))
+  }, [])
   const updateActiveTab = useCallback((patch) => {
     const path = activePathRef.current
     if (path === null) return
-    setTabs(current => current.map(tab => {
-      if (tab.path !== path) return tab
-      const nextPatch = typeof patch === 'function' ? patch(tab) : patch
-      return { ...tab, ...nextPatch }
-    }))
-  }, [])
-  const updateTab = useCallback((path, patch) => {
-    setTabs(current => current.map(tab => {
-      if (tab.path !== path) return tab
-      const nextPatch = typeof patch === 'function' ? patch(tab) : patch
-      return { ...tab, ...nextPatch }
-    }))
-  }, [])
+    updateTab(path, patch)
+  }, [updateTab])
   const persistSessionTabs = useCallback(() => {
     if (persistPreviewSession === undefined) return
     const hasTreeExpansion = Array.from(expandedRef.current).some(path => path !== '')
@@ -292,56 +286,46 @@ export function WorkspaceExplorer({
   useLayoutEffect(() => { schedulePersist() }, [activePath, schedulePersist, tabs, expanded])
 
   /* Dock requests from the sidebar mind-map entries and the session-header button: add/update the mind-map tab and activate it. A request is consumed only when its expectFamily matches this mount's previewSessionId. */
-  useEffect(() => {
-    const applyDock = () => {
-      const { request } = mindmapDockStore.getSnapshot()
-      if (request === null) return
-      if (request.expectFamily !== (previewSessionId ?? null)) return
-      const path = mindmapTabPath(request.rootId)
-      /* The map needs a body in the global host: a new tab's body mounts fresh, while a re-dock of an already-open tab is a no-op. */
-      mindmapViewHost.ensure(String(request.rootId), true)
-      /* Stamp the persistence family the tab was docked on so a snapshot carrying the tab cannot leak it into unrelated sessions. */
-      const dockedAt = previewSessionId ?? null
-      setTabs(current => {
-        const existing = current.find(tab => tab.path === path)
-        if (existing !== undefined) {
-          /* Re-dock refreshes the tab name (the map title may have changed) and re-anchors the stamp on this family. */
-          return current.map(tab => tab.path === path ? { ...tab, name: request.name, dockedAt } : tab)
-        }
-        return [...current, {
-          baseText: '',
-          baseRevision: null,
-          bom: false,
-          dirty: false,
-          dockedAt,
-          bom: false,
-          dirty: false,
-          draft: '',
-          draftKnown: false,
-          editing: false,
-          encoding: 'utf-8',
-          external: false,
-          kind: 'mindmap',
-          lineEnding: 'none',
-          name: request.name,
-          path,
-          pinned: false,
-          revision: null,
-          saving: false,
-          scrollTop: 0,
-          sessionId: request.rootId,
-          size: null,
-          status: undefined,
-          symlink: false,
-        }]
-      })
-      setSelected(undefined)
-      activatePath(path)
-      mindmapDockStore.consume()
-    }
-    if (mindmapDockStore.getSnapshot().request !== null) applyDock()
-    return mindmapDockStore.subscribe(applyDock)
-  }, [activatePath, previewSessionId])
+  usePendingRequest(mindmapDockStore, previewSessionId ?? null, (request) => {
+    const path = mindmapTabPath(request.rootId)
+    /* The map needs a body in the global host: a new tab's body mounts fresh, while a re-dock of an already-open tab is a no-op. */
+    mindmapViewHost.ensure(String(request.rootId), true)
+    /* Stamp the persistence family the tab was docked on so a snapshot carrying the tab cannot leak it into unrelated sessions. */
+    const dockedAt = previewSessionId ?? null
+    setTabs(current => {
+      const existing = current.find(tab => tab.path === path)
+      if (existing !== undefined) {
+        /* Re-dock refreshes the tab name (the map title may have changed) and re-anchors the stamp on this family. */
+        return current.map(tab => tab.path === path ? { ...tab, name: request.name, dockedAt } : tab)
+      }
+      return [...current, {
+        baseText: '',
+        baseRevision: null,
+        bom: false,
+        dirty: false,
+        dockedAt,
+        draft: '',
+        draftKnown: false,
+        editing: false,
+        encoding: 'utf-8',
+        external: false,
+        kind: 'mindmap',
+        lineEnding: 'none',
+        name: request.name,
+        path,
+        pinned: false,
+        revision: null,
+        saving: false,
+        scrollTop: 0,
+        sessionId: request.rootId,
+        size: null,
+        status: undefined,
+        symlink: false,
+      }]
+    })
+    setSelected(undefined)
+    activatePath(path)
+  })
 
   /* Open requests for harness plans (ui-plan's 「查看全文」 and the turn's plan card): the openResource router publishes them, and the explorer whose previewSessionId matches the request's family consumes one as a session-only plan tab. The tab carries the plan's dsh-resource address in its synthetic path; its body renders the temporary review document or the harness plan resource. */
   const applyPlanTitle = useCallback((path, title) => {
@@ -354,44 +338,35 @@ export function WorkspaceExplorer({
       return current.map(item => item.path === path ? { ...item, name } : item)
     })
   }, [])
-  useEffect(() => {
-    const applyOpen = () => {
-      const { request } = planOpenStore.getSnapshot()
-      if (request === null) return
-      /* Consumed by the explorer showing the plan's own session — the chat's session, or the map root whose preview strip the chat shares. Any other mount leaves the request pending for the matching one. */
-      const family = request.expectFamily
-      if (family !== (previewSessionId ?? null) && family !== (sessionId ?? null)) return
-      const path = planTabPath(request.address)
-      setTabs(current => current.some(tab => tab.path === path)
-        ? current
-        : [...current, {
-          baseText: '',
-          dirty: false,
-          draft: '',
-          draftKnown: false,
-          editing: false,
-          encoding: 'utf-8',
-          external: false,
-          /* Session-only: a plan tab is never persisted (preview-tabs drops it), and its address lives in the synthetic path. */
-          kind: 'plan',
-          lineEnding: 'none',
-          name: request.name !== '' ? request.name : translate('plan.tab'),
-          path,
-          pinned: false,
-          revision: null,
-          saving: false,
-          scrollTop: 0,
-          sessionId: null,
-          size: null,
-          symlink: false,
-        }])
-      setSelected(undefined)
-      activatePath(path)
-      planOpenStore.consume()
-    }
-    if (planOpenStore.getSnapshot().request !== null) applyOpen()
-    return planOpenStore.subscribe(applyOpen)
-  }, [activatePath, previewSessionId, sessionId])
+  /* Consumed by the explorer showing the plan's own session — the chat's session, or the map root whose preview strip the chat shares — so either identity is accepted. Any other mount leaves the request pending for the matching one. */
+  usePendingRequest(planOpenStore, [previewSessionId ?? null, sessionId ?? null], (request) => {
+    const path = planTabPath(request.address)
+    setTabs(current => hasTabPath(current, path)
+      ? current
+      : [...current, {
+        baseText: '',
+        dirty: false,
+        draft: '',
+        draftKnown: false,
+        editing: false,
+        encoding: 'utf-8',
+        external: false,
+        /* Session-only: a plan tab is never persisted (preview-tabs drops it), and its address lives in the synthetic path. */
+        kind: 'plan',
+        lineEnding: 'none',
+        name: request.name !== '' ? request.name : translate('plan.tab'),
+        path,
+        pinned: false,
+        revision: null,
+        saving: false,
+        scrollTop: 0,
+        sessionId: null,
+        size: null,
+        symlink: false,
+      }])
+    setSelected(undefined)
+    activatePath(path)
+  })
 
   /* Open requests for change reviews (the chat's changed-files card): the
      openResource router publishes them, and the explorer whose previewSessionId
@@ -399,52 +374,44 @@ export function WorkspaceExplorer({
      tab carries the review's dsh-resource address in its synthetic path plus the
      file index the card was clicked on; a later click on another row re-seeds
      that index on the SAME tab instead of opening a second one. */
-  useEffect(() => {
-    const applyOpen = () => {
-      const { request } = reviewOpenStore.getSnapshot()
-      if (request === null) return
-      /* Consumed by the explorer showing the review's own session — the chat's
-         session, or the map root whose preview strip the chat shares. Any other
-         mount leaves the request pending for the matching one. */
-      const family = request.expectFamily
-      if (family !== (previewSessionId ?? null) && family !== (sessionId ?? null)) return
-      const path = reviewTabPath(request.address)
-      const coordinates = parseChangesReviewAddress(request.address)
-      setTabs(current => current.some(tab => tab.path === path)
-        ? current.map(tab => tab.path === path
-          ? { ...tab, reviewIndex: request.index, reviewNav: (tab.reviewNav ?? 0) + 1 }
-          : tab)
-        : [...current, {
-          baseText: '',
-          dirty: false,
-          draft: '',
-          draftKnown: false,
-          editing: false,
-          encoding: 'utf-8',
-          external: false,
-          /* Session-only: a review tab is never persisted (preview-tabs drops
-             it), and its address lives in the synthetic path. */
-          kind: 'review',
-          lineEnding: 'none',
-          name: translate('review.tabName', { turn: String(coordinates?.turn ?? 1) }),
-          path,
-          pinned: false,
-          revision: null,
-          reviewIndex: request.index,
-          reviewNav: 1,
-          saving: false,
-          scrollTop: 0,
-          sessionId: null,
-          size: null,
-          symlink: false,
-        }])
-      setSelected(undefined)
-      activatePath(path)
-      reviewOpenStore.consume()
-    }
-    if (reviewOpenStore.getSnapshot().request !== null) applyOpen()
-    return reviewOpenStore.subscribe(applyOpen)
-  }, [activatePath, previewSessionId, sessionId])
+  /* Consumed by the explorer showing the review's own session — the chat's
+     session, or the map root whose preview strip the chat shares — so either
+     identity is accepted. Any other mount leaves the request pending for the
+     matching one. */
+  usePendingRequest(reviewOpenStore, [previewSessionId ?? null, sessionId ?? null], (request) => {
+    const path = reviewTabPath(request.address)
+    const coordinates = parseChangesReviewAddress(request.address)
+    setTabs(current => hasTabPath(current, path)
+      ? current.map(tab => tab.path === path
+        ? { ...tab, reviewIndex: request.index, reviewNav: (tab.reviewNav ?? 0) + 1 }
+        : tab)
+      : [...current, {
+        baseText: '',
+        dirty: false,
+        draft: '',
+        draftKnown: false,
+        editing: false,
+        encoding: 'utf-8',
+        external: false,
+        /* Session-only: a review tab is never persisted (preview-tabs drops
+           it), and its address lives in the synthetic path. */
+        kind: 'review',
+        lineEnding: 'none',
+        name: translate('review.tabName', { turn: String(coordinates?.turn ?? 1) }),
+        path,
+        pinned: false,
+        revision: null,
+        reviewIndex: request.index,
+        reviewNav: 1,
+        saving: false,
+        scrollTop: 0,
+        sessionId: null,
+        size: null,
+        symlink: false,
+      }])
+    setSelected(undefined)
+    activatePath(path)
+  })
 
   const editorSession = useEditorSession({
     workspace, sessionId: previewSessionId, draftScopeId, activePath, activeTab, tabsRef, activePathRef, updateTab, setTabs,
@@ -502,7 +469,7 @@ export function WorkspaceExplorer({
   /* Only the tab kinds that actually render the CodeMirror editor carry a gutter: images, PDF/Office
      conversions and the paged read-only view have no line-number column to annotate. */
   const diffEligible = vcsEnabled === true && preview.state === 'ready'
-    && preview.kind !== 'image' && preview.kind !== 'pdf' && preview.kind !== 'office'
+    && !isByteKind(preview.kind)
     && showBrowse !== true
     && activeTab !== undefined
     && !isSyntheticTab(activeTab) && activeTab.external !== true && activeTab.outside !== true
@@ -796,7 +763,7 @@ export function WorkspaceExplorer({
     previewTabsBootstrapped.current = true
     setSelected(entry)
     activatePath(entry.path)
-    if (tabsRef.current.some(tab => tab.path === entry.path)) return
+    if (hasTabPath(tabsRef.current, entry.path)) return
     const { tabs: nextTabs, replacedPath } = openPreviewTab(tabsRef.current, fileTabFromEntry(entry, true))
     setTabs(nextTabs)
     if (replacedPath !== null) forgetPathRefs(replacedPath)
@@ -845,7 +812,7 @@ export function WorkspaceExplorer({
     previewTabsBootstrapped.current = true
     setSelected(undefined)
     activatePath(entry.path)
-    setTabs(current => current.some(tab => tab.path === entry.path)
+    setTabs(current => hasTabPath(current, entry.path)
       ? current
       : [...current, {
           baseText: '',
@@ -870,22 +837,14 @@ export function WorkspaceExplorer({
         }])
   }, [activatePath])
   /* Open requests from the chat's file-open path: add/activate the file tab and optionally reveal a line. Consumed only when the request's workspace matches this mount's workspace. */
-  useEffect(() => {
-    const applyOpen = () => {
-      const { request } = fileOpenRequestStore.getSnapshot()
-      if (request === null) return
-      if (request.workspaceId !== String(workspace.workspaceId)) return
-      const entry = { kind: 'file', name: request.name, path: request.path, symlink: false }
-      if (request.outside === true) openOutsideFile(entry)
-      else chooseFile(entry)
-      if (request.line !== undefined) {
-        setSearchReveal({ line: request.line, column: 1, endColumn: 1, path: request.path })
-      }
-      fileOpenRequestStore.consume()
+  usePendingRequest(fileOpenRequestStore, String(workspace.workspaceId), (request) => {
+    const entry = { kind: 'file', name: request.name, path: request.path, symlink: false }
+    if (request.outside === true) openOutsideFile(entry)
+    else chooseFile(entry)
+    if (request.line !== undefined) {
+      setSearchReveal({ line: request.line, column: 1, endColumn: 1, path: request.path })
     }
-    if (fileOpenRequestStore.getSnapshot().request !== null) applyOpen()
-    return fileOpenRequestStore.subscribe(applyOpen)
-  }, [chooseFile, openOutsideFile, workspace.workspaceId])
+  })
   // Open a non-workspace file dropped into the preview pane: upload its raw bytes, decode them into a read-only preview payload, and add a session-only external tab.
   const openExternalFile = useCallback(async (file, encoding) => {
     try {
@@ -915,7 +874,7 @@ export function WorkspaceExplorer({
         symlink: false,
       }
       previewTabsBootstrapped.current = true
-      setTabs(current => current.some(item => item.path === path) ? current : [...current, tab])
+      setTabs(current => hasTabPath(current, path) ? current : [...current, tab])
       activatePath(path)
       setStatus({ text: translate('status.externalOpened', { name: tab.name }) })
       return true
@@ -1082,7 +1041,7 @@ export function WorkspaceExplorer({
     rewriteCachedPaths(workspace.workspaceId, from, to)
   }, [workspace.workspaceId])
   /* Deps note (development-notes §16): this callback omits callbacks declared later in the body, since listing them would throw a TDZ ReferenceError; their identities are stable for the mount, so the omission is safe. */
-  const submitEntryDialog=useCallback(()=>{if(entryBusy||entryDialog===undefined)return;/* A concurrent tree mutation would bump mutationSeq and drop this op's bookkeeping after the server already succeeded — refuse while one is in flight (same guard as pasteEntry). */if(mutationController.current!==undefined){setEntryError(translate('editor.operationBusy'));return}const trimmed=entryDraft.trim();const message=entryNameError(entryDraft);if(message!==undefined){setEntryError(message);return}const parentPathValue=entryDialog.mode==='create'?entryDialog.parentPath:parentPath(entryDialog.entry.path);const siblings=directories.get(parentPathValue)?.entries??[];if(entryDialog.mode==='create'){if(siblings.some(entry=>entry.name===trimmed)){setEntryError(translate('entry.duplicate'));return}}else if(trimmed===entryDialog.entry.name||siblings.some(entry=>entry.name===trimmed&&entry.path!==entryDialog.entry.path)){setEntryError(trimmed===entryDialog.entry.name?translate('entry.nameUnchanged'):translate('entry.duplicate'));return}const controller=new AbortController();mutationController.current=controller;setEntryBusy(true);setEntryError(undefined);const mutationSeq=mutationSeqRef.current+=1;let draftMoveGeneration;const request=(async()=>{if(entryDialog.mode==='rename'){draftMoveGeneration=nextDraftGeneration('__tree__');await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:draftMoveGeneration,fromPath:entryDialog.entry.path,toPath:entryPath(parentPath(entryDialog.entry.path),trimmed)},controller.signal)}return entryDialog.mode==='create'?createEntry(workspace.workspaceId,entryDialog.parentPath,entryDialog.kind,trimmed,controller.signal):renameEntry(workspace.workspaceId,entryDialog.entry.path,trimmed,controller.signal)})();request.then(result=>{if(!mounted.current||mutationSeq!==mutationSeqRef.current)return;const mode=entryDialog.mode;const sourcePath=mode==='create'?entryDialog.parentPath:entryDialog.entry.path;const nextStatus=mode==='create'?result.kind==='directory'?translate('status.createdFolder'):translate('status.createdFile'):result.kind==='directory'?translate('status.renamedFolder'):translate('status.renamedFile');composingRef.current=false;setEntryBusy(false);setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);setStatus({text:nextStatus});vcsRef.current.refreshSoon();if(mode==='create'){setExpanded(cur=>{const next=new Set(cur);next.add(sourcePath);if(result.kind==='directory')next.add(result.path);return next});if(result.kind==='file'){previewTabsBootstrapped.current = true;setTabs(cur=>cur.some(tab=>tab.path===result.path)?cur:[...cur,{baseText:'',dirty:false,draft:'',editing:false,name:result.name,path:result.path,pinned:false,saving:false,scrollTop:0,size:null,status:undefined,symlink:Boolean(result.symlink),bom:false,lineEnding:'none',revision:null}]);activatePath(result.path)}setSelected(result);void loadDirectory(sourcePath);if(result.kind==='directory')void loadDirectory(result.path)}else{setDirectories(cur=>rewriteDirectoryMap(cur,sourcePath,result.path,result));setExpanded(cur=>rewritePathSet(cur,sourcePath,result.path));setTabs(cur=>rewritePreviewTabs(cur,sourcePath,result.path,result));rewriteRuntimePaths(sourcePath,result.path);migratePendingAutosavesRef.current?.(sourcePath,result.path);void rewriteEmergencyDraftPath(workspace.workspaceId,draftScopeId,sourcePath,result.path).catch(error=>{if(mounted.current)setStatus({error:true,text:translate('editor.autosaveFailed',{message:error instanceof Error?error.message:String(error)})})});{const nextActivePath=activePathRef.current===null?null:rewriteRelativePath(activePathRef.current,sourcePath,result.path);if(nextActivePath!==activePathRef.current)setActivePath(nextActivePath)}setSelected(result);void loadDirectory(parentPath(sourcePath))}}).catch(error=>{const timedOut=error?.name==='AbortError'&&error?.reason?.name==='TimeoutError';if((error?.name==='AbortError'&&!timedOut)||!mounted.current||mutationSeq!==mutationSeqRef.current){return}if(entryDialog?.mode==='rename'&&draftMoveGeneration!==undefined){void rollbackDraftTree(entryDialog.entry.path,entryPath(parentPath(entryDialog.entry.path),trimmed))}setEntryBusy(false);setEntryError(timedOut?translate('editor.requestTimeout'):(error instanceof Error?error.message:String(error)))}).finally(()=>{if(mutationController.current===controller)mutationController.current=undefined;if(mounted.current)setEntryBusy(false)})},[createEntry,directories,draftScopeId,draftTree,entryBusy,entryDialog,entryDraft,loadDirectory,renameEntry,rewriteRuntimePaths,workspace.workspaceId])
+  const submitEntryDialog=useCallback(()=>{if(entryBusy||entryDialog===undefined)return;/* A concurrent tree mutation would bump mutationSeq and drop this op's bookkeeping after the server already succeeded — refuse while one is in flight (same guard as pasteEntry). */if(mutationController.current!==undefined){setEntryError(translate('editor.operationBusy'));return}const trimmed=entryDraft.trim();const message=entryNameError(entryDraft);if(message!==undefined){setEntryError(message);return}const parentPathValue=entryDialog.mode==='create'?entryDialog.parentPath:parentPath(entryDialog.entry.path);const siblings=directories.get(parentPathValue)?.entries??[];if(entryDialog.mode==='create'){if(siblings.some(entry=>entry.name===trimmed)){setEntryError(translate('entry.duplicate'));return}}else if(trimmed===entryDialog.entry.name||siblings.some(entry=>entry.name===trimmed&&entry.path!==entryDialog.entry.path)){setEntryError(trimmed===entryDialog.entry.name?translate('entry.nameUnchanged'):translate('entry.duplicate'));return}const controller=new AbortController();mutationController.current=controller;setEntryBusy(true);setEntryError(undefined);const mutationSeq=mutationSeqRef.current+=1;let draftMoveGeneration;const request=(async()=>{if(entryDialog.mode==='rename'){draftMoveGeneration=nextDraftGeneration('__tree__');await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:draftMoveGeneration,fromPath:entryDialog.entry.path,toPath:entryPath(parentPath(entryDialog.entry.path),trimmed)},controller.signal)}return entryDialog.mode==='create'?createEntry(workspace.workspaceId,entryDialog.parentPath,entryDialog.kind,trimmed,controller.signal):renameEntry(workspace.workspaceId,entryDialog.entry.path,trimmed,controller.signal)})();request.then(result=>{if(!mounted.current||mutationSeq!==mutationSeqRef.current)return;const mode=entryDialog.mode;const sourcePath=mode==='create'?entryDialog.parentPath:entryDialog.entry.path;const nextStatus=mode==='create'?result.kind==='directory'?translate('status.createdFolder'):translate('status.createdFile'):result.kind==='directory'?translate('status.renamedFolder'):translate('status.renamedFile');composingRef.current=false;setEntryBusy(false);setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);setStatus({text:nextStatus});vcsRef.current.refreshSoon();if(mode==='create'){setExpanded(cur=>{const next=new Set(cur);next.add(sourcePath);if(result.kind==='directory')next.add(result.path);return next});if(result.kind==='file'){previewTabsBootstrapped.current = true;setTabs(cur=>cur.some(tab=>tab.path===result.path)?cur:[...cur,{baseText:'',dirty:false,draft:'',editing:false,name:result.name,path:result.path,pinned:false,saving:false,scrollTop:0,size:null,status:undefined,symlink:Boolean(result.symlink),bom:false,lineEnding:'none',revision:null}]);activatePath(result.path)}setSelected(result);void loadDirectory(sourcePath);if(result.kind==='directory')void loadDirectory(result.path)}else{setDirectories(cur=>rewriteDirectoryMap(cur,sourcePath,result.path,result));setExpanded(cur=>rewritePathSet(cur,sourcePath,result.path));setTabs(cur=>rewritePreviewTabs(cur,sourcePath,result.path,result));rewriteRuntimePaths(sourcePath,result.path);migratePendingAutosavesRef.current?.(sourcePath,result.path);{const nextActivePath=activePathRef.current===null?null:rewriteRelativePath(activePathRef.current,sourcePath,result.path);if(nextActivePath!==activePathRef.current)setActivePath(nextActivePath)}setSelected(result);void loadDirectory(parentPath(sourcePath))}}).catch(error=>{const timedOut=error?.name==='AbortError'&&error?.reason?.name==='TimeoutError';if((error?.name==='AbortError'&&!timedOut)||!mounted.current||mutationSeq!==mutationSeqRef.current){return}if(entryDialog?.mode==='rename'&&draftMoveGeneration!==undefined){void rollbackDraftTree(entryDialog.entry.path,entryPath(parentPath(entryDialog.entry.path),trimmed))}setEntryBusy(false);setEntryError(timedOut?translate('editor.requestTimeout'):(error instanceof Error?error.message:String(error)))}).finally(()=>{if(mutationController.current===controller)mutationController.current=undefined;if(mounted.current)setEntryBusy(false)})},[createEntry,directories,draftScopeId,draftTree,entryBusy,entryDialog,entryDraft,loadDirectory,renameEntry,rewriteRuntimePaths,workspace.workspaceId])
 
   // The unmount cleanup must run exactly once per real unmount; snapshot the callbacks in refs so the effect stays stable.
   const persistSessionTabsRef = useRef(persistSessionTabs)
@@ -1105,7 +1064,7 @@ export function WorkspaceExplorer({
 
   // Navigation never unmounts React, so flush pending auto-saves and persist the final tab session synchronously on page hide/unload.
   useEffect(() => {
-    const flush = () => { flushAutosavesRef.current(); persistSessionTabsRef.current() }
+    const flush = () => { flushAutosavesRef.current({ keepalive: true }); persistSessionTabsRef.current() }
     window.addEventListener('pagehide', flush)
     window.addEventListener('beforeunload', flush)
     return () => {
@@ -1130,7 +1089,7 @@ export function WorkspaceExplorer({
   const copyEntryName=useCallback((entry)=>{void copyText(entry.name).then(ok=>{if(!mounted.current)return;setContextMenu(undefined);setCopyNotice(ok?translate('status.copiedName'):translate('status.copyFailed'));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},1600)})},[])
   const openInExplorer=useCallback((entry)=>{setContextMenu(undefined);const controller=new AbortController();revealInExplorer(workspace.workspaceId,entry.path,controller.signal).then(()=>{if(!mounted.current)return;setCopyNotice(translate('status.revealed'));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},1600)}).catch(error=>{if(!mounted.current||error?.name==='AbortError')return;setCopyNotice(translate('status.revealFailed',{message:error instanceof Error?error.message:String(error)}));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},3000)})},[workspace.workspaceId])
   const copyEntryToClipboard=useCallback((entry,cut)=>{setContextMenu(undefined);setClipboard({workspaceId:workspace.workspaceId,path:entry.path,name:entry.name,kind:entry.kind,cut});setCopyNotice(cut?translate('status.cut'):translate('status.copied'));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},1600)},[workspace.workspaceId])
-  const pasteEntry=useCallback((targetEntry)=>{if(clipboard===undefined||clipboard.workspaceId!==workspace.workspaceId)return;const targetDir=targetEntry.kind==='directory'?targetEntry.path:parentPath(targetEntry.path);const targetPath=entryPath(targetDir,pathBaseName(clipboard.path));if(clipboard.cut&&clipboard.path===targetPath)return;const wasCut=clipboard.cut;const affectedPrefix=clipboard.path===''?'':`${clipboard.path}/`;if(wasCut&&tabsRef.current.some(tab=>{if(!tab.dirty&&!tab.saving)return false;return tab.path===clipboard.path||(affectedPrefix!==''&&tab.path.startsWith(affectedPrefix))})){setStatus({error:true,text:translate('editor.unsavedBlocked')});return}/* A concurrent mutation would bump mutationSeq and drop this paste's bookkeeping after the fs move already succeeded — refuse while one is in flight. */if(mutationController.current!==undefined){setStatus({error:true,text:translate('editor.operationBusy')});return}const controller=new AbortController();mutationController.current=controller;const mutationSeq=mutationSeqRef.current+=1;let draftMoveGeneration;let draftMoveFailed=false;const request=(async()=>{const result=await requestFsOperation(workspace.workspaceId,{action:wasCut?'move':'copy',source:clipboard.path,target:targetPath},controller.signal);if(wasCut){draftMoveGeneration=nextDraftGeneration('__tree__');await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:draftMoveGeneration,fromPath:clipboard.path,toPath:result.path},controller.signal).catch(async error=>{if(!mounted.current)return;draftMoveFailed=true;console.warn('workspace-studio: draft move after fs move failed:',error);setStatus({error:true,text:translate('status.movedDraftWarning')});/* The old-path draft is the ONLY persistent copy of the user's unsaved edits: deleting it on a failed move (the old behavior) could lose them if the page refreshes before the next autosave lands on the new path. Retry once with a fresh generation (the failure is usually a transient generation race with a concurrent autosave); if the retry also fails, KEEP the old-path draft — a harmless zombie that only restores if a file appears at the old path again — and warn. */try{await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:nextDraftGeneration('__tree__'),fromPath:clipboard.path,toPath:result.path},controller.signal);draftMoveFailed=false}catch(retryError){if(mounted.current)console.warn('workspace-studio: draft move retry also failed; keeping draft at source path:',retryError)}})}return result})();request.then(result=>{if(!mounted.current||mutationSeq!==mutationSeqRef.current)return;setContextMenu(undefined);setStatus(draftMoveFailed?{error:true,text:translate('status.movedDraftWarning')}:{text:wasCut?translate('status.moved'):translate('status.pasted')});vcsRef.current.refreshSoon();if(wasCut){const source=clipboard.path;if(clipboardRef.current?.path===source&&clipboardRef.current?.cut===true)setClipboard(undefined);setSelected(result);setDirectories(cur=>rewriteDirectoryMap(cur,source,result.path,result));setExpanded(cur=>rewritePathSet(cur,source,result.path));setTabs(cur=>rewritePreviewTabs(cur,source,result.path,result));rewriteRuntimePaths(source,result.path);migratePendingAutosavesRef.current?.(source,result.path);void rewriteEmergencyDraftPath(workspace.workspaceId,draftScopeId,source,result.path).catch(error=>{if(mounted.current)setStatus({error:true,text:translate('editor.autosaveFailed',{message:error instanceof Error?error.message:String(error)})})});const nextActivePath=activePathRef.current===null?null:rewriteRelativePath(activePathRef.current,source,result.path);if(nextActivePath!==activePathRef.current)setActivePath(nextActivePath);void loadDirectory(parentPath(source));void loadDirectory(targetDir)}else{void loadDirectory(targetDir)}}).catch(error=>{const timedOut=error?.name==='AbortError'&&error?.reason?.name==='TimeoutError';if((error?.name==='AbortError'&&!timedOut)||!mounted.current||mutationSeq!==mutationSeqRef.current)return;setContextMenu(undefined);const failedMessage=timedOut?translate('editor.requestTimeout'):(error instanceof Error?error.message:String(error));setCopyNotice(translate(wasCut?'status.cutFailed':'status.pasteFailed',{message:failedMessage}));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},3000)}).finally(()=>{if(mutationController.current===controller)mutationController.current=undefined})},[clipboard,draftScopeId,draftTree,loadDirectory,nextDraftGeneration,rewriteRuntimePaths,workspace.workspaceId])
+  const pasteEntry=useCallback((targetEntry)=>{if(clipboard===undefined||clipboard.workspaceId!==workspace.workspaceId)return;const targetDir=targetEntry.kind==='directory'?targetEntry.path:parentPath(targetEntry.path);const targetPath=entryPath(targetDir,pathBaseName(clipboard.path));if(clipboard.cut&&clipboard.path===targetPath)return;const wasCut=clipboard.cut;const affectedPrefix=clipboard.path===''?'':`${clipboard.path}/`;if(wasCut&&tabsRef.current.some(tab=>{if(!tab.dirty&&!tab.saving)return false;return tab.path===clipboard.path||(affectedPrefix!==''&&tab.path.startsWith(affectedPrefix))})){setStatus({error:true,text:translate('editor.unsavedBlocked')});return}/* A concurrent mutation would bump mutationSeq and drop this paste's bookkeeping after the fs move already succeeded — refuse while one is in flight. */if(mutationController.current!==undefined){setStatus({error:true,text:translate('editor.operationBusy')});return}const controller=new AbortController();mutationController.current=controller;const mutationSeq=mutationSeqRef.current+=1;let draftMoveGeneration;let draftMoveFailed=false;const request=(async()=>{const result=await requestFsOperation(workspace.workspaceId,{action:wasCut?'move':'copy',source:clipboard.path,target:targetPath},controller.signal);if(wasCut){draftMoveGeneration=nextDraftGeneration('__tree__');await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:draftMoveGeneration,fromPath:clipboard.path,toPath:result.path},controller.signal).catch(async error=>{if(!mounted.current)return;draftMoveFailed=true;console.warn('workspace-studio: draft move after fs move failed:',error);setStatus({error:true,text:translate('status.movedDraftWarning')});/* The old-path draft is the ONLY persistent copy of the user's unsaved edits: deleting it on a failed move (the old behavior) could lose them if the page refreshes before the next autosave lands on the new path. Retry once with a fresh generation (the failure is usually a transient generation race with a concurrent autosave); if the retry also fails, KEEP the old-path draft — a harmless zombie that only restores if a file appears at the old path again — and warn. */try{await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:nextDraftGeneration('__tree__'),fromPath:clipboard.path,toPath:result.path},controller.signal);draftMoveFailed=false}catch(retryError){if(mounted.current)console.warn('workspace-studio: draft move retry also failed; keeping draft at source path:',retryError)}})}return result})();request.then(result=>{if(!mounted.current||mutationSeq!==mutationSeqRef.current)return;setContextMenu(undefined);setStatus(draftMoveFailed?{error:true,text:translate('status.movedDraftWarning')}:{text:wasCut?translate('status.moved'):translate('status.pasted')});vcsRef.current.refreshSoon();if(wasCut){const source=clipboard.path;if(clipboardRef.current?.path===source&&clipboardRef.current?.cut===true)setClipboard(undefined);setSelected(result);setDirectories(cur=>rewriteDirectoryMap(cur,source,result.path,result));setExpanded(cur=>rewritePathSet(cur,source,result.path));setTabs(cur=>rewritePreviewTabs(cur,source,result.path,result));rewriteRuntimePaths(source,result.path);migratePendingAutosavesRef.current?.(source,result.path);const nextActivePath=activePathRef.current===null?null:rewriteRelativePath(activePathRef.current,source,result.path);if(nextActivePath!==activePathRef.current)setActivePath(nextActivePath);void loadDirectory(parentPath(source));void loadDirectory(targetDir)}else{void loadDirectory(targetDir)}}).catch(error=>{const timedOut=error?.name==='AbortError'&&error?.reason?.name==='TimeoutError';if((error?.name==='AbortError'&&!timedOut)||!mounted.current||mutationSeq!==mutationSeqRef.current)return;setContextMenu(undefined);const failedMessage=timedOut?translate('editor.requestTimeout'):(error instanceof Error?error.message:String(error));setCopyNotice(translate(wasCut?'status.cutFailed':'status.pasteFailed',{message:failedMessage}));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},3000)}).finally(()=>{if(mutationController.current===controller)mutationController.current=undefined})},[clipboard,draftScopeId,draftTree,loadDirectory,nextDraftGeneration,rewriteRuntimePaths,workspace.workspaceId])
   const openDeleteConfirm=useCallback(entry=>{setContextMenu(undefined);setDeleteDialog(entry);setDeleteBusy(false)},[])
   const closeDeleteDialog=useCallback(()=>{if(deleteBusy)return;setDeleteDialog(undefined)},[deleteBusy])
   const confirmDelete = useCallback(async () => {
@@ -1200,7 +1159,6 @@ export function WorkspaceExplorer({
     }
     requestFsOperation(workspace.workspaceId, { action: 'delete', path: entry.path }, controller.signal).then(async result => {
       if (!mounted.current || mutationSeq !== mutationSeqRef.current) return
-      await Promise.all(affected.map(item => deleteEmergencyDraft(workspace.workspaceId, draftScopeId, item.path, draftGenerationsRef.current.get(item.path) ?? 0).catch(() => {})))
       setDeleteBusy(false)
       setDeleteDialog(undefined)
       setStatus({ text: translate('status.deleted') })
@@ -1531,7 +1489,7 @@ export function WorkspaceExplorer({
   const stripApiRef = useRef(null)
   if (stripApiRef.current === null) {
     stripApiRef.current = {
-      hasTab: (tabPath) => tabsRef.current.some(tab => tab.path === tabPath),
+      hasTab: (tabPath) => hasTabPath(tabsRef.current, tabPath),
       tabName: (tabPath) => {
         const tab = tabsRef.current.find(item => item.path === tabPath)
         return tab === undefined ? undefined : tab.name
@@ -1573,7 +1531,7 @@ export function WorkspaceExplorer({
   }, [])
   /* The active byte renderer (image/pdf/office), selected by the preview itself. */
   const byteKind = preview.state === 'ready' && isByteKind(preview.kind) ? preview.kind : undefined
-  const browseKind = isMarkdown ? 'markdown' : 'code'
+  const browseKind = isMarkdown ? RENDERER_MARKDOWN : RENDERER_CODE
   const viewerItems = useMemo(() => {
     if (preview.state !== 'ready' || activeTab === undefined || isSyntheticTab(activeTab)) return []
     /* A Remote-readable tab: an outside-workspace file is readable, a dropped-in one is not. */
@@ -2029,7 +1987,7 @@ export function WorkspaceExplorer({
          and title bar. A plan tab hides it too: the document carries its own
          heading and has no file chrome to offer. A review tab hides it as
          well: its own header names the turn and the selected file. */
-      activeMindmap || activePlan || activeReview ? null : h('header', { className: 'dsh-ws-panel-header dsh-ws-preview-file-header', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && preview.kind !== 'image' && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) }, ref: previewHeaderRef },
+      activeMindmap || activePlan || activeReview ? null : h('header', { className: 'dsh-ws-panel-header dsh-ws-preview-file-header', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && preview.kind !== RENDERER_IMAGE && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) }, ref: previewHeaderRef },
         h('span', { className: 'dsh-ws-preview-file-path', title: activeTab === undefined ? undefined : (activeTab.outside === true ? activeTab.path : activeTab.external ? translate('external.externalFile.title') : activeTab.path) },
           activeTab
             ? (activeTab.outside === true
@@ -2136,9 +2094,9 @@ export function WorkspaceExplorer({
       ),
       body,
       // Merged bottom status bar: action buttons + file meta (left) and the transient status notice (right); a mind-map, plan, or review tab hides it.
-      activeMindmap || activePlan || activeReview ? null : h('div', { className: 'dsh-ws-status', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && preview.kind !== 'image' && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) } },
+      activeMindmap || activePlan || activeReview ? null : h('div', { className: 'dsh-ws-status', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && preview.kind !== RENDERER_IMAGE && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) } },
         h('div', { className: 'dsh-ws-preview-status-actions' },
-          preview.state === 'ready' && preview.kind !== 'image'
+          preview.state === 'ready' && preview.kind !== RENDERER_IMAGE
             ? h(Fragment, null,
               h('button', {
                 'aria-pressed': settings.wrap === true,
@@ -2163,8 +2121,8 @@ export function WorkspaceExplorer({
         h('div', { className: 'dsh-ws-preview-status-meta' },
           activeTab ? h('span', { className: 'dsh-ws-language' }, fileLabel(activeTab.name)) : null,
           size ? h('span', null, size) : null,
-          preview.state === 'ready' && preview.kind !== 'image' && preview.encoding ? h('span', { className: 'dsh-ws-encoding', title: translate('encoding.badge') }, encodingLabel(preview.encoding)) : null,
-          preview.state === 'ready' && preview.kind !== 'image' && reason ? h('span', { title: reason }, reason) : null,
+          preview.state === 'ready' && preview.kind !== RENDERER_IMAGE && preview.encoding ? h('span', { className: 'dsh-ws-encoding', title: translate('encoding.badge') }, encodingLabel(preview.encoding)) : null,
+          preview.state === 'ready' && preview.kind !== RENDERER_IMAGE && reason ? h('span', { title: reason }, reason) : null,
         ),
         h('span', { className: 'dsh-ws-preview-status-msg', 'data-error': notice?.error || undefined }, notice?.text ?? ''),
       ),

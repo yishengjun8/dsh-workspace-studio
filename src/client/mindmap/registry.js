@@ -2,6 +2,8 @@ import { useSyncExternalStore } from 'react'
 import { MINDMAP_INDEX_REFRESH_MS, MINDMAP_LAST_SESSION_STORE_KEY, MINDMAP_ORDER_STORE_KEY } from '../constants.js'
 import { readPersistedState } from '../persisted-state.js'
 import { fetchMindmapDocIndex } from '../api.js'
+import { createRequestStore } from '../request-store.js'
+import { shouldSkipPoll } from '../poll-gate.js'
 
 /* Module-wide mind-map index registry: sidebar panel and branch hider need the
    root/branch session sets without fetching on every render; a background
@@ -101,7 +103,10 @@ export const mindmapRegistry = {
      is only noticed on the next local refresh (accepted). */
   _armTimer() {
     if (this._timer !== 0) return
-    this._timer = window.setInterval(() => { void this.refresh() }, MINDMAP_INDEX_REFRESH_MS)
+    this._timer = window.setInterval(() => {
+      if (shouldSkipPoll()) return
+      void this.refresh()
+    }, MINDMAP_INDEX_REFRESH_MS)
   },
   /* Keep the timer aligned with reality after every completed refresh. */
   _syncTimerToDocs() {
@@ -143,32 +148,19 @@ export function useMindmapRegistry() {
    tab. The explorer consumes the request only when its previewSessionId matches
    the request's expectFamily, so a later mount never re-applies a stale request
    and an unrelated session's explorer never adopts one. */
+const pendingDock = createRequestStore('expectFamily')
+
 export const mindmapDockStore = {
-  _snapshot: { seq: 0, request: null },
-  _listeners: new Set(),
-  subscribe(listener) {
-    this._listeners.add(listener)
-    return () => { this._listeners.delete(listener) }
-  },
-  getSnapshot() { return this._snapshot },
+  ...pendingDock,
   dock(rootId, name, expectFamily) {
-    this._snapshot = {
-      seq: this._snapshot.seq + 1,
-      request: {
-        rootId: String(rootId),
-        name: typeof name === 'string' ? name : '',
-        /* Only the explorer whose previewSessionId equals expectFamily may
-           consume the request; otherwise the current session's explorer would
-           stamp the tab onto a session the click is about to leave. */
-        expectFamily: String(expectFamily ?? rootId),
-      },
-    }
-    for (const listener of [...this._listeners]) listener()
-  },
-  consume() {
-    if (this._snapshot.request === null) return
-    this._snapshot = { seq: this._snapshot.seq + 1, request: null }
-    for (const listener of [...this._listeners]) listener()
+    pendingDock.request({
+      rootId: String(rootId),
+      name: typeof name === 'string' ? name : '',
+      /* Only the explorer whose previewSessionId equals expectFamily may
+         consume the request; otherwise the current session's explorer would
+         stamp the tab onto a session the click is about to leave. */
+      expectFamily: String(expectFamily ?? rootId),
+    })
   },
 }
 
@@ -234,7 +226,7 @@ async function withMindmapStoreLock(name, operation) {
 export function readMindmapOrder() {
   return readPersistedState(MINDMAP_ORDER_STORE_KEY) ?? {}
 }
-export function writeMindmapOrder(map) {
+function writeMindmapOrder(map) {
   return withMindmapStoreLock('dsh-workspace-studio:mindmap-order', () => {
     try { window.localStorage.setItem(MINDMAP_ORDER_STORE_KEY, JSON.stringify(map)) } catch { /* quota / private mode */ }
   })

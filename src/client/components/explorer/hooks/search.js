@@ -1,7 +1,6 @@
 /** Search panel state, request lifecycle and debounce. */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { SEARCH_MATCH_EXPAND_DEFAULT } from '../../../constants.js'
-import { translate } from '../../../locale/index.js'
 import { requestSearch } from '../../../api.js'
 
 export function useSearchState({ workspaceId, settings }) {

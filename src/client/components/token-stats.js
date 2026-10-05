@@ -3,10 +3,11 @@
 Below the table sits the quick calculator: three unit-price fields (input / cache read / output, per 1M tokens), a currency symbol and one money column. It multiplies the Host's own token numbers — the same visible rows the Summary covers — so nothing has to be retyped, and every row may override any of the three prices (an empty cell falls back to the shared default). Prices are per-million-token numbers only; the panel never guesses a unit or a rate. Everything typed here (defaults, per-row overrides, currency) is local-only localStorage state and is never sent to the Host. */
 import { createElement as h, Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { translate } from '../locale/index.js'
+import { PanelState } from '../panel-state.js'
 import { fetchTokenStats } from '../api.js'
 import { TOKEN_CURRENCY_MAX_LENGTH, TOKEN_PRICE_DEFAULT_CURRENCY, TOKEN_PRICE_FIELDS, TOKEN_PRICE_MAX_LENGTH, TOKEN_PRICES_STORE_KEY } from '../constants.js'
 import { readPersistedState } from '../persisted-state.js'
-import { useDialogFocusTrap } from './dialogs.js'
+import { Modal } from './dialogs.js'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const WEEK_MS = 7 * DAY_MS
@@ -201,7 +202,6 @@ export function TokenStatsRow() {
 }
 
 function TokenStatsDialog({ onClose }) {
-  const dialogFocusRef = useDialogFocusTrap()
   const [range, setRange] = useState('this-week')
   const firstOfMonth = new Date()
   firstOfMonth.setDate(1)
@@ -354,20 +354,17 @@ function TokenStatsDialog({ onClose }) {
     acc.output += row.output
     return acc
   }, { calls: 0, input: 0, cacheRead: 0, output: 0 })
-  const stateBox = (text, isError) => h('div', { className: 'dsh-ws-token-state', ...(isError ? { 'data-error': true } : {}) }, h('span', null, text))
+  /* The token panel's state line: the shared panel message pinned to this panel's class. */
+  const stateBox = (text, isError) => h(PanelState, { className: 'dsh-ws-token-state', error: isError === true, layout: 'inline', message: text })
   let content
   if (invalid !== null) {
     content = stateBox(invalid, true)
   } else if (loading && payload === null) {
     content = stateBox(translate('tokens.loading'))
   } else if (error !== null) {
-    content = h('div', { className: 'dsh-ws-token-state', 'data-error': true },
-      h('span', null, error),
-      h('button', { className: 'dsh-ws-text-button', onClick: retry, type: 'button' }, translate('tokens.retry')))
+    content = h(PanelState, { className: 'dsh-ws-token-state', error: true, layout: 'inline', message: error, retry, retryLabel: translate('tokens.retry') })
   } else if (payload === null || payload.available === false) {
-    content = h('div', { className: 'dsh-ws-token-state', 'data-error': true },
-      h('span', null, translate('tokens.error')),
-      h('button', { className: 'dsh-ws-text-button', onClick: retry, type: 'button' }, translate('tokens.retry')))
+    content = h(PanelState, { className: 'dsh-ws-token-state', error: true, layout: 'inline', message: translate('tokens.error'), retry, retryLabel: translate('tokens.retry') })
   } else if (rows.length === 0) {
     content = stateBox(archived ? translate('tokens.empty') : translate('tokens.empty.filtered'))
   } else if (view === 'total') {
@@ -540,12 +537,19 @@ function TokenStatsDialog({ onClose }) {
   const warmingLine = warming
     ? translate('tokens.warming', { done: fmtCount(payload?.progress?.processed ?? 0), total: fmtCount(payload?.progress?.total ?? 0) })
     : null
-  return h('div', { className: 'dsh-ws-dialog-backdrop', onMouseDown: e => { if (e.target === e.currentTarget) onClose() } },
-    h('div', { 'aria-modal': true, className: 'dsh-ws-dialog dsh-ws-token-dialog', ref: dialogFocusRef, role: 'dialog' },
-      h('div', { className: 'dsh-ws-dialog-header' },
-        h('div', { className: 'dsh-ws-dialog-title' }, translate('tokens.dialog.title')),
-        h('button', { 'aria-label': translate('dialog.close'), className: 'dsh-ws-icon-button', onClick: onClose, title: translate('dialog.close'), type: 'button' }, '×')),
-      h('div', { className: 'dsh-ws-dialog-body dsh-ws-token-body' },
+  return h(Modal, {
+    /* No footer buttons: the close button, the backdrop and Escape are its ways out. Its own foot line sits */
+    /* outside the scrolling body, so it travels as the foot slot. */
+    bodyClassName: 'dsh-ws-token-body',
+    className: 'dsh-ws-token-dialog',
+    onCancel: onClose,
+    title: translate('tokens.dialog.title'),
+    foot: h('div', { className: 'dsh-ws-token-foot' },
+    warmingLine === null ? null : h('div', { className: 'dsh-ws-token-warming' }, warmingLine),
+    failedLine === null ? null : h('div', { className: 'dsh-ws-token-failed' }, failedLine),
+    h('div', null, rangeLine),
+    h('div', null, translate('tokens.hint'))),
+  },
         h('div', { className: 'dsh-ws-token-controls' },
           h('label', { className: 'dsh-ws-settings-label', htmlFor: 'dsh-ws-token-range' }, translate('tokens.range')),
           h('select', {
@@ -624,11 +628,6 @@ function TokenStatsDialog({ onClose }) {
               ? translate('tokens.filter.count', { n: fmtCount(rows.length) })
               : translate('tokens.filter.countFiltered', { shown: fmtCount(filteredRows.length), total: fmtCount(rows.length) }))) : null,
         content,
-        costSection),
-      h('div', { className: 'dsh-ws-token-foot' },
-        warmingLine === null ? null : h('div', { className: 'dsh-ws-token-warming' }, warmingLine),
-        failedLine === null ? null : h('div', { className: 'dsh-ws-token-failed' }, failedLine),
-        h('div', null, rangeLine),
-        h('div', null, translate('tokens.hint'))),
-    ))
+          costSection
+  )
 }

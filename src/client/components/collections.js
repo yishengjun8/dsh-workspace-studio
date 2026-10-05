@@ -7,10 +7,11 @@
  */
 import { createElement as h, Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { COLLECTION_ALL_ID, COLLECTION_LIMIT, COLLECTION_UNOWNED_ID, CONTEXT_MENU_WIDTH } from '../constants.js'
-import { dismissesMenuOnScroll } from '../menu-dismiss.js'
+import { dismissesMenuOnScroll, anchorBox } from '../menu-dismiss.js'
 import { translate, useLocaleText } from '../locale/index.js'
 import { clamp } from '../format.js'
 import { collectionById, collectionWorkspaceCount, isBuiltinCollection } from '../collections.js'
+import { Modal } from './dialogs.js'
 
 const MENU_WIDTH = 250
 const MENU_ROW_HEIGHT = 28
@@ -28,16 +29,11 @@ function patchErrorMessage(error, name, fallbackKey) {
   return message === '' ? translate(fallbackKey) : message
 }
 
-/** Fixed-position popup placement anchored to `anchor`, clamped into the viewport like the plugin's
- *  other menus (the popup lives in the sidebar but must not be cut by the window edge). */
-function anchorBox(anchor, height) {
+/** Fixed-position popup placement for the section-title dropdown: anchored to the button's rect, then
+ *  clamped into the viewport by the plugin's one menu-placement rule (anchorBox). */
+function collectionMenuBox(anchor, height) {
   const rect = anchor === null || anchor === undefined ? null : anchor.getBoundingClientRect()
-  const left = rect === null ? 8 : rect.left
-  const top = rect === null ? 8 : rect.bottom + 4
-  return {
-    left: clamp(left, 4, Math.max(4, window.innerWidth - MENU_WIDTH - 4)),
-    top: clamp(top, 4, Math.max(4, window.innerHeight - height - 4)),
-  }
+  return anchorBox(rect === null ? 8 : rect.left, rect === null ? 8 : rect.bottom + 4, MENU_WIDTH, height)
 }
 
 /** The built-in views, pinned above the user collections in this order. They are not stored, cannot be
@@ -314,7 +310,7 @@ export function CollectionsDropdown({ doc, workspaces, onSelect, onPatch, notice
       'aria-expanded': open,
       'aria-haspopup': 'listbox',
       className: 'dsh-ws-collection-button',
-      onClick: () => { if (open) closeAll(); else { setBox(anchorBox(buttonRef.current, menuHeight)); setOpen(true) } },
+      onClick: () => { if (open) closeAll(); else { setBox(collectionMenuBox(buttonRef.current, menuHeight)); setOpen(true) } },
       onKeyDown,
       ref: buttonRef,
       title: translate('collections.title'),
@@ -453,7 +449,7 @@ export function CollectionsDropdown({ doc, workspaces, onSelect, onPatch, notice
  * Member picker: every registered workspace with a checkbox. Membership is many-to-many, so a
  * workspace already in another collection is still offered here (the hint says so).
  */
-export function CollectionsMembersDialog({ collection, workspaces, onClose, onSave }) {
+function CollectionsMembersDialog({ collection, workspaces, onClose, onSave }) {
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState(() => new Set(collection?.workspaceIds ?? []))
   const [busy, setBusy] = useState(false)
@@ -469,48 +465,53 @@ export function CollectionsMembersDialog({ collection, workspaces, onClose, onSa
       return next
     })
   }
-  return h('div', { className: 'dsh-ws-dialog-backdrop' },
-    h('div', { className: 'dsh-ws-dialog dsh-ws-collection-dialog' },
-      h('div', { className: 'dsh-ws-dialog-header' },
-        h('span', { className: 'dsh-ws-dialog-title' }, translate('collections.members.title', { name: collection?.name ?? '' })),
-        h('button', { 'aria-label': translate('dialog.cancel'), className: 'dsh-ws-icon-button', onClick: onClose, type: 'button' }, '×')),
-      h('div', { className: 'dsh-ws-dialog-body' },
-        h('input', {
-          'aria-label': translate('collections.members.search'),
-          className: 'dsh-ws-dialog-input',
-          onChange: event => setQuery(event.target.value),
-          placeholder: translate('collections.members.search'),
-          value: query,
-        }),
-        h('div', { className: 'dsh-ws-collection-members' },
-          rows.length === 0
-            ? h('div', { className: 'dsh-ws-collection-hint' }, translate('collections.members.empty'))
-            : rows.map((workspace) => {
-              const id = String(workspace.workspaceId)
-              return h('label', { className: 'dsh-ws-collection-member', key: id },
-                h('input', { checked: selected.has(id), onChange: () => toggle(id), type: 'checkbox' }),
-                h('span', { className: 'dsh-ws-collection-membertext' },
-                  h('span', { className: 'dsh-ws-collection-membername' }, String(workspace.title ?? workspace.path ?? id)),
-                  h('span', { className: 'dsh-ws-collection-memberpath' }, String(workspace.path ?? ''))),
-                h('span', { className: 'dsh-ws-collection-membercount' },
-                  translate('collections.members.sessions', { n: (workspace.sessionIds ?? []).length })))
-            })),
-        h('div', { className: 'dsh-ws-collection-hint' }, translate('collections.members.hint')),
-        error === undefined ? null : h('div', { className: 'dsh-ws-dialog-error', role: 'alert' }, error)),
-      h('div', { className: 'dsh-ws-dialog-footer' },
-        h('button', { className: 'dsh-ws-text-button dsh-ws-collection-cancel', disabled: busy, onClick: onClose, type: 'button' }, translate('dialog.cancel')),
-        h('button', {
-          className: 'dsh-ws-text-button dsh-ws-collection-ok',
-          disabled: busy,
-          onClick: async () => {
-            setBusy(true)
-            setError(undefined)
-            const result = await onSave([...selected])
-            setBusy(false)
-            if (result?.ok !== true) setError(patchErrorMessage(result?.error, collection?.name ?? '', 'collections.members.failed'))
-          },
-          type: 'button',
-        }, translate('collections.members.save')))))
+  return h(Modal, {
+    actions: [
+      { key: 'cancel', className: 'dsh-ws-text-button dsh-ws-collection-cancel', disabled: busy, label: translate('dialog.cancel'), onClick: onClose },
+      {
+        key: 'ok',
+        className: 'dsh-ws-text-button dsh-ws-collection-ok',
+        disabled: busy,
+        label: translate('collections.members.save'),
+        onClick: async () => {
+          setBusy(true)
+          setError(undefined)
+          const result = await onSave([...selected])
+          setBusy(false)
+          if (result?.ok !== true) setError(patchErrorMessage(result?.error, collection?.name ?? '', 'collections.members.failed'))
+        },
+      },
+    ],
+    busy,
+    className: 'dsh-ws-collection-dialog',
+    /* Never dismissible by a backdrop click: the checkbox set below is an unsaved choice, so a stray
+       click outside would discard it silently (the × and Cancel stay explicit). */
+    dismissOnBackdrop: false,
+    onCancel: onClose,
+    title: translate('collections.members.title', { name: collection?.name ?? '' }),
+  },
+    h('input', {
+      'aria-label': translate('collections.members.search'),
+      className: 'dsh-ws-dialog-input',
+      onChange: event => setQuery(event.target.value),
+      placeholder: translate('collections.members.search'),
+      value: query,
+    }),
+    h('div', { className: 'dsh-ws-collection-members' },
+      rows.length === 0
+        ? h('div', { className: 'dsh-ws-collection-hint' }, translate('collections.members.empty'))
+        : rows.map((workspace) => {
+          const id = String(workspace.workspaceId)
+          return h('label', { className: 'dsh-ws-collection-member', key: id },
+            h('input', { checked: selected.has(id), onChange: () => toggle(id), type: 'checkbox' }),
+            h('span', { className: 'dsh-ws-collection-membertext' },
+              h('span', { className: 'dsh-ws-collection-membername' }, String(workspace.title ?? workspace.path ?? id)),
+              h('span', { className: 'dsh-ws-collection-memberpath' }, String(workspace.path ?? ''))),
+            h('span', { className: 'dsh-ws-collection-membercount' },
+              translate('collections.members.sessions', { n: (workspace.sessionIds ?? []).length })))
+        })),
+    h('div', { className: 'dsh-ws-collection-hint' }, translate('collections.members.hint')),
+    error === undefined ? null : h('div', { className: 'dsh-ws-dialog-error', role: 'alert' }, error))
 }
 
 /**
@@ -538,8 +539,7 @@ export function CollectionsWorkspaceMenu({ workspaceId, doc, workspaces, anchor,
     .filter(collection => collection.workspaceIds.includes(id))
     .map(collection => collection.id))
   const inCurrent = doc.selectedId !== COLLECTION_ALL_ID && memberIds.has(doc.selectedId)
-  const left = clamp(anchor.x, 4, Math.max(4, window.innerWidth - CONTEXT_MENU_WIDTH - 4))
-  const top = clamp(anchor.y, 4, Math.max(4, window.innerHeight - WORKSPACE_MENU_HEIGHT))
+  const { left, top } = anchorBox(anchor.x, anchor.y, CONTEXT_MENU_WIDTH, WORKSPACE_MENU_HEIGHT)
   const run = async (patch, message, inline) => {
     setBusy(true)
     const result = await onPatch(patch)

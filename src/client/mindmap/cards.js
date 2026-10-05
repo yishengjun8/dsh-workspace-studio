@@ -14,7 +14,7 @@ import { mindmapClip } from './helpers.js'
    the two summarize entry points each read as one family. `box` is the viewBox
    edge, `fill` picks a solid glyph (the sparkle) over a stroked one and `sw`
    overrides the stroke width. */
-export const MINDMAP_ACTION_ICONS = {
+const MINDMAP_ACTION_ICONS = {
   /* Top rule + down chevron: collapse INTO a line (this card joins a folded run). */
   fold: { box: 14, d: 'M2 3.2h10M4.2 7.4 7 10.2 9.8 7.4' },
   /* Bottom rule + up chevron: expand back OUT of the fold (permanent unfold). */

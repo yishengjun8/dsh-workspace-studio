@@ -21,7 +21,7 @@ export function isBuiltinCollection(collectionId) {
 import { fetchCollections, patchCollections } from './api.js'
 
 /** Defaults for a profile that has never stored anything. */
-export const EMPTY_COLLECTIONS_DOC = Object.freeze({ version: 1, selectedId: COLLECTION_ALL_ID, collections: [] })
+const EMPTY_COLLECTIONS_DOC = Object.freeze({ version: 1, selectedId: COLLECTION_ALL_ID, collections: [] })
 
 let snapshot = { phase: 'idle', doc: EMPTY_COLLECTIONS_DOC, busy: false, error: undefined }
 const listeners = new Set()
@@ -69,7 +69,7 @@ function normalizeMembership(value) {
  * @param value - GET/PUT response body.
  * @returns `{ version, selectedId, collections }`.
  */
-export function normalizeCollectionsDoc(value) {
+function normalizeCollectionsDoc(value) {
   const source = value !== null && typeof value === 'object' && Array.isArray(value.collections) ? value.collections : []
   const collections = []
   const seen = new Set()
@@ -144,7 +144,7 @@ export function collectionById(doc, id) {
  *   "all workspaces" shows every workspace, "unowned workspaces" shows the ones in no collection —
  *   see visibleWorkspace).
  */
-export function memberWorkspaceIds(doc, collectionId) {
+function memberWorkspaceIds(doc, collectionId) {
   if (isBuiltinCollection(collectionId)) return null
   return collectionById(doc, collectionId)?.workspaceIds ?? []
 }
@@ -161,7 +161,7 @@ export function memberWorkspaceIds(doc, collectionId) {
  * @param collectionId - the view/collection being shown.
  * @param workspaceId - the workspace in question.
  */
-export function visibleWorkspace(doc, collectionId, workspaceId) {
+function visibleWorkspace(doc, collectionId, workspaceId) {
   if (collectionId === COLLECTION_UNOWNED_ID) return collectionsOfWorkspace(doc, workspaceId).length === 0
   const members = memberWorkspaceIds(doc, collectionId)
   return members === null || members.includes(String(workspaceId))
@@ -177,7 +177,7 @@ export function collectionsOfWorkspace(doc, workspaceId) {
  * The names of the OTHER collections a workspace also belongs to: the `+N` badge's tooltip.
  * @param currentId - the collection being shown (excluded from the answer).
  */
-export function otherCollectionNames(doc, workspaceId, currentId) {
+function otherCollectionNames(doc, workspaceId, currentId) {
   return collectionsOfWorkspace(doc, workspaceId)
     .filter(collection => collection.id !== currentId)
     .map(collection => collection.name)
@@ -194,7 +194,7 @@ export function collectionWorkspaceCount(doc, collectionId, workspaces) {
 }
 
 /** Workspaces in no collection at all: exactly what the built-in "unowned workspaces" view shows. */
-export function unownedWorkspaceCount(doc, workspaces) {
+function unownedWorkspaceCount(doc, workspaces) {
   return (workspaces ?? []).filter(workspace =>
     collectionsOfWorkspace(doc, workspace?.workspaceId).length === 0).length
 }

@@ -12,6 +12,7 @@ import { copyText } from '../../paths.js'
 import { formatRunDuration, runBufferText, runChipTone, runInterpreterEditable, runInterpreterLabel, runInterpreterSourceLabel, runInterpreterSourceOf, runStaleOverrideOf, runStateOf } from '../../run-detect.js'
 import { clearRunOutput, focusRunPath, loadRunPlan, setRunArgsText, setRunFollow, setRunPanelPx, startRunFor, stopRunFor, trustRunWorkspace, useRunEntry } from '../../run-store.js'
 import { InterpreterDialog } from '../interpreter-dialog.js'
+import { Modal } from '../dialogs.js'
 
 const clampPanel = (value, available) => Math.max(RUN_PANEL_MIN_PX, Math.min(value, Math.max(RUN_PANEL_MIN_PX, available - RUN_CODE_MIN_PX)))
 
@@ -196,30 +197,31 @@ export function RunConsole({ workspaceId, path, name }) {
       }, translate(tail.key, tail.params)))
 
   const confirmDialog = confirming
-    ? h('div', { className: 'dsh-ws-dialog-backdrop', onMouseDown: (event) => { if (event.target === event.currentTarget) setConfirming(false) } },
-      h('div', { 'aria-modal': true, className: 'dsh-ws-dialog dsh-ws-run-dialog', role: 'dialog' },
-        h('div', { className: 'dsh-ws-dialog-header' },
-          h('div', { className: 'dsh-ws-dialog-title' }, translate('run.confirm.title', { name })),
-          h('button', { 'aria-label': translate('dialog.close'), className: 'dsh-ws-icon-button', onClick: () => setConfirming(false), title: translate('dialog.close'), type: 'button' }, '×')),
-        h('div', { className: 'dsh-ws-dialog-body' },
-          h('div', { className: 'dsh-ws-run-field' }, h('i', null, translate('run.confirm.file')), h('div', null, path)),
-          h('div', { className: 'dsh-ws-run-field' }, h('i', null, translate('run.confirm.command')), h('div', null, fullCommand)),
-          h('div', { className: 'dsh-ws-run-field' }, h('i', null, translate('run.confirm.cwd')), h('div', null, plan?.cwd ?? '—')),
-          plan?.interpreter === null || plan?.interpreter === undefined
-            ? null
-            : h('div', { className: 'dsh-ws-run-field' }, h('i', null, translate('run.confirm.interpreter')),
-              /* The confirmation names the SOURCE too: with an override in play, "python -3 main.py"
-                 no longer says which python the user is about to trust. */
-              h('div', null, interpreterSource === null || interpreterSource === 'auto'
-                ? plan.interpreter
-                : `${plan.interpreter}（${runInterpreterSourceLabel(interpreterSource, plan.extension)}）`)),
-          h('div', { className: 'dsh-ws-run-warning' }, translate('run.confirm.warning')),
-          h('label', { className: 'dsh-ws-run-check' },
-            h('input', { checked: noAsk, onChange: event => setNoAsk(event.target.checked), type: 'checkbox' }),
-            h('span', null, translate('run.confirm.noAsk')))),
-        h('div', { className: 'dsh-ws-dialog-footer' },
-          h('button', { className: 'dsh-ws-text-button', onClick: () => setConfirming(false), type: 'button' }, translate('dialog.cancel')),
-          h('button', { className: 'dsh-ws-text-button dsh-ws-run-confirm-button', onClick: () => { setConfirming(false); runNow(noAsk) }, type: 'button' }, translate('run.confirm.run')))))
+    ? h(Modal, {
+      actions: [
+        { key: 'cancel', label: translate('dialog.cancel'), onClick: () => setConfirming(false) },
+        /* The run confirm keeps its own button class for the primary action. */
+        { key: 'run', label: translate('run.confirm.run'), onClick: () => { setConfirming(false); runNow(noAsk) }, className: 'dsh-ws-text-button dsh-ws-run-confirm-button' },
+      ],
+      className: 'dsh-ws-run-dialog',
+      onCancel: () => setConfirming(false),
+      title: translate('run.confirm.title', { name }),
+    },
+    h('div', { className: 'dsh-ws-run-field' }, h('i', null, translate('run.confirm.file')), h('div', null, path)),
+    h('div', { className: 'dsh-ws-run-field' }, h('i', null, translate('run.confirm.command')), h('div', null, fullCommand)),
+    h('div', { className: 'dsh-ws-run-field' }, h('i', null, translate('run.confirm.cwd')), h('div', null, plan?.cwd ?? '—')),
+    plan?.interpreter === null || plan?.interpreter === undefined
+      ? null
+      : h('div', { className: 'dsh-ws-run-field' }, h('i', null, translate('run.confirm.interpreter')),
+        /* The confirmation names the SOURCE too: with an override in play, "python -3 main.py"
+           no longer says which python the user is about to trust. */
+        h('div', null, interpreterSource === null || interpreterSource === 'auto'
+          ? plan.interpreter
+          : `${plan.interpreter}（${runInterpreterSourceLabel(interpreterSource, plan.extension)}）`)),
+    h('div', { className: 'dsh-ws-run-warning' }, translate('run.confirm.warning')),
+    h('label', { className: 'dsh-ws-run-check' },
+      h('input', { checked: noAsk, onChange: event => setNoAsk(event.target.checked), type: 'checkbox' }),
+      h('span', null, translate('run.confirm.noAsk'))))
     : null
 
   const pickerDialog = dialogOpen

@@ -121,7 +121,13 @@ export class EditorContextController {
       encoding: record.encoding,
       dirty: record.dirty,
       ...(record.revision === undefined ? {} : { revision: record.revision }),
-      selection: { ...record.selection },
+      selection: {
+        ...record.selection,
+        /* The text travels ONLY for a dirty buffer. A clean selection is verified against the file on
+           disk anyway, so the Host derives the slice itself — uploading up to maxContextBytes of text
+           the file already contains was pure duplication on a security-checked path. */
+        text: record.dirty ? record.selection.text : undefined,
+      },
     }
   }
   dispose() {

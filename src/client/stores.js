@@ -8,7 +8,7 @@ import { readPersistedState } from './persisted-state.js'
 // (EXPLORER_LAYOUT_STORE_KEY), so this rehydrates it on load; 0 means
 // collapsed. The schema in persisted-state.js owns the shape, so the value is
 // either canonical or absent — a missing key falls back to the default width.
-export function readPersistedSidebarWidth() {
+function readPersistedSidebarWidth() {
   const layout = readPersistedState(EXPLORER_LAYOUT_STORE_KEY)
   return layout === null ? SIDEBAR_DEFAULT : layout.sidebar
 }
@@ -41,14 +41,12 @@ export function createExplorerPaneStore() {
       tree: TREE_DEFAULT,
       preview: PREVIEW_DEFAULT,
       sidebar: SIDEBAR_DEFAULT,
-      explorerOpen: true,
     }),
     persist: EXPLORER_LAYOUT_STORE_KEY,
     actions: {
       setTree: (draft, width, max = TREE_MAX) => { draft.tree = clamp(width, TREE_MIN, max) },
       setPreview: (draft, width, max = PREVIEW_MAX) => { draft.preview = clamp(width, PREVIEW_MIN, max) },
       setSidebar: (draft, width, max = SIDEBAR_MAX_FALLBACK) => { draft.sidebar = width === 0 ? 0 : clamp(width, SIDEBAR_MIN, max) },
-      setExplorerOpen: (draft, open) => { draft.explorerOpen = open },
     },
   })
 }

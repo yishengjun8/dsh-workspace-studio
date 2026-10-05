@@ -42,7 +42,7 @@ function update(patch) {
   bump()
 }
 
-export function subscribeRunConfig(listener) {
+function subscribeRunConfig(listener) {
   listeners.add(listener)
   return () => { listeners.delete(listener) }
 }
@@ -51,7 +51,7 @@ function getSnapshot() {
   return state
 }
 
-export function getRunConfig() {
+function getRunConfig() {
   return state
 }
 
@@ -196,7 +196,7 @@ export async function probeInterpreter(path, family) {
   }
 }
 
-export function dismissRunConfigNotice() {
+function dismissRunConfigNotice() {
   update({ notice: undefined })
 }
 

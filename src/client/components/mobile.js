@@ -23,7 +23,7 @@ export function MobileModeToggle(props) {
   )
 }
 /* The whale button toggling the mobile floating sidebar drawer. */
-export function MobileWhaleButton({ open, onToggle }) {
+function MobileWhaleButton({ open, onToggle }) {
   const label = open ? translate('mobile.sidebarClose') : translate('mobile.sidebarOpen')
   return h('button', {
     'aria-expanded': open,
@@ -37,7 +37,7 @@ export function MobileWhaleButton({ open, onToggle }) {
       h('path', { d: FISH })))
 }
 /* The file-content-browsing button shared by the session header and hero overlay: toggles file-fullscreen. */
-export function MobileFilesButton() {
+function MobileFilesButton() {
   const { files } = useMobile()
   return h('button', {
     'aria-label': translate('mobile.files'),

@@ -1,31 +1,15 @@
 /* Executable-file detection + run-console text helpers.
  *
- * Pure functions only (no React, no API): the whitelist mirrors host/run.js so the UI can decide
- * whether to offer a console at all, the state mapper turns one Host status payload into the
- * console's visual state, and the chunk accumulator turns streamed stdout/stderr bytes into the
- * line list the panel renders. Keeping them here makes "what does this file's console look like"
- * testable without a DOM or a Host.
+ * Pure functions only (no React, no API): the extension whitelist is the SHARED table the Host also
+ * resolves against (src/shared/run-extensions.js) so the UI's "offer a console" decision and the
+ * Host's resolver cannot drift; the state mapper turns one Host status payload into the console's
+ * visual state, and the chunk accumulator turns streamed stdout/stderr bytes into the line list the
+ * panel renders. Keeping them here makes "what does this file's console look like" testable without
+ * a DOM or a Host.
  */
 import { RUN_OUTPUT_LINE_MAX } from './constants.js'
 import { translate } from './locale/index.js'
-
-/* Extension → command family. Must match RUN_EXTENSION_RECIPES in host/run.js: the Host is the
-   authority (it re-checks every request), this table only decides whether to show the console. */
-export const RUN_FAMILY_BY_EXTENSION = Object.freeze({
-  py: 'python', pyw: 'python',
-  sh: 'shell', bash: 'shell', zsh: 'shell',
-  ps1: 'powershell', psm1: 'powershell',
-  bat: 'cmd', cmd: 'cmd',
-  exe: 'direct', com: 'direct',
-})
-
-/** The command family a file name belongs to, or null when the file has no run console. */
-export function runFamilyOfName(name) {
-  const lower = String(name ?? '').toLowerCase()
-  const dot = lower.lastIndexOf('.')
-  if (dot < 0) return null
-  return RUN_FAMILY_BY_EXTENSION[lower.slice(dot + 1)] ?? null
-}
+import { RUN_FAMILY_BY_EXTENSION, runFamilyOfName } from '../shared/run-extensions.js'
 
 /** Whether a preview tab may show the run console (extension whitelist only; the Host additionally
  *  applies platform support, the POSIX executable bit and interpreter resolution). */
@@ -128,7 +112,7 @@ export function runChipTone(state) {
 }
 
 /* Locale key suffix per state; the panel composes `run.chip.*` / `run.hint.*` from it. */
-export function runStateKey(state) {
+function runStateKey(state) {
   if (state === 'stopping') return 'stopping'
   if (state === 'running') return 'running'
   if (state === 'ok') return 'exitedOk'

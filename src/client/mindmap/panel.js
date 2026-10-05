@@ -5,7 +5,7 @@ import { translate } from '../locale/index.js'
 import { renameMindmapDoc } from '../api.js'
 import { dismissesMenuOnScroll } from '../menu-dismiss.js'
 import { SessionRenameDialog } from '../components/dialogs.js'
-import { mindmapRegistry, readMindmapOrder, updateMindmapOrder, useMindmapRegistry, writeMindmapOrder } from './registry.js'
+import { mindmapRegistry, readMindmapOrder, updateMindmapOrder, useMindmapRegistry } from './registry.js'
 import { normalizeMindmapWorkspacePath } from './helpers.js'
 
 export function isMindmapFamilySession(list, id) {
@@ -34,7 +34,7 @@ export const MINDMAP_ICON = h('g', { fill: 'none', stroke: 'currentColor', strok
    Rendered per workspace group (all docs when groupTitle is undefined);
    click opens the root session, drag reorders (persisted per group),
    right-click renames the mind map's own title (doc.rootTitle) or reveals its workspace. */
-export const MINDMAP_ORDER_ALL_KEY = '__all__'
+const MINDMAP_ORDER_ALL_KEY = '__all__'
 export function MindmapSessionsPanel({ useSessions, useWorkspaces, groupTitle, openSession, revealSession }) {
   useMindmapRegistry()
   /* Narrow selector: unrelated session churn must not re-render the panel. */

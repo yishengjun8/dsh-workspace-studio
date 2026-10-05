@@ -44,11 +44,11 @@ export function mindmapClip(text, max) {
 export const mindmapDocKey = (sessionId, seq) => `${sessionId}:${seq}`
 
 /* Key of the VIRTUAL root node (the map's top hub, not a session). */
-export const MINDMAP_ROOT_KEY = '__mindmap_root__'
+const MINDMAP_ROOT_KEY = '__mindmap_root__'
 
 /* Key of a session's HEAD node (the identity card at the left of its question chain); shared
    by the layout and the current-card highlight so the current badge can light the head. */
-export const mindmapHeadKey = (sessionId) => mindmapDocKey(String(sessionId), `head:${String(sessionId)}`)
+const mindmapHeadKey = (sessionId) => mindmapDocKey(String(sessionId), `head:${String(sessionId)}`)
 
 /* Key of a session's placeholder card (a session with no turns yet); shared by the layout and
    the current-card highlight so the current badge can light the pending card. */
@@ -281,14 +281,14 @@ export function mindmapDocStructureFingerprint(doc) {
    terminal green MINDMAP_END_COLOR_DEFAULT, the fold slate (#94a3b8 / #64748b), the AI pink
    (#f472b6 / #db2777) or the theme's business / warn / error primaries. Four schemes are enough:
    two streaming sessions in one map now read as one family instead of two clashing rainbows. */
-export const MINDMAP_STREAM_PALETTE = [
+const MINDMAP_STREAM_PALETTE = [
   ['#22d3ee', '#3b82f6', '#a855f7'],
   ['#2dd4bf', '#0ea5e9', '#818cf8'],
   ['#60a5fa', '#c084fc', '#d946ef'],
   ['#38bdf8', '#6366f1', '#e879f9'],
 ]
-export const mindmapStreamPaletteCache = new Map()
-export const mindmapStreamHash = (text) => {
+const mindmapStreamPaletteCache = new Map()
+const mindmapStreamHash = (text) => {
   let h = 2166136261
   for (let i = 0; i < text.length; i += 1) {
     h ^= text.charCodeAt(i)
@@ -296,7 +296,7 @@ export const mindmapStreamHash = (text) => {
   }
   return h >>> 0
 }
-export const mindmapMulberry32 = (seed) => () => {
+const mindmapMulberry32 = (seed) => () => {
   seed |= 0
   seed = (seed + 0x6D2B79F5) | 0
   let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
@@ -673,7 +673,7 @@ export function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_M
   return { nodes, edges, width, height, peekBoxes }
 }
 
-export const mindmapXOf = depth => MINDMAP_DEPTH_GAP + depth * (MINDMAP_NODE_W + MINDMAP_DEPTH_GAP)
+const mindmapXOf = depth => MINDMAP_DEPTH_GAP + depth * (MINDMAP_NODE_W + MINDMAP_DEPTH_GAP)
 
 /* Normalize a workspace path for IDENTITY comparison: case-fold + strip the
    trailing slash so `w.path === cwd`-style exact matches cannot miss on

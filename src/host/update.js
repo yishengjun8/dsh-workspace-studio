@@ -27,7 +27,7 @@ import { HttpError } from './errors.js'
 import { readJsonStrict, writeJsonAtomic } from './drafts.js'
 import { quarantineFile } from './quarantine.js'
 
-export const PACKAGE_NAME = '@yishengjun8/dsh-workspace-studio'
+const PACKAGE_NAME = '@yishengjun8/dsh-workspace-studio'
 const GITHUB_REPO = 'yishengjun8/dsh-workspace-studio'
 const GITHUB_BRANCH = 'main'
 const USER_AGENT = 'dsh-workspace-studio-updater'
@@ -46,7 +46,7 @@ let updateInProgress = false
 let contentSwapChain = Promise.resolve()
 
 /** Own installed package directory. Everything in the host bundle is inlined into lib/index.js, so the root is located by walking up from this module's file until a package.json naming this plugin is found — import.meta.url always points at the bundle the user's profile actually loads, so the swap below targets the INSTALLED copy (in the dev layout it targets the checkout). */
-export function ownPackageDir() {
+function ownPackageDir() {
   let dir = fileURLToPath(new URL('.', import.meta.url))
   for (let depth = 0; depth < 6; depth += 1) {
     try {
@@ -77,7 +77,7 @@ function parseSemver(value) {
 }
 
 /** -1 | 0 | 1, or null when either side is not a plain x.y.z version. */
-export function compareVersions(a, b) {
+function compareVersions(a, b) {
   const pa = parseSemver(a)
   const pb = parseSemver(b)
   if (pa === null || pb === null) return null
@@ -321,7 +321,7 @@ function validEntryPath(path) {
 }
 
 /** Minimal tar extraction: gunzip (node:zlib) + a ustar reader that also understands pax extended headers ('x' — git archive emits these for long paths) and GNU long names ('L'). Regular files and directories only; any other entry type or an invalid path fails the archive. */
-export async function extractTarball(tarballPath, destDir) {
+async function extractTarball(tarballPath, destDir) {
   let tar
   try {
     tar = gunzipSync(await fsp.readFile(tarballPath))
@@ -370,7 +370,7 @@ export async function extractTarball(tarballPath, destDir) {
   }
 }
 
-export async function verifyPackage(dir, expectedVersion) {
+async function verifyPackage(dir, expectedVersion) {
   let pkg
   try {
     pkg = JSON.parse(await fsp.readFile(join(dir, 'package.json'), 'utf8'))

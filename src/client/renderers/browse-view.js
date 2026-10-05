@@ -5,6 +5,7 @@ import { CodeBlock, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import { translate } from '../locale/index.js'
 import { shikiLanguageFor, useMarkdownLabels } from './registry.js'
 import { usePagedText } from './paged-text.js'
+import { RendererStatus } from './status.js'
 
 export function BrowseView({ sessionId, path, name, kind, readEpoch }) {
   const markdownLabels = useMarkdownLabels()
@@ -17,10 +18,10 @@ export function BrowseView({ sessionId, path, name, kind, readEpoch }) {
     const message = failure?.unavailable === true
       ? translate('renderer.unavailable')
       : translate('renderer.loadFailed', { message: failure?.message ?? '' })
-    return h('div', { className: 'dsh-ws-renderer-status', 'data-error': '' }, message)
+    return h(RendererStatus, { message, error: true })
   }
   if (text === '' && loading) {
-    return h('div', { className: 'dsh-ws-renderer-status' }, translate('renderer.loading'))
+    return h(RendererStatus, { message: translate('renderer.loading') })
   }
   const copyLabel = translate('renderer.copy')
   const copiedLabel = translate('renderer.copied')

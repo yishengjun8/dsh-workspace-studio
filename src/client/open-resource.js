@@ -41,7 +41,7 @@ const FILE_ADDRESS_PREFIX = 'dsh-resource://file/'
    - absolute scope: `dsh-resource://file/absolute/<path>` — the absolute
      path with the leading `/` dropped (`C:/x/y.txt` for a Windows drive; a
      UNC path keeps an empty first segment, `//server/share/x.txt`). */
-export function parseFileAddress(address) {
+function parseFileAddress(address) {
   if (typeof address !== 'string' || !address.startsWith(FILE_ADDRESS_PREFIX)) return undefined
   const rest = address.slice(FILE_ADDRESS_PREFIX.length)
   const slash = rest.indexOf('/')

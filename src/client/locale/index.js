@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react'
 import { zh } from './zh.js'
 import { en } from './en.js'
 
-export const EXPLORER_LOCALE_NS = 'workspace.studio'
+const EXPLORER_LOCALE_NS = 'workspace.studio'
 
 /* LocaleRuntime face (subscribe/getSnapshot pair) once the harness locale plugin is present; undefined keeps the zh dictionary. */
 let localeFace = undefined
@@ -12,7 +12,7 @@ let boundTranslate = zhFallbackTranslate
 const localeListeners = new Set()
 let localeEpoch = 0
 
-export function zhFallbackTranslate(key, params) {
+function zhFallbackTranslate(key, params) {
   const template = zh[key] ?? key
   if (params === undefined) return template
   return template.replace(/\{(\w+)\}/g, (match, name) => name in params ? String(params[name]) : match)
