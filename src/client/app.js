@@ -40,6 +40,10 @@ import { installOpenResourceRouter } from './open-resource.js'
 import { resourceNoticeStore } from './ui-notice.js'
 import { installPlanResources } from './plan-open.js'
 import { installOfficeFaces, installRemoteFaces } from './renderers/remote.js'
+/* The shared icon set of the harness shell. ui-commands dresses its own built-in Host
+   commands (goal/plan/compact/…) from a table it owns; a client-registered command gets no
+   glyph unless it brings one, so /init takes its row face from the same set. */
+import { IconDeliverDocRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 
 export function AppFrame(props) {
   const panels = props.useStore(state => state)
@@ -620,7 +624,13 @@ export function mountStudio(ctx) {
       if (commandUi === undefined) return undefined
       const dispose = commandUi.register({
         name: 'init',
+        /* The row face of a built-in row: localized title, the command name as its trailing
+           alias, a 14px glyph from the shared set, and a one-line description. A contribution
+           without a label falls back to the raw name, which is what made /init read unlike
+           the shipped commands. */
+        label: () => translate('init.menu.label'),
         description: () => translate('init.menu.description'),
+        icon: IconDeliverDocRegular,
         available: session => {
           const row = ctx.sessions.list.getSnapshot().byId[String(session.sessionId)]
           return row !== undefined && row.origin !== 'subagent'
