@@ -46,7 +46,7 @@ export function fileColorOf(settings, group) {
 
 /* VCS status-badge accents, one per TONE (several status letters share a tone: renamed/copied,
    added/untracked). Defaults mirror the app's state palette, so an untouched install matches the
-   theme; the user can recolor each tone in settings like the file-type badges. */
+   theme; each tone is user-recolorable in settings like the file-type badges. */
 export const VCS_STATUS_GROUPS = Object.freeze([
   { group: 'modified', label: '已修改', color: '#b7791f' },
   { group: 'added', label: '已新增', color: '#1a7f37' },

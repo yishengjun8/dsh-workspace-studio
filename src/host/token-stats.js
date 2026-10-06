@@ -12,10 +12,10 @@ const USAGE_INDEX_VERSION = 1
 const CHECKPOINT_EVERY = 100
 /* A request arriving this soon after a settled sync answers from the index without starting another one; the client's progress poll would otherwise re-list the storage on every tick. */
 const SYNC_DEBOUNCE_MS = 2000
-/* How long a persisted "this log cannot be read" verdict is trusted. The verdict is keyed by the
-   per-session fingerprint (session-rows.js), so it survives restarts; without a bound a harness
-   upgrade that learned to read an older generation would keep serving the stale verdict forever.
-   Re-attempting is cheap: one open per such session, at most once per window. */
+/* How long a persisted "this log cannot be read" verdict is trusted. Keyed by the per-session fingerprint
+   (session-rows.js) so it survives restarts; without a bound, a harness upgrade that learned to read an
+   older generation would serve the stale verdict forever. Re-attempting is cheap: one open per session,
+   at most once per window. */
 const UNREADABLE_RETRY_MS = 7 * 24 * 60 * 60 * 1000
 
 function usageIndexPath() {
@@ -182,10 +182,10 @@ async function refreshUsageIndex(ctx, persistence) {
   for (const row of listed) {
     const id = sessionRowId(row)
     if (id === undefined) continue
-    /* Fingerprint (per-session physical revision, legacy corpus suffix stripped) instead of the
-       raw revision: a legacy row's revision embeds a hash over EVERY log in the store, so the old
-       key changed whenever any unrelated session appended — every sync then re-read the whole
-       legacy population (1100+ sessions here) and the Host never went idle. */
+    /* Fingerprint (per-session physical revision, legacy corpus suffix stripped) instead of the raw
+       revision: a legacy row's revision embeds a hash over EVERY log in the store, so the key changed
+       whenever any unrelated session appended — every sync re-read the whole legacy population (1100+
+       sessions here) and the Host never went idle. */
     entries.push({ key: id, rev: sessionRowFingerprint(row) })
   }
   usageIndexProgress = { processed: 0, total: entries.length }

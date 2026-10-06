@@ -34,8 +34,7 @@ const CM_PHRASES_ZH = Object.freeze({
 
 function revealPosition(view, reveal) {
   /* NaN/non-numeric line data must not reach Text.line: Math.min/max propagate
-     NaN and the line() guard treats NaN as in-bounds, so the search would land
-     on a wrong line. */
+     NaN and the line() guard treats NaN as in-bounds, landing on a wrong line. */
   const rawLine = Number(reveal?.line)
   const lineNumber = Number.isFinite(rawLine)
     ? Math.min(Math.max(1, Math.round(rawLine)), view.state.doc.lines)
@@ -54,8 +53,7 @@ function revealPosition(view, reveal) {
   view.dispatch({ selection: { anchor: from, head: to }, effects: EditorView.scrollIntoView(from, { y: 'center' }) })
 }
 
-/* Code-folding helpers backing Ctrl+K+J / Ctrl+K+<n>; nesting depth is
-   1-based. */
+/* Code-folding helpers backing Ctrl+K+J / Ctrl+K+<n>; nesting depth is 1-based. */
 function collectFoldableRanges(view) {
   const state = view.state
   const seen = new Set()
@@ -104,11 +102,10 @@ function foldLevel(view, level) {
 }
 
 /* --- Live-editor bridge ------------------------------------------------
- * The update listener is part of the EditorState CONFIGURATION, so a state
- * retained for a later tab re-activation carries a listener created by an
- * earlier instance. All listeners delegate through this module-level bridge,
- * which always points at the currently mounted instance's refs, so stale and
- * fresh listeners end up at the same live callbacks (dev-notes §23). */
+ * The update listener is part of the EditorState CONFIGURATION: a state retained for a
+ * later tab re-activation carries an earlier instance's listener. All listeners delegate
+ * through this module-level bridge, which always points at the currently mounted
+ * instance's refs, so stale and fresh listeners reach the same live callbacks (dev-notes §23). */
 const liveEditorBridge = { current: null }
 let editorInstanceSeq = 0
 function handleEditorUpdate(update) {
@@ -116,8 +113,7 @@ function handleEditorUpdate(update) {
   if (bridge === null) return
   if (update.docChanged) {
     /* One sliceDoc per change, shared by the autosave and the context publish;
-       the docChanged flag lets the context publish rebuild its CRLF prefix
-       table only when the text changed. */
+       the docChanged flag lets it rebuild its CRLF prefix table only on change. */
     const text = update.state.sliceDoc()
     bridge.dirtyRef.current(text)
     bridge.contextRef.current(update.state, true, text)
@@ -143,11 +139,10 @@ function handleEditorUpdate(update) {
 /* ------------------------------------------------------------------------
  * Change gutter: the repository base versus the live buffer.
  *
- * CodeMirror has no "git gutter" primitive, so the marks live in a StateField
- * an effect replaces; between recomputes the mapped ranges follow the document,
- * which keeps the bars roughly in place while typing instead of blanking on every
- * keystroke. The diff itself is merge.js's budgeted Myers (see diff-gutter.js),
- * so no second diff implementation ships.
+ * CodeMirror has no "git gutter" primitive, so the marks live in a StateField an
+ * effect replaces; between recomputes the mapped ranges follow the document, keeping
+ * the bars roughly in place while typing instead of blanking. The diff is merge.js's
+ * budgeted Myers (diff-gutter.js), so a second diff implementation never ships.
  * ---------------------------------------------------------------------- */
 
 /** One line's mark: a colour bar (`kind`) and/or a deletion triangle (`deleted`). */
@@ -245,17 +240,15 @@ const diffGutterExtension = [
 ]
 
 /* `restore` (optional) is a retained EditorSession of a file previously shown:
-   { state, editable, wrap, phrases, name }. Mounting from the same EditorState
-   preserves the doc, undo history, selection and fold state across tab
-   switches; without it the view is built fresh from `file.content`.
-   `onViewState` (optional) reports the live { state, ...compartments, name }
-   on every update and at mount. */
+   { state, editable, wrap, phrases, name }. Mounting from the same EditorState preserves
+   the doc, undo history, selection and fold state across tab switches; without it the view
+   is built fresh from `file.content`. `onViewState` (optional) reports the live
+   { state, ...compartments, name } on every update and at mount. */
 export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShortcut, onScroll, reveal, scrollTop, editorRef, highlightPreset, searchPanelContainer, readEpoch, onRevealApplied, restore = null, onViewState = null, diffBase = null, diffLineTint = true, diffColors = null, onDiffSummary = null }) {
   const host = useRef(null)
-  /* Lazy compartments: useRef(new Compartment()) would construct a discarded
-     object on every render. A view mounted from a restored state must
-     reconfigure the compartments that state carries, so every dispatch targets
-     `compartments` (restored when present, own otherwise). */
+  /* Lazy compartments: useRef(new Compartment()) would construct a discarded object on every
+     render. A view mounted from a restored state must reconfigure the compartments that state
+     carries, so every dispatch targets `compartments` (restored when present, own otherwise). */
   const [editableCompartment] = useState(() => new Compartment())
   const [wrapCompartment] = useState(() => new Compartment())
   const [phrasesCompartment] = useState(() => new Compartment())
@@ -388,10 +381,9 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
     const retained = restore === null ? null : restore.state
     let view
     if (retained !== null) {
-      /* Restored session: build the view around the retained EditorState so
-         the doc, undo history, selection and folds come back as they were;
-         the retained state already carries its update listener, which routes
-         through the live bridge. */
+      /* Restored session: build the view around the retained EditorState so the doc, undo
+         history, selection and folds come back as they were; that state already carries its
+         update listener, which routes through the live bridge. */
       view = new EditorView({ parent: host.current, state: retained })
     } else {
       const descriptor = languageFor(file.name)
@@ -410,34 +402,30 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
             foldGutter({ markerDOM: foldMarkerDOM }), drawSelection(), dropCursor(),
             EditorState.allowMultipleSelections.of(true), indentOnInput(), bracketMatching(), closeBrackets(),
             highlightSelectionMatches(), highlightActiveLine(), syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-            /* The search panel renders into a container div between the file
-               header (and its notices) and the preview body: top:true puts it
-               in the top panel group, and panels({ topContainer }) places that
-               group in the plugin-owned container. */
+            /* The search panel renders into a container div between the file header (and its
+               notices) and the preview body: top:true puts it in the top panel group, and
+               panels({ topContainer }) places that group in the plugin-owned container. */
             search({ top: true }),
             panels(searchPanelContainer?.current ? { topContainer: searchPanelContainer.current } : undefined),
             /* Search/goto-line panel labels render through EditorState.phrase();
-               without this map they show English. Keys mirror
-               @codemirror/search's phrases; keep the $ placeholders. */
+               without this map they show English. */
             comps.phrases.of(localeIsZh() ? EditorState.phrases.of(CM_PHRASES_ZH) : []),
             syntaxHighlighting(tokenHighlight),
             keymap.of([
               /* Mod-s is deliberately not bound here: the window-level capture
                  handler owns it so saving works from every focus state. */
               indentWithTab, ...closeBracketsKeymap, ...defaultKeymap,
-              /* Editor-only search keys stay in the keymap: Escape closes the
-                 panel; Ctrl+D / Ctrl+Shift+L / Ctrl+Alt+G select occurrences,
-                 matches, or jump to a line. The find workflow is deliberately
-                 not bound here — the window capture handler owns it. */
+              /* Editor-only search keys stay in the keymap: Escape closes the panel;
+                 Ctrl+D / Ctrl+Shift+L / Ctrl+Alt+G select occurrences, matches, or jump
+                 to a line. Find is deliberately unbound — the window capture handler owns it. */
               { key: 'Escape', run: closeSearchPanel, scope: 'editor search-panel' },
               { key: 'Mod-Shift-l', run: selectSelectionMatches },
               { key: 'Mod-Alt-g', run: gotoLine },
               { key: 'Mod-d', run: selectNextOccurrence, preventDefault: true },
               ...historyKeymap, ...foldKeymap,
             ]),
-            /* The listener is part of the state configuration: retained states
-               keep it across view rebuilds, and handleEditorUpdate delegates
-               to whichever instance owns the live bridge. */
+            /* The listener is part of the state configuration: retained states keep
+               it across view rebuilds; handleEditorUpdate delegates to the live bridge. */
             EditorView.updateListener.of(handleEditorUpdate),
             comps.editable.of([
               EditorView.editable.of(editing),
@@ -484,10 +472,9 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
       if (Number.isFinite(scrollTop) && scrollTop > 0) view.scrollDOM.scrollTop = scrollTop
     }
     restoreScroll()
-    // Second pass after layout: the first assignment can be clamped before the
-    // browser sizes the fresh content. rAF is paused while the tab is
-    // backgrounded, so a file opened in a hidden tab restores its scroll on the
-    // next visible frame.
+    // Second pass after layout: the first assignment can be clamped before the browser
+    // sizes the fresh content. rAF is paused while the tab is backgrounded, so a file
+    // opened in a hidden tab restores its scroll on the next visible frame.
     const animation = requestAnimationFrame(restoreScroll)
     contextRef.current(view.state)
     return () => {
@@ -529,18 +516,16 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
   useEffect(() => {
     const view = editorRef.current
     if (view === undefined || reveal === null) return
-    /* Same path guard as the mount-time restoreScroll: in a fast file switch
-       the effect can fire with a stale reveal while editorRef already points
-       at the new file's editor. */
+    /* Same path guard as the mount-time restoreScroll: in a fast file switch the effect can
+       fire with a stale reveal while editorRef already points at the new file's editor. */
     if (reveal.path !== file.path) return
     revealPosition(view, reveal)
     markRevealApplied(reveal)
   }, [reveal])
 
-  // Ctrl+K+J / Ctrl+K+<n> are handled at the window level (capture phase) so
-  // they work in every focus state; the editor keymap deliberately does not
-  // bind them. Keys are consumed only for the Ctrl+K prefix and its completion
-  // J / 1..9.
+  // Ctrl+K+J / Ctrl+K+<n> are handled at the window level (capture phase) so they
+  // work in every focus state; the editor keymap deliberately does not bind them.
+  // Keys are consumed only for the Ctrl+K prefix and its completion J / 1..9.
   useEffect(() => {
     let armed = false
     let timer
@@ -564,9 +549,9 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
       }
       const key = String(event.key).toLowerCase()
       const isCtrlK = key === 'k' && (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey
-      /* The prefix is consumed only while the editor is focused or the focus
-         sits on the explorer's own chrome (tree rows, tabs, panel headers);
-         anywhere else Ctrl+K passes through to the harness. */
+      /* The prefix is consumed only while the editor is focused or focus sits on the
+         explorer's own chrome (tree rows, tabs, panel headers); anywhere else Ctrl+K
+         passes through to the harness. */
       const foldChrome = target instanceof Element
         && target.closest('.dsh-ws-tree-row, .dsh-ws-preview-tab, .dsh-ws-panel-header') !== null
       if (isCtrlK && (insideEditor || foldChrome)) {
@@ -580,16 +565,15 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
       }
       if (!armed) return
       cancel()
-      /* The arm window may have outlived the focus: if the user moved focus to
-         an external input after arming, the completion key belongs to that
-         field — pass it through instead of folding. */
+      /* The arm window may have outlived the focus: if focus moved to an external input
+         after arming, the completion key belongs to that field — pass it through instead
+         of folding. */
       if (!insideEditor && target instanceof Element
         && (target.isContentEditable || target.closest('input, textarea, select') !== null)) {
         return
       }
-      /* Completion keys must carry no modifiers: within the 1 s arm window a
-         plain J / 1..9 completes the sequence, but modified shortcuts must
-         pass through untouched. */
+      /* Completion keys must carry no modifiers: within the 1 s arm window a plain J / 1..9
+         completes the sequence, but modified shortcuts pass through untouched. */
       const hasModifier = event.ctrlKey || event.metaKey || event.altKey || event.shiftKey
       if (!hasModifier && key === 'j') {
         event.preventDefault()
@@ -611,10 +595,9 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
     }
   }, [])
 
-  // Find shortcuts (Ctrl/Cmd+F, Ctrl/Cmd+G, Ctrl/Cmd+Shift+G, F3, Shift+F3)
-  // are handled at the window level (capture phase) so they work in every
-  // focus state; with no editor mounted, keys pass through so the browser's
-  // own find still works.
+  // Find shortcuts (Ctrl/Cmd+F, Ctrl/Cmd+G, Ctrl/Cmd+Shift+G, F3, Shift+F3) are
+  // handled at the window level (capture phase) so they work in every focus state;
+  // with no editor mounted, keys pass through so the browser's own find still works.
   useEffect(() => {
     const onKeyDown = (event) => {
       const view = editorRef.current
@@ -626,9 +609,8 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
          backdrop and the keys belong to the dialog — pass through. */
       if (typeof document !== 'undefined' && document.querySelector('.dsh-ws-dialog-backdrop') !== null) return
       const target = event.target
-      // Outside text fields (chat, rename, dialogs) keep their keys; the
-      // editor's contenteditable and the search panel input are editor-internal
-      // and still reach this handler.
+      // Outside text fields (chat, rename, dialogs) keep their keys; the editor's
+      // contenteditable and the search panel input are editor-internal and still reach here.
       const panelContainer = searchPanelContainer?.current
       const insideEditor = (host.current !== null && target instanceof Node && host.current.contains(target))
         || (panelContainer !== null && target instanceof Node && panelContainer.contains(target))
@@ -663,16 +645,15 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [])
 
-  // Save shortcut (Ctrl/Cmd+S) at the window level (capture phase) so it works
-  // from every focus state; the editor keymap path only fired while the editor
-  // itself was focused. The save callback no-ops when the tab is clean or
-  // saving.
+  // Save shortcut (Ctrl/Cmd+S) at the window level (capture phase) so it works from
+  // every focus state; the editor keymap path only fired while the editor itself was
+  // focused. The save callback no-ops when the tab is clean or saving.
   useEffect(() => {
     const onKeyDown = (event) => {
       if (event.isComposing) return
-      /* A modal dialog is open (same rule as the find shortcuts): the save
-         belongs to the dialog's context, since acting behind its backdrop would
-         save a file the user cannot see. */
+      /* A modal dialog is open (same rule as the find shortcuts): the save belongs to
+         the dialog's context, since acting behind its backdrop would save a file the
+         user cannot see. */
       if (typeof document !== 'undefined' && document.querySelector('.dsh-ws-dialog-backdrop') !== null) return
       const key = String(event.key).toLowerCase()
       const isSave = key === 's' && (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey

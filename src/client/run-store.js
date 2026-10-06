@@ -11,8 +11,8 @@
  * restore, and the Host is the single source of truth for every run.
  *
  * Components subscribe per PATH (useRunEntry) or globally (useRunVersion, the tab strip). The
- * per-path subscription is what keeps the 400 ms poll cheap: only the console of the path that
- * changed re-renders, instead of every consumer in the layout on every tick.
+ * per-path subscription keeps the 400 ms poll cheap: only the changed path's console re-renders,
+ * not every consumer in the layout on every tick.
  */
 import { useCallback, useSyncExternalStore } from 'react'
 import { RUN_FOLLOW_DEFAULT, RUN_POLL_MS } from './constants.js'
@@ -70,7 +70,7 @@ export function getRunEntry(path) {
 }
 
 /** The console's entry for one path (undefined until something loads it): re-renders only when THIS
- *  path changes, which is what keeps a running process's 400 ms poll from re-rendering the layout. */
+ *  path changes, so a running process's 400 ms poll never re-renders the layout. */
 export function useRunEntry(path) {
   const subscribe = useCallback(listener => subscribeRunPath(path, listener), [path])
   const getSnapshot = useCallback(() => {
@@ -147,9 +147,9 @@ function messageOf(error, fallbackKey) {
 
 /* ---- polling driver: alive while a run is live OR while it still has undelivered output ---- */
 
-/* The tail matters: a fast, chatty process can settle on a poll whose slice was capped, and if the
-   driver stopped right there the console would keep a truncated output forever. `offset < totalLength`
-   keeps the loop running until the Host's buffer is drained, terminal status or not. */
+/* The tail matters: a fast, chatty process can settle on a poll whose slice was capped, and a driver
+   that stopped there would keep a truncated output forever. `offset < totalLength` keeps the loop
+   running until the Host's buffer is drained, terminal status or not. */
 function needsPolling(entry) {
   return entry.status === 'running' || entry.offset < (entry.totalLength ?? 0)
 }

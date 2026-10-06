@@ -10,10 +10,9 @@ import { mindmapClip } from './helpers.js'
 /* 11px leading glyphs for the in-card hover pills and the session-head buttons.
    Same stroked line language as MINDMAP_TOOLBAR_ICONS; the archive box is
    deliberately the SAME shape the toolbar uses for "archive whole map" and the
-   sparkle is the one the 总结卡片 pill uses, so the two archive entry points and
-   the two summarize entry points each read as one family. `box` is the viewBox
-   edge, `fill` picks a solid glyph (the sparkle) over a stroked one and `sw`
-   overrides the stroke width. */
+   sparkle the one the 总结卡片 pill uses, so both archive and both summarize entry
+   points read as one family. `box` is the viewBox edge, `fill` picks a solid glyph
+   (the sparkle) over a stroked one, `sw` overrides the stroke width. */
 const MINDMAP_ACTION_ICONS = {
   /* Top rule + down chevron: collapse INTO a line (this card joins a folded run). */
   fold: { box: 14, d: 'M2 3.2h10M4.2 7.4 7 10.2 9.8 7.4' },
@@ -44,23 +43,21 @@ const mindmapActionIcon = (name) => {
       }))
 }
 
-/* The hover action pill: a text capsule that sits exactly where the status row
-   was (see styles.js) and cross-fades with it while the card is hovered. It
-   carries the card's hover actions — 折叠 / 取消折叠 / 立刻折叠 (peeked cards) and
-   总结卡片 — and is rendered ONLY on cards whose element presence is constant
-   per card kind (empty placeholder, streaming, head and root nodes never get
-   one), so `memo` keeps working. Appearance is pure CSS (card :hover), no
-   per-hover React state. A pill click must never reach the card (that would
-   fork / switch / peek the run), hence the propagation stop before the action
-   runs. `side` picks the corner: the bottom-left slot (default, where the
-   status text sits) or the bottom-right one, which a peeked card lends to
-   立刻折叠 and an ordinary completed card to 总结卡片 instead of the hint chip.
-   `tone` picks the semantic color (fold / unfold / peek / ai, see styles.js —
-   all four used to share ONE neutral gray) and `icon` its 11px leading glyph,
-   so the four buttons differ by color AND shape, not by label text alone.
-   A disabled pill (the card is already generating its summary) keeps its
-   pointer events, so clicking it cannot fall through to the card and fork —
-   the same behavior as the session head's disabled summarize button. */
+/* The hover action pill: a text capsule where the status row was (see styles.js),
+   cross-fading with it on hover. It carries the card's hover actions — 折叠 /
+   取消折叠 / 立刻折叠 (peeked cards) and 总结卡片 — and renders ONLY on card kinds
+   whose element presence is constant (empty placeholder, streaming, head and root
+   nodes never get one), so `memo` keeps working; appearance is pure CSS (card
+   :hover), no per-hover React state. A pill click must never reach the card (that
+   would fork / switch / peek the run), hence the propagation stop before the action
+   runs. `side` picks the corner: bottom-left (default, the status-text slot) or
+   bottom-right, which a peeked card lends to 立刻折叠 and an ordinary completed card
+   to 总结卡片 instead of the hint chip. `tone` picks the semantic color (fold /
+   unfold / peek / ai, see styles.js — all four used to share ONE neutral gray) and
+   `icon` its 11px leading glyph, so the four buttons differ by color AND shape, not
+   by label text alone. A disabled pill (this card is already generating its summary)
+   keeps its pointer events, so a click cannot fall through to the card and fork —
+   same as the session head's disabled summarize button. */
 const cardPill = ({ label, title, tone, icon, side, disabled, run }) => h('button', {
   className: 'dsh-ws-mindmap-node-foldpill' + (side === 'right' ? ' dsh-ws-mindmap-node-foldpill-right' : ''),
   'data-tone': tone,
@@ -78,9 +75,8 @@ export const MindMapCard = memo(function MindMapCard({
      signal: selection/hover border/glow classes are suppressed on both so a
      dashed border never overwrites the ring. */
   const ringed = ringPalette !== undefined
-  /* Every question card is a branch node: the empty placeholder keeps the
-     dashed pending look (no data-branch), completed cards are solid +
-     primary-tinted. */
+  /* Every question card is a branch node: the empty placeholder keeps the dashed pending
+     look (no data-branch), completed cards are solid + primary-tinted. */
   const classes = 'dsh-ws-mindmap-node dsh-ws-mindmap-branchcard'
     + (isEnd && !isStreaming ? ' dsh-ws-mindmap-endcard' : '')
     + (isCurrent && !ringed ? ' dsh-ws-mindmap-node-current' : '')
@@ -90,11 +86,10 @@ export const MindMapCard = memo(function MindMapCard({
     + (isHoverAncestor && !ringed ? ' dsh-ws-mindmap-node-hover-ancestor' : '')
     + (isHover && !ringed ? ' dsh-ws-mindmap-node-hover' : '')
   const turn = entry.turn
-  /* Bottom-right 总结卡片 pill: offered only for a real, completed turn while
-     the AI-summary feature is on (with it off the Host rejects every summary
-     request, so the corner falls back to the click hint chip below). A peeked
-     card lends its bottom-right corner to 立刻折叠 instead — same "action wins
-     the corner" rule. */
+  /* Bottom-right 总结卡片 pill: only for a real, completed turn with the AI-summary
+     feature on (with it off the Host rejects every summary request, so the corner falls
+     back to the click hint chip below). A peeked card lends its bottom-right corner to
+     立刻折叠 instead — same "action wins the corner" rule. */
   const cardSummarizable = summaryEnabled === true && onSummarizeCard !== undefined
     && entry.empty !== true && isStreaming !== true && peeked !== true
     && Number.isSafeInteger(turn?.seq)
@@ -136,9 +131,8 @@ export const MindMapCard = memo(function MindMapCard({
     isCurrent ? h('span', { className: 'dsh-ws-mindmap-node-current-badge' }, translate('mindmap.current')) : null,
     h('div', { className: 'dsh-ws-mindmap-node-title' },
       h('span', { className: 'dsh-ws-mindmap-pending-label' + (isEnd ? ' dsh-ws-mindmap-end-label' : '') },
-        /* An end-of-branch card (click switches to its session) carries a
-           bullseye chip — the branch's terminal point — instead of the fork
-           glyph, so it is never confused with a fork point. */
+        /* An end-of-branch card (click switches to its session) carries a bullseye chip — the branch's
+           terminal point — instead of the fork glyph, so it is never confused with a fork point. */
         isEnd
           ? h('svg', {
             className: 'dsh-ws-mindmap-pending-icon',
@@ -173,9 +167,8 @@ export const MindMapCard = memo(function MindMapCard({
       : isStreaming
         ? h('div', { className: 'dsh-ws-mindmap-node-q' }, mindmapClip(streamingQuestion || entry.question || translate('mindmap.streaming'), MINDMAP_TEXT_MAX))
         : h('div', { className: 'dsh-ws-mindmap-node-q' + (isSummarizing && summary === undefined ? ' dsh-ws-mindmap-node-q-summarizing' : '') },
-          /* Three-level card text: summary once ready, a muted "generating"
-             placeholder while the background queue owns the turn, otherwise the
-             original question. */
+          /* Three-level card text: summary once ready, a muted "generating" placeholder while
+             the background queue owns the turn, otherwise the original question. */
           summary !== undefined
             ? mindmapClip(summary, MINDMAP_TEXT_MAX)
             : isSummarizing
@@ -196,16 +189,15 @@ export const MindMapCard = memo(function MindMapCard({
           : peeked
             ? h('div', { className: 'dsh-ws-mindmap-node-status dsh-ws-mindmap-node-peeked-status' }, translate('mindmap.fold.status'))
             : h('div', { className: 'dsh-ws-mindmap-node-status dsh-ws-mindmap-node-done' }, translate('mindmap.done')),
-    /* Hover action pills: only for a real, completed turn (the empty placeholder
-       and the streaming card carry no foldable/summarizable turn). A PEEKED card
-       — a folded-marked turn temporarily expanded — carries TWO pills instead:
-       bottom-LEFT 取消折叠 permanently unfolds THIS single card (the exact path
-       of unchecking the menu's fold box on a peeked card: the run's other turns
-       keep their folded marks and collapse again), bottom-RIGHT 立刻折叠 folds
-       the whole temporary expansion back into the folded card (pure view state,
-       no doc write) and keeps the amber tone, so the peek signal survives the
-       status row's cross-fade. An ORDINARY completed card carries bottom-LEFT
-       折叠 plus, while the AI-summary feature is on, bottom-RIGHT 总结卡片. */
+    /* Hover action pills: only for a real, completed turn (the empty placeholder and the
+       streaming card carry no foldable/summarizable turn). A PEEKED card — a folded-marked
+       turn temporarily expanded — carries TWO: bottom-LEFT 取消折叠 permanently unfolds
+       THIS single card (the exact path of unchecking the menu's fold box on a peeked card:
+       the run's other turns keep their folded marks and collapse again), bottom-RIGHT
+       立刻折叠 folds the whole temporary expansion back into the folded card (pure view
+       state, no doc write) and keeps the amber tone, so the peek signal survives the status
+       row's cross-fade. An ORDINARY completed card carries bottom-LEFT 折叠 plus, while the
+       AI-summary feature is on, bottom-RIGHT 总结卡片. */
     entry.empty || isStreaming || !Number.isSafeInteger(entry.turn?.seq)
       ? null
       : peeked
@@ -267,12 +259,12 @@ export const MindMapCard = memo(function MindMapCard({
       : null)
 })
 
-/* A FOLDED card: one compact card standing in for a maximal run of consecutive
-   folded turns, showing the run's count badge + the first turn's text (or its
-   AI summary). Clicking temporarily expands the run (peek); right-click offers
-   fold (uncheck = permanently unfold the run) and delete. It deliberately
-   carries NO hover pill: the single-card unfold belongs to the PEEKED cards the
-   click produces, and the run-wide unfold stays on the menu's fold box. */
+/* A FOLDED card: one compact card standing in for a maximal run of consecutive folded
+   turns, showing the run's count badge + the first turn's text (or its AI summary).
+   Clicking temporarily expands the run (peek); right-click offers fold (uncheck =
+   permanently unfold the run) and delete. It deliberately carries NO hover pill: the
+   single-card unfold belongs to the PEEKED cards the click produces, and the run-wide
+   unfold stays on the menu's fold box. */
 export const MindMapFoldedCard = memo(function MindMapFoldedCard({
   entry, title, isCurrent, isAncestor, isHover, isHoverAncestor, hintAction, ringPalette, onOpen, onMenu, onHover, summary,
 }) {
@@ -326,9 +318,8 @@ export const MindMapFoldedCard = memo(function MindMapFoldedCard({
       : null)
 })
 
-/* The VIRTUAL root node: the map's top hub. Clicking it creates a new
-   top-level session; not backed by any session — it only exists in the
-   layout. */
+/* The VIRTUAL root node: the map's top hub. Clicking it creates a new top-level session;
+   it is not backed by any session — it only exists in the layout. */
 export const MindMapRootNode = memo(function MindMapRootNode({ entry, isAncestor, isHoverAncestor, isHover, onOpen, onMenu, onHover }) {
   const classes = 'dsh-ws-mindmap-root'
     + (isAncestor ? ' dsh-ws-mindmap-node-ancestor' : '')
@@ -359,11 +350,10 @@ export const MindMapRootNode = memo(function MindMapRootNode({ entry, isAncestor
       h('div', { className: 'dsh-ws-mindmap-root-hint' }, translate('mindmap.rootNode.hint'))))
 })
 
-/* A session's HEAD node: the identity card at the left of its question chain.
-   Shows the session title / round count / status; clicking switches to the
-   session (the current badge sits here); right-click renames it. On hover (or
-   keyboard focus) a bottom action row appears: archive this session + its
-   branches on the left, summarize this session on the right. */
+/* A session's HEAD node: the identity card at the left of its question chain. Shows the
+   session title / round count / status; clicking switches to the session (the current badge
+   sits here); right-click renames it. On hover (or keyboard focus) a bottom action row
+   appears: archive this session + its branches on the left, summarize this session on the right. */
 export const MindMapSessionHead = memo(function MindMapSessionHead({
   entry, title, isCurrent, isRunning, isAncestor, isHover, isHoverAncestor, ringPalette, onOpen, onMenu, onHover, summary, isSummarizing, isQueued,
   onArchive, onSummarize, canSummarize, summaryEnabled,
@@ -389,10 +379,9 @@ export const MindMapSessionHead = memo(function MindMapSessionHead({
         ? translate('mindmap.sessionSummary.queued')
         : (turns.length > 0 ? translate('mindmap.done') : translate('mindmap.session.waiting'))
   const statusLive = isRunning || isSummarizing || isQueued
-  /* Session-level AI summary (persisted on the session entry, read from the
-     CURRENT doc — the layout's session object is structure-memoized and would
-     be stale). Shown in the card's remaining space; the FULL text is one hover
-     away via the title attribute. */
+  /* Session-level AI summary (persisted on the session entry, read from the CURRENT doc —
+     the layout's session object is structure-memoized and would be stale). Shown in the
+     card's remaining space; the FULL text is one hover away via the title attribute. */
   const hasSummary = typeof summary === 'string' && summary !== ''
   const style = { left: entry.x, top: entry.y, width: entry.width, height: entry.height }
   if (ringPalette !== undefined) {
@@ -428,14 +417,13 @@ export const MindMapSessionHead = memo(function MindMapSessionHead({
     /* Remaining space: the session summary, smaller font, 4-line clamp. */
     h('div', { className: 'dsh-ws-mindmap-head-summary' + (hasSummary ? '' : ' dsh-ws-mindmap-head-summary-empty') },
       hasSummary ? summary : (turns.length > 0 ? translate('mindmap.head.summaryEmpty') : '')),
-    /* Hover-only action row (bottom-left archive / bottom-right summarize):
-       revealed by CSS on card hover or focus-within, so it never shifts the
-       fixed card box and stays keyboard reachable. Both buttons stop the
-       bubbling of click/keydown — the card's own handlers would otherwise
-       switch the session on the same event. Summarize is only offered while
-       the AI-summary feature is on (with it off the Host rejects the request).
-       Both carry an 11px glyph (archive box / sparkle) so the two heaviest
-       actions on a head card are not text-only. */
+    /* Hover-only action row (bottom-left archive / bottom-right summarize), revealed by
+       CSS on card hover or focus-within, so it never shifts the fixed card box and stays
+       keyboard reachable. Both buttons stop the bubbling of click/keydown — the card's own
+       handlers would otherwise switch the session on the same event. Summarize is offered
+       only while the AI-summary feature is on (with it off the Host rejects the request).
+       Both carry an 11px glyph (archive box / sparkle), so the two heaviest actions on a
+       head card are not text-only. */
     h('div', { className: 'dsh-ws-mindmap-head-actions' },
       h('button', {
         className: 'dsh-ws-mindmap-head-action dsh-ws-mindmap-head-action-danger',
@@ -457,10 +445,9 @@ export const MindMapSessionHead = memo(function MindMapSessionHead({
               : translate('mindmap.menu.summarizeSession'),
           type: 'button',
         },
-          /* "In flight" signal: while this session's summary is running (or queued behind another
-             one) the sparkle becomes the same pulsing dot the streaming status row uses. The button
-             stays disabled either way, but "already running" no longer looks like "nothing to
-             summarize" (0 rounds). */
+          /* "In flight" signal: while this session's summary runs (or is queued behind another)
+             the sparkle becomes the streaming status row's pulsing dot. The button stays disabled
+             either way, but "already running" no longer looks like "nothing to summarize" (0 rounds). */
           isSummarizing === true || isQueued === true
             ? h('span', { 'aria-hidden': true, className: 'dsh-ws-mindmap-head-action-dot' })
             : mindmapActionIcon('spark'),

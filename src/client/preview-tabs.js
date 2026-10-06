@@ -21,13 +21,12 @@ export function reviewAddressOfTab(tab) {
   return path.startsWith('review:') ? path.slice('review:'.length) : ''
 }
 export function isReviewTab(tab) { return tab !== null && tab !== undefined && tab.kind === 'review' }
-/* A tab that renders something other than a workspace file — a docked mind map, an opened plan, or a turn's change review. Such a tab has no file read, draft, editor state, or tree selection; the plan/review ones are also dropped from every persisted snapshot, while a docked mind map DOES persist under its dockedAt family key. */
+/* A tab rendering something other than a workspace file (a docked mind map, an opened plan, a turn's change review): it has no file read, draft, editor state, or tree selection; plan/review tabs are also dropped from every persisted snapshot, while a docked mind map DOES persist under its dockedAt family key. */
 export function isSyntheticTab(tab) { return isMindmapTab(tab) || isPlanTab(tab) || isReviewTab(tab) }
-/* Whether a tab is dropped from every persisted snapshot: an external (dropped-in
-   or outside-workspace) tab whose content lives only in memory, an opened plan, or
-   a turn's change review. A caller deciding "is there real content to persist"
-   must ask here, or a session-only tab would count as content and write an empty
-   snapshot over the anchor keys that may hold another session's saved tabs. */
+/* Whether a tab is dropped from every persisted snapshot: an external (dropped-in or
+   outside-workspace) tab whose content lives only in memory, an opened plan, or a turn's
+   change review. A caller deciding "is there real content to persist" must ask here, or a
+   session-only tab would write an empty snapshot over anchor keys holding another session's tabs. */
 export function isUnpersistedTab(tab) {
   return tab === null || tab === undefined || tab.external === true || isPlanTab(tab) || isReviewTab(tab)
 }
@@ -51,13 +50,12 @@ export function clonePreviewTab(tab) {
     encoding: typeof tab.encoding === 'string' && tab.encoding !== '' ? tab.encoding : 'utf-8',
     external: Boolean(tab.external),
     /* This tab's own preview text size (percent). ABSENT means "follow the settings page's base
-       size" — the state a tab returns to when its own value is cleared — so the field is left
-       undefined rather than defaulted to 100, and it rides the same snapshot as the tab itself. */
+       size" — where a tab returns to when its value is cleared — so it stays undefined rather than
+       defaulting to 100, and rides the same snapshot as the tab. */
     fontPercent: Number.isFinite(tab.fontPercent) ? clampFontPercent(tab.fontPercent) : undefined,
-    /* A read-only preview of a file OUTSIDE the workspace: it carries BOTH
-       `external` (no draft, no save, no change poll, no persistence) and
-       `outside` (the Remote may read its absolute path), which is what lets its
-       text render at all. */
+    /* A read-only preview of a file OUTSIDE the workspace: it carries BOTH `external`
+       (no draft, no save, no change poll, no persistence) and `outside` (the Remote may
+       read its absolute path), which is what lets its text render at all. */
     outside: Boolean(tab.outside),
     /* A mind-map tab carries the map's ROOT session id and renders a placeholder for the global map host's body container instead of a file. dockedAt records the persistence family key the tab was docked on, so restore can tell a map opened in this session from one leaked in from another. A plan tab carries its dsh-resource address in the synthetic path. */
     dockedAt: typeof tab.dockedAt === 'string' && tab.dockedAt !== '' ? tab.dockedAt : null,
@@ -78,23 +76,22 @@ export function clonePreviewTab(tab) {
     symlink: Boolean(tab.symlink),
   }
 }
-/* Persisted copy of a tab: like the live clone, but clean tabs carry no text — persisting every full draft hit the localStorage quota. Clean content is re-read on restore; only dirty tabs need their draft to survive. */
+/* Persisted copy of a tab: like the live clone, but clean tabs carry no text — persisting every full draft hit the localStorage quota; clean content is re-read on restore, only dirty tabs need their draft. */
 function serializePreviewTab(tab) {
   const clone = clonePreviewTab(tab)
   if (clone === null) return null
   // "Saving…" only exists while a save is in flight; never persist it as a stale banner.
   if (tab.saving) clone.status = undefined
-  // Error statuses are session-transient: replaying them would flash a stale error banner, so only the error flag is dropped.
+  // Error statuses are session-transient (replaying one would flash a stale banner), so only they are dropped.
   if (clone.status?.error === true) clone.status = undefined
   // Dropped-in AND outside-workspace files are session-only previews: content lives only in memory, so refresh drops them from every persisted snapshot.
   if (clone.external) return null
   /* A plan tab is a session-only rendering of a harness plan resource: its text is re-read from the session log (or expires), so persisting it would only store a path that must be re-resolved anyway. */
   if (clone.kind === 'plan') return null
-  /* A review tab renders one turn's changes read from the Host while that turn's
-     Session lives: its tab is a live view, so persisting the synthetic path
-     would only restore a tab that must re-read (or has nothing left to read). */
+  /* A review tab renders one turn's changes read from the Host while that turn's Session lives:
+     persisting the synthetic path would only restore a tab that must re-read (or has nothing left). */
   if (clone.kind === 'review') return null
-  // localStorage keeps only the dirty marker and tab metadata, never file content; the runtime-only marker tells a live tab apart from this content-free persisted representation.
+  // localStorage keeps only metadata, never file content: the runtime-only draftKnown marker tells a live tab apart from this content-free persisted copy.
   clone.baseText = ''
   clone.draft = ''
   clone.draftKnown = false
@@ -104,7 +101,7 @@ function serializePreviewTab(tab) {
 export function prunePreviewSessions(draft) {
   const entries = Object.entries(draft.previewSessions ?? {})
   if (entries.length <= PREVIEW_SESSION_MAX) return
-  /* Sort missing timestamps as newest so genuinely-old stamped sessions are pruned first; a non-numeric timestamp is coerced via Number() so the sort never yields NaN. */
+  /* Missing timestamps sort as newest, so genuinely-old stamped sessions are pruned first; Number() coercion keeps the sort from yielding NaN. */
   const stampOf = entry => {
     const value = Number(entry?.[1]?.updatedAt)
     return Number.isFinite(value) ? value : Infinity
@@ -112,16 +109,14 @@ export function prunePreviewSessions(draft) {
   entries.sort((a, b) => stampOf(b) - stampOf(a))
   for (const [key] of entries.slice(PREVIEW_SESSION_MAX)) delete draft.previewSessions[key]
 }
-/* A temporary ("preview") tab: the slot a single file-tree click opens, displaced
-   IN PLACE by the next single click on another file. It is runtime-only —
-   clonePreviewTab never carries the flag, so a restored tab is always permanent —
-   and a pinned tab is never a temporary slot. */
+/* A temporary ("preview") tab: the slot a single file-tree click opens, displaced IN PLACE
+   by the next single click on another file. It is runtime-only — clonePreviewTab never
+   carries the flag, so a restored tab is always permanent — and a pinned tab is never one. */
 export function isTemporaryTab(tab) {
   return tab !== null && tab !== undefined && tab.temporary === true && tab.pinned !== true
 }
-/** Whether `path` already has a tab. THE existence predicate: six call sites used to spell out
- *  `tabs.some(tab => tab.path === path)` (and one of them used `item`), so a future tab kind that
- *  keys on something other than `path` would have to be fixed in six places. */
+/** Whether `path` already has a tab. THE existence predicate: a future tab kind keying on
+ *  something other than `path` must be fixed here alone. */
 export function hasTabPath(tabs, path) {
   return (Array.isArray(tabs) ? tabs : []).some(tab => tab.path === path)
 }
@@ -149,15 +144,13 @@ export function openPermanentTab(tabs, tab) {
   const current = Array.isArray(tabs) ? tabs : []
   return hasTabPath(current, tab.path) ? promoteTemporaryTab(current, tab.path) : [...current, tab]
 }
-/* Single-click preview open. A target that is already open is returned untouched
-   (the caller only activates it: re-clicking a temporary tab must not promote it,
-   and the existing temporary slot is not closed). Otherwise the temporary slot is
-   replaced IN PLACE, so the strip never reorders. A temporary tab holding unsaved
-   work is never displaced: it is promoted to permanent and the new file opens in a
-   fresh temporary slot instead (a click must not bin edits that the 1s debounced
-   staging write may not have persisted yet).
-   Returns { tabs, replacedPath }: replacedPath is the displaced tab, whose runtime
-   refs the caller drops. It is clean by construction, so nothing is flushed. */
+/* Single-click preview open. An already-open target is returned untouched — the caller only
+   activates it: re-clicking a temporary tab must not promote it, and the existing temporary slot
+   is not closed. Otherwise the temporary slot is replaced IN PLACE, so the strip never reorders.
+   A temporary tab holding unsaved work is never displaced: it is promoted to permanent and the new
+   file opens in a fresh temporary slot instead (a click must not bin edits the 1s debounced staging
+   write may not have persisted yet). Returns { tabs, replacedPath }: replacedPath is the displaced
+   tab, whose runtime refs the caller drops; it is clean by construction, so nothing is flushed. */
 export function openPreviewTab(tabs, tab) {
   const current = Array.isArray(tabs) ? tabs : []
   if (current.some(item => item.path === tab.path)) return { tabs: current, replacedPath: null }
@@ -183,17 +176,15 @@ export function orderPinnedFirst(tabs) {
 }
 export function normalizePreviewSession(value, familyKey) {
   /* A docked mind-map tab must name the persistence family it was docked on: without that stamp
-     (or with another session's) restoring it could mount a foreign map in this strip, so such a
-     tab is not restorable and is dropped. The stamp is part of the format — a snapshot that lacks
-     it is not interpreted, it is cleaned (see persisted-state.js). */
+     (or with another session's) it would mount a foreign map in this strip, so such a tab is dropped.
+     The stamp is part of the format — a snapshot lacking it is not interpreted, it is cleaned (persisted-state.js). */
   const family = familyKey === undefined || familyKey === null ? null : String(familyKey)
   const seen = new Set()
   const tabs = Array.isArray(value?.tabs)
     ? value.tabs.map(clonePreviewTab).filter((tab) => {
         if (tab === null || seen.has(tab.path) || tab.external === true) return false
         /* A FILE tab's path is a workspace-relative tree path: an absolute path is not a tree path
-           (the Host refuses it with 400 invalid-path), so restoring one would only fire a doomed
-           directory read on every load. */
+           (the Host refuses it with 400 invalid-path), so restoring one would only fire a doomed read on every load. */
         if (tab.kind === 'file' && isAbsoluteWorkspacePath(tab.path)) return false
         if (tab.kind === 'mindmap' && (tab.dockedAt === null || tab.sessionId === null)) return false
         if (family !== null && tab.kind === 'mindmap' && tab.dockedAt !== family) return false
@@ -205,9 +196,8 @@ export function normalizePreviewSession(value, familyKey) {
     ? value.activePath
     : (tabs[0]?.path ?? null)
   const expanded = Array.isArray(value?.expanded)
-    /* A directory list is made of the same workspace-relative tree paths as the tabs, so an
-       absolute entry can never become valid and is dropped here rather than re-firing a refused
-       read on every load. */
+    /* A directory list holds the same workspace-relative tree paths as the tabs, so an absolute
+       entry can never become valid and is dropped here rather than re-firing a refused read on every load. */
     ? [...new Set(value.expanded.filter(path => typeof path === 'string' && path !== '' && !isAbsoluteWorkspacePath(path)))]
     : []
   return { activePath, tabs, expanded }
@@ -279,9 +269,8 @@ export function serializePreviewSession(activePath, tabs, expanded) {
 /* Structural identity for persistence dedup: what restore actually depends on (active path, tab paths + dirty flags, expanded dirs). Volatile fields must not participate, or the store would rewrite every render. */
 export function previewSnapshotFingerprint(value) {
   const tabs = Array.isArray(value?.tabs) ? value.tabs : []
-  // Restored-but-not-volatile metadata (e.g. encoding) participates, or the decode would revert after a refresh.
+  // Restored state (encoding, per-tab text size) participates, or the decode / size would revert after a refresh and changing only it would never reach localStorage.
   // JSON.stringify (not ','/':' joins): file names may contain commas and colons, which could otherwise collide into the same fingerprint.
-  // The per-tab text size participates too: it is restored state, so changing ONLY it must still reach localStorage.
   const tabPart = JSON.stringify(tabs.map(tab =>
     [tab.path, tab.kind === 'mindmap' ? 'm' : 'f', tab.kind === 'mindmap' ? (tab.sessionId ?? '') : '', tab.kind === 'mindmap' ? (tab.dockedAt ?? '') : '', tab.name, tab.dirty ? 1 : 0, tab.pinned ? 1 : 0, tab.encoding ?? '', tab.editing ? 1 : 0, tab.lineEnding ?? '', tab.bom ? 1 : 0, tab.baseRevision ?? '', tab.fontPercent ?? '']))
   const expandedPart = JSON.stringify(Array.isArray(value?.expanded) ? [...value.expanded].sort() : [])

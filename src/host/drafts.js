@@ -111,16 +111,14 @@ export async function readJsonStrict(target) {
   return isPlainObject(value) ? { status: 'ok', value } : { status: 'invalid' }
 }
 
-/* The only draft-record format this code reads. The version is written by every writer and
-   verified by every reader: a record of any other shape is unusable, so it is quarantined rather
-   than migrated (see quarantine.js). */
+/* The only draft-record format this code reads. The version is written by every writer and verified
+   by every reader: any other shape is unusable, so it is quarantined rather than migrated (quarantine.js). */
 const DRAFT_RECORD_VERSION = 2
 const DRAFT_REVISION_RE = /^[a-f0-9]{64}$/u
 
-/* Whether one stored draft record satisfies the current format. `owner` is the owner whose
-   directory the record was found in (undefined = the ownerless namespace): a record declaring a
-   different owner, or a path other than the one its file name is derived from, cannot be reached
-   by any reader and is therefore unusable, not merely foreign. */
+/* Whether one stored draft record satisfies the current format. `owner` is the owner whose directory
+   the record was found in (undefined = the ownerless namespace): a record declaring a different owner,
+   or a path other than its file name's, can be reached by no reader — unusable, not merely foreign. */
 function isDraftRecordUsable(value, relativePath, owner) {
   if (!isPlainObject(value) || value.version !== DRAFT_RECORD_VERSION) return false
   if (typeof value.path !== 'string' || value.path !== relativePath) return false
@@ -428,7 +426,7 @@ async function listDraftRecords(workspaceId, owner) {
   return records
 }
 
-/* Deletes write a tombstone instead of unlinking. The durable generation fence lives in .generation.json, so a tombstone's only jobs are suppressing restore of a discarded draft and idempotent duplicate deletes. Reclaim tombstones older than the retention window whenever a tree op already holds the full record list, keeping the directory bounded without touching the fence. */
+/* Deletes write a tombstone instead of unlinking. The durable generation fence lives in .generation.json, so a tombstone's only jobs are suppressing restore of a discarded draft and idempotent duplicate deletes. Reclaim ones older than the retention window whenever a tree op already holds the record list, keeping the directory bounded without touching the fence. */
 const DRAFT_TOMBSTONE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 async function pruneDraftTombstones(records, owner) {
   const now = Date.now()
@@ -444,7 +442,7 @@ async function pruneDraftTombstones(records, owner) {
   }
 }
 
-/* Undo a partial draft tree operation: restore (or remove) every file this call wrote, newest first. Each write entry tracks its target's PRIOR content (null = the path did not exist), so a rollback restores exactly what was there before. Best-effort: a failed rollback entry is collected, never silently thrown away by the caller. */
+/* Undo a partial draft tree operation: restore (or remove) every file this call wrote, newest first. Each write entry tracks its target's PRIOR content (null = the path did not exist), so a rollback restores exactly what was there before. Best-effort: a failed entry is collected, never silently thrown away. */
 async function rollbackDraftWrites(writes) {
   const failures = []
   for (let index = writes.length - 1; index >= 0; index -= 1) {

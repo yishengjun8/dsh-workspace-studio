@@ -182,10 +182,9 @@ export function InterpreterDialog({ mode, workspaceId, path, plan, row, ext, fam
     : h('div', { className: 'dsh-ws-interp-line', 'data-tone': 'warn' },
       translate('run.interp.dlg.stale', { path: view.stale.path, source: runInterpreterSourceLabel(view.source, view.ext) }))
 
-  /* Windows shell note: the settings page passes the platform so a `.sh` row explains itself even
-     when a Git Bash is already configured — pointing `.sh` at the WSL launcher is the classic
-     mistake here. (When NO bash exists at all the console shows its amber card from the Host's
-     `plan.hint` instead; see explorer/run-panel.js.) */
+  /* Windows shell note: the settings page passes the platform so a `.sh` row explains itself even when a
+     Git Bash is already configured — pointing `.sh` at the WSL launcher is the classic mistake here. (With
+     no bash at all the console shows its amber card from the Host's `plan.hint`; see explorer/run-panel.js.) */
   const shellNote = view.family === 'shell' && platform === 'win32' && view.ext !== 'zsh'
     ? h('div', { className: 'dsh-ws-interp-line', 'data-tone': 'warn' }, translate('run.unavailable.shellWindows'))
     : null

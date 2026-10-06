@@ -1,13 +1,13 @@
 /* The settings page's row/card design system.
  *
- * Every card in the settings page is the same three-column grid — label | control | reset slot — so the
- * controls line up down the page, and every card body is the same collapsible shell. These primitives
- * therefore do not belong to any one card: they live here so a card module can be moved out of
- * settings.js without dragging the whole page (or re-implementing a row) with it.
+ * Every card is the same three-column grid — label | control | reset slot — so the controls line up down the
+ * page, and every card body is the same collapsible shell. These primitives therefore belong to no one card:
+ * they live here so a card module can move out of settings.js without dragging the whole page (or
+ * re-implementing a row) with it.
  *
  * The search/filter that walks this markup (applySettingsFilter, in settings.js) keys off the
- * `data-unit` / `data-block` / `data-label` attributes set here — those three attributes are the
- * contract between this file and that filter, so they stay in one place.
+ * `data-unit` / `data-block` / `data-label` attributes set here — those three are the contract between this
+ * file and that filter, so they stay in one place.
  */
 import { createElement as h, useState } from 'react'
 import { translate } from '../locale/index.js'

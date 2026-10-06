@@ -1,13 +1,13 @@
 /** Workspace collections: the module-level store plus the pure view model.
  *
  * A collection is a named, ordered set of Harness workspaces; the Harness registry stays the
- * authority on which workspaces exist, so every projection here intersects a collection's stored
- * ids with the workspaces actually present (a dangling id is simply not shown).
+ * authority on which workspaces exist, so every projection intersects the stored ids with the
+ * workspaces actually present (a dangling id is simply not shown).
  *
  * The store is module-level (like resourceNoticeStore) because two unrelated surfaces read it: the
- * dropdown portal inside the Harness sidebar header and the document-level workspace-row context
- * menu. The Host owns the durable copy (collections/collections.json); this store is a render tail
- * over it and never persists anything itself.
+ * dropdown portal in the Harness sidebar header and the document-level workspace-row context menu.
+ * The Host owns the durable copy (collections/collections.json); this store is a render tail over
+ * it and never persists anything itself.
  */
 import { COLLECTION_ALL_ID, COLLECTION_LIMIT, COLLECTION_NAME_MAX, COLLECTION_UNOWNED_ID, WORKSPACE_GROUP_BY_DEFAULT, WORKSPACE_VIEW_STORE_KEY } from './constants.js'
 
@@ -153,9 +153,8 @@ function memberWorkspaceIds(doc, collectionId) {
  * Whether one workspace appears under the given view.
  *
  * The single visibility rule the whole feature hangs on: the built-in "all workspaces" view shows
- * everything, the built-in "unowned workspaces" view shows exactly the workspaces that belong to no
- * collection, and a user collection shows its stored members (ids without a registry entry simply
- * never match a real workspace).
+ * everything, the built-in "unowned workspaces" view shows exactly the workspaces in no collection,
+ * and a user collection shows its stored members (ids without a registry entry simply never match).
  *
  * @param doc - normalized collection document.
  * @param collectionId - the view/collection being shown.
@@ -239,7 +238,7 @@ export function collectionClickAction(doc, id) {
   if (id === COLLECTION_ALL_ID) return { same: true, notice: { key: 'collections.showAll' } }
   if (id === COLLECTION_UNOWNED_ID) return { same: true, notice: { key: 'collections.showUnowned' } }
   /* A stored selection always names an existing collection (the Host refuses a dangling one), so the
-     id is the honest fallback here instead of a claim about a collection that is not there. */
+     id is the honest fallback rather than a claim about a collection that is not there. */
   const name = collectionById(doc, id)?.name ?? String(id)
   return { same: true, notice: { key: 'collections.alreadyIn', params: { name } } }
 }
@@ -247,11 +246,10 @@ export function collectionClickAction(doc, id) {
 /**
  * The Harness workspace-browser grouping mode, read from its persisted view store.
  *
- * This is a deliberate harness coupling point: `groupBy` lives in ui-workspace's own persisted store
- * and no service exposes it. The key is only written once the user changes a view option, so an
- * absent/unreadable value means "the harness default" ('workspace') — which is also the mode this
- * feature needs, so a future harness rename degrades to "the dropdown still works" instead of
- * "the sidebar is empty".
+ * Deliberate harness coupling point: `groupBy` lives in ui-workspace's own persisted store and no
+ * service exposes it. The key is only written once the user changes a view option, so an
+ * absent/unreadable value means "the harness default" ('workspace') — also the mode this feature
+ * needs, so a future harness rename degrades to "the dropdown still works", not "the sidebar is empty".
  * @returns 'workspace' | 'workspace-tree' | 'flat'.
  */
 export function readHarnessGroupBy() {

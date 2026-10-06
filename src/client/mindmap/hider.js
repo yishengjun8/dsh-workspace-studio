@@ -6,33 +6,30 @@ import { mindmapRegistry } from './registry.js'
 
 /* Hides mind-map family sessions (root + every fork descendant) from the
    sidebar list; each mind map is shown by its self-drawn entry instead. Rows
-   are matched by title and rescanned on DOM mutations / index changes. A title
-   hides a row only when every session with that title is hidden; the current
-   blank session is matched structurally (selected row without a time cell) and
-   only when it belongs to a mind-map family.
+   are matched by title — a title hides a row only when every session with it is
+   hidden — and rescanned on DOM mutations / index changes; the current blank
+   session is matched structurally (selected row without a time cell), only
+   inside a mind-map family.
 
-   Scan cost is bounded: mutation records are filtered before a scan is
-   scheduled (only session rows / overflow buttons can change hiding or counts),
-   apply() skips DOM writes when the scan result signature is unchanged, and
-   the body guard re-anchors only when the observed target was actually
-   replaced. The observer also watches class attributes, since React rewrites a
-   row's className when it becomes the current session and would wipe the hidden
-   class without a childList record; such rewrites are re-hidden within the same
-   animation frame so the row never flashes visible.
+   Scan cost is bounded: records are filtered to row/overflow mutations before a
+   scan is scheduled, an unchanged scan signature skips every DOM write, and the
+   body guard re-anchors only when the observed target was replaced. Class
+   attributes are watched because React's className rewrite on becoming the
+   current session wipes the hidden class with no childList record; those
+   rewrites are re-hidden in the same animation frame, so no flash.
 
-   Hiding has TWO outputs on purpose (a stylesheet plus the row class):
-   the Harness sidebar animates row movement with a FLIP that measures the
-   post-update row rects INSIDE the React commit (AnimatedRows'
-   getSnapshotBeforeUpdate / componentDidUpdate) and then translates each row by
-   the measured delta. A row this hider removes only AFTER that measurement
-   (the observer callback runs after the commit) makes every measured delta
-   below it stale by exactly the removed height — the rows below then start
-   above their final place and glide too far, which reads as "the group expands
-   and everything under it rolls down from far above". The decision is therefore
+   Hiding has TWO outputs on purpose (a stylesheet plus the row class). The
+   Harness sidebar's row animation is a FLIP that measures post-update row rects
+   INSIDE the React commit (AnimatedRows' getSnapshotBeforeUpdate /
+   componentDidUpdate) and translates each row by the measured delta; a row
+   removed only AFTER that measurement (the observer callback runs after the
+   commit) makes every delta below it stale by the removed height, so those rows
+   start above their final place and glide too far — "the group expands and
+   everything under it rolls down from far above". The decision is therefore
    ALSO published as selectors (same idiom as the collections filter): a row the
-   census already knows about carries `display:none` from the moment React
-   inserts it, so it never enters that measurement. The class pass stays as the
-   belt-and-braces path — it is also what the overflow COUNT pass reads. */
+   census already knows carries `display:none` from the moment React inserts it,
+   so it never enters that measurement. The class pass stays as belt-and-braces
+   — it is also what the overflow COUNT pass reads. */
 
 /* The published-sheet id; one sheet per install, removed on dispose. */
 const HIDDEN_ROWS_STYLE_ID = 'dsh-ws-mindmap-hidden-rows'
@@ -43,9 +40,8 @@ const hiddenRowsSheet = createStyleSheet(HIDDEN_ROWS_STYLE_ID)
 const HIDDEN_SESSION_RULE_MAX = 4000
 const REGION = '[data-slot="sidebar.workspaces"]'
 
-/* Selectors are built from ids the Harness minted (never from user text); they
-   are still escaped because a quote inside an id would break out of the
-   attribute selector. */
+/* Selectors are built from Harness-minted ids (never user text) but are still
+   escaped: a quote inside an id would break out of the attribute selector. */
 const escapeAttribute = (value) => String(value).replaceAll('\\', '\\\\').replaceAll('"', '\\"')
 
 /** Selectors that keep the census-hidden rows and pointless overflow buttons out of layout.
@@ -77,11 +73,10 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
      row states + overflow-button texts): an identical scan writes nothing. */
   let lastSignature = null
   /* Original textContent of every overflow button whose count this hider
-     patched, so the number can be restored when the patch no longer applies
-     (all docs gone, group fully hidden, or dispose) — the harness re-renders
-     the button on session changes, but a static group would keep the patched
-     small number forever. Also marks a button as "patched by us" for the
-     mutation filter below. */
+     patched, so it can be restored when the patch no longer applies (all docs
+     gone, group fully hidden, or dispose): the harness re-renders the button on
+     session changes, but a static group would keep the patched number forever.
+     Also marks a button as "patched by us" for the mutation filter below. */
   const patchedButtons = new WeakMap()
   const restoreButtonText = (button) => {
     const original = patchedButtons.get(button)
@@ -92,20 +87,17 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
       patchedButtons.delete(button)
     }
   }
-  /* The published sheet (see the module header): one shared style-sheet primitive, so "create lazily,
-     reuse a leftover element, write only on change, remove on dispose" exists once. */
+  /* The published sheet (see the module header): the shared style-sheet primitive owns create-lazily / reuse / write-on-change / dispose in one place. */
   const publishHiddenRows = (css) => hiddenRowsSheet.publish(css)
-  /* Whether a mutation batch can change what this hider renders: a session
-     row or an overflow button added / removed / rewritten — everything else
-     (the mind-map panel's own button/label renders, seat re-anchors,
-     decorative nodes, and this hider's own count patches) cannot alter any
-     hidden class or count. */
+  /* Whether a mutation batch can change what this hider renders: a session row
+     or overflow button added / removed / rewritten — everything else (panel
+     button/label renders, seat re-anchors, decorative nodes, this hider's own
+     count patches) cannot alter any hidden class or count. */
   const mutatesHiderState = (records) => {
     for (const record of records) {
-      /* Attribute records are handled exclusively by wipesHiddenRowClass
-         below (row-class rewrites → frame path): every other attribute
-         change (child-span classes, panel buttons) cannot alter hiding or
-         counts and must not schedule the throttled scan. */
+      /* Attribute records are handled exclusively by wipesHiddenRowClass below
+         (row-class rewrites → frame path): every other attribute change cannot
+         alter hiding or counts and must not schedule the throttled scan. */
       if (record.type === 'attributes') continue
       const target = record.target
       if (target instanceof Element) {
@@ -253,10 +245,9 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
        every write (class toggles, count patches) and the per-group pass. */
     if (signature === lastSignature) return
     lastSignature = signature
-    /* Data-side twin of the row pass below — the SAME census, keyed by session
-       id instead of by rendered row. The sheet has to be in place BEFORE the
-       Harness renders these rows, which is exactly what keeps them out of its
-       row-animation measurement (see the module header). */
+    /* Data-side twin of the row pass below — the same census keyed by session id
+       instead of a rendered row: the sheet must be in place BEFORE the Harness
+       renders these rows to keep them out of its animation measurement (header). */
     const hiddenIds = new Set()
     for (const id of list.ids) {
       const summary = list.byId[id]
@@ -264,23 +255,20 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
       const key = String(id)
       const title = typeof summary.displayTitle === 'string' ? summary.displayTitle.trim() : ''
       /* Exactly the row pass's rule: a title vote hides the row whatever its
-         archive flag (that pass matches rendered rows by title too), and a
-         blank row only ever renders for the CURRENT session — which is the
-         shape the structural branch there detects. */
+         archive flag, and a blank row only ever renders for the CURRENT session
+         — the shape the structural branch there detects. */
       const matched = summary.blank
         ? blankFamilyCurrent && key === String(currentId)
         : title !== '' && hideTitles.has(title)
       if (matched) hiddenIds.add(key)
     }
-    /* An overflow button whose whole group is hidden has nothing left to
-       reveal (that group's mind-map entries are its access path), so it must
-       leave the layout with those rows — hidden a frame later it would skew the
-       same animation by its own height. The condition is therefore the strict
-       one: EVERY session of the group is either already hidden, or one the
-       Harness would not render in this group anyway (its own sessionVisible:
-       an unknown id, a non-current blank session, or an archived session under
-       the default archived filter — never under `show` / `only`, where those
-       rows are exactly what the button would reveal). */
+    /* An overflow button whose whole group is hidden has nothing left to reveal
+       (that group's mind-map entries are its access path), so it must leave the
+       layout with those rows — a frame later it would skew the same animation by
+       its own height. The test is strict: every group session is hidden or one
+       the Harness would not render here anyway (its sessionVisible: unknown id,
+       non-current blank, archived under the default filter — never under `show` /
+       `only`, where those rows are exactly what the button reveals). */
     const archivedFilter = getArchivedFilter?.() ?? 'default'
     const buttonKeys = []
     const allHidden = (ids) => ids.length > 0 && ids.every((id) => {
@@ -297,16 +285,14 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
       if (workspaceId === '') continue
       if (allHidden(workspace.sessionIds ?? [])) buttonKeys.push(workspaceId)
     }
-    /* The ungrouped bucket (group key, and therefore button key, `''`) owns the
-       sessions no workspace lists — the same set the count pass derives. */
+    /* The ungrouped bucket (group key, and therefore button key, `''`) owns the sessions no workspace lists — the same set the count pass derives. */
     if (allHidden(list.ids.map(String).filter(id => !accounted.has(id)))) buttonKeys.push('')
     publishHiddenRows(hiddenRowsCss(hiddenIds, buttonKeys))
     for (const decision of rowDecisions) {
       decision.row.classList.toggle('dsh-ws-mindmap-hidden-row', decision.matched)
     }
-    /* The harness sizes the overflow button from group.sessions.length (which
-       includes hidden rows) — recompute the visible remainder, patch the count
-       or hide the button when nothing is left behind. */
+    /* The harness sizes the overflow button from group.sessions.length (hidden
+       rows included) — recompute the visible remainder, then patch or hide it. */
     for (const header of browser.querySelectorAll('[role="treeitem"][aria-expanded]')) {
       /* Real-workspace headers sit inside a HoverCard span (ungrouped header
          does not); walk up to the section holding the overflow button. */
@@ -337,13 +323,11 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
         ids = list.ids.filter(id => !accounted.has(String(id)))
       }
       /* Count the group's sessions the way the harness renders them, minus
-         titles this hider hides. Subagent sessions ARE rendered as rows (the
-         session list shows them), so they must count here — excluding them
-         would make `remaining` negative in mixed groups and wrongly hide the
-         overflow button (its hidden mindmap rows became unreachable).
-         Archived sessions and blank non-current sessions are not rendered by
-         the harness, so they stay excluded (sectionRows does not contain
-         them). */
+         titles this hider hides. Subagent sessions ARE rendered as rows, so they
+         must count here — excluding them makes `remaining` negative in mixed
+         groups and wrongly hides the overflow button (its hidden mindmap rows
+         became unreachable). Archived and blank non-current sessions are not
+         rendered by the harness, so they stay excluded (sectionRows has none). */
       let visibleCount = 0
       for (const id of ids) {
         const summary = list.byId[id]
@@ -354,12 +338,11 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
         if (title === '' || hideTitles.has(title)) continue
         visibleCount += 1
       }
-      /* A visible blank CURRENT session renders as a provisional New Session
-         row, so the harness counts it among the group's rendered rows and the
-         recomputed remainder must count it too (its stored title is empty and
-         the loop above skips it). When this hider hides the blank family row,
-         it behaves like the hidden rows: excluded here, counted by
-         hiddenInRows below. */
+      /* A visible blank CURRENT session renders as a provisional New Session row,
+         so the harness counts it among the group's rendered rows and the
+         recomputed remainder must too (its stored title is empty and the loop
+         above skips it). When this hider hides that blank family row it behaves
+         like the hidden rows: excluded here, counted by hiddenInRows below. */
       if (!blankFamilyCurrent && currentId !== null && ids.includes(currentId)
         && list.byId[currentId]?.blank === true) visibleCount += 1
       const remaining = visibleCount - (sectionRows.length - hiddenInRows)
@@ -383,10 +366,9 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
     }
   }
   /* Whether a mutation batch ADDS session rows or overflow buttons — the
-     expand/collapse case. These nodes appear only when the user expands a
-     group (rows) or collapses it (overflow button); hiding / count patches
-     must run BEFORE the browser paints them, or the 400 ms throttle leaves
-     family rows visible for a flash. */
+     expand/collapse case. These appear only when the user expands a group (rows)
+     or collapses it (button); hiding / count patches must run BEFORE the browser
+     paints them, or the 400 ms throttle leaves rows visible for a flash. */
   const addsHiderNodes = (records) => {
     for (const record of records) {
       for (const node of record.addedNodes) {
@@ -398,15 +380,13 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
     return false
   }
   /* Whether a mutation batch REWROTE a session row's class attribute. The
-     harness re-renders rows through React, and React owns each row's
-     className: when a hidden family row becomes (or stops being) the CURRENT
-     session, the selected-class toggle rewrites the whole class list and
-     wipes dsh-ws-mindmap-hidden-row. Only class writes ON the row element
-     itself can do that (child-span class churn cannot), so the filter
-     matches the row exactly — panel buttons and the overflow button (whose
-     className is a constant string in the harness, never rewritten) never
-     match, and this hider's own toggles re-enter here once and settle on an
-     identical signature. */
+     harness re-renders rows through React, and React owns each row's className:
+     when a hidden family row becomes (or stops being) the CURRENT session, the
+     selected-class toggle rewrites the whole class list and wipes
+     dsh-ws-mindmap-hidden-row. Only class writes ON the row element itself can
+     do that, so the filter matches the row exactly — panel buttons and the
+     overflow button (constant className in the harness) never match, and this
+     hider's own toggles re-enter here once and settle on an identical signature. */
   const wipesHiddenRowClass = (records) => {
     for (const record of records) {
       if (record.type !== 'attributes' || record.attributeName !== 'class') continue
@@ -416,11 +396,10 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
     return false
   }
   /* Time throttle: the observer fires per DOM mutation; one scan per throttle
-     window keeps the hiding fresh without global jank. The slot may be
-     re-created by the harness WITHOUT a body-direct childList change (deep
-     subtree replacement, which the body-level guard observer cannot see):
-     re-anchor here, inside the throttled callback, so a stale slot never
-     leaves the hider dead until the next registry change. */
+     window keeps hiding fresh without global jank. The slot may be re-created by
+     the harness WITHOUT a body-direct childList change (deep subtree
+     replacement, invisible to the body guard), so re-anchor here inside the
+     throttled callback — a stale slot must never leave the hider dead. */
   const schedule = (records) => {
     if (records !== undefined && records.length > 0 && addsHiderNodes(records)) {
       /* Expansion/collapse: scan synchronously — the observer callback runs
@@ -447,35 +426,31 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
       return
     }
     if (timer !== 0) return
-    /* Mutation filter: a scan is only needed when the batch can change hiding
-       state (a session row or an overflow button touched) — see the header
-       comment. Registry pushes (no records) always scan. */
+    /* Mutation filter (header): scan only when the batch can change hiding state
+       (a row or overflow button touched). Registry pushes (no records) always scan. */
     if (records !== undefined && records.length > 0 && !mutatesHiderState(records)) return
     const wait = Math.max(0, MINDMAP_HIDER_THROTTLE_MS - (Date.now() - lastRun))
     timer = window.setTimeout(() => { timer = 0; ensureObserved(); apply() }, wait)
   }
-  /* Observe ONLY the sidebar workspaces slot (the hider only touches rows
-     there): chat streaming churn (characterData + childList on the chat
-     column) no longer schedules scans. The slot may be re-created by the
-     harness, so a body-level childList guard re-anchors the observer when
-     the slot node is replaced (or first appears — until then the observer
-     falls back to body, whose subtree mutations cover the slot's creation). */
+  /* Observe ONLY the sidebar workspaces slot (the hider only touches rows there),
+     so chat streaming churn no longer schedules scans. The slot may be re-created
+     by the harness, so a body-level childList guard re-anchors the observer when
+     it is replaced (or first appears — until then the observer falls back to
+     body, whose subtree mutations cover the slot's creation). */
   let observedTarget = null
   const ensureObserved = () => {
     const target = document.querySelector('[data-slot="sidebar.workspaces"]') ?? document.body
     if (observedTarget === target) return
     observer.disconnect()
     observedTarget = target
-    /* Class attributes are watched for the row-rewrite path above: React
-       wiping dsh-ws-mindmap-hidden-row produces NO childList record, so the
-       observer must see attribute writes on the slot's rows too. */
+    /* Class attributes are watched for the row-rewrite path above: React wiping
+       dsh-ws-mindmap-hidden-row emits NO childList record. */
     observer.observe(target, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] })
   }
   const observer = new MutationObserver(schedule)
   /* Guard: re-anchor ONLY when the observed target was actually replaced
-     (disconnected) — plain body churn (portals, toasts, dialogs) does zero
-     work. The slot's creation/replacement is itself one of these mutations,
-     so the refresh happens within the same batch. */
+     (disconnected) — plain body churn (portals, toasts, dialogs) does zero work,
+     and the slot's own creation/replacement is one of these mutations. */
   const guardObserver = new MutationObserver(() => {
     if (observedTarget === null || !observedTarget.isConnected) ensureObserved()
   })

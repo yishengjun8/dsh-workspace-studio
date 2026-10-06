@@ -1,6 +1,6 @@
 export const PACKAGE_ID = '@yishengjun8/dsh-workspace-studio'
 export const API_PREFIX = '/workspace-studio/api'
-/* Plugin self-update: the download+install round trip makes a real network call, so it gets a longer timeout than a generic request. Both budgets stay ABOVE the Host's own bounds (30 s for the check's codeload fetch, 120 s for the install fetch) plus its gunzip/extract/verify work, so a slow network surfaces the Host's specific error message instead of an opaque client-side abort. */
+/* Plugin self-update: a real network round trip, so a longer timeout than a generic request. Both budgets stay ABOVE the Host's own bounds (30 s check codeload fetch, 120 s install fetch) plus its gunzip/extract/verify work, so a slow network surfaces the Host's error instead of an opaque client-side abort. */
 export const UPDATE_CHECK_TIMEOUT_MS = 60_000
 export const UPDATE_DOWNLOAD_TIMEOUT_MS = 180_000
 /* Token statistics: the first-ever scan walks every session log on the Host (subsequent opens hit the revision-guarded index), so the request gets a long timeout like the update download. */
@@ -31,11 +31,11 @@ export const TOKEN_PRICE_MAX_LENGTH = 14
    dropped by the persisted-state gate. */
 export const TOKEN_PRICE_FIELDS = Object.freeze(['input', 'cacheRead', 'output'])
 export const TOKEN_PRICE_DEFAULT_CURRENCY = '¥'
-/* Token-stats panel geometry: the draggable divider between the model-detail column and the
-   quick-calculator column. Its own key (not the explorer layout key) because that key is
-   serialized wholesale by its store, so a foreign field written into it would be wiped on the
-   store's next write. 0 = never dragged: the panel then uses the built-in column ratio, so the
-   two columns keep scaling with the window; any other value is the left column's pixel width. */
+/* Token-stats panel geometry: the draggable divider between the model-detail and
+   quick-calculator columns. Its own key (not the explorer layout key, which its store
+   serializes wholesale and would wipe a foreign field on the next write). 0 = never
+   dragged: the panel uses the built-in column ratio, so both columns keep scaling with
+   the window; any other value is the left column's pixel width. */
 export const TOKEN_LAYOUT_STORE_KEY = 'dsh.workspace.studio.token-layout.v1'
 export const TOKEN_SPLIT_DEFAULT = 0, TOKEN_SPLIT_MIN = 380, TOKEN_SPLIT_MAX = 980, TOKEN_SPLIT_RIGHT_MIN = 440
 export const SIDEBAR_DEFAULT = 280, SIDEBAR_COLLAPSED = 56, SIDEBAR_MIN = 240, SIDEBAR_MAX_RATIO = 0.8, SIDEBAR_MAX_FALLBACK = 420

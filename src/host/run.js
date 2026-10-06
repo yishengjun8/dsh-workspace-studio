@@ -1,7 +1,7 @@
 /** Executable-file runner: workspace-confined command plans, a per-file process registry, and
  *  a bounded output buffer the preview column reads back incrementally.
  *
- *  Safety model (the reason this file is deliberately boring):
+ *  Safety model:
  *   - only whitelisted extensions (plus POSIX executable-bit files) can be planned at all;
  *   - the command is an argv ARRAY handed to spawn/execFile — there is never a shell, so no
  *     quoting/escaping surface and no injection from the user's argument text;
@@ -39,12 +39,11 @@ const RUN_SETTLED_KEEP_MS = 10 * 60 * 1000
 const RUN_MAX_CONCURRENT = 8
 /* SIGTERM → force-kill grace period. Windows goes straight to a forced tree kill. */
 const RUN_KILL_GRACE_MS = 1500
-/* A child that exits while a process it spawned still holds the stdout/stderr pipes never emits
-   'close'. The run must still settle (otherwise the console is stuck on 「正在停止…」/「运行中」
-   forever), so 'exit' arms this short drain timer as a deadline for 'close'. */
+/* A child whose own child still holds the stdio pipes never emits 'close'; 'exit' arms this short drain
+   deadline so the run settles instead of the console sticking on 「正在停止…」/「运行中」 forever. */
 const RUN_EXIT_DRAIN_MS = 400
-/* Windows tree kill: enumerate the descendants ourselves (taskkill /T alone can miss a grandchild
-   whose parent already died), retry once, and only then report a failure. */
+/* Windows tree kill: enumerate the descendants ourselves, retry once, and only then report a failure
+   (taskkill /T can miss a grandchild — see windowsDescendantPids). */
 const RUN_WINDOWS_KILL_RETRY_MS = 1200
 const RUN_WINDOWS_QUERY_TIMEOUT_MS = 8000
 /* Text handed to one status poll, so a chatty child cannot return a multi-megabyte JSON body.
@@ -334,8 +333,8 @@ function normalizePolicy(value) {
       kept += 1
     }
   }
-  /* Everything the current schema does not name is dropped, which is how the retired
-     per-family `interpreters` map disappears: it is never read back as a tier. */
+  /* Fields the current schema does not name are dropped, so the retired per-family
+     `interpreters` map is never read back as a tier. */
   return { trusted, extensions, files }
 }
 
@@ -446,8 +445,8 @@ export async function writeRunPolicy(workspaceId, payload, queues) {
     throw new HttpError(400, 'invalid-run-policy', '没有要更新的运行设置')
   }
   const policy = await serializeWrite(queues, 'run:policy', async () => {
-    /* readRunPolicyStore returns the NORMALIZED policy, so writing it back also drops every field
-       this schema does not name (notably the retired per-family `interpreters` map). */
+    /* The store returns the NORMALIZED policy, so writing it back also drops every unnamed field
+       (notably the retired per-family `interpreters` map). */
     const current = await readRunPolicyStore()
     if (trustedPatch !== undefined) {
       const key = String(workspaceId)
@@ -553,10 +552,10 @@ export async function buildRunPlan(workspace, relativePath, options = {}) {
     interpreter: null,
     interpreterName: null,
     interpreterOverride: false,
-    /* Where the resolved interpreter came from ('file' | 'extension' | 'auto' | 'direct' — the client
-       also understands the retired 'family' tier, which only an unrestarted older Host can send),
-       which path an override requested, and the highest-priority tier that was skipped because its
-       path is no longer executable. `fileKey` is this file's own policy key (its absolute path). */
+    /* Where the resolved interpreter came from ('file' | 'extension' | 'auto' | 'direct'; the client also
+       understands the retired 'family' tier an unrestarted older Host may send), the path an override
+       requested, and the highest tier skipped because its path is no longer executable. `fileKey` is this
+       file's own policy key (its absolute path). */
     interpreterSource: null,
     interpreterRequested: null,
     interpreterStaleScope: null,

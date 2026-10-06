@@ -17,11 +17,9 @@ export function useSearchState({ workspaceId, settings }) {
     const runSearch=useCallback(async(query)=>{searchController.current?.abort();if(query.trim()===''){setSearchState({state:'idle'});setSearchExpanded(new Set());return}lastSubmittedQueryRef.current=searchComboKey(query,searchCaseSensitive,searchNameOnly);const controller=new AbortController();searchController.current=controller;setSearchState({state:'searching'});try{const result=await requestSearch(workspaceId,query,searchCaseSensitive,searchNameOnly,controller.signal);if(searchController.current===controller){setSearchState({state:'done',result});setSearchExpanded(new Set((settings.expandSearchMatches ?? SEARCH_MATCH_EXPAND_DEFAULT)?result.files.map(file=>file.path):[]))}}catch(error){/* A TIMEOUT is a real failure, not a cancellation (the AbortError name is shared); surface it or the panel stays "searching" forever. */if(error?.name==='AbortError'&&error?.reason?.name!=='TimeoutError')return;if(searchController.current===controller)setSearchState({state:'error',message:error instanceof Error?error.message:String(error)})}},[searchCaseSensitive,searchNameOnly,settings.expandSearchMatches,workspaceId])
   const closeSearch=useCallback(()=>{searchController.current?.abort();searchController.current=undefined;setSearchExpanded(new Set());setSearchOpen(false);setSearchQuery('');setSearchState({state:'idle'});lastSubmittedQueryRef.current=''},[])
     const toggleSearchFile=useCallback((path)=>{setSearchExpanded(prev=>{const next=new Set(prev);if(next.has(path))next.delete(path);else next.add(path);return next})},[])
-  /* Debounced search while the panel is open. */
   useEffect(() => {
     if (!searchOpen) return undefined
     const timer = setTimeout(() => {
-      /* Skip a combo already submitted via Enter; toggling options changes the combo, so only an exact repeat is skipped. */
       if (lastSubmittedQueryRef.current !== searchComboKey(searchQuery, searchCaseSensitive, searchNameOnly)) void runSearch(searchQuery)
     }, 300)
     return () => clearTimeout(timer)

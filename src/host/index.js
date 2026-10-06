@@ -664,7 +664,7 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
       sendJson(req, res, 200, await openInDefaultApp(workspace, relativePath))
       return
     }
-    /* Cheap change check for open preview tabs: the client polls this on a fixed cadence (no SSE push). The previous snapshot is parsed once and passed into fileChangeSnapshot so an unchanged mtime/size short-circuits before the hash, then the returned snapshot is compared for the client's `changed` answer. Scoped to the FILE endpoint's read methods: a stray `check=1` on /tree, /entry or a PUT must never hijack the real operation. */
+    /* Scoped to the FILE endpoint: a stray `check=1` on /tree, /entry or a PUT must never hijack the real operation, and the client's `changed` answer comes from the snapshot comparison below. */
     /* Cheap change check for open preview tabs: the client polls this on a fixed cadence (no SSE push).
        POST (not GET) so the previous snapshot travels in the body: a JSON blob in a query string was
        both opaque and length-bound, and the polling tab count decides how many of them are in flight.

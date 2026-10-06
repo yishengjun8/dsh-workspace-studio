@@ -16,7 +16,7 @@ const queuePendingSince = new Map()
 
 export async function serializeWrite(queues, key, operation) {
   const previous = queues.get(key) ?? Promise.resolve()
-  /* Stall watchdog: a tail pending past WRITE_QUEUE_STALL_MS means the head operation is hung — fail NEW work fast with an explicit 503 instead of piling up behind a queue that will never drain. The stuck operation keeps its slot (no ordering/overwrite hazard) and the client's own request timeouts surface it. 45 s exceeds the client's 30 s request timeout and the longest legitimate lock hold, so healthy queues never trip it. */
+  /* Stall watchdog: a tail pending past WRITE_QUEUE_STALL_MS means the head operation is hung — fail NEW work fast with an explicit 503 instead of piling up behind a queue that will never drain. The stuck operation keeps its slot (no ordering/overwrite hazard) and the client's own request timeouts surface it; 45 s exceeds that 30 s timeout and the longest legitimate lock hold, so healthy queues never trip it. */
   const pendingSince = queuePendingSince.get(key)
   if (pendingSince !== undefined && Date.now() - pendingSince > WRITE_QUEUE_STALL_MS) {
     throw new HttpError(503, 'write-queue-stalled', '写入队列阻塞，请稍后重试')
@@ -283,7 +283,7 @@ export async function renameEntry(workspace, relativePath, config, queues, req) 
       }
       throw new HttpError(409, 'entry-exists', '同名文件或文件夹已存在')
     }
-    /* Fast path: the target is verified absent, so a plain rename() is atomic, preserves inode/hardlinks, and — unlike the copy fallback — works for directories containing symlinks. Re-verify the target RIGHT before the rename: a file created in the window would otherwise be silently REPLACED on POSIX (data loss) or fail with an unclassified error on Windows. Fall back to copy+delete only when the rename crosses devices (EXDEV). */
+    /* Fast path: the target is verified absent, so a plain rename() is atomic, preserves inode/hardlinks and — unlike the copy fallback — works for directories containing symlinks. Re-verify the target RIGHT before the rename: a file created in the window would otherwise be silently REPLACED on POSIX (data loss) or fail unclassified on Windows. Fall back to copy+delete only on EXDEV. */
     try {
       const finalCollision = await lstat(target).catch(error => {
         if (error?.code === 'ENOENT') return undefined
@@ -381,7 +381,7 @@ async function cleanupCreatedTargets(createdTargets, primaryError) {
   throw primaryError
 }
 /**
- * Copy a file or directory tree into a path that must not exist. Files use COPYFILE_EXCL and dirs exclusive mkdir, so an external creator can't be overwritten between probe and commit. Symlinks are omitted only for copy; move/rename reject a tree containing one. The root call returns a full source snapshot for the destructive removal; cleanup removes only identities this call made, in reverse order.
+ * Copy a file or directory tree into a path that must not exist. Files use COPYFILE_EXCL and dirs exclusive mkdir, so an external creator can't be overwritten between probe and commit. Symlinks are omitted only for copy; move/rename reject a tree containing one. The root call returns a full source snapshot for the destructive removal; cleanup removes only what this call made, reverse order.
  */
 async function copyTreeExclusive(
   source,
@@ -407,7 +407,7 @@ async function copyTreeExclusive(
       } catch (error) {
         if (error?.code === 'EEXIST' && allowCollision) return false
         if (error?.code === 'EEXIST') throw new HttpError(409, 'entry-exists', '同名文件或文件夹已存在')
-        /* A non-EEXIST failure must never enqueue a pre-existing directory for cleanup: cleanupCreatedTargets would then rmdir a user-owned folder (data loss). copyFile never creates directories, so a directory at the target pre-existed and is a collision — dedupe when allowed, otherwise a 409. Only a REGULAR file at the target can be a partial this call created, so that is the only case to track. */
+        /* A non-EEXIST failure must never enqueue a pre-existing directory for cleanup: cleanupCreatedTargets would then rmdir a user-owned folder (data loss). copyFile never creates directories, so a directory at the target pre-existed and is a collision — dedupe when allowed, else 409. Only a REGULAR file can be a partial this call created, so only it is tracked. */
         let partial
         try {
           partial = await lstat(target)
@@ -443,7 +443,7 @@ async function copyTreeExclusive(
     /* The dir's cleanup identity is refreshed AFTER children + chmod/utimes below (see the file branch): on ino=0 filesystems the recorded stat must describe the final state this call leaves behind. */
     const dirRecord = { path: target, stat: targetStat, directory: true }
     createdTargets.push(dirRecord)
-    /* Best-effort fence before recursing: an external writer may replace the just-created target directory with a symlink pointing outside the workspace, so re-verify the target's identity before the children (cleanup later refuses to remove targets that no longer match its recorded identity). */
+    /* Best-effort fence before recursing: an external writer may replace the just-created target directory with a symlink pointing outside the workspace, so re-verify its identity before the children (cleanup refuses targets that no longer match their recorded identity). */
     const preRecurseStat = await lstat(target)
     if (!sameEntryIdentity(targetStat, preRecurseStat)) {
       throw new HttpError(409, 'file-conflict', '复制目标在复制期间被替换，已中止')

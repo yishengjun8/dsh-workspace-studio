@@ -3,12 +3,11 @@
  *
  * The harness right-Sidebar seat is never mounted under this root layout, so a
  * plan address handed to ctx.sidebarRight reaches no surface of its own: ui-plan's
- * 「查看全文」 and the turn's plan card would fail with no visible result at all.
- * This module recognizes those addresses, keeps a temporary review document in
- * memory, publishes an open request the mounted explorer consumes as a
- * session-only preview tab, and exposes the harness `plan` resource source
- * (ctx.resources) so the logged plan's session-history read stays owned by
- * ui-plan — the plugin never re-implements that read.
+ * 「查看全文」 and the turn's plan card would fail with no visible result. This module
+ * recognizes those addresses, keeps a temporary review document in memory, publishes
+ * an open request the mounted explorer consumes as a session-only preview tab, and
+ * exposes the harness `plan` resource source (ctx.resources) so the logged plan's
+ * session-history read stays owned by ui-plan.
  */
 import { createRequestStore } from './request-store.js'
 
@@ -85,9 +84,8 @@ export function normalizePlanDocument(value) {
   return { markdown, title }
 }
 
-/* Temporary review documents, keyed by their address: they exist only in the
-   browser (ui-plan marks them expired on reload), so they are never persisted
-   and their memory is bounded here. */
+/* Temporary review documents keyed by their address: browser-only (ui-plan marks
+   them expired on reload), never persisted, and bounded here. */
 const PLAN_DOCUMENT_MAX = 16
 const planDocumentsByAddress = new Map()
 
@@ -112,9 +110,8 @@ export const planDocuments = {
 
 /* Module-wide open-request bridge: the openResource router publishes one plan
    open, and the explorer whose previewSessionId faces the request's expectFamily
-   consumes it. An unrelated session's explorer never adopts a request aimed at
-   another session, and a mount that arrives later still consumes the pending
-   request. */
+   consumes it. Another session's explorer never adopts it, and a later mount still
+   consumes the pending request. */
 const pendingOpen = createRequestStore()
 
 export const planOpenStore = {

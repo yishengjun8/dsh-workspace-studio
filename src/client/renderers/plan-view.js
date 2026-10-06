@@ -23,7 +23,6 @@ const NO_SOURCE = { status: 'none', value: undefined, failure: undefined }
 const NO_SUBSCRIBE = () => () => {}
 
 /**
- * Render one plan document as Markdown.
  * @param props - the plan address and a title reporter for the tab label.
  * @returns the plan body, or the localized loading / failure / expired state.
  */

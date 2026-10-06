@@ -11,7 +11,6 @@
  */
 const handlers = new Set()
 
-/** Register the explorer's "clear every tab's own size" handler. Returns its unsubscribe. */
 export function registerPreviewFontReset(handler) {
   handlers.add(handler)
   return () => { handlers.delete(handler) }

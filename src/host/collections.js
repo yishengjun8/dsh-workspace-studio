@@ -5,16 +5,15 @@
  * ~/.dsh-plugin/dsh-workspace-studio/collections/ holds
  * `{ version, selectedId, collections: [{ id, name, workspaceIds }] }`.
  *
- * Two deliberate shapes:
- *   - a collection stores workspace IDS, so a workspace the Harness later deletes leaves a dangling
- *     id behind: readers ignore it and the next write drops it (the collection survives a workspace
- *     being re-added under a new id with an empty membership rather than a wrong one);
- *   - the built-in "all workspaces" collection is a CLIENT constant and is never stored, so this
- *     file holds user collections only, in the user's own order (the built-in one is always first).
+ * Two deliberate shapes: a collection stores workspace IDS, so a workspace the Harness later deletes
+ * leaves a dangling id that readers ignore and the next write drops (a re-add under a new id yields
+ * empty membership, not a wrong one); and the built-in "all workspaces" collection is a CLIENT
+ * constant, never stored, so this file holds user collections only, in the user's own order (the
+ * built-in one is always first).
  *
  * Reads are forgiving and writes are strict — the same split run.js uses: a hand-edited file keeps
- * whatever is still usable (bad entries are dropped, nothing else is invented), while a patch the UI
- * could not have produced is refused outright instead of being half-applied.
+ * whatever is still usable (bad entries dropped, nothing else invented), while a patch the UI could
+ * not have produced is refused outright instead of being half-applied.
  */
 import { randomBytes } from 'node:crypto'
 import { homedir } from 'node:os'
@@ -94,8 +93,8 @@ function normalizeCollectionsStore(value) {
     const id = typeof entry.id === 'string' ? entry.id.trim() : ''
     if (!COLLECTION_ID_RE.test(id) || seen.has(id)) continue
     const name = typeof entry.name === 'string' ? entry.name.trim() : ''
-    /* Count code points here, exactly like validateCollectionName does: measuring one side in UTF-16
-       units would let the writer accept a name the reader then drops, silently losing a collection. */
+    /* Count code points, exactly like validateCollectionName: measuring one side in UTF-16 units would
+       let the writer accept a name the reader then drops, silently losing a collection. */
     if (name === '' || [...name].length > COLLECTION_NAME_MAX || CONTROL_CHARS_RE.test(name)) continue
     seen.add(id)
     collections.push({ id, name, workspaceIds: normalizeWorkspaceIds(entry.workspaceIds) })
@@ -111,9 +110,9 @@ function isCurrentFormat(value) {
 }
 
 /**
- * Read the collections store. A file that parses but is not in the current format is quarantined and
- * the defaults are served; a missing file and an IO/permission failure are never treated as
- * corruption (the latter is rethrown by readJsonStrict).
+ * Read the collections store: a file that parses but is not in the current format is quarantined and
+ * the defaults served; a missing file and an IO/permission failure are never corruption (the latter
+ * is rethrown by readJsonStrict).
  * @returns the normalized store.
  */
 export async function readCollectionsStore() {

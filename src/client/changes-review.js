@@ -11,8 +11,8 @@
  * the review without re-deriving anything the Host already computed and without
  * writing to the session log.
  *
- * The address grammar, the route paths, and the payload shapes are mirrored from
- * @deepseek-ai/dsh-client-ui-deliverables' changes.ts/host-read-store.ts so the
+ * The address grammar, route paths, and payload shapes mirror
+ * @deepseek-ai/dsh-client-ui-deliverables' changes.ts/host-read-store.ts, so the
  * bundle needs no new harness dependency.
  */
 import { REVIEW_DIFF_MIN, REVIEW_LIST_DEFAULT, REVIEW_LIST_MAX_FALLBACK, REVIEW_LIST_MIN } from './constants.js'
@@ -24,10 +24,9 @@ import { createRequestStore } from './request-store.js'
    `<percent-encoded sessionId>/<seq>/<turn>`. */
 const REVIEW_PREFIX = 'dsh-resource://changes-review/session/'
 
-/* Document-relative Host routes (no leading slash), the same URLs the harness
-   client fetches: they sit inside the connection's authentication fence, so a
-   same-origin fetch from this bundle is authenticated exactly like the harness's
-   own read. */
+/* Document-relative Host routes (no leading slash), the same URLs the harness client
+   fetches: they sit inside the connection's authentication fence, so a same-origin
+   fetch from this bundle is authenticated exactly like the harness's own read. */
 const CHANGES_SUMMARY_ROUTE = 'api/changes.summary'
 const CHANGES_DIFF_ROUTE = 'api/changes.diff'
 
@@ -134,8 +133,8 @@ function isChangesDiff(value) {
     && Array.isArray(hunks) && hunks.every(isHunk)
 }
 
-/* One drawn line of a hunk, numbered on each side: context counts on both,
-   deletions on the old side, additions on the new side (the shipped rule). */
+/* One drawn line of a hunk, numbered on each side: context counts on both, deletions
+   on the old side, additions on the new (the shipped rule). */
 export function hunkRows(hunk) {
   let oldNo = hunk.oldStart
   let newNo = hunk.newStart
@@ -159,8 +158,8 @@ export function hunkHeader(hunk) {
 }
 
 /**
- * The hunks to draw, cut at {@link MAX_RENDERED_LINES} lines in total: a turn
- * that rewrote a huge file must not build an unbounded DOM.
+ * The hunks to draw, cut at {@link MAX_RENDERED_LINES} lines in total: a turn that rewrote a huge
+ * file must not build an unbounded DOM.
  * @param hunks - served hunks.
  * @returns the hunks with the last one shortened as needed, and whether anything was cut.
  */
@@ -178,11 +177,10 @@ export function cappedHunks(hunks) {
 /**
  * Resolve one listed file's `path` into what a file-open request needs.
  *
- * The summary spells `path` relative to the Session's cwd, and may spell it
- * absolute for a file outside it. With the cwd known the result is absolute, so
- * the request decides inside-versus-outside against the workspace root; without
- * it only a path that stays inside the root can be requested at all — a `..`
- * segment with no cwd is exactly the case that cannot be resolved here.
+ * The summary spells `path` relative to the Session's cwd, and may spell it absolute for a file
+ * outside it. With the cwd known the result is absolute, so the request decides inside-versus-outside
+ * against the workspace root; without it only a path that stays inside the root can be requested at
+ * all — a `..` segment with no cwd is exactly the case that cannot be resolved here.
  * @param cwd - the Session's working directory, when known.
  * @param path - the summary's `path`.
  * @returns the resolved path, or undefined when it cannot be resolved safely.
@@ -197,11 +195,10 @@ export function resolveReviewFilePath(cwd, path) {
 
 /* Read one JSON route into its view state through the plugin's single network layer (api.js
    `readHarnessJson` keeps the URL document-relative but reuses the shared timeout/error contract).
-   The response decides: a non-OK answer is the `failed` state, a payload that fails validation is
-   that same state (the Host and this bundle disagree about the shape, which is not something the
-   view could render), and an aborted read stays a rejection so its caller ignores it. Nothing is
-   cached module-wide: one mounted tab holds its own state, so a Host restart can never leave a
-   stale "missing" answer standing for the page. */
+   A non-OK answer, or a payload that fails validation (the Host and this bundle disagree about the
+   shape, which the view could not render), becomes the `failed` state; an aborted read stays a
+   rejection so its caller ignores it. Nothing is cached module-wide — one mounted tab holds its own
+   state, so a Host restart can never leave a stale "missing" answer standing for the page. */
 async function readJson(url, signal, failed, decode) {
   try {
     const value = await readHarnessJson(url, signal)
@@ -216,7 +213,6 @@ async function readJson(url, signal, failed, decode) {
 }
 
 /**
- * Read one announced change summary.
  * @param sessionId - viewed Session.
  * @param seq - the announcing event's sequence.
  * @param signal - cancels the read.
@@ -232,7 +228,6 @@ export function loadChangesSummary(sessionId, seq, signal) {
 }
 
 /**
- * Read one listed file's comparison.
  * @param sessionId - viewed Session.
  * @param seq - the announcing event's sequence.
  * @param index - the file's index in the summary.
@@ -247,11 +242,10 @@ export function loadChangesDiff(sessionId, seq, index, signal) {
   })
 }
 
-/* Module-wide open-request bridge: the openResource router publishes one review
-   open, and the explorer whose previewSessionId matches the request's
-   expectFamily consumes it. An unrelated session's explorer never adopts a
-   request aimed at another session, and a mount that arrives later still
-   consumes the pending request. */
+/* Module-wide open-request bridge: the openResource router publishes one review open, and the
+   explorer whose previewSessionId matches the request's expectFamily consumes it. An unrelated
+   session's explorer never adopts a request aimed at another session, and a mount arriving later
+   still consumes the pending request. */
 const pendingOpen = createRequestStore()
 
 export const reviewOpenStore = {
@@ -266,11 +260,10 @@ export const reviewOpenStore = {
   },
 }
 
-/* The review tab's inner split: the file list beside the comparison. The width
-   lives in memory for the page — it survives switching preview tabs, sessions,
-   and workspaces (each of which remounts the explorer) but is deliberately never
-   persisted: a review tab itself does not survive a reload, so a durable width
-   would restore a pane nothing could show. */
+/* The review tab's inner split: the file list beside the comparison. The width lives in memory for
+   the page — it survives switching preview tabs, sessions, and workspaces (each of which remounts
+   the explorer) but is deliberately never persisted: a review tab itself does not survive a reload,
+   so a durable width would restore a pane nothing could show. */
 
 /**
  * The split's bounds and the width to draw for one container width.

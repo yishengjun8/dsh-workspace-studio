@@ -3,10 +3,9 @@ import { MERGE_MAX_LINES, MYERS_TRACE_CELL_LIMIT } from './constants.js'
 
 /* ---- Save-time three-way merge (Git-like conflict resolution) ----
  *
- * When an explicit save finds the file changed on disk, user and external
- * edits are merged: non-overlapping changes are both kept (clean merge),
- * overlapping ones become conflicts for the user to pick. Inputs split on
- * '\n', preserving line endings without extra normalization.
+ * An explicit save that finds the file changed on disk merges the user's and the external edits:
+ * non-overlapping changes are both kept (clean merge), overlapping ones become conflicts to pick.
+ * Inputs split on '\n', preserving line endings without extra normalization.
  */
 
 /* Budgeted Myers diff: the { from, to, added } edit script turning `base` into `mine`, or null when the trace exceeds the memory budget; adjacent ops coalesce so a replacement is one change. */
@@ -110,7 +109,7 @@ function applyChangesToSpan(base, start, end, changes) {
   return output
 }
 
-/* Map a base-coordinate span to the corresponding slice of the side array through the side's edit script, used to verify a conflict region's segments against the real side text. */
+/* Map a base-coordinate span to the side array's slice through the side's edit script; verifies a conflict region's segments against the real side text. */
 function sideSliceForSpan(base, side, changes, start, end) {
   const result = []
   let basePos = 0
@@ -271,7 +270,7 @@ function lineCountOf(text) {
   return parts.length > 0 && parts[parts.length - 1] === '' ? parts.length - 1 : parts.length
 }
 
-/* Cluster transitively overlapping changes; conflicts stay structural (`parts`) so user text can never collide with a marker string. */
+/* Three-way merge entry point; conflicts stay structural (`parts`) so user text can never collide with a marker string. */
 export function threeWayMerge(baseText, mineText, theirsText) {
   const base = baseText.split('\n')
   const mine = mineText.split('\n')
@@ -301,7 +300,7 @@ export function threeWayMerge(baseText, mineText, theirsText) {
   return wholeFileConflict(base, mine, theirs, primary.fallback)
 }
 
-/* Character-level diff of one conflict side against the common base: coalesced { text, kind } segments ('same' | 'add' | 'del'); codepoint splitting keeps surrogate pairs intact. Returns null when too large. */
+/* Character-level diff of one conflict side against the base: coalesced { text, kind } segments ('same' | 'add' | 'del'); codepoint splitting keeps surrogate pairs intact. Null when too large. */
 const INLINE_DIFF_MAX_CHARS = 20000
 export function inlineDiffSegments(baseText, sideText) {
   const baseChars = Array.from(baseText)

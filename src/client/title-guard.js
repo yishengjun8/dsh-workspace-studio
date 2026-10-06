@@ -1,12 +1,11 @@
-/* Session-title guard. The harness derives a fresh session's fallback title
- * from the first human message verbatim (first 5 whitespace words, capped at
- * 40 UTF-8 bytes — the base bundle's session-title config), so an
- * editor-context envelope sent as the message prefix leaks into the title
- * ("<selection>The user selected the lines"). When such a title lands on a
- * direct session this bridge actually sent context from, rename the session
- * through the harness seam: session.rename() appends a user-source title
- * event, which both overwrites the polluted fallback and pins the title
- * against further automatic generation. Sessions without a recorded context
+/* Session-title guard. The harness derives a fresh session's fallback title from
+ * the first human message verbatim (first 5 whitespace words, capped at 40 UTF-8
+ * bytes — the base bundle's session-title config), so an editor-context envelope
+ * sent as the message prefix leaks into the title ("<selection>The user selected
+ * the lines"). When such a title lands on a direct session this bridge actually
+ * sent context from, rename it through the harness seam: session.rename() appends
+ * a user-source title event, which overwrites the polluted fallback and pins the
+ * title against further automatic generation. Sessions without a recorded context
  * send (legacy pollution) are left untouched and stay manually renameable.
  */
 import { isEditorContextEnvelopeTitle } from './context-bridge.js'

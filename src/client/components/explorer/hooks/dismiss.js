@@ -2,11 +2,10 @@
 import { useEffect } from 'react'
 import { dismissesMenuOnScroll } from '../../../menu-dismiss.js'
 
-/* Shared by every context menu and the encoding menu.
-   `anchorRef` names the element (or the scrolling region) the menu points at:
-   only a scroll that owns it dismisses the menu — see menu-dismiss.js, the
-   conversation's streaming tail follow must not close a menu opened on the
-   sidebar or the preview pane. */
+/* Shared by every context menu and the encoding menu. `anchorRef` names the
+   element (or scrolling region) the menu points at: only a scroll that owns it
+   dismisses the menu — the conversation's streaming tail follow must not close a
+   menu opened on the sidebar or the preview pane (menu-dismiss.js). */
 export function useDismissMenu(menuRef, isOpen, onClose, anchorRef) {
   useEffect(() => {
     if (!isOpen) return undefined

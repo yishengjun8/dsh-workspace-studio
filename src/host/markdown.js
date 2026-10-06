@@ -1,4 +1,4 @@
-/** Server-side Markdown → HTML rendering for the "open in new window" tab action on Markdown files. The GUI's own renderer (MarkdownText) is a client React component that cannot run in the opened tab, so the Host renders a self-contained document instead. The untrusted-output policy mirrors MarkdownText: raw HTML renders as literal text, link destinations pass a protocol allowlist (http/https/mailto), images require absolute HTTP(S), and disallowed destinations render as plain text. */
+/** Server-side Markdown → HTML rendering for the "open in new window" tab action: the GUI's own renderer (MarkdownText) is a client React component that cannot run in the opened tab, so the Host renders a self-contained document. The untrusted-output policy mirrors MarkdownText: raw HTML as literal text, link destinations pass a protocol allowlist (http/https/mailto), images require absolute HTTP(S), disallowed destinations render as plain text. */
 import { Buffer } from 'node:buffer'
 import { Marked } from 'marked'
 import { decodeBytes } from './encodings.js'

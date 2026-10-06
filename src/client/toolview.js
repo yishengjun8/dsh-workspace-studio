@@ -1,12 +1,11 @@
 /* Studio takeover of the chat's edit/write tool rows.
  *
- * The shipped FileMutationRow collapses by default and renders the diff as two
- * stacked blocks. This module registers a keyed `tool.call.toolview` entry for
- * the `edit` and `write` keys at a LOWER priority than the shipped row, so slot
- * cell shadowing replaces it: the row opens by default, each file change
- * renders as its own card, the diff is one merged view per file, and the body
- * is a fixed-height viewport (the 编辑显示行数 slider, --dsh-ws-edit-lines).
- * The details panel and every other tool row are untouched.
+ * The shipped FileMutationRow collapses by default and stacks the diff as two
+ * blocks; this module registers a keyed `tool.call.toolview` entry for `edit`
+ * and `write` at a LOWER priority than the shipped row, so slot cell shadowing
+ * replaces it: the row opens by default, one merged diff card per changed file,
+ * and the body is a fixed-height viewport (the 编辑显示行数 slider,
+ * --dsh-ws-edit-lines). The details panel and every other tool row are untouched.
  */
 import { createElement as h, Fragment, useCallback, useMemo, useRef, useState } from 'react'
 import {
@@ -71,7 +70,6 @@ function validEscalationFields(args) {
   return typeof justification === 'string' && justification.trim() !== ''
 }
 
-/* Parse the call head paired with one immutable Tool block. */
 function parsedToolCall(block) {
   const call = 'kind' in block ? block.call : block
   if (call === null) return null
@@ -80,7 +78,6 @@ function parsedToolCall(block) {
   return { name: call.name, args: value }
 }
 
-/* Flatten a settled result's content blocks to display text. */
 function resultText(node) {
   const parts = []
   for (const block of node.content) {
@@ -116,7 +113,7 @@ function appliedDiffs(meta) {
   return narrowDiffs(diffs)
 }
 
-/* The diff hunks this row shows: the intended change while running, the applied diffs once settled (falling back to the intended whole-file diff for a write with no applied metadata). Null = no diff card. */
+/* The hunks this row shows: the intended change while running, the applied diffs once settled (a write with no applied metadata falls back to the intended whole-file diff). Null = no diff card. */
 function diffCardModel(block) {
   if (block.parentCallId !== undefined) return null
   const parsed = parsedToolCall(block)
@@ -173,14 +170,14 @@ function fileMutationModel(toolName, block, cwd, home) {
 
 /* ---- Merged diff card ---- */
 
-/* Split a side's text into its content lines (the same terminator rule the shipped DiffBlock applies). */
+/* Split a side's text into content lines (same terminator rule as the shipped DiffBlock). */
 function contentLines(text) {
   if (text === '') return []
   const body = text.endsWith('\n') ? text.slice(0, -1) : text
   return body.split('\n')
 }
 
-/* One hunk's merged rows: unchanged lines plain, whole-line deletions struck, whole-line additions on a green background, and matched del/add pairs as a character-level inline diff — all in one block, in file order. */
+/* One hunk's merged rows: unchanged lines plain, whole-line deletions struck, whole-line additions green, matched del/add pairs as an inline character diff — all in one block, in file order. */
 function mergedHunkRows(oldText, newText) {
   if (oldText === null) {
     return contentLines(newText).map(text => ({ kind: 'add', text }))
@@ -220,7 +217,7 @@ function mergedHunkRows(oldText, newText) {
   return rows
 }
 
-/* Group the hunks by path, preserving order: one card per path in the flow; a same-path second hunk joins the current group. */
+/* Group hunks by path, preserving order: one card per path; a same-path second hunk joins the current group. */
 function groupDiffsByPath(diffs) {
   const groups = []
   let prevPath
@@ -242,7 +239,7 @@ function buildFileRows(diffs) {
   return rows
 }
 
-/* The diff text a reader copies: each row's `-`/`+` prefix and its content, exactly what the card shows. */
+/* The copy text: each row's `-`/`+` prefix and content, exactly what the card shows. */
 function copyText(rows) {
   return rows.map((row) => {
     switch (row.kind) {
@@ -262,7 +259,7 @@ function diffLabels(t) {
   }
 }
 
-/* One merged body line: unchanged plain, whole-line deletion struck, whole-line addition on a green background, a pair as inline segments. */
+/* One merged body line: unchanged plain, deletion struck, addition green, a pair as inline segments. */
 function MergedDiffRowView({ row }) {
   if (row.kind === 'gap') return h('div', { className: 'dsh-ws-diff-line dsh-ws-diff-gap' }, row.text)
   if (row.kind === 'del') return h('div', { className: 'dsh-ws-diff-line dsh-ws-diff-del' }, row.text)
@@ -288,7 +285,7 @@ function MergedDiffRowView({ row }) {
   return h('div', { className: 'dsh-ws-diff-line' }, row.text)
 }
 
-/* One edit/write tool card: header chrome (chevron + leading state icon + title + openable file path / summary + diffstat + state chrome + an always-visible copy button for diff cards) sits inside the card top; the body is either the fixed-height scrollable diff viewport or a generic input/output block. Collapsing hides the body only; each card owns its expanded state. */
+/* One edit/write tool card: header chrome (chevron + state icon + title + openable file path / summary + diffstat + state + an always-visible copy button for diff cards) at the card top; the body is the fixed-height scrollable diff viewport or a generic input/output block. Collapsing hides the body only; each card owns its expanded state. */
 function StudioToolCard({
   toolName, title, leading, state, status, headText, headLink, openFile, diffs, labels, children,
 }) {
@@ -458,7 +455,7 @@ function StudioFileMutationRow({ toolName, block, cwd, home, openFile, t }) {
 
 /* ---- Registration ---- */
 
-/* Take over the shipped edit/write rows: a keyed entry at a lower priority than the shipped one (default 0) wins the slot cell, so the conversation flow shows this row for both keys. */
+/* Take over the shipped edit/write rows: a keyed entry below the shipped priority (default 0) wins the slot cell, so the conversation flow shows this row for both keys. */
 export function registerStudioFileMutationToolview(ctx) {
   ctx.slots.inject('tool.call.toolview', () => ctx.slots.register({
     name: 'tool.call.toolview', key: 'edit', locale: 'conversation', priority: -100,

@@ -29,7 +29,7 @@ export const MINDMAP_DOC_MAX_BYTES = 2 * 1024 * 1024
 const MINDMAP_SYNC_CACHE_TTL_MS = 30_000
 /* Upper bound on distinct cached docs: the LRU eviction below keeps the cache bounded even with many open maps. */
 const MINDMAP_SYNC_CACHE_MAX = 64
-/* Cache for persistence.list(): the harness backend scans every session directory's header per call (0.5-1.9 s for ~800 sessions), so the TTL must exceed the 2.5 s poll cadence. Kept above the sync-cache TTL so a periodic full refresh reuses the last scan; staleness is bounded to ~45 s, and new fork orphans are still caught immediately by the live-session signals. */
+/* Cache for persistence.list(): the backend scans every session header per call (0.5-1.9 s for ~800 sessions), so the TTL must exceed the 2.5 s poll cadence AND the sync-cache TTL — a periodic full refresh then reuses the last scan. Staleness is bounded to ~45 s; new fork orphans are still caught immediately by the live-session signals. */
 const MINDMAP_PERSISTENCE_LIST_CACHE_MS = 45_000
 /* rootId -> { sig, live, liveKey, at, refs, orphanSig, adoptClean }. Exported so index.js can invalidate it on the GET load path, which writes docs without touching any log. */
 export const mindmapSyncCache = new Map()
@@ -585,10 +585,10 @@ async function mindmapGenerateSummary(ctx, model, question, length) {
  * cache for every root the write affects (`alsoInvalidate` retires the roots a replacement leaves
  * behind, e.g. the old root whose alias stub now points at the new doc).
  *
- * Pairing these two steps by hand at ten call sites is exactly how "wrote the doc, forgot the cache"
- * crept back in as a stale map for up to the sync TTL. Going through here makes that impossible.
- * A FAILED write deliberately leaves the cache alone: the disk still holds the pre-mutation doc, so
- * whatever the cache describes is still true. */
+ * Pairing these two steps by hand at ten call sites is how "wrote the doc, forgot the cache" crept
+ * back in as a stale map for up to the sync TTL; going through here makes that impossible. A FAILED
+ * write deliberately leaves the cache alone: the disk still holds the pre-mutation doc, so whatever
+ * the cache describes is still true. */
 export async function writeMindmapDocFile(doc, alsoInvalidate = []) {
   await writeJsonAtomic(mindmapDocPath(doc.rootSessionId), doc)
   mindmapSyncCache.delete(String(doc.rootSessionId))
@@ -1105,12 +1105,12 @@ function parseMindmapTurnsCached(sessionId, events) {
 }
 
 /* ---- Cold-log parse cache (memory + disk) --------------------------------
-   Re-reading one cold log costs seconds, and because a fork child's log carries
-   its parent's whole inherited prefix the cost scales with the family's TOTAL log
+   Re-reading one cold log costs seconds, and a fork child's log carries its
+   parent's whole inherited prefix, so the cost scales with the family's TOTAL log
    volume (measured on this deployment: 23 sessions / 37 MB of logs = 40-55 s per
    refresh, which saturates the Host and makes the client's own open look like
-   "loads nothing"). The cache therefore has two layers, BOTH keyed by the same
-   per-session fingerprint (see `sessionRowFingerprint`):
+   "loads nothing"). Two layers, BOTH keyed by the same per-session fingerprint
+   (see `sessionRowFingerprint`):
 
    - memory: an LRU bounded at MINDMAP_COLD_PARSE_CACHE_MAX;
    - disk: one small JSON per session under
@@ -1155,12 +1155,10 @@ function mindmapParseDiskPath(sessionId) {
 }
 
 /* The cache key for a cold session's log is `sessionRowFingerprint(row)` — the row's per-session
-   PHYSICAL revision (a legacy row's corpus-wide suffix is stripped; see session-rows.js) plus
-   `sizeBytes`; it is shared with token-stats so both caches invalidate identically. */
-/* sessionId -> fingerprint projection of the CACHED list() rows, rebuilt only
-   when the rows array identity changes (the 45 s TTL and the in-flight share live
-   in mindmapPersistenceList). An id with no row (a log that does not exist) has
-   no fingerprint and keeps the always-read behavior. */
+   PHYSICAL revision (a legacy row's corpus-wide suffix is stripped; see session-rows.js) plus `sizeBytes`; shared with token-stats so both caches invalidate identically. */
+/* sessionId -> fingerprint projection of the CACHED list() rows, rebuilt only when the rows array
+   identity changes (the 45 s TTL and the in-flight share live in mindmapPersistenceList). An id with
+   no row (a log that does not exist) has no fingerprint and keeps the always-read behavior. */
 let mindmapLogRevisionRows = { list: null, rows: null }
 async function mindmapLogRevisions(persistence) {
   const list = await mindmapPersistenceList(persistence)
@@ -1175,12 +1173,11 @@ async function mindmapLogRevisions(persistence) {
   return rows
 }
 
-/* Negative read verdicts, MEMORY ONLY and TTL-bounded: some legacy generations
-   cannot be read at all (this store has 121 of them), and one attempt costs the
-   full open + decode before it fails — a family polled every 2.5 s would pay it
-   forever. The verdict is keyed by the same fingerprint, expires after
-   MINDMAP_READ_FAIL_TTL_MS and is never persisted: a restart (e.g. a harness
-   upgrade that learned to read the format) always gets a fresh chance. */
+/* Negative read verdicts, MEMORY ONLY and TTL-bounded: some legacy generations cannot be read at all
+   (this store has 121 of them), and one attempt costs the full open + decode before it fails — a
+   family polled every 2.5 s would pay it forever. Keyed by the same fingerprint, expiring after
+   MINDMAP_READ_FAIL_TTL_MS and never persisted: a restart (e.g. a harness upgrade that learned to
+   read the format) always gets a fresh chance. */
 const MINDMAP_READ_FAIL_CACHE_MAX = 256
 const MINDMAP_READ_FAIL_TTL_MS = 10 * 60 * 1000
 const mindmapReadFailCache = new Map() // sessionId -> { fingerprint, at }
@@ -1212,9 +1209,8 @@ function mindmapParseDiskEntry(value, sessionId, fingerprint) {
   return { status: 'ok', entry: { parsed, inheritedEventCount: Number.isSafeInteger(inherited) && inherited > 0 ? inherited : 0 } }
 }
 
-/* Disk hydration: one small file read instead of a multi-megabyte log decode. The
-   hydrated entry is stamped with THIS service identity so the ordinary in-memory
-   hit test (and its HMR/reload guard) keeps working unchanged. */
+/* Disk hydration: one small file read instead of a multi-megabyte log decode. The entry is stamped
+   with THIS service identity so the ordinary in-memory hit test (and its HMR/reload guard) still works. */
 async function mindmapParseDiskLookup(sessionId, fingerprint, identity) {
   const path = mindmapParseDiskPath(sessionId)
   let read
@@ -1322,12 +1318,11 @@ function mindmapColdParseStore(sessionId, entry) {
   mindmapParseDiskQueue(sessionId, entry)
 }
 
-/* Parsed completed turns of one session, served from memory or the persisted
-   cache whenever the log is provably unchanged. `status: 'unavailable'` means the
-   log could not be read at all: callers keep their recorded turns instead of
-   clearing them (the same degrade rule as `eventsOf` returning null). Without a
-   usable list index there is no fingerprint, so the read happens every time
-   (never a stale skip). */
+/* Parsed completed turns of one session, served from memory or the persisted cache whenever the log
+   is provably unchanged. `status: 'unavailable'` means the log could not be read at all: callers keep
+   their recorded turns instead of clearing them (the same degrade rule as `eventsOf` returning null).
+   Without a usable list index there is no fingerprint, so the read happens every time (never a stale
+   skip). */
 async function mindmapParsedTurnsOf(ctx, persistence, sessionId) {
   const id = String(sessionId)
   const live = ctx.sessions.get(id)
@@ -1390,15 +1385,13 @@ async function mindmapParsedTurnsOf(ctx, persistence, sessionId) {
 }
 
 /* ---- Idle warm-up of the parse cache -------------------------------------
-   The disk layer makes a RESTART cheap once it exists, but the first family ever
-   seen still pays one full read, and every changed log pays it again. So after
-   startup — once the user has been quiet — walk the documented families (most
-   recently updated first) and parse their cold members in the background: one
-   session at a time, yielding between sessions, and stopping as soon as a real
-   open/sync arrives (the user is then paying for those reads themselves). Bounded
-   by session count, byte budget and wall clock so the warm-up can never become
-   the CPU hog it exists to prevent — the token-stats startup scan already runs in
-   parallel. */
+   The disk layer makes a RESTART cheap once it exists, but the first family ever seen still pays one
+   full read, and every changed log pays it again. So after startup — once the user has been quiet —
+   walk the documented families (most recently updated first) and parse their cold members in the
+   background: one session at a time, yielding between sessions, and stopping as soon as a real
+   open/sync arrives (the user is then paying for those reads themselves). Bounded by session count,
+   byte budget and wall clock so the warm-up can never become the CPU hog it exists to prevent — the
+   token-stats startup scan already runs in parallel. */
 const MINDMAP_WARM_INITIAL_DELAY_MS = 20_000
 const MINDMAP_WARM_QUIET_MS = 15_000
 const MINDMAP_WARM_GAP_MS = 250
@@ -1513,7 +1506,7 @@ async function mindmapWarmFamilyCache(ctx, persistence, limits, isCancelled) {
   }
 }
 
-/* Build a fresh v3 doc for a session that has never been converted: the ANCHOR (mindmapAnchorOf) becomes the root session with its completed turns, and the requested session is attached to it as a branch by the caller's adopt pass (see the ancestor-aware note below). Empty sessions still convert (the root node is the creation hub). Null only when archived. workspaceCwd from the anchor's header is recorded so a root-node-created top-level session lands in the SAME workspace. */
+/* Build a fresh v3 doc for a session that has never been converted: the ANCHOR (mindmapAnchorOf) becomes the root session with its completed turns. Empty sessions still convert (the root node is the creation hub). Null only when archived. workspaceCwd from the anchor's header is recorded so a root-node-created top-level session lands in the SAME workspace. */
 /* The oldest reachable, UNARCHIVED session up the ancestry bloodline of `sessionId` — the anchor a freshly built doc roots at, and therefore the correct lock key for a first conversion. Shared with the GET load path so a first build and its lock can never disagree about the root. */
 export async function mindmapAnchorOf(ctx, persistence, sessionId) {
   let anchor = String(sessionId)
@@ -1868,7 +1861,7 @@ async function mindmapSessionIndex(ctx, persistence) {
       const header = session.header
       merge(session.id ?? header?.id, {
         parent: header?.parentSession,
-        /* The fork cut lives on the session/handle as inheritedEventCount (header.seedLength no longer exists). */
+        /* The fork cut lives on the session/handle as inheritedEventCount. */
         seedLength: session.inheritedEventCount,
         subagent: header?.origin === 'subagent',
       })
@@ -2066,11 +2059,10 @@ export async function syncMindmapDoc(ctx, persistence, sessionId, liveSessionIds
     const cached = mindmapSyncCache.get(docRoot)
     const now = Date.now()
     const liveKey = mindmapLiveRequestKey(liveSessionIds)
-    /* A change in the client-reported running set is the fold trigger: a run that
-       just ended leaves a new turn in that session's log, and the row revisions
-       behind the cold-read fingerprint are otherwise cached for 45 s — a stale row
-       would let the skip serve the pre-turn parse and hide the card. Drop the rows
-       so the signature below (and the reconcile) see a FRESH session index. */
+    /* A change in the client-reported running set is the fold trigger: a run that just ended leaves a
+       new turn in that session's log, and the row revisions behind the cold-read fingerprint are
+       otherwise cached for 45 s — a stale row would let the skip serve the pre-turn parse and hide
+       the card. Drop the rows so the signature below (and the reconcile) see a FRESH session index. */
     if (cached !== undefined && cached.liveKey !== liveKey) mindmapInvalidatePersistenceList()
     /* Cheap change check: when the signature is unchanged, serve the cached doc without re-parsing logs or scanning the index — the poll is O(1) while the family is idle. The index-derived parts are computed ONCE and reused by the settle below. */
     const parts = await mindmapSyncSignatureParts(ctx, persistence)
@@ -2460,15 +2452,13 @@ export function validateMindmapSession(value) {
   return value
 }
 
-/* Drop a fresh fork child's inherited pending queue. A harness fork copies the
-   source log prefix up to the next turn/start, and the parent's next submitted
-   message is enqueued into its durable inbox BEFORE that turn/start while its
-   claim lands AFTER it — so the child starts with the parent's following
-   message still pending and would claim it ahead of the user's own first send.
-   The fork resolves with the child agent idle and unopened, so dropping its
-   pending inbox here is race-free. Guarded to seeded fork children
-   (header.parentSession set) whose agent is NOT running: never a live user's
-   queued work on an arbitrary session. */
+/* Drop a fresh fork child's inherited pending queue. A harness fork copies the source log prefix up
+   to the next turn/start, and the parent's next submitted message is enqueued into its durable inbox
+   BEFORE that turn/start while its claim lands AFTER it — so the child starts with the parent's
+   following message still pending and would claim it ahead of the user's own first send. The fork
+   resolves with the child agent idle and unopened, so dropping its pending inbox here is race-free.
+   Guarded to seeded fork children (header.parentSession set) whose agent is NOT running: never a live
+   user's queued work on an arbitrary session. */
 export async function clearForkInheritedQueue(ctx, sessionId) {
   const id = validateMindmapSession(sessionId)
   let live = undefined

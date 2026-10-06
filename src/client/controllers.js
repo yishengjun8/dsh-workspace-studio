@@ -8,9 +8,8 @@ import { clearEditorContextDisplays, describeEditorContext, rememberEditorContex
 import { cleanedSessionTitle, installTitleGuard } from './title-guard.js'
 
 const EMPTY_EDITOR_CONTEXT_VIEW = Object.freeze({ present: false, active: false })
-/* Field-level equality for the projected editor-context view: the projection
-   is rebuilt fresh on every publish, so identity comparison alone cannot gate
-   redundant notifications. */
+/* Field-level equality for the projected editor-context view: it is rebuilt fresh on
+   every publish, so identity comparison cannot gate redundant notifications. */
 function editorContextViewEqual(left, right) {
   if (left === right) return true
   if (left?.present !== right?.present || left?.active !== right?.active) return false
@@ -141,13 +140,11 @@ export class EditorContextController {
 
 
 /* Pure workspace resolution shared by AppFrame and workspaceOfSession:
-   membership first, then the session cwd path. The two call sites must never
-   disagree, or the explorer and editor context would mount on different
-   workspaces. */
+   membership first, then the session cwd path. Both call sites must agree,
+   or the explorer and editor context would mount on different workspaces. */
 export function selectWorkspaceForSession(items, sessionId, cwd) {
-  /* A malformed workspace item must degrade like every other bad input here —
-     this runs in AppFrame's render path, where a TypeError would blank the
-     whole GUI. */
+  /* A malformed workspace item must degrade like every other bad input here: this
+     runs in AppFrame's render path, where a TypeError would blank the whole GUI. */
   const byMembership = items.find(item => Array.isArray(item?.sessionIds) && item.sessionIds.includes(sessionId))
   if (byMembership !== undefined) return byMembership
   if (cwd !== undefined) {
@@ -166,13 +163,12 @@ export function workspaceOfSession(ctx, id) {
   return selectWorkspaceForSession(items, id, row.cwd)
 }
 
-/* The current session, derived the way the harness itself derives it (dev-notes §26).
-   `SessionListState.current` was removed with the navigation move: the main
-   view's session is now the one retained by the `mainView` source
-   (ui-workspace selects it through ctx.sessions.retain), which is exactly what
-   ui-workspace's own browser reads off the list. Mirroring that read keeps the
-   plugin and the harness from disagreeing about "the current session" — the
-   field's absence silently emptied the whole explorer/preview chain. */
+/* The current session, derived the way the harness derives it (dev-notes §26):
+   `SessionListState.current` was removed with the navigation move — the main
+   view's session is now the one the `mainView` source retains (ui-workspace
+   selects it through ctx.sessions.retain) and what its own browser reads off the
+   list. Mirroring that read keeps plugin and harness from disagreeing about "the
+   current session"; the field's absence silently emptied the explorer/preview chain. */
 export function currentSessionOf(sessionsById) {
   if (sessionsById === null || sessionsById === undefined) return undefined
   for (const id of Object.keys(sessionsById)) {
@@ -184,11 +180,10 @@ export function currentSessionOf(sessionsById) {
   return undefined
 }
 
-/* Recent-workspace fallback used while no session is selected: the harness's
-   own policy (newest session `updatedAt` per workspace, the workspace
-   `createdAt` when it holds none, Host order on ties — ui-workspace
-   navigation.recentWorkspace). The harness keeps that policy to itself and its
-   view store never carried a `recentWorkspaceId` field, so the plugin derives
+/* Recent-workspace fallback used while no session is selected: the harness's own policy
+   (ui-workspace navigation.recentWorkspace — newest session `updatedAt` per workspace, the
+   workspace `createdAt` when it holds none, Host order on ties). The harness keeps that policy
+   to itself and its view store never carried a `recentWorkspaceId` field, so the plugin derives
    the same answer from the two snapshots it already subscribes to. */
 export function recentWorkspaceIdOf(items, sessionsById) {
   let selected
@@ -213,11 +208,10 @@ export function recentWorkspaceIdOf(items, sessionsById) {
 }
 
 /* Show a session in the main view. The harness gave navigation to the view owner
-   (ui-workspace's `uiWorkspace` service), so the new path is tried first and the
-   older `ctx.sessions.open` service second (migration table: dev-notes §26); a build with
-   neither throws instead of leaving a silently dead click. `reflect.get` reads
-   a service without an inject declaration — `uiWorkspace` must stay optional,
-   since older harness builds do not provide it at all. */
+   (ui-workspace's `uiWorkspace` service), so the new path is tried first and the older
+   `ctx.sessions.open` second (migration table: dev-notes §26); a build with neither throws
+   instead of leaving a silently dead click. `reflect.get` reads a service without an inject
+   declaration — `uiWorkspace` must stay optional, since older builds do not provide it. */
 export function openHarnessSession(ctx, sessionId) {
   const id = String(sessionId)
   const uiWorkspace = ctx.reflect?.get?.('uiWorkspace', false)
@@ -235,9 +229,9 @@ export function openHarnessSession(ctx, sessionId) {
 }
 
 /* Attachment ids live under a harness-owned field name (0.1.7 renamed
-   InputState.imageIds to attachmentIds). An unrecognized shape answers null so
-   the empty-draft gate hands the gesture back to the harness seam instead of
-   guessing — never let a drifted snapshot shape throw inside a submit. */
+   InputState.imageIds to attachmentIds). An unrecognized shape answers null, so the
+   empty-draft gate hands the gesture back to the harness seam — never let a drifted
+   snapshot shape throw inside a submit. */
 function attachmentIdsOf(state) {
   const ids = state?.attachmentIds ?? state?.imageIds
   return Array.isArray(ids) ? ids : null
@@ -256,9 +250,8 @@ export class PromptContextBridge {
     this.originalSendSession = undefined
     this.wrappedSendSession = undefined
     this.installToken = 0
-    /* Session-title guard state: per-session cleaned replacement title for the
-       sends that carried an editor-context envelope, plus the guard's own
-       sessions-list unsubscriber. */
+    /* Session-title guard state: per-session cleaned replacement title for sends that
+       carried an editor-context envelope, plus the guard's own sessions-list unsubscriber. */
     this.cleanedTitles = new Map()
     this.titleGuardOff = undefined
     /* Bounded retry timers for ensure() on a not-yet-ready session binding. */
@@ -267,14 +260,12 @@ export class PromptContextBridge {
   install() {
     const conversation = this.ctx.get('conversation')
     if (conversation === undefined) return () => {}
-    /* Local captures, not instance fields: an overlapping re-install must
-       restore this install's original sendSession, and the older cleanup must
-       not clobber the newer install's state. */
+    /* Local captures, not instance fields: an overlapping re-install must restore this
+       install's original sendSession, and the older cleanup must not clobber the newer state. */
     let originalSendSession = conversation.sendSession
     if (typeof originalSendSession === 'function' && originalSendSession[SEND_SESSION_BRIDGE_MARKER] === true) {
-      /* An overlapping re-install may have captured the old wrapper as
-         "original", causing unbounded recursion; unwrap to the true original
-         the old wrapper recorded. */
+      /* An overlapping re-install may have captured the old wrapper as "original",
+         causing unbounded recursion; unwrap to the true original it recorded. */
       originalSendSession = originalSendSession[SEND_SESSION_BRIDGE_ORIGINAL] ?? originalSendSession
     }
     if (typeof originalSendSession !== 'function') {
@@ -294,9 +285,8 @@ export class PromptContextBridge {
     Object.defineProperty(wrappedSendSession, SEND_SESSION_BRIDGE_ORIGINAL, { value: originalSendSession })
     this.wrappedSendSession = wrappedSendSession
     conversation.sendSession = wrappedSendSession
-    /* An overlapping re-install may still own the previous guard: dispose it
-       before mounting the new one, since the old cleanup's install-token check
-       will make it leave this newer guard alone. */
+    /* An overlapping re-install may still own the previous guard: dispose it before
+       mounting the new one; the old cleanup's install-token check leaves this guard alone. */
     if (this.titleGuardOff !== undefined) this.titleGuardOff()
     this.cleanedTitles.clear()
     this.titleGuardOff = installTitleGuard(this.ctx, this.cleanedTitles)
@@ -359,12 +349,11 @@ export class PromptContextBridge {
       /* The handle lets a failed send discard exactly this entry, since
          popping by text key could remove a different concurrent send's entry. */
       const displayHandle = rememberEditorContextDisplay(combined, display)
-      /* Record the cleaned replacement title before dispatch: the harness
-         derives a fresh session's fallback title from the first human message
-         verbatim, so the envelope prefix would leak into it; the guard renames
-         with this string when such a polluted title lands. A failed send
-         leaves a stale harmless entry (no polluted title can exist without a
-         landed envelope message), overwritten by the next send. */
+      /* Record the cleaned replacement title before dispatch: the harness derives a
+         fresh session's fallback title from the first human message verbatim, so the
+         envelope prefix would leak into it; the guard renames with this string when
+         such a title lands. A failed send leaves a stale harmless entry (no polluted
+         title can exist without a landed envelope message), overwritten by the next. */
       this.cleanedTitles.set(sessionId, cleanedSessionTitle({
         remainder: text,
         fileName: display.fileName,
@@ -378,9 +367,8 @@ export class PromptContextBridge {
       }
     })
   }
-  /* Render one editor-context envelope. A TIMEOUT is a real failure, not a
-     cancellation: surface it in the input dock instead of silently dropping the
-     context attachment. */
+  /* Render one editor-context envelope. A TIMEOUT is a real failure, not a cancellation:
+     surface it in the input dock instead of silently dropping the context attachment. */
   async renderEnvelope(sessionId, context, signal) {
     try {
       return await renderContext(sessionId, context, signal)
@@ -452,12 +440,11 @@ export class PromptContextBridge {
     try {
       const binding = this.ctx.sessions.binding(id)
       if (binding === undefined || this.conversation === undefined) {
-        /* A brand-new session's binding may not be ready on the first frame,
-           so retry briefly instead of silently leaving the input unpatched.
-           Bounded: a binding that never becomes ready must not spin a 50 ms
-           timer forever. The retry entry persists across timer firings and
-           counts every scheduled attempt; once ENSURE_RETRY_MAX attempts are
-           scheduled the entry is dropped (a later reconcile() re-arms it). */
+        /* A brand-new session's binding may not be ready on the first frame, so retry
+           briefly instead of silently leaving the input unpatched. Bounded: a binding
+           that never becomes ready must not spin a 50 ms timer forever — the entry
+           counts every scheduled attempt and is dropped at ENSURE_RETRY_MAX (a later
+           reconcile() re-arms it). */
         const existing = this.ensureRetries.get(id)
         if (existing !== undefined && existing.count >= ENSURE_RETRY_MAX) {
           clearTimeout(existing.timer)
@@ -469,9 +456,8 @@ export class PromptContextBridge {
         const timer = setTimeout(() => {
           const current = this.ensureRetries.get(id)
           if (current === undefined) return
-          /* Advance the attempt counter on the persisted entry so the cap
-             check in ensure() stops an unavailable binding from re-arming
-             forever. */
+          /* Advance the attempt counter on the persisted entry so the cap check in
+             ensure() stops an unavailable binding from re-arming forever. */
           current.count += 1
           this.ensure(id)
         }, 50)
@@ -490,9 +476,9 @@ export class PromptContextBridge {
       /* Every claim wrapper funnels here; whether the envelope goes in is
          decided inside, at submission time, from the live editor context. */
       const submitClaim = (claim, args, actx, attachments) => bridge.submitClaimWithEditorContext(id, claim, args, actx, attachments)
-      /* One record per patched seam: input wrappers, the session scope the slash
-         controller resolves from, and the claim/adjudicator patches this install
-         added (restoreInput only rolls back what is still ours). */
+      /* One record per patched seam: input wrappers, the session scope the slash controller
+         resolves from, and the claim/adjudicator patches this install added (restoreInput
+         only rolls back what is still ours). */
       const patch = {
         input,
         original,
@@ -508,10 +494,9 @@ export class PromptContextBridge {
         wrapper: undefined,
         steerWrapper: undefined,
       }
-      /* Empty-draft sends carry context only: the harness submit machine
-         rejects an empty draft, so this bridge owns that gesture (⌘/Ctrl+Enter
-         steering included). A drifted snapshot shape must hand the gesture back
-         to the harness instead of throwing inside the submit. */
+      /* Empty-draft sends carry context only: the harness submit machine rejects an
+         empty draft, so this bridge owns that gesture (⌘/Ctrl+Enter steering included).
+         A drifted snapshot shape hands the gesture back to the harness instead of throwing. */
       const sendContextOnlyIfIdle = (mode) => {
         try {
           const state = input.state.getSnapshot()
@@ -528,23 +513,21 @@ export class PromptContextBridge {
       }
       const wrapper = function submitWithEditorContext(mode = 'queue') {
         if (sendContextOnlyIfIdle(mode)) return
-        /* A slash command's claim transaction bypasses sendSession, so the
-           adjudicator is patched here — the one moment the composer is
-           certainly mounted, so resolving the resident controller cannot force
-           a session prewarm for a session the user never opened. */
+        /* A slash command's claim transaction bypasses sendSession, so the adjudicator
+           is patched here — the one moment the composer is certainly mounted, so
+           resolving the resident controller cannot prewarm a session the user never opened. */
         if (bridge.editorContexts.active(id)) bridge.patchCommandAdjudication(id, patch)
         return original.call(input, mode)
       }
       const steerWrapper = function steerQueueWithEditorContext() {
         return sendContextOnlyIfIdle('steer') ? undefined : originalSteerQueue.call(input)
       }
-      /* A claim reaches the submit machine by two routes, and this one must be
-         wrapped eagerly rather than lazily at submit time: a slash-menu pick or
-         the Space gesture applies the claim immediately
-         (slash/input-begin-command -> shell.beginCommand) and the machine then
-         STORES it — Enter submits that stored claim without ever adjudicating, so
-         a patch installed at Enter would come too late. The wrapper is inert for
-         claims that carry no prompt (wrapPromptClaim answers the original). */
+      /* A claim reaches the submit machine by two routes, and this one must be wrapped
+         eagerly rather than lazily at submit time: a slash-menu pick or the Space gesture
+         applies the claim immediately (slash/input-begin-command -> shell.beginCommand)
+         and the machine then STORES it — Enter submits that stored claim without ever
+         adjudicating, so a patch installed at Enter would come too late. The wrapper is
+         inert for claims that carry no prompt (wrapPromptClaim answers the original). */
       if (typeof originalBeginCommand === 'function') {
         const beginCommandWrapper = function beginCommandWithEditorContext(claim, span) {
           return originalBeginCommand.call(input, wrapPromptClaim(claim, submitClaim), span)
@@ -564,9 +547,9 @@ export class PromptContextBridge {
       console.error(`workspace-studio: failed to patch input seams for session ${id}:`, error)
     }
   }
-  /* A harness build that stops exposing one of the claim seams silently drops
-     the editor context on command messages; make that capability loss visible
-     once (composer notice) instead of only logging it to a console nobody reads. */
+  /* A harness build that stops exposing one of the claim seams silently drops the editor
+     context on command messages; make that loss visible once (composer notice) instead of
+     only logging it to a console nobody reads. */
   reportCommandSeam(id, seam) {
     this.notify(id, new Error(translate('context.commandSeamUnavailable', { seam })))
   }
@@ -582,10 +565,9 @@ export class PromptContextBridge {
     this.inputPatches.delete(id)
   }
   /* Patch the session's slash adjudicator (ui-input-trigger's resident
-     InputTriggerController) so a prompt-bearing command claim can carry the
-     editor context. Idempotent; a missing slash pipeline — or a harness that
-     stops exposing adjudicate — degrades to "no command context" without
-     touching the submit seam patched above. */
+     InputTriggerController) so a prompt-bearing command claim carries the editor context.
+     Idempotent; a missing slash pipeline — or a harness that stops exposing adjudicate —
+     degrades to "no command context" without touching the submit seam patched above. */
   patchCommandAdjudication(id, patch) {
     if (patch.wrappedAdjudicate !== undefined || patch.adjudicatorUnavailable === true) return
     let controller
@@ -620,13 +602,12 @@ export class PromptContextBridge {
     patch.originalAdjudicate = originalAdjudicate
     patch.wrappedAdjudicate = wrappedAdjudicate
   }
-  /* Submit one prompt-bearing command claim with the editor-context envelope
-     prepended to its argument text. The harness logs the submitted line as the
-     command's `command/run.args` and `/plan` steers exactly that text as the
-     user message, so the envelope reaches the model through the command's own
-     prompt — the existing bubble folding and session-title guard apply
-     unchanged. Failures follow the plain-prompt path: notify, then reject so
-     the harness keeps the draft and the command does not run. */
+  /* Submit one prompt-bearing command claim with the editor-context envelope prepended to its
+     argument text. The harness logs the submitted line as the command's `command/run.args` and
+     `/plan` steers exactly that text as the user message, so the envelope reaches the model
+     through the command's own prompt — the existing bubble folding and session-title guard apply
+     unchanged. Failures follow the plain-prompt path: notify, then reject so the harness keeps the
+     draft and the command does not run. */
   async submitClaimWithEditorContext(id, claim, args, actx, attachments) {
     let context
     try {
@@ -687,9 +668,8 @@ export class PromptContextBridge {
     try {
       patch.input.notify('error', message)
     } catch (notifyError) {
-      /* The input dock may be mid-teardown: a notify throw must not replace
-         the original error or escape as an unhandled rejection — degrade to a
-         console record. */
+      /* The input dock may be mid-teardown: a notify throw must not replace the original
+         error or escape as an unhandled rejection — degrade to a console record. */
       console.warn(`workspace-studio: input notify failed for session ${id}: ${String(notifyError)}`)
     }
   }

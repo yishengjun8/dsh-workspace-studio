@@ -34,7 +34,7 @@ export function createLayoutStore() {
     },
   })
 }
-/* Explorer pane geometry shared by every session: file-tree width, preview width, sidebar width (0 = collapsed), and explorer open state. */
+/* Explorer pane geometry shared by every session: file-tree width, preview width, and sidebar width (0 = collapsed). */
 export function createExplorerPaneStore() {
   return defineStore({
     init: () => ({

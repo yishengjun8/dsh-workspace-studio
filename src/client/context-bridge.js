@@ -46,10 +46,9 @@ export function EditorContextPrefix({ useEditorContext, useSessions, toggle, ens
 const OPENED_FILE_PREFIX = '<opened_file>The user opened the file '
 const OPENED_FILE_SUFFIX = ' in the IDE. This may or may not be related to the current task.</opened_file>'
 const SELECTION_PREFIX = '<selection>The user selected the lines '
-/* Title detection uses the envelope prefixes WITHOUT the trailing separator:
-   the harness fallback title truncates the message to 40 UTF-8 bytes, so a
-   polluted title can end mid-sentence ("<selection>The user selected the
-   lines") and must still match. */
+/* Title detection uses the envelope prefixes WITHOUT the trailing separator: the
+   fallback title truncates the message to 40 UTF-8 bytes, so a polluted title can
+   end mid-sentence ("<selection>The user selected the lines") and must still match. */
 const TITLE_OPENED_FILE_PREFIX = '<opened_file>The user opened the file'
 const TITLE_SELECTION_PREFIX = '<selection>The user selected the lines'
 
@@ -335,7 +334,7 @@ export function installEditorContextMessageCompactor() {
     observer.disconnect()
     clearEditorContextDisplays()
     for (const [bubble, original] of originals) {
-      /* A disconnected bubble still owns its summary row: remove it, or a ghost "↳ file" line lingers until refresh. */
+      /* A disconnected bubble still owns its summary row: remove it too, or a ghost "↳ file" line lingers. */
       if (original?.summary instanceof HTMLElement && original.summary.isConnected) original.summary.remove()
       if (!bubble.isConnected) continue
       bubble.classList.remove('dsh-ws-message-context-bubble')

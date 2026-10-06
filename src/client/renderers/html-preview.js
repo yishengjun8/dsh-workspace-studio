@@ -1,13 +1,12 @@
 /* Rendered HTML preview: the draft stays the iframe's source.
-   Primary path: the Host mints a token for the document's directory, which is installed as the
-   frame's <base>, so the BROWSER resolves every relative URL — images, fonts, media, CSS url()
-   references, scripts and stylesheets, and paths a page script builds at runtime — through the
-   token-gated site route inside the workspace. Without that route a srcdoc document resolves
-   relative URLs against the embedding application page and every one of them 404s.
+   Primary path: the Host mints a token for the document's directory, installed as the frame's
+   <base>, so the BROWSER resolves every relative URL — images, fonts, media, CSS url() references,
+   scripts, stylesheets, and paths a page script builds at runtime — through the token-gated site
+   route inside the workspace. Without that route a srcdoc document resolves relative URLs against
+   the embedding application page and every one of them 404s.
    Fallback path (no token: an older Host, or a tab the route refuses): relative classic scripts and
-   stylesheets are packed through the readBytes(baseFile) Remote face, which is what this renderer
-   did before the site route existed. Packing is debounced, and a required-asset failure then falls
-   back to the raw draft with a notice. */
+   stylesheets are packed through the readBytes(baseFile) Remote face. Packing is debounced, and a
+   required-asset failure then falls back to the raw draft with a notice. */
 import { createElement as h } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { translate } from '../locale/index.js'
@@ -23,10 +22,9 @@ export function HtmlPreview({ sessionId, path, draft, readEpoch, workspaceId }) 
   const [assetFailed, setAssetFailed] = useState(false)
   const packSeqRef = useRef(0)
   /* Bytes of the assets already read for the document currently open (session + path + read
-     epoch). Only the fallback path reads assets, but it re-runs on every draft change (debounced),
-     and re-reading a file each time the user types would be pure waste. Only successful reads are
-     cached, so a reference that failed once is retried by the next pack, and a reload (which moves
-     the epoch) drops the whole set. */
+     epoch). Only the fallback path reads assets, but it re-runs on every debounced draft change,
+     and re-reading a file each keystroke would be waste. Failed reads are not cached (the next
+     pack retries them) and a reload, which moves the epoch, drops the whole set. */
   const assetCacheRef = useRef({ key: '', entries: new Map() })
   /* The site base of the open document: minted once per document and kept with it, so a draft
      change re-packs without asking the Host for a new capability. */

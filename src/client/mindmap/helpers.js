@@ -70,14 +70,13 @@ export function mindmapFoldedRunOf(doc, sessionId, seq) {
   return { firstSeq: Number(turns[start].seq), lastSeq: Number(turns[end].seq), count: end - start + 1 }
 }
 
-/* Apply ONE fold intent to a doc and return the NEXT doc (the SAME reference
-   when nothing can change: unknown session/turn, or the flag already holds the
-   requested value). Pure, so the fold WRITE QUEUE in the view can compose N
-   rapid clicks into ONE coherent document instead of letting N read-modify-write
-   round trips race each other. `kind: 'turn'` sets/clears the mark on exactly one
-   turn (the hover 折叠 pill and the menu checkbox on a single card);
-   `kind: 'run'` clears it on the WHOLE maximal folded run containing `seq` (the
-   folded card's menu uncheck). */
+/* Apply ONE fold intent to a doc and return the NEXT doc (the SAME reference when
+   nothing can change: unknown session/turn, or the flag already holds the requested
+   value). Pure, so the view's fold WRITE QUEUE composes N rapid clicks into ONE
+   coherent document instead of letting N read-modify-write round trips race each
+   other. `kind: 'turn'` sets/clears the mark on exactly one turn (the hover 折叠
+   pill and the menu checkbox on one card); `kind: 'run'` clears it on the WHOLE
+   maximal folded run containing `seq` (the folded card's menu uncheck). */
 export function mindmapApplyFoldIntent(doc, intent) {
   if (doc === null || doc === undefined || intent === null || intent === undefined) return doc
   const sessionId = String(intent.sessionId)
@@ -201,12 +200,11 @@ export function mindmapDeletePlan(doc, ownerId, turnSeq, emptyCard) {
   }
 }
 
-/* Stable key of a doc's SESSION SET (ids only, sorted): the sidebar index
-   mirrors exactly this set (entries, branch counts, the hider's branch set,
-   rootOf for the preview key and highlight), so an applied document that
-   gained or lost a session must refresh the index instead of waiting for the
-   30 s poll. Separate from the fingerprint below, which also covers turns and
-   summaries. */
+/* Stable key of a doc's SESSION SET (ids only, sorted): the sidebar index mirrors exactly
+   this set (entries, branch counts, the hider's branch set, rootOf for the preview key and
+   highlight), so an applied document that gained or lost a session must refresh the index
+   instead of waiting for the 30 s poll. Separate from the fingerprint below, which also
+   covers turns and summaries. */
 export function mindmapDocSessionKey(doc) {
   return (doc?.sessions ?? [])
     .map(session => String(session?.sessionId ?? ''))
@@ -220,18 +218,16 @@ export function mindmapDocSessionKey(doc) {
    rootSessionId and workspaceCwd are included so a rename, root replacement or workspace change
    is never swallowed by fingerprint equality. */
 export function mindmapDocFingerprint(doc) {
-  /* JSON-encoded end to end: separator-joined raw strings could COLLIDE for
-     different docs (a user question or AI summary containing a ':'/','/';'
-     aligns with a boundary and two distinct docs hash equal — silently
-     skipping setDoc). JSON.stringify is injective for this fixed key shape. */
+  /* JSON-encoded end to end: separator-joined raw strings could COLLIDE for different docs
+     (a user question or AI summary containing a ':'/','/';' aligns with a boundary and two
+     distinct docs hash equal — silently skipping setDoc). JSON.stringify is injective here. */
   return JSON.stringify({
     rootSessionId: String(doc?.rootSessionId ?? ''),
     rootTitle: String(doc?.rootTitle ?? ''),
     workspaceCwd: String(doc?.workspaceCwd ?? ''),
-    /* next participates: a counter-only change from another tab (card deletion
-       recomputes it) must not be swallowed by fingerprint equality. The
-       sessions ARRAY ORDER is preserved by JSON.stringify, so a reorder is
-       already covered. */
+    /* next participates: a counter-only change from another tab (card deletion recomputes
+       it) must not be swallowed by fingerprint equality. The sessions ARRAY ORDER is preserved
+       by JSON.stringify, so a reorder is already covered. */
     next: doc?.next ?? '',
     sessions: (doc?.sessions ?? []).map(s => ({
       sessionId: s?.sessionId,
@@ -326,12 +322,11 @@ export const mindmapStreamPalette = (sessionId) => {
   return out
 }
 
-/* Doc layout (v3): the virtual root node sits alone at the top (row 0); every session is a
-   horizontal chain of a HEAD node plus its question cards, one session per row in DFS order.
-   A session with no turns renders one placeholder card; an optional `streaming` descriptor
-   appends an ephemeral live card to the chain tail. Consecutive folded turns merge into one
-   folded card unless the run is being peeked (`peekedRuns` temporarily expands those runs).
-   Returns { nodes, edges, width, height, peekBoxes }. */
+/* Doc layout (v3): the virtual root sits alone at the top (row 0); every session is a horizontal
+   chain of a HEAD node plus its question cards, one session per row in DFS order. A session with
+   no turns renders one placeholder card; an optional `streaming` descriptor appends an ephemeral
+   live card to the chain tail. Consecutive folded turns merge into one folded card unless the run
+   is peeked (`peekedRuns` temporarily expands those runs). Returns { nodes, edges, width, height, peekBoxes }. */
 export function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_MOUNT_BULGE_DEFAULT_X, peekedRuns) {
   const nodes = []
   const edges = []
@@ -434,7 +429,6 @@ export function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_M
     }
     entryBySession.set(String(s.sessionId), { session: s, headCol, row: row++ })
   }
-  /* Build session chains (heads + cards). */
   for (const s of order) {
     const entry = entryBySession.get(String(s.sessionId))
     const sid = String(s.sessionId)
@@ -579,7 +573,6 @@ export function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_M
       ? rootY
       : rootY + MINDMAP_ROOT_H + MINDMAP_ROW_GAP + MINDMAP_NODE_H + (node.row - 1) * (MINDMAP_NODE_H + MINDMAP_ROW_GAP)
   }
-  /* The virtual root node itself. */
   nodes.push({
     kind: 'root',
     key: MINDMAP_ROOT_KEY,
@@ -648,10 +641,9 @@ export function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_M
      viewport bottom on first fit / restore view (the top already reserves
      rootY). */
   const height = rootY + MINDMAP_ROOT_H + MINDMAP_ROW_GAP + MINDMAP_NODE_H + lastRow * (MINDMAP_NODE_H + MINDMAP_ROW_GAP)
-  /* Bounding box per temporarily-expanded (peeked) run: the amber dashed
-     outlines rendered by the view (pointer-events: none, so they never block
-     card clicks). One box per run — a single union box would span the whole
-     map when several runs are peeked at once. */
+  /* Bounding box per temporarily-expanded (peeked) run: the amber dashed outlines rendered by
+     the view (pointer-events: none, so they never block card clicks). One box per run — a union
+     box would span the whole map when several runs are peeked at once. */
   const peekBoxes = []
   for (const group of peekedRunBoxes) {
     let minX = Infinity
@@ -675,10 +667,9 @@ export function mindmapDocLayout(doc, streamingList, mountBulgeParam = MINDMAP_M
 
 const mindmapXOf = depth => MINDMAP_DEPTH_GAP + depth * (MINDMAP_NODE_W + MINDMAP_DEPTH_GAP)
 
-/* Normalize a workspace path for IDENTITY comparison: case-fold + strip the
-   trailing slash so `w.path === cwd`-style exact matches cannot miss on
-   Windows drives, trailing separators or mixed \ / (the sidebar grouping and
-   the root-node workspace resolver must agree on the same comparison). */
+/* Normalize a workspace path for IDENTITY comparison: case-fold + strip the trailing slash so
+   `w.path === cwd`-style exact matches cannot miss on Windows drives, trailing separators or
+   mixed \ / (the sidebar grouping and the root-node workspace resolver must agree on it). */
 export function normalizeMindmapWorkspacePath(path) {
   return String(path ?? '').replace(/[\\/]+$/, '').toLowerCase()
 }
@@ -749,10 +740,9 @@ export function mindmapFitView(worldW, worldH, vw, vh) {
    churn never re-renders) and stays allocation-free on the hot path. */
 export function useMindmapSessionView(useSessions, familyIdsRef) {
   const cacheRef = useRef(null)
-  /* Join-string cache keyed by the family ARRAY identity (the caller memoizes
-     the array per doc/rootId change): an unconditional `family.join('\u0002')`
-     would allocate a fresh string on every selector run — the point of the
-     value-level unchanged check below is to stay allocation-free on the hot path. */
+  /* Join-string cache keyed by the family ARRAY identity (the caller memoizes the array per
+     doc/rootId change): an unconditional `family.join('\u0002')` would allocate a fresh string
+     on every selector run — the value-level unchanged check below must stay allocation-free. */
   const keyRef = useRef(null) // { family, key }
   return useSessions((state) => {
     const byId = state?.byId ?? {}
@@ -772,10 +762,9 @@ export function useMindmapSessionView(useSessions, familyIdsRef) {
       }
       if (same) return cache.view
     }
-    /* The view carries ONLY the family-projected running bits and titles — no
-       raw byId — so it is a stable object while those fields are unchanged
-       (idle store churn never re-renders the map) AND the selector stays pure
-       (no mutation of a previously-returned object). */
+    /* The view carries ONLY the family-projected running bits and titles — no raw byId — so it
+       stays a stable object while those fields are unchanged (idle store churn never re-renders
+       the map) AND the selector stays pure (no mutation of a previously-returned object). */
     const running = []
     const titles = []
     for (const id of family) {

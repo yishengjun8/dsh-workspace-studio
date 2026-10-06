@@ -1,10 +1,9 @@
 /** Pure view-model helpers for the file browser's version-control status.
  *
- * One `/vcs` payload is turned into everything the tree and the changes list
- * render: per-path badges, directory roll-ups, deleted-file ghost rows, the flat
- * change list and the status-bar model. No React, no DOM and no network here —
- * the explorer hook owns the request, so these functions stay cheap to reason
- * about and easy to exercise from a throwaway script. */
+ * One `/vcs` payload becomes everything the tree and the changes list render:
+ * per-path badges, directory roll-ups, deleted-file ghost rows, the flat change
+ * list and the status-bar model. No React, no DOM and no network — the explorer
+ * hook owns the request, so the view semantics can be exercised without a DOM. */
 import { translate } from './locale/index.js'
 
 /** Badge tone per status letter; a conflict flag and the ignored flag win over this table. */
@@ -170,7 +169,6 @@ export function vcsDirectoryBadgeTitle(badge) {
 /**
  * The tree's row filter: VCS metadata directories are hidden (display only), and in the
  * changes-only view only changed files plus the directories that contain changes survive.
- * Pure, so the view semantics can be exercised without a DOM.
  * @param overlay - the view model of `buildVcsOverlay` (`undefined` = not derived yet).
  * @param options - `{ changesOnly, hideMetadataDirs }`.
  * @returns a predicate over one tree entry.

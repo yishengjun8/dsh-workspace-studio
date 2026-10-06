@@ -42,27 +42,23 @@ export const tokenHighlight = HighlightStyle.define([
   { tag: [tags.invalid, tags.deleted], color: 'var(--dsw-alias-state-error-primary)' },
 ])
 
-/* Python import-module highlighting: module-path names inside import
-   statements and later usages of plain-import bindings (`import os` makes
-   every resolving `os` a module). lezer-python trees are flat inside
-   ImportStatement, so styleTags selectors cannot tell modules from
-   variables; a ViewPlugin walks the tree with a scope stack modelled from
-   the syntax nodes:
-   - binding scope: `import X` / `import a.b.c` → X/a; alias `import X as Y`
-     → Y. `from X import Y` names are not tracked (unresolvable without
-     semantics) — only the from-module path is coloured in-statement;
-   - shadowing: params, assignment/for/with/except targets, def/class names,
-     lambda params, comprehension targets, walrus targets and match captures
-     define a name in their scope; a usage resolves to the NEAREST binding on
-     the scope chain (Python compile-time scoping);
+/* Python import-module highlighting: module-path names inside import statements and later usages of
+   plain-import bindings (`import os` makes every resolving `os` a module). lezer-python trees are
+   flat inside ImportStatement, so styleTags selectors cannot tell modules from variables; a
+   ViewPlugin walks the tree with a scope stack modelled from the syntax nodes:
+   - binding scope: `import X` / `import a.b.c` → X/a; alias `import X as Y` → Y. `from X import Y`
+     names are not tracked (unresolvable without semantics) — only the from-module path is coloured
+     in-statement;
+   - shadowing: params, assignment/for/with/except targets, def/class names, lambda params,
+     comprehension targets, walrus targets and match captures define a name in their scope; a usage
+     resolves to the NEAREST binding on the scope chain (Python compile-time scoping);
    - class scopes are skipped by lookups from nested functions (LEGB).
    Correctness requirements (mirroring the official TreeHighlighter):
-   1. Prec.highest — mark decorations nest by facet precedence and render
-      inside the innermost span; the syntax-highlight plugin is Prec.high, so
-      without a higher precedence the mark's color is overridden.
-   2. Rebuild on tree identity change, not just docChanged: the Lezer parse
-      advances in background chunks, so a docChanged-only rebuild misses
-      imports beyond the synchronously parsed prefix. */
+   1. Prec.highest — mark decorations nest by facet precedence and render inside the innermost span;
+      the syntax-highlight plugin is Prec.high, so without a higher precedence the mark's color is
+      overridden.
+   2. Rebuild on tree identity change, not just docChanged: the Lezer parse advances in background
+      chunks, so a docChanged-only rebuild misses imports beyond the synchronously parsed prefix. */
 const pythonModuleMark = Decoration.mark({ class: 'dsh-ws-token-module' })
 const pythonImportModules = Prec.highest(ViewPlugin.fromClass(class {
   constructor(view) { this.view = view; this.tree = syntaxTree(view.state); this.decorations = this.build(view); this.pending = false; this.raf = 0 }

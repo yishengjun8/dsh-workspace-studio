@@ -2,11 +2,9 @@
  *
  * The image, PDF/Office and read-only browse views each copied the same two blocks: a failure line
  * with a `data-error` marker (plus a retry button on the converted view) and a loading placeholder.
- * They live here once so the marker, the classes and the retry affordance cannot drift between views.
- *
- * A PRESET over the shared panel message (panel-state.js), not a second implementation: the renderer
- * family is the only place with its own class pair, and pinning it here is what keeps the three views
- * from drifting apart.
+ * They live here once so the marker, the classes and the retry affordance cannot drift. A PRESET over
+ * the shared panel message (panel-state.js), not a second implementation: the renderer family is the
+ * only place with its own class pair, and pinning it here keeps the three views aligned.
  */
 import { createElement as h } from 'react'
 import { PanelState } from '../panel-state.js'

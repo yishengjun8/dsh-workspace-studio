@@ -1,6 +1,6 @@
-/** Token usage statistics: settings group (设置 → 工作区设置 → Token 统计) with a wide modal panel that queries the Host's token-stats endpoint. Ranges (today, the standard week/month presets and a custom date pair) are resolved to [from, to) epoch-ms in the browser's local timezone; the per-model view checkboxes decide which models feed the Summary row. That view also carries a name-fragment filter: keywords are matched (case-insensitively, OR-combined) against the whole `provider/model` label and narrow both the table and the Summary row — client-side only, so it never re-queries the Host. The Host answers from its cached usage index and flags `warming` while a background scan is still running, so the panel shows the partial numbers and polls until that scan settles.
+/** Token usage statistics: settings group (设置 → 工作区设置 → Token 统计) with a wide modal panel over the Host's token-stats endpoint. Ranges (today, the standard week/month presets, a custom date pair) resolve to [from, to) epoch-ms in the browser's local timezone; the per-model view's checkboxes decide which models feed the Summary row, and its case-insensitive OR-combined name filter matches the whole `provider/model` label and narrows table and Summary client-side only. The Host answers from its cached usage index and flags `warming` while a background scan runs, so the panel shows the partial numbers and polls until the scan settles.
 
-The body is two columns, both drawn as the same card: on the left the model-detail column (its own title with the live count of selected models on the right, the name filter in its own bordered band, the per-model table); on the right the quick calculator (three unit-price fields — input / cache read / output, per 1M tokens — a currency symbol and one money column), whose header carries the same selected-model count so the two cards read alike. Each column scrolls its own list, so a long model list can never push the filter or the calculator out of the panel; a draggable divider between them sets the left column's pixel width, remembered across panel opens (0 = never dragged → the built-in column ratio, so the columns keep scaling with the window; a double-click on the divider goes back to that ratio). The calculator has no collapse button: both columns are the same card, and the divider already gives the model list more room than hiding one list ever could. Prices multiply the Host's own token numbers — the same visible rows the Summary covers — so nothing has to be retyped, and every row may override any of the three prices (an empty cell falls back to the shared default). Everything typed here (defaults, per-row overrides, currency) is local-only localStorage state and is never sent to the Host. */
+The body is two columns drawn as the same card: on the left the model-detail column (its own title with the live selected-model count, the name filter in its own bordered band, the per-model table); on the right the quick calculator (unit-price fields — input / cache read / output, per 1M tokens — a currency symbol and one money column), whose header carries the same count. Each column scrolls its own list, so a long model list can never push the filter or the calculator out of the panel; a draggable divider between them sets the left column's pixel width, remembered across panel opens (0 = never dragged → the built-in column ratio, so the columns keep scaling with the window; a double-click on the divider goes back to that ratio). The calculator has no collapse button: the divider already gives the model list more room than hiding one list ever could. Prices multiply the Host's own token numbers — the same visible rows the Summary covers — so nothing has to be retyped, and every row may override any of the three prices (an empty cell falls back to the shared default). Everything typed here (defaults, per-row overrides, currency) is local-only localStorage state and is never sent to the Host. */
 import { createElement as h, Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { translate } from '../locale/index.js'
 import { PanelState } from '../panel-state.js'
@@ -83,10 +83,10 @@ function fmtDate(ms) {
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString()
 }
 
-/* ---- Quick calculator (bottom of the token panel) ---- */
+/* ---- Quick calculator ---- */
 /* The priced fields, their default currency and the input caps live in constants.js so the
-   persisted-state schema and this panel share one definition; a field the schema does not name
-   (including one a previous format wrote) simply is not part of the record and is dropped there. */
+   persisted-state schema and this panel share one definition; a field the schema does not name is
+   not part of the record and is dropped there. */
 const MILLION = 1000000
 
 /* One price field: a plain text input with decimal keypad hints, so a number input's spinners (and its wheel-changes-value behaviour inside the scrolling dialog) never appear. Anything that is not a digit or a single dot is dropped instead of stored, and the length is capped so a paste cannot bloat the persisted value. An empty string means "not filled in" and is worth 0. */
@@ -399,13 +399,12 @@ function TokenStatsDialog({ onClose }) {
   }, { calls: 0, input: 0, cacheRead: 0, output: 0 })
   /* The token panel's state line: the shared panel message pinned to this panel's class. */
   const stateBox = (text, isError) => h(PanelState, { className: 'dsh-ws-token-state', error: isError === true, layout: 'inline', message: text })
-  /* Both column headers carry the same figure: how many models the totals actually cover — the visible
-     rows minus the ones the user unchecked — so the two headers can never disagree with each other or
-     with the 汇总 / 合计 rows below them (`costIncluded` is that identical set in the model view and an
-     unfiltered `rows` in the total view, so one source serves both). Declared here, above the quick
-     calculator, because that block renders its own copy of the line: a definition further down would be
-     in its temporal dead zone (see dev-notes §16). `live` is set on the left column only — that is where
-     the checkboxes are, and two polite live regions carrying one string would read it out twice. */
+  /* Both column headers carry the same figure — how many models the totals cover (visible rows minus the
+     unchecked ones) — so neither can disagree with the other or with the 汇总 / 合计 rows below
+     (`costIncluded` is that identical set in the model view, an unfiltered `rows` in the total view).
+     Declared above the quick calculator because that block renders its own copy: a definition further down
+     would be in its temporal dead zone (see dev-notes §16). `live` marks the left column only — where the
+     checkboxes are; two polite live regions carrying one string would read it out twice. */
   const countLine = live => rows.length === 0 ? null : h('span', {
     ...(live === true ? { 'aria-live': 'polite' } : {}),
     className: 'dsh-ws-token-pane-sub',
@@ -580,10 +579,9 @@ function TokenStatsDialog({ onClose }) {
               h('td', { className: 'dsh-ws-token-model' }, translate('tokens.cost.totalRow')),
               TOKEN_PRICE_FIELDS.map(field => h('td', { key: `token-${field}` }, fmtCount(costIncluded.reduce((sum, row) => sum + (Number(row[field]) || 0), 0)))),
               costAmountCell(costTotal, { muted: costTotal === 0 })))))))
-  /* One card per summary figure above the split: the same numbers the left table's own Summary row
-     carries, lifted into view so a long list never hides them. The last card previews the quick
-     calculator's money total — same rows, same prices, same formula as the money table's 合计 row,
-     so the two can never disagree. */
+  /* One card per summary figure above the split: the same numbers the left table's own Summary row carries,
+     lifted into view so a long list never hides them. The last card previews the calculator's money total —
+     same rows, prices and formula as the money table's 合计 row, so the two can never disagree. */
   const kpiCards = [
     { key: 'calls', label: translate('tokens.col.calls'), text: fmtCount(summary.calls) },
     { key: 'input', label: translate('tokens.col.input'), text: fmtCount(summary.input) },

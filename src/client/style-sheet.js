@@ -8,8 +8,7 @@
  *   - write nothing when the decision did not change (the sidebar re-renders on every poll);
  *   - remove it on dispose, so a disabled feature stops hiding rows immediately.
  *
- * The sheet is compared against the live `textContent`, not a cached copy: anything that rewrites the
- * element outside this module is then still noticed.
+ * Compared against the live `textContent`, not a cached copy: an outside rewrite is still noticed.
  */
 export function createStyleSheet(id) {
   const resolve = () => {

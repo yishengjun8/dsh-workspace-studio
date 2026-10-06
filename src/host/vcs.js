@@ -4,12 +4,12 @@
  * working-copy state of this workspace" question per request and is cached by a
  * short TTL. It never writes to the repository (no index lock, no hook, no
  * credential prompt) and never touches the network: `git status` runs with
- * `--no-optional-locks` + GIT_OPTIONAL_LOCKS=0, `svn status` runs without `-u`.
+ * `--no-optional-locks` + GIT_OPTIONAL_LOCKS=0, `svn status` without `-u`.
  *
- * Every degradation (missing CLI, timeout, unexpected failure) is reported in
- * the payload's `error` field with a 200 so the client always receives the full
- * shape and can keep showing its last good result; only the request fence
- * (untrusted origin, unknown workspace) fails with a real HTTP error.
+ * Every degradation (missing CLI, timeout, unexpected failure) is a 200 with the
+ * reason in the payload's `error`, so the client always gets the full shape and
+ * keeps showing its last good result; only the request fence (untrusted origin,
+ * unknown workspace) fails with a real HTTP error.
  */
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'

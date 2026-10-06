@@ -67,9 +67,8 @@ function useDialogEscape(onCancel, busy) {
  * body, and a footer of buttons.
  *
  * Four of this module's five dialogs were the same twelve lines with different copy, so the skeleton —
- * including the focus trap and the busy rules for the × and the backdrop — lives here once. What actually
- * differs per dialog is data: the title, the body, the dialog's extra class/style for the wide merge
- * dialog, and the buttons.
+ * focus trap and the × / backdrop busy rules included — lives here once; per dialog only the data differs:
+ * title, body, extra class/style, buttons.
  *
  * @param busy - locks the × / backdrop cancel (a dialog that must not be dismissed mid-request). The
  *   caller also passes `disabled: busy` on its own cancel BUTTON, since a dialog may need a different
@@ -312,7 +311,7 @@ export function SaveConflictDialog({ conflict, fontSize, onResolve }) {
     })
   }
   return h(Modal, {
-    /* The conflict dialog is never dismissible mid-flight (there is no request in flight), so `busy` stays unset and the backdrop/× always cancel — exactly as before. */
+    /* There is no request in flight here, so the conflict dialog is never dismissible mid-flight: `busy` stays unset and the backdrop/× always cancel. */
     onCancel: () => onResolve('cancel'),
     title: [
       translate('dialog.saveConflictTitle'),

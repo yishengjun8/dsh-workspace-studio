@@ -8,7 +8,7 @@ const JSON_HEADERS = {
   'cross-origin-resource-policy': 'same-origin',
   'x-content-type-options': 'nosniff',
 }
-/* Body-receive watchdog: a client that sends headers and then stalls must not hold the handler and connection open forever — the browser-side request timeout is 30 s, so a slightly longer bound here means a hung client surfaces as an explicit 408 instead of an invisible hang. */
+/* Body-receive watchdog: a client that sends headers then stalls must not hold the handler open forever. The browser-side request timeout is 30 s, so a slightly longer bound here surfaces a hung client as an explicit 408 instead of an invisible hang. */
 const BODY_READ_TIMEOUT_MS = 35_000
 export function header(headers, name) {
   const value = headers[name]
@@ -136,7 +136,7 @@ export function readBody(
     req.on('error', (error) => {
       settle(reject, error)
     })
-    /* Some Node versions / connection teardown paths fire only 'close' (destroy() mid-body, keep-alive reuse) without 'aborted': without this the promise would never settle and the request handler would hang. The settled guard makes the normal end-then-close sequence a no-op. */
+    /* Some Node versions / teardown paths fire only 'close' (destroy() mid-body, keep-alive reuse) without 'aborted': without this the promise would never settle and the handler would hang. The settled guard makes the normal end-then-close sequence a no-op. */
     req.on('close', () => {
       settle(reject, new HttpError(400, 'request-aborted', abortedMessage))
     })

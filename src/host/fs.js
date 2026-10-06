@@ -12,7 +12,6 @@ import { containsNul, decodeBytes, decodeUtf8, effectiveReadEncoding, encodingBy
 import { header, readBody } from './http.js'
 
 const execFileAsync = promisify(execFile)
-/** Whether the Linux host is Windows Subsystem for Linux (WSL). */
 function isWslHost() {
   const env = process.env
   return (env.WSL_DISTRO_NAME !== undefined && env.WSL_DISTRO_NAME !== '')
@@ -20,7 +19,6 @@ function isWslHost() {
     || osRelease().toLowerCase().includes('microsoft')
 }
 
-/** Translate a Linux path to the Windows path WSL exposes it under. */
 async function translateToWindowsPath(path) {
   let stdout
   try {
@@ -349,7 +347,7 @@ export async function searchWorkspace(workspace, query, caseSensitive, nameOnly,
     truncated,
   }
 }
-/* Open a REGULAR file for reading without ever blocking on a special file: the stat-then-open window can be raced by replacing the path with a FIFO or device node, and a plain blocking open() on a writer-less FIFO hangs forever (saveFile holds the whole workspace write queue while hung). O_NONBLOCK makes the open return immediately for a FIFO, and the post-open stat rejects anything that is not a plain file. */
+/* Open a REGULAR file for reading without ever blocking on a special file: the stat-then-open window can be raced by replacing the path with a FIFO or device node, and a blocking open() on a writer-less FIFO hangs forever (saveFile holds the whole workspace write queue while hung). O_NONBLOCK makes the open return immediately for a FIFO; the post-open stat rejects anything not a plain file. */
 export async function openRegularFile(target) {
   /* O_NONBLOCK is undefined on Windows (no FIFOs there) — fall back to 0 so the flag expression stays an explicit read-only open everywhere. */
   const flags = fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0)
@@ -435,7 +433,7 @@ function detectRawEncoding(bytes) {
   if (hasBom(bytes, 'utf-8')) return 'utf-8-bom'
   return 'utf-8'
 }
-/* Read a workspace file's ORIGINAL bytes for the "open in new window" tab action: bounded by maxPreviewBytes, binary/NUL rejected, encoding detected from the BOM (else UTF-8) for the Content-Type charset. The route serves the response with a sandbox CSP, so the opened document is a unique origin and cannot touch the GUI's storage or API. Markdown files are flagged so the route can serve a server-rendered document instead of the raw bytes. */
+/* Read a workspace file's ORIGINAL bytes for the "open in new window" tab action: bounded by maxPreviewBytes, binary/NUL rejected, encoding detected from the BOM (else UTF-8) for the Content-Type charset. The route serves it with a sandbox CSP, so the opened document is a unique origin and cannot touch the GUI's storage or API. Markdown files are flagged so the route can serve a server-rendered document instead. */
 export async function readRawFile(workspace, relativePath, config) {
   if (relativePath === '') throw new HttpError(400, 'not-a-file', '请选择要预览的文件')
   const root = await realpath(workspace.path)

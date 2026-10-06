@@ -18,9 +18,7 @@ export function useMindmapViewport({ layoutRef }) {
   const pendingViewRef = useRef(null)
   const rafRef = useRef(0)
   const fittedRef = useRef(false)
-  /* Grab-pan on blank area + cursor-anchored wheel zoom; the transform is
-     applied straight to the canvas (not React state) so interaction stays at
-     frame rate. */
+  /* Kept off React state so a pan/zoom stays at frame rate. */
   const applyViewTransform = useCallback(() => {
     const el = canvasRef.current
     if (el === null) return

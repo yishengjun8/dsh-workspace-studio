@@ -26,16 +26,15 @@ export function useEditorSession({
      the read-only preview of an outside-workspace file has no other trigger. */
   const faces = useRemoteFaces()
   const [preview, setPreview] = useState({ state: 'idle' })
-  /* `editing` / `dirty` / `saving` have ONE owner: the tab. The hook used to hold local copies and mirror
-     them into the tab at ~39 call sites, which is how the two could disagree — the cache-hit read path
-     even cleared the local `dirty` while the tab kept saying dirty, so the "unsaved changes" gate read
-     false for a tab the rest of the explorer (the tab strip, the save-all sweep, the delete confirmation)
-     treated as dirty. The setters below write the tab; these values read it back, so a tab switch needs no
-     re-seeding at all.
-     `draft` stays local: it changes on every keystroke, and routing that through the tab would re-render
+  /* `editing` / `dirty` / `saving` have ONE owner: the tab. The hook used to mirror local copies into it
+     at ~39 call sites and the two could disagree — a cache-hit read cleared the local `dirty` while the
+     tab stayed dirty, so the "unsaved changes" gate read false for a tab the rest of the explorer
+     treated as dirty. The setters below write the tab and these values read it back, so a tab switch
+     needs no re-seeding.
+     `draft` stays local: it changes on every keystroke, and routing it through the tab would re-render
      the whole explorer per character.
-     `status` stays local: it is a SESSION-TRANSIENT banner (a cancelled save, a just-refreshed note) that
-     must NOT survive a tab switch, while the tab carries the durable banner the read pass reconciles. */
+     `status` stays local: a SESSION-TRANSIENT banner (a cancelled save, a just-refreshed note) must NOT
+     survive a tab switch; the tab carries the durable banner the read pass reconciles. */
   const editing = Boolean(activeTab?.editing)
   const dirty = Boolean(activeTab?.dirty)
   const saving = Boolean(activeTab?.saving)
@@ -43,9 +42,9 @@ export function useEditorSession({
   const [status, setStatus] = useState()
   const [readEpoch, setReadEpoch] = useState(0)
   const [conflictDialog, setConflictDialog] = useState()
-  /* The three tab-field setters keep the signatures the ~39 existing call sites already use, but write the
-     tab instead of a local mirror. With no active file (a mind-map / plan / review tab, an outside file, no
-     tab at all) there is nothing to write, and the derived values above are already false. */
+  /* The three setters keep their signatures but write the tab, not a local mirror; with no active file
+     (a mind-map / plan / review tab, an outside file, none at all) there is nothing to write and the
+     derived values above are already false. */
   const setEditing = useCallback((value) => {
     const path = activePathRef.current
     if (path !== null) updateTab(path, { editing: value === true })
@@ -64,7 +63,7 @@ export function useEditorSession({
   const saveController = useRef()
   const baseText = useRef('')
   const diskBaseRef = useRef('')
-  /* Latest disk state this editor wrote or read (content + revision), per-path since a pending auto-save can outlive the tab. */
+  /* Latest disk state this editor wrote or read, per-path since a pending auto-save can outlive the tab. */
   const lastWriteRef = useRef(new Map())
   const autosaveTimers = useRef(new Map())
   /* Per-path change snapshots (mtime/size/hash) for preview auto-sync; only non-external tabs are tracked. */
@@ -136,7 +135,7 @@ export function useEditorSession({
     const view = editorRef.current
     if (view !== undefined) publishContextState(view.state)
   }, [preview, publishContextState])
-  /* Preview auto-sync: poll the change-check endpoint on a fixed cadence; a clean active tab re-reads (auto) or shows a "changed" marker (watch-only), a dirty tab is never overwritten, and a BACKGROUND tab is only MARKED — never reloaded — so a file moving under the user's other tabs stays visible without silently swapping content. */
+  /* Preview auto-sync: a clean active tab re-reads (auto) or shows a "changed" marker (watch-only); a dirty tab is never overwritten; a BACKGROUND tab is only MARKED — never reloaded — so a file moving under the user's other tabs stays visible without silently swapping content. */
   const syncControllerRef = useRef()
   /* Flash a tab whose content an AUTO reload just replaced; the timer clears the flag, without which the next reload's CSS animation would not replay. */
   const flashTab = useCallback((path) => {
@@ -540,7 +539,6 @@ export function useEditorSession({
       const content = typeof payload.content === 'string' ? payload.content : ''
       const savedScrollTop = scrollTopRef.current.get(activePath) ?? candidateTab.scrollTop ?? 0
       reloadingPathsRef.current.add(activePath)
-      /* editing / dirty / saving are the tab's own fields now — nothing to re-seed. */
       setStatus(candidateTab.status?.error === true ? undefined : candidateTab.status)
       const ready = {
         state: 'ready',
@@ -599,10 +597,9 @@ export function useEditorSession({
       setDraft(content)
       setPreview(ready)
       reloadingPathsRef.current.delete(activePath)
-      /* Background validation: one cheap change check against the snapshot
-         the served content was read from (skipped only when the poll JUST
-         confirmed the same disk state). A detected change upgrades exactly
-         like a poll-driven reload. */
+      /* Background validation: one cheap change check against the snapshot the served
+         content came from (skipped when the poll JUST confirmed the same disk state);
+         a detected change upgrades exactly like a poll-driven reload. */
       const baseline = serveSnapshot
       const pollJustConfirmed = watchBaseline !== undefined && watchBaseline !== null
         && sameDiskSnapshot(watchBaseline, baseline)
@@ -1040,7 +1037,7 @@ export function useEditorSession({
         }
         return
       }
-      /* A 400 invalid-draft 'generation 跳变过大' means the local counter drifted ABOVE the Host fence (sustained failed writes while the user kept typing, or a stale IndexedDB mirror re-seeding a high generation after reload). The error carries the Host's current generation: clamp DOWN and re-arm this snapshot with the reconciled generation — otherwise every later draft write for this owner fails forever, even across reloads. */
+      /* A 400 invalid-draft 'generation 跳变过大' means the local counter drifted ABOVE the Host fence (sustained failed writes while the user kept typing). The error carries the Host's current generation: clamp DOWN and re-arm this snapshot with the reconciled generation — otherwise every later draft write for this owner fails forever, even across reloads. */
       if (error?.status === 400 && Number.isSafeInteger(Number(error?.data?.currentGeneration))) {
         const hostGeneration = Number(error.data.currentGeneration)
         if (draftGenerationCounterRef.current > hostGeneration) {
@@ -1084,7 +1081,7 @@ export function useEditorSession({
 
   /* Fire every pending auto-save immediately. `options.keepalive` is what the page-hide path passes:
      the draft PUT then survives the document being torn down, which is the whole reason this hook is
-     also wired to pagehide/visibilitychange (it replaced the IndexedDB emergency mirror). */
+     also wired to pagehide/visibilitychange. */
   const flushAutosaves = useCallback((options) => {
     const keepalive = options?.keepalive === true
     for (const timer of autosaveTimers.current.values()) clearTimeout(timer)

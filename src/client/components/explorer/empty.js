@@ -1,8 +1,8 @@
 /* The explorer's placeholder for "no workspace": the two sections it would otherwise render, portalled
  * into the sidebar's files region exactly like the real tree.
  *
- * It lives here rather than in components/settings.js (where it started): it is explorer chrome, not a
- * settings surface, and the settings module had no other reason to know about `treePortalTarget`.
+ * It lives here rather than in components/settings.js: it is explorer chrome, not a settings surface, and
+ * that module has no other reason to know about `treePortalTarget`.
  */
 import { createElement as h, Fragment } from 'react'
 import { createPortal } from 'react-dom'

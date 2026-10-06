@@ -113,13 +113,12 @@ export function CollectionsDropdown({ doc, workspaces, onSelect, onPatch, notice
   const menuRef = useRef(null)
 
   const current = collectionById(doc, doc.selectedId)
-  /* Two built-in views are not stored collections, so they are named by id. */
   const currentName = current !== undefined
     ? current.name
     : doc.selectedId === COLLECTION_UNOWNED_ID ? translate('collections.unowned') : translate('collections.all')
   const atLimit = doc.collections.length >= COLLECTION_LIMIT
-  /* The built-in rows are pinned above the user collections and can never be dragged, renamed or
-     deleted; they only select. `localeRevision` keeps their names in the active language. */
+  /* Built-ins are not stored, so they are named by id; `localeRevision` keeps those names in the active
+     language. */
   const localeRevision = useLocaleText()
   const rows = useMemo(() => [
     ...BUILTIN_ROWS.map((builtin, index) => ({ id: builtin.id, name: translate(builtin.nameKey), builtin: true, index })),
@@ -223,8 +222,8 @@ export function CollectionsDropdown({ doc, workspaces, onSelect, onPatch, notice
     if (collection === undefined) return
     if (typeof window !== 'undefined' && !window.confirm(translate('collections.delete.confirm', { name: collection.name }))) return
     const patch = { remove: [id] }
-    /* Deleting the collection being shown has to reselect in the same patch: the Host refuses a
-       selection that does not exist after the merge. */
+    /* Deleting the shown collection must reselect in the same patch: the Host refuses a selection that
+       does not exist after the merge. */
     if (doc.selectedId === id) patch.selectedId = COLLECTION_ALL_ID
     const result = await run(patch, translate('collections.deleted', { name: collection.name }))
     if (result?.ok === true) {
@@ -242,8 +241,7 @@ export function CollectionsDropdown({ doc, workspaces, onSelect, onPatch, notice
     const from = ids.indexOf(fromId)
     if (from < 0) return
     ids.splice(from, 1)
-    /* Display rows start with the built-in views, so a display slot maps to the user order by
-       subtracting them; dragging DOWN lands one slot earlier because the item was just removed. */
+    /* Dragging DOWN lands one slot earlier because the item was just removed. */
     const target = displayIndex - BUILTIN_ROWS.length
     const at = clamp(from < target ? target - 1 : target, 0, ids.length)
     ids.splice(at, 0, fromId)

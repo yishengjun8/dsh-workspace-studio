@@ -2,10 +2,8 @@
  *
  * The Host is the authority: it resolves the interpreter, re-checks every request and refuses any
  * extension without a recipe. The client only decides whether to OFFER a console for a preview tab.
- * Keeping one table in src/shared means the two sides cannot drift — they used to be two hand-kept
- * copies (`host/run.js` RUN_EXTENSION_RECIPES vs `client/run-detect.js` RUN_FAMILY_BY_EXTENSION, with
- * a comment admitting the mirror), and a divergence would have shown up as a missing console or a
- * refused run for the same file.
+ * One table in src/shared keeps the two sides from drifting: a divergence would show up as a missing
+ * console or a refused run for the same file.
  *
  * `direct` executes the file itself.
  */

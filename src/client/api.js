@@ -1,19 +1,17 @@
 /* The plugin's ONLY network layer.
  *
- * Every request goes through `request`, so the bounded timeout, the same-origin
- * credentials, the accept/content-type headers, the failure normalization and the
- * invalid-response contract exist exactly once. Each endpoint is then a few lines
- * that name its route, its query/body and the locale keys its failures are
- * reported with — no fetch boilerplate is repeated per endpoint.
+ * Every request goes through `request`, so the bounded timeout, same-origin credentials, the
+ * accept/content-type headers, failure normalization and the invalid-response contract exist
+ * exactly once; each endpoint is then a few lines naming its route, its query/body and the failure
+ * locale keys, with no fetch boilerplate repeated.
  *
- * `ROUTES` is the client-side mirror of the Host's route table
- * (src/host/index.js). scripts/check-api-surface.mjs asserts the two agree, so a
- * route renamed on one side cannot survive as a runtime 404 on the other.
+ * `ROUTES` mirrors the Host's route table (src/host/index.js); scripts/check-api-surface.mjs
+ * asserts the two agree, so a route renamed on one side cannot survive as a runtime 404.
  */
 import { API_PREFIX, ENCODING_FALLBACK, ENCODING_LABEL_FALLBACK, MINDMAP_LOAD_TIMEOUT_MS, MINDMAP_MODELS_CACHE_MS, MINDMAP_SYNC_TIMEOUT_MS, RUN_PROBE_REQUEST_TIMEOUT_MS, RUN_STATUS_TIMEOUT_MS, TOKEN_STATS_TIMEOUT_MS, UPDATE_CHECK_TIMEOUT_MS, UPDATE_DOWNLOAD_TIMEOUT_MS, VCS_STATUS_TIMEOUT_MS } from './constants.js'
 import { localeIsZh, translate } from './locale/index.js'
 
-/* Bounded request timeouts: a hung Host must not leave the UI in a permanent loading/saving state; merges the caller's signal with a timeout, falling back to the signal alone when the timeout APIs are unavailable. */
+/* Bounded request timeouts: a hung Host must not leave the UI in a permanent loading/saving state; withTimeout merges in the caller's signal, or falls back to the signal alone when the timeout APIs are unavailable. */
 const REQUEST_TIMEOUT_MS = 30_000
 const MINDMAP_LLM_TIMEOUT_MS = 60_000
 
@@ -241,10 +239,10 @@ export function rawFileUrl(workspaceId, path) {
   return `${API_PREFIX}${ROUTES.raw.path}?${query}`
 }
 /* Mint the HTML preview's site token. The returned prefix becomes the preview frame's <base>, so
-   every relative URL of the previewed document — images and fonts, CSS url() references, and paths
-   a page script builds at runtime — is fetched from the token-gated, read-only site route inside
-   the workspace instead of from the GUI's own origin (which is what a srcdoc document otherwise
-   resolves against). Root-relative, exactly like every other API URL of this plugin. */
+   every relative URL of the previewed document — images and fonts, CSS url() references, paths a
+   page script builds at runtime — is fetched from the token-gated read-only site route inside the
+   workspace instead of the GUI's own origin (what a srcdoc document otherwise resolves against).
+   Root-relative, like every other API URL of this plugin. */
 export function mintPreviewSite(workspaceId, path, signal) {
   return request(ROUTES.siteToken, {
     query: { path, workspaceId: workspaceId === undefined || workspaceId === null || workspaceId === '' ? undefined : workspaceId },
@@ -406,12 +404,10 @@ export const renameMindmapDoc = (sessionId, title, signal) => mindmapRequest(ROU
   body: { sessionId: String(sessionId), title },
   signal,
 })
-/* A forked branch inherits the source session's durable pending queue: the
-   parent's next submitted message enters its inbox BEFORE the turn/start the
-   fork cut extends to, while its claim lands AFTER the cut — so the child
-   starts with that message still queued and would claim it ahead of the
-   user's own first input. The Host drops the fresh (idle) fork child's
-   pending inbox right after the fork; the caller treats a failure as
+/* A forked branch inherits the source session's durable pending queue: the parent's next submitted
+   message enters its inbox BEFORE the turn/start the fork cut extends to, while its claim lands AFTER
+   the cut — so the child would claim it ahead of the user's own first input. The Host drops the fresh
+   (idle) fork child's pending inbox right after the fork; the caller treats a failure as
    best-effort (the leaked message would then run as the branch's first turn). */
 export const clearMindmapForkQueue = (sessionId, signal) => mindmapRequest(ROUTES.mindmapForkCleanup, {
   method: 'POST',
@@ -528,7 +524,7 @@ export function fetchInstalledUpdateInfo(signal) {
 export function downloadUpdate(version, signal) {
   return request(ROUTES.updateDownload, { method: 'POST', body: { version }, timeoutMs: UPDATE_DOWNLOAD_TIMEOUT_MS, signal })
 }
-/* Token usage statistics (设置 → 工作区设置 → Token 统计): from/to are concrete epoch-ms bounds resolved client-side (standard week/month presets or custom dates); archived=false excludes archived sessions on the Host. The first-ever scan walks every session log, so the timeout matches the update download. */
+/* Token usage statistics (设置 → 工作区设置 → Token 统计): from/to are concrete epoch-ms bounds resolved client-side (standard week/month presets or custom dates); archived=false excludes archived sessions on the Host. The first-ever scan walks every session log, so it gets a long timeout. */
 export function fetchTokenStats(from, to, archived, signal) {
   return request(ROUTES.tokenStats, {
     query: { from: String(Math.trunc(from)), to: String(Math.trunc(to)), archived: archived === false ? '0' : '1' },
@@ -541,10 +537,10 @@ export function requestFsOperation(workspaceId, payload, signal) {
 }
 
 /* ---- Executable-file runner (see host/run.js for the safety model) ----
-   The PLAN describes what would run — resolved interpreter, argv and cwd — and is computed without
-   executing anything, so the console can show the real command before the first click (and say
-   "no interpreter" up front instead of failing a run). START/STOP drive one process; STATUS returns
-   the output slice past `offset`, which is also how a refreshed page re-attaches to a live run. */
+   The PLAN describes what would run — resolved interpreter, argv and cwd — computed without executing
+   anything, so the console can show the real command before the first click (and say "no interpreter" up
+   front instead of failing a run). START/STOP drive one process; STATUS returns the output slice past
+   `offset`, which is also how a refreshed page re-attaches to a live run. */
 function runRequest(route, options, signal) {
   const { method = 'GET', body, timeoutMs = REQUEST_TIMEOUT_MS, query } = options ?? {}
   return request(route, { method, body, signal, timeoutMs, query })

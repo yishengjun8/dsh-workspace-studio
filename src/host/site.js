@@ -1,14 +1,13 @@
 /** HTML-preview "site" route: a token-gated, read-only byte route that lets a sandboxed preview
  *  frame resolve EVERY relative URL of the previewed document natively.
  *
- *  Why it exists: the frame is a unique (opaque) origin, so it cannot use the plugin API — a
- *  subresource request from it carries `Sec-Fetch-Site: cross-site`, which the shared trust fence
- *  rejects by design. The preview therefore mints its own capability: an unguessable token bound
- *  to one document's directory, injected as
- *  `<base href="/workspace-studio/api/site/<token>/">`. The browser then fetches images, CSS,
- *  scripts, fonts, media and runtime-constructed URLs through this route. The token is the access
- *  control (it never leaves the preview frame's srcdoc), reads are GET/HEAD-only, and every path
- *  stays inside the confinement root recorded at mint time. */
+ *  Why it exists: the frame is a unique (opaque) origin and cannot use the plugin API — a subresource
+ *  request from it carries `Sec-Fetch-Site: cross-site`, which the shared trust fence rejects by
+ *  design. The preview therefore mints its own capability: an unguessable token bound to one
+ *  document's directory, injected as `<base href="/workspace-studio/api/site/<token>/">`, through
+ *  which the browser fetches images, CSS, scripts, fonts, media and runtime-constructed URLs. The
+ *  token is the access control (it never leaves the preview frame's srcdoc), reads are GET/HEAD-only,
+ *  and every path stays inside the confinement root recorded at mint time. */
 import { randomBytes } from 'node:crypto'
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 import { realpath } from 'node:fs/promises'
@@ -32,7 +31,6 @@ function pruneSiteTokens(now) {
   }
 }
 
-/** Whether the request path belongs to the site byte route. */
 export function isSiteRequest(pathname, apiPrefix) {
   return pathname.startsWith(`${apiPrefix}/site/`)
 }
@@ -98,7 +96,6 @@ const CONTENT_TYPE_BY_EXTENSION = Object.freeze({
   wasm: 'application/wasm', pdf: 'application/pdf', zip: 'application/zip',
 })
 
-/** The response Content-Type for one served path. */
 function contentTypeForSitePath(path) {
   const leaf = path.slice(path.lastIndexOf(sep) + 1)
   const dot = leaf.lastIndexOf('.')
@@ -116,10 +113,10 @@ const SITE_HEADERS = Object.freeze({
 })
 
 /**
- * Mint one preview-site token for a WORKSPACE-CONFINED document. An out-of-workspace preview gets
- * no site route on purpose: the plugin Host reads with plain fs, so serving an outside document's
- * directory tree would bypass the harness sandbox policy that let the client read that document in
- * the first place. Such a preview keeps the pre-site behaviour (relative subresources unresolved).
+ * Mint one preview-site token for a WORKSPACE-CONFINED document. An out-of-workspace preview gets no
+ * site route on purpose: the plugin Host reads with plain fs, so serving an outside document's
+ * directory tree would bypass the harness sandbox policy that let the client read it in the first
+ * place. Such a preview keeps the pre-site behaviour (relative subresources unresolved).
  * @param ctx - Host context (workspace registry lookup).
  * @param apiPrefix - the plugin's API prefix (its only source of truth stays in the entry module).
  * @param workspaceId - owning workspace.

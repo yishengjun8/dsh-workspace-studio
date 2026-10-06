@@ -58,11 +58,10 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
      optimistic updates from the LATEST doc, not the render-time closure. */
   const docRef = useRef(null)
   docRef.current = doc
-  /* The session currently shown in the chat (the `sessionId` prop) as a ref:
-     the head card's stable hover-action callbacks must not change identity when
-     the prop changes (every memoized head card would re-render), yet the
-     archive confirm needs to know whether the archived session is the open one
-     (its "current session" warning). */
+  /* The session shown in the chat (the `sessionId` prop) as a ref: the head card's
+     stable hover-action callbacks must not change identity when the prop changes
+     (every memoized head card would re-render), yet the archive confirm needs to know
+     whether the archived session is the open one (its "current session" warning). */
   const sessionIdRef = useRef(sessionId)
   sessionIdRef.current = sessionId
   /* Doc family ids, kept current before the narrowed sessions subscription
@@ -95,10 +94,9 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   listWorkspacesRef.current = listWorkspaces
   const openSessionRef = useRef(openSession)
   openSessionRef.current = openSession
-  /* True only when THIS mount was created by a dock request (the explorer
-     marks freshly docked tabs): restoreLastSession must fire only for a
-     deliberate open, never for a tab restored from the shared snapshot on a
-     session switch. */
+  /* True only when THIS mount was created by a dock request (the explorer marks
+     freshly docked tabs): restoreLastSession must fire only for a deliberate open,
+     never for a tab restored from the shared snapshot on a session switch. */
   const freshDockRef = useRef(freshDock)
   freshDockRef.current = freshDock
   /* Consumes the fresh flag at the host once this mount captured it (see the
@@ -123,11 +121,10 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     openSessionRef.current(target)
     if (rootIdRef.current !== null) writeMindmapLastSession(String(rootIdRef.current), target)
   }, [])
-  /* Land the chat + highlight on the target session in ONE switch: the
-     remembered session when it still exists in the loaded doc, the root
-     otherwise. Called only after a load/open where the doc is authoritative —
-     the sidebar entry no longer pre-switches the chat to the root (see
-     openMindmapSession). */
+  /* Land the chat + highlight on the target session in ONE switch: the remembered
+     session when it still exists in the loaded doc, the root otherwise. Called only
+     after a load/open where the doc is authoritative — the sidebar entry no longer
+     pre-switches the chat to the root (see openMindmapSession). */
   const restoreLastSession = useCallback((loadedDoc, loadedRoot) => {
     const remembered = lastSelectedRef.current ?? readMindmapLastSession(String(loadedRoot))
     const target = remembered !== null
@@ -145,14 +142,12 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   archiveSessionRef.current = archiveSession
   const menuRef = useRef(null)
   const mountedRef = useRef(true)
-  /* The map is a preview tab: its close paths must tell the explorer to drop
-     the tab. Read at call time so async continuations always see the latest
-     callback. */
+  /* The map is a preview tab: its close paths must tell the explorer to drop the tab. Read at
+     call time so async continuations always see the latest callback. */
   const onDocGoneRef = useRef(onDocGone)
   onDocGoneRef.current = onDocGone
-  /* The map's own title (doc.rootTitle) reported to the explorer so the tab
-     name follows the doc — a dock with an unknown title (fresh conversion)
-     or a root rename self-corrects the tab label. */
+  /* The map's own title (doc.rootTitle) reported to the explorer so the tab name follows the
+     doc — a dock with an unknown title (fresh conversion) or a root rename self-corrects it. */
   const onTitleChangeRef = useRef(onTitleChange)
   onTitleChangeRef.current = onTitleChange
   const lastFingerprintRef = useRef('')
@@ -161,12 +156,11 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
      entry and decrements in its finally, so the sync guard stays armed until
      the LAST writer settles — a boolean cleared by the first finisher let a
      periodic sync slip through and roll back its optimistic update. */
-  /* Monotonic counter bumped at the start of every local doc write (fork /
-     delete / archive / rename). A periodic sync issued BEFORE such a write can
-     resolve AFTER it completes and apply a stale doc that momentarily wipes
-     the optimistic card; the sync effects capture this counter at issue time
-     and drop any response that is no longer current (the next periodic sync
-     re-fetches and stays consistent). */
+  /* Monotonic counter bumped at the start of every local doc write (fork / delete /
+     archive / rename). A periodic sync issued BEFORE such a write can resolve AFTER it
+     completes and apply a stale doc that momentarily wipes the optimistic card; the sync
+     effects capture this counter at issue time and drop any response that is no longer
+     current (the next periodic sync re-fetches and stays consistent). */
   const localWriteSeqRef = useRef(0)
   /* ---- fold/unfold write QUEUE (see queueFoldIntent/toggleFold below) ----
      A fold pill click must NEVER be dropped: the old implementation refused
@@ -192,16 +186,15 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   const foldAckRef = useRef(null)
   const foldIntentRef = useRef(null)
   const drainFoldRef = useRef(null)
-  /* Single-flight gate for THIS body's Host reads (periodic sync, run-edge sync,
-     empty-phase probe). The Host runs mind-map work under a per-root lock and one
-     full family refresh costs seconds, so the 2.5 s poll used to stack up to a
-     dozen requests behind that lock; the user's own "open this map from the
-     sidebar" click then queued behind the backlog and died at its request
-     timeout, which read as "the map never loads". At most ONE request per map
-     body may be in flight; a response that never settles cannot wedge the poll
-     because the gate reopens once the longest request timeout has passed.
-     Declared here (before every effect that reads it in a dependency array) so
-     no effect's deps evaluation hits the binding before initialization. */
+  /* Single-flight gate for THIS body's Host reads (periodic sync, run-edge sync, empty-phase
+     probe). The Host runs mind-map work under a per-root lock and one full family refresh
+     costs seconds, so the 2.5 s poll used to stack up to a dozen requests behind that lock;
+     the user's own "open this map from the sidebar" click then queued behind the backlog and
+     died at its request timeout, which read as "the map never loads". At most ONE request per
+     map body may be in flight; a response that never settles cannot wedge the poll because
+     the gate reopens once the longest request timeout has passed. Declared here (before every
+     effect that reads it in a dependency array) so no effect's deps evaluation hits the
+     binding before initialization. */
   const readInFlightRef = useRef(false)
   const readStartedAtRef = useRef(0)
   const beginRead = useCallback(() => {
@@ -275,12 +268,11 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
      timeout / landed-summary paths clear them. */
   const sessionSummaryBusyIdRef = useRef(null)
   const sessionSummaryWaitingRef = useRef(null)
-  /* Sessions whose "summarize this session" click arrived while another session
-     summary was still running (or still waiting on its card summaries): a FIFO
-     drained one entry at a time by the effect further down. Without it the click
-     was dropped silently, because only ONE summarize-session request may be in
-     flight (the Host runs it synchronously on the request thread and parallel
-     calls on the same provider interfere). */
+  /* Sessions whose "summarize this session" click arrived while another session summary was
+     still running (or still waiting on its card summaries): a FIFO drained one entry at a time
+     by the effect further down. Without it the click was dropped silently, because only ONE
+     summarize-session request may be in flight (the Host runs it synchronously on the request
+     thread and parallel calls on the same provider interfere). */
   const [sessionSummaryQueue, setSessionSummaryQueue] = useState([])
   const sessionSummaryQueueRef = useRef([])
   const [sessionSummarizing, setSessionSummarizing] = useState([])
@@ -323,10 +315,9 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
      to its root's doc, building & persisting a fresh doc (full-log split) on
      first access. */
   useEffect(() => {
-    /* A session switch inside the loaded family only moves the current highlight
-       and the right-side chat — the doc is identical, so reloading would rebuild
-       the whole canvas for nothing. Only a session outside the family triggers a
-       full reload. */
+    /* A session switch inside the loaded family only moves the current highlight and
+       the right-side chat — the doc is identical, so reloading would rebuild the whole
+       canvas for nothing. Only a session outside the family triggers a full reload. */
     if (rootId !== null && (String(sessionId) === String(rootId)
       || (doc?.sessions ?? []).some(s => String(s?.sessionId) === String(sessionId))
       || mindmapRegistry.rootOf(String(sessionId)) === String(rootId))) {
@@ -362,11 +353,10 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
        would never match the new map, and the 5-minute timeout would misfire. */
     setSessionSummaryWaiting(null)
     setSessionSummaryBusyId(null)
-    /* Dialogs / context menus belong to the previous family: a root
-       replacement in ANOTHER tab can re-anchor this view's doc while one is
-       open, and a stale archive-all dialog would then act on the NEW family
-       (confirmArchiveAll re-reads docRef/rootIdRef at confirm time). Close
-       them all on this full-reload branch (in-family switches skip it). */
+    /* Dialogs / context menus belong to the previous family: a root replacement in
+       ANOTHER tab can re-anchor this view's doc while one is open, and a stale
+       archive-all dialog would then act on the NEW family (confirmArchiveAll re-reads
+       docRef/rootIdRef at confirm time). Close them all on this full-reload branch. */
     setMenu(null)
     setRenameTarget(null)
     setDeleteTarget(null)
@@ -425,12 +415,11 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         setPhase({ status: 'ready' })
         mindmapRegistry.markDirty()
         if (payload.created === true) showNotice(translate('mindmap.created'))
-        /* Restore the last selected session of this map family: the chat lands
-           ONCE on the remembered session when it still exists in this doc
-           (root fallback otherwise, keeping the "open on the first branch"
-           default). Gated on a FRESH dock: a tab restored from the shared
-           snapshot on a session switch must not yank the chat away from the
-           session the user just clicked. */
+        /* Restore this map family's last selected session: the chat lands ONCE on
+           the remembered session when it still exists in this doc (root fallback
+           otherwise, keeping the "open on the first branch" default). Fresh-dock
+           gated: a tab restored from the shared snapshot on a session switch must
+           not yank the chat away from the session the user just clicked. */
         const loadedRoot = String(loaded.rootSessionId)
         if (id === loadedRoot && freshDockRef.current) restoreLastSession(loaded, loadedRoot)
       })
@@ -467,7 +456,6 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
              drop the tab (like the sync path does) instead of polling forever. */
           if (payload?.exists === false) {
             mindmapConvertedSessions.delete(String(sessionId))
-            /* The map is gone: the explorer drops the tab. */
             onDocGoneRef.current?.()
             return
           }
@@ -504,12 +492,11 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
      changed) and keep the live-turn info for the streaming card (identity-
      compared so a static question does not re-render the map). */
   const applySync = useCallback((payload, root) => {
-    /* Apply only when the request still matches the CURRENT family (rootIdRef,
-       not the closure rootId) AND no mutation is in flight: after a family
-       switch the closure rootId is stale (would overwrite the fresh doc with
-       the previous family's); during fork/delete/truncation savingRef is set,
-       so a pre-write sync must not overwrite the optimistic doc (the next sync
-       re-fetches and stays consistent). */
+    /* Apply only when the request still matches the CURRENT family (rootIdRef, not the
+       closure rootId) AND no mutation is in flight: after a family switch the closure rootId
+       is stale (it would overwrite the fresh doc with the previous family's); during
+       fork/delete/truncation savingRef is set, so a pre-write sync must not overwrite the
+       optimistic doc (the next sync re-fetches and stays consistent). */
     if (!mountedRef.current || root !== rootIdRef.current || savingRef.current) return
     /* A degraded reconcile/adopt on the Host (see refreshMindmapDocCore) is
        served to the client as warnings; the next sync retries. Console-only. */
@@ -519,34 +506,31 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     /* Root archived outside the map (harness/sidebar): the Host answers
        { exists: false } — drop the tab instead of leaving a stale map. */
     if (payload?.exists === false) {
-      /* The map is gone: the explorer drops the tab. */
       onDocGoneRef.current?.()
       return
     }
     const next = payload?.doc
-    /* Incremental sync responses (Host cache hit) carry doc: null — the
-       document is unchanged, so keep the current copy and only apply the
-       live/summarizing payloads below. A full doc still arrives on every
-       signature change and at least once per Host TTL. */
+    /* Incremental sync responses (Host cache hit) carry doc: null — the document is
+       unchanged, so keep the current copy and apply only the live/summarizing payloads
+       below. A full doc still arrives on every signature change and once per Host TTL. */
     if (next !== null && next !== undefined) {
       const nextRoot = String(next.rootSessionId ?? '')
       if (nextRoot !== '' && nextRoot !== String(rootIdRef.current)) {
-        /* The doc's anchor changed (another tab deleted the root card → root
-           replacement R1→R2 served through the alias stub). Re-anchor THIS
-           page: fork/delete/archives build their writes with the root id and
-           the Host validates doc.rootSessionId === sessionId — a stale R1
-           would 400 every subsequent write. The doc itself is applied below
-           (the fingerprint includes rootSessionId, so it cannot be skipped). */
+        /* The doc's anchor changed (another tab deleted the root card → root replacement
+           R1→R2 served through the alias stub). Re-anchor THIS page: fork/delete/archives
+           build their writes with the root id and the Host validates
+           doc.rootSessionId === sessionId — a stale R1 would 400 every subsequent write. The
+           doc itself is applied below (the fingerprint includes rootSessionId, so it cannot
+           be skipped). */
         rootIdRef.current = nextRoot
         setRootId(nextRoot)
       }
       const fp = mindmapDocFingerprint(next)
       if (fp !== lastFingerprintRef.current) {
-        /* The doc's SESSION SET changed (a branch was folded in or dropped, e.g.
-           a fork child adopted by this very sync while the registry was stale):
-           the sidebar index mirrors that set, so refresh it now instead of
-           waiting for the 30 s poll — rootOf drives the preview key, the
-           current highlight and the hider. */
+        /* The doc's SESSION SET changed (a branch was folded in or dropped, e.g. a
+           fork child adopted by this very sync while the registry was stale): the
+           sidebar index mirrors that set, so refresh it now instead of waiting for
+           the 30 s poll — rootOf drives the preview key, the highlight and the hider. */
         if (mindmapDocSessionKey(next) !== mindmapDocSessionKey(docRef.current)) mindmapRegistry.markDirty()
         lastFingerprintRef.current = fp
         /* A server doc IS the server truth (this path only runs while no local
@@ -625,10 +609,9 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       if (savingRef.current) return
       if (!beginRead()) return
       const root = rootIdRef.current ?? rootId
-      /* A local doc write that starts after this sync is issued supersedes its
-         response: applying it would momentarily wipe the optimistic card (the
-         savingRef guard only covers the in-flight window). Drop any response
-         that is no longer the latest local state. */
+      /* A local doc write that starts after this sync is issued supersedes its response:
+         applying it would momentarily wipe the optimistic card (the savingRef guard only
+         covers the in-flight window), so drop any response that is no longer the latest. */
       const issuedSeq = localWriteSeqRef.current
       const issuedSync = syncSeqRef.current + 1
       syncSeqRef.current = issuedSync
@@ -644,12 +627,11 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   }, [applySync, beginRead, endRead, rootId])
 
   /* Sync shortly after the doc-family running state changes: a run start brings
-     in-flight questions back quickly; a run end folds the just-completed turn
-     (the map may show a different session than the one that ran). Debounced
-     against streaming updates. When a local doc write (fork/delete/archive) is
-     in flight the sync is DEFERRED and retried, never dropped: a run ending at
-     that exact moment would otherwise wait up to a full periodic interval
-     (2.5 s) before its completed turn folds into the doc. */
+     in-flight questions back quickly; a run end folds the just-completed turn (the map
+     may show a different session than the one that ran). Debounced against streaming
+     updates. While a local doc write (fork/delete/archive) is in flight the sync is
+     DEFERRED and retried, never dropped — a run ending then would otherwise wait a full
+     2.5 s interval before its completed turn folds into the doc. */
   useEffect(() => {
     if (rootId === null) return undefined
     let timer = 0
@@ -683,14 +665,13 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runningFamilyIds, rootId])
 
-  /* Apply a document handed over by the fork watch (an external fork: the
-     harness chat's branch button). The watch already synced the family on the
-     Host, so the branch is adopted and persisted; applying the document here is
-     what makes the new card appear at once — the periodic poll cannot deliver
-     it, because the Host sync cache answers an incremental `doc: null` for the
-     unchanged signature the watch just settled. Only the DOC is applied: live
-     and summarizing keep flowing through the normal sync path, so a streaming
-     card is never interrupted. */
+  /* Apply a document handed over by the fork watch (an external fork: the harness
+     chat's branch button). The watch already synced the family on the Host, so the
+     branch is adopted and persisted; applying the document here is what makes the new
+     card appear at once — the periodic poll cannot deliver it, because the Host sync
+     cache answers an incremental `doc: null` for the unchanged signature the watch just
+     settled. Only the DOC is applied: live/summarizing keep flowing through the normal
+     sync path, so a streaming card is never interrupted. */
   useEffect(() => {
     const doc = handoff?.doc
     const sessionId = handoff?.sessionId
@@ -703,11 +684,10 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     /* A doc re-anchored under another root (another tab replaced the root) is
        this view's own sync's business. */
     if (String(doc.rootSessionId ?? '') !== String(rootIdRef.current)) return
-    /* The map's OWN fork already inserted this child optimistically (the same
-       document also reached the disk by now): applying the handed-over document
-       would drop the card, so the child's presence in the local document is the
-       apply condition. It also makes a remount (fresh load that already carries
-       the child) a no-op. */
+    /* The map's OWN fork already inserted this child optimistically (the same document
+       also reached the disk by now): applying the handed-over document would drop the
+       card, so the child's presence in the local document is the apply condition. It also
+       makes a remount (fresh load that already carries the child) a no-op. */
     if ((docRef.current?.sessions ?? []).some(s => String(s?.sessionId) === String(sessionId))) return
     const fp = mindmapDocFingerprint(doc)
     if (fp === lastFingerprintRef.current) return
@@ -749,12 +729,11 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   const summaryModelList = summaryModels !== null && summaryModels?.available === true && Array.isArray(summaryModels?.models)
     ? summaryModels.models.filter(m => m !== null && m !== undefined && typeof m?.model === 'string' && m.model !== '')
     : []
-  /* Effective AI-summary config sent with every sync (and regeneration): off
-     unless enabled; undefined model = "follow the session's model"; otherwise a
-     fixed route. The length is an advisory suggestion, clamped into UI bounds.
-     A stored route missing from the catalog falls back to session mode —
-     mirroring the picker's visual fallback (the stored value stays so a
-     re-appearing model is picked up again). */
+  /* Effective AI-summary config sent with every sync (and regeneration): off unless
+     enabled; undefined model = "follow the session's model"; otherwise a fixed route.
+     The length is an advisory suggestion, clamped into UI bounds. A stored route missing
+     from the catalog falls back to session mode — mirroring the picker's visual fallback
+     (the stored value stays so a re-appearing model is picked up again). */
   const summaryLengthRaw = Number(settings.mindmapSummaryLength)
   const summaryLength = Number.isFinite(summaryLengthRaw)
     ? Math.min(MINDMAP_SUMMARY_MAX_LENGTH, Math.max(MINDMAP_SUMMARY_MIN_LENGTH, summaryLengthRaw))
@@ -806,10 +785,9 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       }
       streamingEntries.push(entry)
     }
-    /* An edge TARGETING a live streaming card (`to` is a `streaming:<sid>` key
-       by construction) is a flowing pair edge: it carries its own gradient id
-       + palette derived from the sid in the key, so flow styling never depends
-       on a key-matching map. */
+    /* An edge TARGETING a live streaming card (`to` is a `streaming:<sid>` key by
+       construction) is a flowing pair edge: it carries its own gradient id + palette
+       derived from the sid in the key, so flow styling never depends on a key-matching map. */
     const edges = []
     for (const edge of layout.edges) {
       const from = byKey.get(edge.from)
@@ -862,12 +840,11 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     return mindmapDocKey(current, last.seq)
   }, [doc, rootId, runningFamilyIds, sessionId, peekedRuns])
 
-  /* Ancestor trace of the current card: walk the layout's edges BACKWARD from
-     currentKey (`to → from`) to the root (no incoming edge). Yields the parent
-     node keys (the card itself keeps the solid highlight, hence excluded) and
-     the path's edge identities; the render marks those edges dashed primary-blue
-     and those parent nodes with dashed borders. Memoized on [currentKey, layout]
-     so an in-family switch re-traces cheaply without touching the pan/zoom path. */
+  /* Ancestor trace of the current card: walk the layout's edges BACKWARD from currentKey
+     (`to → from`) to the root (no incoming edge). Yields the parent node keys (the card itself
+     keeps the solid highlight, hence excluded) and the path's edge identities; the render marks
+     those edges dashed primary-blue and those parent nodes with dashed borders. Memoized on
+     [currentKey, layout] so an in-family switch re-traces cheaply without touching the pan/zoom. */
   const trace = useMemo(() => {
     const ancestorSet = new Set()
     const activeEdgeKeys = new Set()
@@ -885,10 +862,10 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     return { ancestorSet, activeEdgeKeys }
   }, [currentKey, layout])
 
-  /* Hover ancestor trace: the SAME backward walk as `trace`, but rooted at the
-     card under the pointer. The two traces render as a union, so hovering adds
-     its chain over the selection's. A stale hoverKey (card replaced by a sync
-     while hovered) matches no node and yields an empty trace. */
+  /* Hover ancestor trace: the SAME backward walk as `trace`, but rooted at the card under the
+     pointer. The two traces render as a union, so hovering adds its chain over the selection's.
+     A stale hoverKey (card replaced by a sync while hovered) matches no node and yields an
+     empty trace. */
   const hoverTrace = useMemo(() => {
     const ancestorSet = new Set()
     const activeEdgeKeys = new Set()
@@ -906,11 +883,10 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     return { ancestorSet, activeEdgeKeys }
   }, [hoverKey, layout])
 
-  /* A hovered card can be removed by a sync (a turn folds, a card is deleted
-     in another tab): its DOM node is replaced without a mouseleave, so the key
-     would linger and light up a FUTURE same-key card (seq reuse after a
-     deletion) while no pointer is on it. Clear it whenever the layout no
-     longer contains the hovered node. */
+  /* A hovered card can be removed by a sync (a turn folds, a card is deleted in another
+     tab): its DOM node is replaced without a mouseleave, so the key would linger and light
+     up a FUTURE same-key card (seq reuse after a deletion) while no pointer is on it.
+     Clear it whenever the layout no longer contains the hovered node. */
   useEffect(() => {
     if (hoverKey === undefined) return
     let found = false
@@ -945,11 +921,10 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     switchToSession(String(id))
   }, [switchToSession])
 
-  /* Fork a new branch session at a card's turn/end seq, record it in the doc
-     and persist. The child opens ONLY after the doc write completes, so the
-     branch is already in the document when shown (its map view can never miss
-     the doc and split off a new one). forkAt no longer opens the child; this
-     function opens it into the chat so the conversation continues from there. */
+  /* Fork a new branch session at a card's turn/end seq, record it in the doc and persist. The
+     child opens ONLY after the doc write completes, so the branch is already in the document
+     when shown (its map view can never miss the doc and split off a new one). forkAt no longer
+     opens the child; this function opens it into the chat so the conversation continues from there. */
   const forkBranchAt = useCallback((ownerId, turn) => {
     /* The ref is the authoritative same-tick gate (see forkingRef above); the
        state guard additionally stops a second fork after re-render. */
@@ -973,10 +948,9 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
           forkSeq: Number(turn.seq),
           turns: [],
         }
-        /* Build from the LATEST doc (docRef), not the render-time closure, so a
-           sync or summary write that landed while forkAt was in flight is kept
-           (the closure doc would otherwise clobber it in the optimistic update
-           and in the persisted write). */
+        /* Build from the LATEST doc (docRef), not the render-time closure, so a sync or
+           summary write that landed while forkAt was in flight is kept (the closure doc would
+           otherwise clobber it in the optimistic update and in the persisted write). */
         const base = docRef.current ?? currentDoc
         const next = { ...base, sessions: [...(base?.sessions ?? []), session], updatedAt: Date.now() }
         setDoc(next)
@@ -1017,12 +991,11 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       })
   }, [doc, forking, rootId, showNotice, switchToSession])
 
-  /* Click the VIRTUAL root node: create a brand-new EMPTY top-level session (no
-     inherited turns) hanging directly off the root node, record it in the doc
-     and persist, then open it so the user can ask the first question. It is
-     created in the workspace the map was CREATED in (doc.workspaceCwd, recorded
-     at conversion) so it lands in the same sidebar group wherever the anchor
-     session now lives. */
+  /* Click the VIRTUAL root node: create a brand-new EMPTY top-level session (no inherited
+     turns) hanging directly off the root node, record it in the doc and persist, then open it
+     so the user can ask the first question. It is created in the workspace the map was CREATED
+     in (doc.workspaceCwd, recorded at conversion) so it lands in the same sidebar group
+     wherever the anchor session now lives. */
   const addRootSession = useCallback(() => {
     /* The ref is the authoritative same-tick gate (see forkingRef above); the
        state guard additionally stops a second create after re-render. */
@@ -1081,7 +1054,6 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         forkingRef.current = false
         savingRef.current -= 1
         if (mountedRef.current) setForking(false)
-        /* A fold pill clicked while this write held the gate lands now. */
         if (mountedRef.current && foldQueueRef.current.length > 0) drainFoldRef.current?.()
       })
   }, [doc, forking, rootId, showNotice, switchToSession])
@@ -1099,23 +1071,21 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   addRootSessionRef.current = addRootSession
   const listRef = useRef(list)
   listRef.current = list
-  /* Click a node: the root creates a NEW top-level session; a head switches to
-     its session; a card switches (parked tail / streaming / empty placeholder)
-     or forks a nested session (intermediate card, or the last completed card of
-     a session CURRENTLY generating — its real tail is the streaming card). The
-     new session joins the SAME document — never a new mind map — and stays
-     hidden from the sidebar list. */
+  /* Click a node: the root creates a NEW top-level session; a head switches to its session;
+     a card switches (parked tail / streaming / empty placeholder) or forks a nested session
+     (intermediate card, or the last completed card of a session CURRENTLY generating — its
+     real tail is the streaming card). The new session joins the SAME document — never a new
+     mind map — and stays hidden from the sidebar list. */
   const openCard = useCallback((node) => {
     if (node === undefined) return
-    /* Single source of truth for the click outcome: the same decision tree the
-       hover hint uses (mindmapCardClickAction), so the hint can never drift.
-       'new' creates a top-level session at the root; 'switch' opens the node's
-       own session; 'fork' branches a new session at this card's turn.
-       The two WRITE branches guard themselves on the doc-write gate
-       (forkBranchAt / addRootSession); this callback deliberately does NOT gate
-       'switch' and 'peek' on it — they only move the chat/highlight, so a card
-       click during an unrelated write must keep working. Gating the whole
-       callback on forkingRef made those clicks silently do nothing. */
+    /* Single source of truth for the click outcome: the same decision tree the hover hint
+       uses (mindmapCardClickAction), so the hint can never drift. 'new' creates a top-level
+       session at the root; 'switch' opens the node's own session; 'fork' branches a new
+       session at this card's turn. The two WRITE branches guard themselves on the doc-write
+       gate (forkBranchAt / addRootSession); this callback deliberately does NOT gate 'switch'
+       and 'peek' on it — they only move the chat/highlight, so a card click during an unrelated
+       write must keep working. Gating the whole callback on forkingRef made those clicks
+       silently do nothing. */
     const action = mindmapCardClickAction(node, docRef.current, runningFamilyIdsRef.current, lastTurnSeqBySessionRef.current)
     if (action === 'new') addRootSessionRef.current()
     else if (action === 'switch') openBranchRef.current(node.sessionId)
@@ -1183,11 +1153,10 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       closeMenu()
     }
     const onKeyDown = event => { if (event.key === 'Escape') closeMenu() }
-    /* Same inside-menu guard as pointerdown: the root "choose workspace" menu
-       is itself scrollable (max-height + overflow-y), so scrolling its list
-       must not close it. Every other scroll closes the menu only when it can
-       move the canvas it is anchored to — the chat's streaming tail follow
-       must not (see menu-dismiss.js). */
+    /* Same inside-menu guard as pointerdown: the root "choose workspace" menu is itself
+       scrollable (max-height + overflow-y), so scrolling its list must not close it. Every
+       other scroll closes the menu only when it can move the canvas it is anchored to — the
+       chat's streaming tail follow must not (see menu-dismiss.js). */
     const onScroll = event => {
       if (menuRef.current !== null && event.target instanceof Node && menuRef.current.contains(event.target)) return
       if (dismissesMenuOnScroll(event, viewportRef.current)) closeMenu()
@@ -1221,23 +1190,20 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     setRenameError(null)
     Promise.resolve(renameSessionRef.current(renameTarget.sessionId, trimmed))
       .then(() => {
-        /* Renaming the ROOT session should also update the map's OWN title
-           (doc.rootTitle): the map header and the sidebar entry display
-           rootTitle, which is independent of the session title — without this
-           the user's rename of the root head appears to do nothing. The
-           targeted /rename endpoint avoids the GET-then-POST round trip (the
-           sidebar panel uses the same one). Best-effort: a doc-title failure
-           after a successful session rename only warns — the next sync's
-           fingerprint carries rootTitle either way. */
+        /* Renaming the ROOT session should also update the map's OWN title (doc.rootTitle):
+           the map header and the sidebar entry display rootTitle, which is independent of the
+           session title — without this the user's rename of the root head appears to do
+           nothing. The targeted /rename endpoint avoids the GET-then-POST round trip (the
+           sidebar panel uses the same one). Best-effort: a doc-title failure after a successful
+           session rename only warns — the next sync's fingerprint carries rootTitle either way. */
         if (rootIdRef.current !== null && String(renameTarget.sessionId) === String(rootIdRef.current)
           && typeof renameDocRef.current === 'function') {
           return Promise.resolve(renameDocRef.current(String(rootIdRef.current), trimmed)).then((result) => {
-            /* Optimistically update the LOCAL doc: a structural write landing
-               before the next sync would otherwise carry the OLD rootTitle and
-               write it back over the Host's freshly renamed one (the local
-               fingerprint would then pin the stale title until the next
-               rename). Prefer the Host's returned doc; fall back to a local
-               patch when the response shape is unexpected. */
+            /* Optimistically update the LOCAL doc: a structural write landing before the next
+               sync would otherwise carry the OLD rootTitle and write it back over the Host's
+               freshly renamed one (the local fingerprint would then pin the stale title until
+               the next rename). Prefer the Host's returned doc; fall back to a local patch when
+               the response shape is unexpected. */
             if (!mountedRef.current) return undefined
             const current = docRef.current ?? null
             const updated = result?.doc !== null && result?.doc !== undefined
@@ -1308,7 +1274,6 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       .finally(() => {
         savingRef.current -= 1
         forkingRef.current = false
-        /* A fold pill clicked while this write held the gate lands now. */
         if (mountedRef.current && foldQueueRef.current.length > 0) drainFoldRef.current?.()
       })
   }, [doc, menu, rootId, showNotice, showNoticeError])
@@ -1340,12 +1305,11 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     return pending
   }, [])
 
-  /* Is there fold work the drain must still land? A waiting intent, or an
-     optimistic doc the Host has not accepted yet — measured against the CURRENT
-     root, so a doc left behind by another family can never make the drain spin.
-     A null `foldAckRef` means "no accepted doc known yet", never "dirty": only
-     applyQueuedFolds ever creates optimistic changes and it always seeds the
-     ack first, so an unseeded ack with an empty queue has nothing to write. */
+  /* Is there fold work the drain must still land? A waiting intent, or an optimistic doc the
+     Host has not accepted yet — measured against the CURRENT root, so a doc left behind by
+     another family can never make the drain spin. A null `foldAckRef` means "no accepted doc
+     known yet", never "dirty": only applyQueuedFolds ever creates optimistic changes and it
+     always seeds the ack first, so an unseeded ack with an empty queue has nothing to write. */
   const foldWorkPending = useCallback(() => {
     if (foldQueueRef.current.length > 0) return true
     const current = docRef.current
@@ -1389,11 +1353,10 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
           applyQueuedFolds()
           const snapshot = docRef.current
           if (snapshot === null) break
-          /* The family can change under a long write (a session switch reloads
-             the map, a sync re-anchors the doc): only a doc that still belongs
-             to the root this drain started with may be written, or the Host
-             rejects the POST (doc.rootSessionId mismatch) and the user gets an
-             error toast for a write they never asked for. */
+          /* The family can change under a long write (a session switch reloads the map, a sync
+             re-anchors the doc): only a doc that still belongs to the root this drain started
+             with may be written, or the Host rejects the POST (doc.rootSessionId mismatch) and
+             the user gets an error toast for a write they never asked for. */
           if (String(snapshot.rootSessionId ?? '') !== String(root)
             || String(rootIdRef.current ?? '') !== String(root)) break
           if (snapshot === foldAckRef.current) break
@@ -1442,12 +1405,11 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   }, [applyQueuedFolds, foldWorkPending, rootId, showNotice, showNoticeError])
   drainFoldRef.current = drainFoldQueue
 
-  /* Queue ONE fold/unfold intent. With the doc free the change is applied
-     optimistically RIGHT NOW (instant canvas feedback) and written by the drain;
-     while a STRUCTURAL write owns the doc the intent waits and the drain applies
-     it once that write settles — applying it earlier would persist a change
-     through a doc that write may still roll back. Never returns without landing
-     the click. Same target twice = the last intent wins. */
+  /* Queue ONE fold/unfold intent. With the doc free the change is applied optimistically
+     RIGHT NOW (instant canvas feedback) and written by the drain; while a STRUCTURAL write owns
+     the doc the intent waits and the drain applies it once that write settles — applying it
+     earlier would persist a change through a doc that write may still roll back. Never returns
+     without landing the click. Same target twice = the last intent wins. */
   const queueFoldIntent = useCallback((intent) => {
     if (docRef.current === null || (rootIdRef.current ?? rootId) === null) return
     const key = `${intent.kind}:${intent.sessionId}:${intent.seq}`
@@ -1462,22 +1424,20 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     drainFoldRef.current?.()
   }, [applyQueuedFolds, rootId])
 
-  /* Safety net for the queue: the structural writer that held the gate usually
-     kicks the drain from its finally; this effect lands a fold that any other
-     path left queued (state-only gate flip, a writer that settled during a
-     re-render). Two ref reads per render, and a no-op whenever the queue is
-     empty — which is the normal case. */
+  /* Safety net for the queue: the structural writer that held the gate usually kicks the drain
+     from its finally; this effect lands a fold that any other path left queued (state-only gate
+     flip, a writer that settled during a re-render). Two ref reads per render, and a no-op
+     whenever the queue is empty — which is the normal case. */
   useEffect(() => {
     if (foldWritingRef.current || forkingRef.current) return
     if (foldQueueRef.current.length === 0) return
     drainFoldRef.current?.()
   }, [doc, forking])
 
-  /* Toggle the persisted folded attribute of ONE card (the hover 折叠 pill and
-     the right-click menu checkbox): checking folds the card (merging with
-     consecutive folded neighbors), unchecking permanently unfolds it (the run
-     splits). Both go through the queue above, so a click that arrives while a
-     previous fold is still being written is honored instead of refused. */
+  /* Toggle the persisted folded attribute of ONE card (the hover 折叠 pill and the right-click
+     menu checkbox): checking folds the card (merging with consecutive folded neighbors),
+     unchecking permanently unfolds it (the run splits). Both go through the queue above, so a
+     click that arrives while a previous fold is still being written is honored instead of refused. */
   const toggleFold = useCallback((sessionId, seq, folded) => {
     queueFoldIntent({ kind: 'turn', sessionId: String(sessionId), seq: Number(seq), folded: folded === true })
   }, [queueFoldIntent])
@@ -1511,13 +1471,11 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     foldRunNow(sessionId, turnSeq)
   }, [menu, foldRunNow])
 
-  /* Fold-pill wiring for the memoized branch cards (hover 折叠 on a normal card,
-     取消折叠 + 立刻折叠 on a peeking card). The pills need STABLE callback
-     identities — a changing prop would defeat the card memo and rebuild every
-     card on each render — so the real actions are reached through refs, exactly
-     like openCard/openCardMenu above. The ref lives HERE, after the
-     doc-writing action it wraps: a useRef(toggleFold) further up would be a TDZ
-     error. */
+  /* Fold-pill wiring for the memoized branch cards (hover 折叠 on a normal card, 取消折叠 +
+     立刻折叠 on a peeking card). The pills need STABLE callback identities — a changing prop
+     would defeat the card memo and rebuild every card on each render — so the real actions are
+     reached through refs, exactly like openCard/openCardMenu above. The ref lives HERE, after
+     the doc-writing action it wraps: a useRef(toggleFold) further up would be a TDZ error. */
   const toggleFoldRef = useRef(toggleFold)
   toggleFoldRef.current = toggleFold
   const foldRunNowRef = useRef(foldRunNow)
@@ -1525,10 +1483,10 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
   const foldCardPill = useCallback((sessionId, seq) => {
     toggleFoldRef.current(String(sessionId), Number(seq), true)
   }, [])
-  /* Permanently unfold ONE peeking card — the exact path of unchecking the
-     menu's fold box on a peeked card: the run's other turns keep their folded
-     marks (they collapse again), and the stale peek key is pruned by the
-     peek-cleanup effect once the run no longer starts at the remembered seq. */
+  /* Permanently unfold ONE peeking card — the exact path of unchecking the menu's fold box on a
+     peeked card: the run's other turns keep their folded marks (they collapse again), and the
+     stale peek key is pruned by the peek-cleanup effect once the run no longer starts at the
+     remembered seq. */
   const unfoldOneCardPill = useCallback((sessionId, seq) => {
     toggleFoldRef.current(String(sessionId), Number(seq), false)
   }, [])
@@ -1585,14 +1543,13 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     }
   }, [menu, toggleFold, unfoldRun])
 
-  /* Archive ONE session branch: archive the session + its whole subtree and
-     remove it from the doc. Re-anchors when the archived session was the
-     anchor; blocked when it would empty the map (use archive-all instead).
-     Shared by the session head's hover "archive" button and the right-click
-     menu item: the confirm dialog (and the whole confirm flow) is the same
-     state, so the second confirmation can never drift between the two
-     entries. STABLE identity — refs only — so the memoized head cards keep
-     their memo (a changing prop would rebuild every card on each render). */
+  /* Archive ONE session branch: archive the session + its whole subtree and remove it from
+     the doc. Re-anchors when the archived session was the anchor; blocked when it would empty
+     the map (use archive-all instead). Shared by the session head's hover "archive" button and
+     the right-click menu item: the confirm dialog (and the whole confirm flow) is the same
+     state, so the second confirmation can never drift between the two entries. STABLE identity
+     — refs only — so the memoized head cards keep their memo (a changing prop would rebuild
+     every card on each render). */
   const requestArchiveBranch = useCallback((sessionId) => {
     if (forkingRef.current || archiveBranchBusyRef.current) return
     const target = String(sessionId)
@@ -1631,11 +1588,10 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     const root = rootIdRef.current ?? rootId
     const base = docRef.current ?? doc
     if (root === null || base === null) return
-    /* Recompute the plan from the LATEST doc (docRef), not the render-time
-       closure: a sync that folded new turns while the dialog was open must not
-       be rolled back by a write built from the stale session list (the Host's
-       stale-write guard only protects whole sessions, not per-session turn
-       regressions). */
+    /* Recompute the plan from the LATEST doc (docRef), not the render-time closure: a
+       sync that folded new turns while the dialog was open must not be rolled back by a
+       write built from the stale session list (the Host's stale-write guard only protects
+       whole sessions, not per-session turn regressions). */
     const plan = mindmapDeletePlan(base, archiveBranchTarget.sessionId, undefined, true)
     if (plan === null) {
       setArchiveBranchError(translate('mindmap.delete.missing'))
@@ -1665,19 +1621,17 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     }
     setDoc(next)
     lastFingerprintRef.current = mindmapDocFingerprint(next)
-    /* Archive-first for NON-root removals: the Host's stale-write guard
-       restores any session the incoming doc drops that is NOT archived yet
-       (see src/host/mindmap.js writeMindmapDoc), so the pruned sessions must
-       be archived BEFORE the doc write or the guard would resurrect them for
-       up to a sync cycle. Root replacements (prevRoot) retire the old root by
-       writing a fresh doc file + alias stub in the SAME request and keep the
-       archive-after-write contract (a failed write must not orphan the map). */
+    /* Archive-first for NON-root removals: the Host's stale-write guard restores any
+       session the incoming doc drops that is NOT archived yet (see src/host/mindmap.js
+       writeMindmapDoc), so the pruned sessions must be archived BEFORE the doc write or
+       the guard would resurrect them for up to a sync cycle. Root replacements (prevRoot)
+       retire the old root by writing a fresh doc file + alias stub in the SAME request and
+       keep the archive-after-write contract (a failed write must not orphan the map). */
     const isRootReplacement = prevRoot !== undefined
     const archivePruned = () => Promise.all(plan.archiveIds.map(id => archiveSessionRef.current(String(id)).catch(() => {})))
-    /* Archive-first has made a non-root removal IRREVERSIBLE before the
-       write: retry a transient 409 (concurrent root replacement / lock
-       contention) once — it materially narrows the "failed write = branch
-       still removed" window without masking real errors. */
+    /* Archive-first has made a non-root removal IRREVERSIBLE before the write: retry a
+       transient 409 (concurrent root replacement / lock contention) once — it materially
+       narrows the "failed write = branch still removed" window without masking real errors. */
     const saveWithRetry = () => saveDocRef.current(saveRoot, next, undefined, prevRoot)
       .catch((error) => {
         if (error?.status === 409) return saveDocRef.current(saveRoot, next, undefined, prevRoot)
@@ -1729,11 +1683,11 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         }
         setArchiveBranchTarget(null)
         const adoptRoot = String(saveRoot)
-        /* Family-generation guard: the reload is async and the map body stays
-           mounted across family switches (mountedRef is always true while the
-           body is open), so a stale reload could overwrite the NEW family's
-           view and pollute rootIdRef — stranding the periodic sync on the old
-           family. Apply the loaded doc only when the family is unchanged. */
+        /* Family-generation guard: the reload is async and the map body stays mounted
+           across family switches (mountedRef is always true while the body is open), so a
+           stale reload could overwrite the NEW family's view and pollute rootIdRef —
+           stranding the periodic sync on the old family. Apply the doc only when the family
+           is unchanged. */
         const reloadFamily = String(rootIdRef.current ?? rootId)
         void Promise.resolve(loadDocRef.current(adoptRoot)).then((payload) => {
           if (!mountedRef.current) return
@@ -1756,7 +1710,6 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         savingRef.current -= 1
         forkingRef.current = false
         if (mountedRef.current) setArchiveBranchBusy(false)
-        /* A fold pill clicked while this write held the gate lands now. */
         if (mountedRef.current && foldQueueRef.current.length > 0) drainFoldRef.current?.()
       })
   }, [archiveBranchBusy, archiveBranchTarget, doc, rootId, sessionId, showNotice])
@@ -1827,7 +1780,6 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       .finally(() => {
         savingRef.current -= 1
         forkingRef.current = false
-        /* A fold pill clicked while this write held the gate lands now. */
         if (mountedRef.current && foldQueueRef.current.length > 0) drainFoldRef.current?.()
       })
   }, [archiveBusy, archiveTarget, archiveConfirmText, doc, rootId, sessionId, showNotice])
@@ -1876,12 +1828,11 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     setDeleteTarget(null)
     setDeleteError(null)
   }, [deleteBusy])
-  /* Summarize / regenerate ONE card's AI summary: the Host runs the LLM call
-     synchronously and persists the new summary; the card updates optimistically
-     here. In-flight sync responses issued before the write are dropped so the
-     fresh summary cannot flicker away. Shared by the right-click menu entry and
-     the card's own bottom-right 总结卡片 hover pill — STABLE identity (refs only)
-     so the memoized cards keep their memo. */
+  /* Summarize / regenerate ONE card's AI summary: the Host runs the LLM call synchronously and
+     persists the new summary; the card updates optimistically here. In-flight sync responses
+     issued before the write are dropped so the fresh summary cannot flicker away. Shared by the
+     right-click menu entry and the card's own bottom-right 总结卡片 hover pill — STABLE identity
+     (refs only) so the memoized cards keep their memo. */
   const requestSummarizeCard = useCallback((sessionId, seq) => {
     const target = String(sessionId)
     const turnSeq = Number(seq)
@@ -1899,12 +1850,11 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     Promise.resolve(regenerateMindmapSummary(target, turnSeq, summaryConfigRef.current))
       .then((payload) => {
         if (payload?.ok === true && typeof payload.summary === 'string') {
-          /* The Host persisted the summary. Apply the optimistic update only
-             while the card's family is still the one on screen: a family
-             switch mid-call must not overwrite the new map's doc with the old
-             one (the next sync would correct it, but the wrong map would
-             flash). Built from the CURRENT doc (docRef) so a sync that landed
-             during the call is never rolled back. */
+          /* The Host persisted the summary. Apply the optimistic update only while the card's
+             family is still the one on screen: a family switch mid-call must not overwrite the
+             new map's doc with the old one (the next sync would correct it, but the wrong map
+             would flash). Built from the CURRENT doc (docRef) so a sync that landed during the
+             call is never rolled back. */
           const currentDoc = docRef.current
           if (currentDoc !== null && familyIdsRef.current.includes(target)) {
             const next = {
@@ -2069,12 +2019,11 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         }
       })
   }, [regenerateAllBusy, regenerateAllTarget, rootId, showNotice, showNoticeError])
-  /* Send ONE summarize-session request: ready sessions return synchronously
-     ('done' — optimistic doc update); sessions with missing or in-flight card
-     summaries return 'waiting' — the Host generates the missing ones and
-     finishes the session summary in the background, which the waiting effect
-     below picks up from a later sync. The caller has already established that
-     nothing else is in flight (see requestSummarizeSession / the queue drain). */
+  /* Send ONE summarize-session request: ready sessions return synchronously ('done' —
+     optimistic doc update); sessions with missing or in-flight card summaries return 'waiting' —
+     the Host generates the missing ones and finishes the session summary in the background,
+     which the waiting effect below picks up from a later sync. The caller has already
+     established that nothing else is in flight (see requestSummarizeSession / the queue drain). */
   const runSummarizeSession = useCallback((sessionId) => {
     const target = String(sessionId)
     /* Written synchronously (not via a render mirror): the queue gate must never
@@ -2135,11 +2084,10 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         if (mountedRef.current) setSessionSummaryBusyId(null)
       })
   }, [showNotice, showNoticeError])
-  /* Session head hover button / right-click menu entry: run the request when
-     nothing else is summarizing, otherwise PARK it in the FIFO queue — dropping
-     the click (the previous single-flight guard) made a second card's summarize
-     action look broken. STABLE identity (refs only) so the memoized head cards
-     keep their memo. */
+  /* Session head hover button / right-click menu entry: run the request when nothing else
+     is summarizing, otherwise PARK it in the FIFO queue — dropping the click (the previous
+     single-flight guard) made a second card's summarize action look broken. STABLE identity
+     (refs only) so the memoized head cards keep their memo. */
   const requestSummarizeSession = useCallback((sessionId) => {
     const target = String(sessionId)
     const busy = sessionSummaryBusyIdRef.current
@@ -2158,15 +2106,14 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     }
     runSummarizeSession(target)
   }, [runSummarizeSession, showNotice])
-  /* Queue drain: start the next parked session summary, one at a time, and only
-     when the PREVIOUS one is really over. A 'waiting' response comes back
-     immediately while the Host keeps generating in the background, so gating on
-     the HTTP round-trip alone (busy === null) would fire the next call in
-     parallel with it; `sessionSummaryWaiting` clears only once that session's
-     summary lands in the doc (or the 5-minute stall timeout fires). Entries whose
-     session left the doc family (deleted / archived) are dropped silently. `doc`
-     is a dependency so a family switch re-runs the gate once the new doc loads
-     (the body is a cheap array filter and a no-op while the queue is empty). */
+  /* Queue drain: start the next parked session summary, one at a time, and only when the
+     PREVIOUS one is really over. A 'waiting' response comes back immediately while the Host
+     keeps generating in the background, so gating on the HTTP round-trip alone (busy ===
+     null) would fire the next call in parallel with it; `sessionSummaryWaiting` clears only
+     once that session's summary lands in the doc (or the 5-minute stall timeout fires).
+     Entries whose session left the doc family (deleted / archived) are dropped silently.
+     `doc` is a dependency so a family switch re-runs the gate once the new doc loads (the
+     body is a cheap array filter and a no-op while the queue is empty). */
   useEffect(() => {
     if (sessionSummaryQueue.length === 0) return
     if (doc === null) return
@@ -2189,9 +2136,6 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     setMenu(null)
     requestSummarizeSession(target)
   }, [menu, requestSummarizeSession])
-  /* Waiting completion: a later sync brings the session's summary — the head
-     card updates by itself (no dialog). A 5-minute stall (generation failed and
-     cooled down, or the map was closed) surfaces as a timeout notice. */
   /* Waiting completion: the Host's background job for this session is over when
      EITHER a NEW summary landed in the doc (a non-empty value different from the
      baseline captured at request time) OR the Host-reported pending/running set
@@ -2253,11 +2197,10 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     const root = rootIdRef.current ?? rootId
     const base = docRef.current ?? doc
     if (root === null || base === null) return
-    /* Recompute the plan from the LATEST doc (docRef), not the render-time
-       closure: a sync that folded new turns while the dialog was open must not
-       be rolled back by a write built from the stale session list (the Host's
-       stale-write guard only protects whole sessions, not per-session turn
-       regressions). */
+    /* Recompute the plan from the LATEST doc (docRef), not the render-time closure: a
+       sync that folded new turns while the dialog was open must not be rolled back by a
+       write built from the stale session list (the Host's stale-write guard only protects
+       whole sessions, not per-session turn regressions). */
     const plan = mindmapDeletePlan(base, deleteTarget.sessionId, deleteTarget.turnSeq, deleteTarget.empty)
     if (plan === null) { setDeleteError(translate('mindmap.delete.missing')); return }
     if (plan.lastSession === true) { setDeleteError(translate('mindmap.delete.lastSession')); return }
@@ -2268,19 +2211,17 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     savingRef.current += 1
     let forkedChildId = null
     const next = { ...base }
-    /* Hoisted to the FUNCTION scope: the .catch below reads these after the
-       .then callback settled. Declaring them inside the .then would throw
-       ReferenceError on every failure path (a sibling .catch cannot see the
-       .then's block scope), silently disabling the write-failure contract —
-       same shape as confirmArchiveBranch's function-level declarations. */
+    /* Hoisted to the FUNCTION scope: the .catch below reads these after the .then callback
+       settled. Declaring them inside the .then would throw ReferenceError on every failure
+       path (a sibling .catch cannot see the .then's block scope), silently disabling the
+       write-failure contract — same shape as confirmArchiveBranch's declarations. */
     let saveRoot = String(root)
     let prevRoot = undefined
-    /* A truncation of the ANCHOR session makes the fork child the doc's new
-       root (and the map file moves to it): it must not get the branch " ›"
-       suffix (forkAt renames branch children to it), so the child is told it
-       is replacing the root. A whole-session removal of the anchor re-anchors
-       to the first remaining session. Both retire the old root's doc file via
-       prevSessionId. */
+    /* A truncation of the ANCHOR session makes the fork child the doc's new root (and the
+       map file moves to it): it must not get the branch " ›" suffix (forkAt renames branch
+       children to it), so the child is told it is replacing the root. A whole-session
+       removal of the anchor re-anchors to the first remaining session. Both retire the old
+       root's doc file via prevSessionId. */
     const isRootReplacement = plan.replaced !== null && String(plan.replaced.sessionId) === String(root)
     Promise.resolve(
       plan.replaced === null
@@ -2288,10 +2229,9 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         : forkAtRef.current(String(plan.replaced.sessionId), plan.replaced.forkAt, isRootReplacement))
       .then(async (childId) => {
         if (plan.replaced !== null) {
-          /* A truncation fork succeeded: swap the replaced session's entry to
-             the fork child. The kept cards keep their display numbers (the fork
-             child's seed carries the same turn/end seqs), and every surviving
-             session that hung off the replaced session re-anchors to it. */
+          /* A truncation fork succeeded: swap the replaced session's entry to the fork child.
+             The kept cards keep their display numbers (the fork child's seed carries the same
+             turn/end seqs), and every surviving session that hung off it re-anchors to it. */
           if (childId === null || childId === undefined) throw new Error(translate('mindmap.delete.missing'))
           forkedChildId = String(childId)
           const replacedId = String(plan.replaced.sessionId)
@@ -2300,24 +2240,22 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
           next.sessions = next.sessions.map(s =>
             String(s?.parentSessionId) === replacedId ? { ...s, parentSessionId: forkedChildId } : s)
           if (isRootReplacement) next.rootSessionId = forkedChildId
-          /* Nothing records which turns were cut: the truncated session's log
-             just lacks the removed turns and the old session (plus every
-             pruned subtree session) is archived. A failed archive may
-             legitimately resurrect the old session or leak a pruned session
-             into the sidebar (ACCEPTED — see docs/mindmap-notes.md). */
+          /* Nothing records which turns were cut: the truncated session's log just lacks the
+             removed turns and the old session (plus every pruned subtree session) is archived.
+             A failed archive may legitimately resurrect the old session or leak a pruned
+             session into the sidebar (ACCEPTED — see docs/mindmap-notes.md). */
         } else {
           /* Whole-session removal: prune the session entry; the session (and
              its subtree) is archived. A failed archive may resurrect the
              placeholder later (ACCEPTED). */
           next.sessions = plan.sessions
         }
-        /* Re-anchor when the anchor session itself was removed. A root
-           REPLACEMENT already established the fork child as the new root
-           above (next.rootSessionId = forkedChildId): retire the old root's
-           doc file via prevSessionId directly, instead of re-deriving the
-           anchor from sessions[0] (which is only guaranteed to be the root by
-           an implicit ordering convention — a future reorder would store the
-           doc under the wrong root and orphan the fork child). */
+        /* Re-anchor when the anchor session itself was removed. A root REPLACEMENT already
+           established the fork child as the new root above (next.rootSessionId =
+           forkedChildId): retire the old root's doc file via prevSessionId directly, instead
+           of re-deriving the anchor from sessions[0] (only guaranteed to be the root by an
+           implicit ordering convention — a future reorder would store the doc under the
+           wrong root and orphan the fork child). */
         if (isRootReplacement) {
           saveRoot = forkedChildId
           prevRoot = String(root)
@@ -2333,23 +2271,21 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         next.updatedAt = Date.now()
         setDoc(next)
         lastFingerprintRef.current = mindmapDocFingerprint(next)
-        /* Archive-first for NON-root removals: the Host's stale-write guard
-           restores any session the incoming doc drops that is NOT archived yet
-           (see src/host/mindmap.js writeMindmapDoc), so the pruned subtree AND
-           the replaced session must be archived BEFORE the doc write or the
-           guard would resurrect them for up to a sync cycle. Root replacements
-           (prevRoot) retire the old root via a fresh doc file + alias stub in
-           the SAME request and keep archive-after-write: a failed write must
-           never leave the map without a root doc, and the archive that follows
-           it is the truncation's only durability step. */
+        /* Archive-first for NON-root removals: the Host's stale-write guard restores any
+           session the incoming doc drops that is NOT archived yet (see src/host/mindmap.js
+           writeMindmapDoc), so the pruned subtree AND the replaced session must be archived
+           BEFORE the doc write or the guard would resurrect them for up to a sync cycle.
+           Root replacements (prevRoot) retire the old root via a fresh doc file + alias stub
+           in the SAME request and keep archive-after-write: a failed write must never leave
+           the map without a root doc, and the archive that follows it is the truncation's
+           only durability step. */
         const archiveIds = [...plan.archiveIds]
         if (plan.replaced !== null) archiveIds.push(String(plan.replaced.sessionId))
         const archiveRetired = () => Promise.all(archiveIds.map(id => archiveSessionRef.current(String(id)).catch(() => {})))
         if (prevRoot === undefined) await archiveRetired()
-        /* Archive-first has made a NON-ROOT removal irreversible before the
-           write: retry a transient 409 (concurrent root replacement / lock
-           contention) once — it materially narrows the "failed write = whole
-           branch gone" window without masking real errors. */
+        /* Archive-first has made a NON-ROOT removal irreversible before the write: retry a
+           transient 409 (concurrent root replacement / lock contention) once — it materially
+           narrows the "failed write = whole branch gone" window without masking real errors. */
         let written
         for (let attempt = 0; ; attempt += 1) {
           try {
@@ -2391,16 +2327,14 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       })
       .catch((error) => {
         if (!mountedRef.current) return
-        /* Non-root removals archive BEFORE the write, so a persistent write
-           failure is NOT rollback-able: faking an in-memory rollback would be
-           overwritten by the next sync (which drops the archived sessions),
-           and archiving the freshly forked child — the ONLY carrier of the
-           preserved turns — would turn "delete one card" into "delete the
-           whole branch". Adopt the Host's CURRENT truth (its reconcile prunes
-           the archived sessions and re-parents their children) and close the
-           dialog with an honest notice; the forked child (if the fork landed)
-           stays as the preserved copy. Root replacements (prevRoot) archive
-           AFTER the write, so their rollback stays valid and the child is
+        /* Non-root removals archive BEFORE the write, so a persistent write failure is NOT
+           rollback-able: faking an in-memory rollback would be overwritten by the next sync
+           (which drops the archived sessions), and archiving the freshly forked child — the
+           ONLY carrier of the preserved turns — would turn "delete one card" into "delete the
+           whole branch". Adopt the Host's CURRENT truth (its reconcile prunes the archived
+           sessions and re-parents their children) and close the dialog with an honest notice;
+           the forked child (if the fork landed) stays as the preserved copy. Root replacements
+           (prevRoot) archive AFTER the write, so their rollback stays valid and the child is
            simply re-adopted later. */
         if (prevRoot !== undefined) {
           setDoc(prev => (prev === next ? base : prev))
@@ -2410,11 +2344,11 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         }
         setDeleteTarget(null)
         const adoptRoot = String(saveRoot)
-        /* Family-generation guard: the reload is async and the map body stays
-           mounted across family switches (mountedRef is always true while the
-           body is open), so a stale reload could overwrite the NEW family's
-           view and pollute rootIdRef — stranding the periodic sync on the old
-           family. Apply the loaded doc only when the family is unchanged. */
+        /* Family-generation guard: the reload is async and the map body stays mounted
+           across family switches (mountedRef is always true while the body is open), so a
+           stale reload could overwrite the NEW family's view and pollute rootIdRef —
+           stranding the periodic sync on the old family. Apply the doc only when the family
+           is unchanged. */
         const reloadFamily = String(rootIdRef.current ?? rootId)
         void Promise.resolve(loadDocRef.current(adoptRoot)).then((payload) => {
           if (!mountedRef.current) return
@@ -2437,16 +2371,14 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         savingRef.current -= 1
         forkingRef.current = false
         if (mountedRef.current) setDeleteBusy(false)
-        /* A fold pill clicked while this write held the gate lands now. */
         if (mountedRef.current && foldQueueRef.current.length > 0) drainFoldRef.current?.()
       })
   }, [deleteBusy, deleteTarget, doc, rootId, sessionId, showNotice])
 
-  /* Cards whose AI summary is being generated: union of the Host's background
-     queue (per sync) and local manual regenerations. Keyed like the layout
-     cards (`sessionId:seq`) for O(1) lookup. Must be declared BEFORE the
-     phase early returns below: React requires a stable hook order across
-     renders, and the error/loading/empty branches would otherwise skip this
+  /* Cards whose AI summary is being generated: union of the Host's background queue (per
+     sync) and local manual regenerations. Keyed like the layout cards (`sessionId:seq`) for
+     O(1) lookup. Must be declared BEFORE the phase early returns below: React requires a stable
+     hook order across renders, and the error/loading/empty branches would otherwise skip this
      hook and re-add it on the next normal render (React error #310). */
   const summarizingKeys = useMemo(() => {
     const set = new Set()
@@ -2459,11 +2391,10 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     return set
   }, [summarizing, manualSummarizing])
 
-  /* AI summaries keyed `sessionId:seq`, read from the CURRENT doc: the layout
-     nodes keep the turn objects of the doc snapshot they were built from, so a
-     summary written after that snapshot would be invisible through entry.turn.
-     The card receives its summary as a plain string prop instead — memo
-     compares it by value, so only the affected card re-renders. */
+  /* AI summaries keyed `sessionId:seq`, read from the CURRENT doc: the layout nodes keep
+     the turn objects of the doc snapshot they were built from, so a summary written after
+     that snapshot would be invisible through entry.turn. The card receives its summary as a
+     plain string prop instead — memo compares it by value, so only that card re-renders. */
   const summaryByKey = useMemo(() => {
     const map = new Map()
     for (const s of doc?.sessions ?? []) {
@@ -2478,9 +2409,8 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     return map
   }, [doc])
 
-  /* sessionId → last turn seq, precomputed so mindmapCardClickAction (called
-     per card on every render) is O(1) instead of scanning all sessions. The
-     openCard callback reads it through a ref (it is stable, empty deps). */
+  /* sessionId → last turn seq, precomputed so mindmapCardClickAction (called per card on
+     every render) is O(1) instead of scanning all sessions. openCard reads it via a ref. */
   const lastTurnSeqBySession = useMemo(() => {
     const map = new Map()
     for (const s of doc?.sessions ?? []) {
@@ -2576,16 +2506,15 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
        summarize (no completed turn to summarize). */
     const isSummarizing = !isStreaming && entry.empty !== true && entry.turn !== undefined && entry.turn !== null
       && summarizingKeys.has(mindmapDocKey(String(entry.sessionId), Number(entry.turn.seq)))
-    /* The card's AI summary, read from the CURRENT doc (layout nodes keep the
-       turn objects of the doc snapshot they were built from). A plain string
-       prop: React.memo compares it by value, so a summary write re-renders only
-       this card — never the whole canvas. */
+    /* The card's AI summary, read from the CURRENT doc (layout nodes keep the turn objects
+       of the doc snapshot they were built from). A plain string prop: React.memo compares it
+       by value, so a summary write re-renders only this card — never the whole canvas. */
     const summary = entry.kind === 'card' && entry.empty !== true && entry.turn !== undefined && entry.turn !== null
       ? summaryByKey.get(mindmapDocKey(String(entry.sessionId), Number(entry.turn.seq)))
       : undefined
-    /* Ring: the streaming card and its parent node (card or head) both wear the
-       pair's flowing gradient border. A node that is the parent of several
-       streaming cards takes the first pair's palette. */
+    /* Ring: the streaming card and its parent node (card or head) both wear the pair's flowing
+       gradient border. A node that is the parent of several streaming cards takes the first
+       pair's palette. */
     let ringPalette = undefined
     if (isStreaming) {
       const info = streamingEntries.find(s => s.entry.key === entry.key)
@@ -2627,11 +2556,10 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         /* Parked behind another session's summary: shown as queued (never as
            "summarizing", which means the model call is already running). */
         isQueued: sessionSummaryQueuedSet.has(String(entry.sessionId)),
-        /* Hover action row (bottom-left archive / bottom-right summarize).
-           Both callbacks are STABLE (refs only) so the memo above still holds;
-           the summarize button only renders while the AI-summary feature is on
-           and is disabled with nothing to summarize or while one is in
-           flight. */
+        /* Hover action row (bottom-left archive / bottom-right summarize). Both callbacks
+           are STABLE (refs only) so the memo above still holds; the summarize button only
+           renders while the AI-summary feature is on and is disabled with nothing to
+           summarize or while one is in flight. */
         onArchive: requestArchiveBranch,
         onSummarize: requestSummarizeSession,
         summaryEnabled: settings.mindmapSummaryEnabled === true,
@@ -2660,15 +2588,13 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       /* A peeked card (a folded-marked turn temporarily expanded) shows the
          folded status row instead of done. */
       peeked: entry.peeked === true,
-      /* The streaming question is a plain string prop read from the CURRENT
-         live state (the layout node's question is empty by design): memo
-         compares it by value, so a question arriving mid-stream re-renders
-         only this card. */
+      /* The streaming question is a plain string prop read from the CURRENT live state (the
+         layout node's question is empty by design): memo compares it by value, so a question
+         arriving mid-stream re-renders only this card. */
       streamingQuestion: isStreaming ? streamingQuestionByKey.get(String(entry.sessionId)) : undefined,
-      /* Hover fold pills (STABLE callbacks): 折叠 this card; on a peeking card
-         取消折叠 this single card + 立刻折叠 the temporary run expansion back.
-         Only real completed turns get one — the card itself decides, so the
-         props are always passed. */
+      /* Hover fold pills (STABLE callbacks): 折叠 this card; on a peeking card 取消折叠 this
+         single card + 立刻折叠 the temporary run expansion back. Only real completed turns get
+         one — the card itself decides, so the props are always passed. */
       onFoldPill: foldCardPill,
       onFoldNowPill: foldNowCardPill,
       onUnfoldCardPill: unfoldOneCardPill,
@@ -2726,10 +2652,9 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         h('button', { className: 'dsh-ws-context-item dsh-ws-context-item-danger', onClick: startDelete, role: 'menuitem', title: translate('mindmap.menu.deleteCard'), type: 'button' }, translate('mindmap.menu.deleteCard')))
         : menu.kind === 'head' ? h(Fragment, null,
           h('button', { className: 'dsh-ws-context-item', onClick: startRename, role: 'menuitem', title: translate('mindmap.menu.rename'), type: 'button' }, translate('mindmap.menu.rename')),
-          /* Summarize session: only with the AI-summary feature on AND a session
-             that has at least one turn to summarize (the same predicate — and
-             the same O(1) precomputed table — the head card's hover button
-             uses, so the two entries can never disagree). */
+          /* Summarize session: only with the AI-summary feature on AND a session with at
+             least one turn to summarize (the same predicate — and the same O(1) precomputed
+             table — the head card's hover button uses, so the two can never disagree). */
           settings.mindmapSummaryEnabled === true && lastTurnSeqBySession.get(String(menu.sessionId)) !== undefined
             ? h('button', { className: 'dsh-ws-context-item', onClick: startSummarizeSession, role: 'menuitem', title: translate('mindmap.menu.summarizeSession'), type: 'button' }, translate('mindmap.menu.summarizeSession'))
             : null,
@@ -2823,13 +2748,12 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
                   key: index,
                 })
               }
-              /* A flowing pair edge renders as a solid underlay (palette c1 —
-                 the connection stays colored even if the gradient reference
-                 can't resolve) plus the animated gradient dashes on top. Both
-                 strokes are inline styles, beating every CSS stroke rule (never
-                 falling back to gray). Selection/hover trace classes are never
-                 added here, so the edge is immune to both — the flowing look is
-                 the stronger signal on the pair. */
+              /* A flowing pair edge renders as a solid underlay (palette c1 — the
+                 connection stays colored even if the gradient reference can't resolve)
+                 plus the animated gradient dashes on top. Both strokes are inline styles,
+                 beating every CSS stroke rule (never falling back to gray). Selection/hover
+                 trace classes are never added here, so the edge is immune to both — the
+                 flowing look is the stronger signal on the pair. */
               return h(Fragment, { key: index },
                 h('path', {
                   className: 'dsh-ws-mindmap-edge dsh-ws-mindmap-edge-flow-under',

@@ -27,7 +27,6 @@ export const resourceNoticeStore = {
 }
 
 /**
- * Show one transient notice.
  * @param text - already-localized text.
  */
 export function showResourceNotice(text) {

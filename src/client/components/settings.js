@@ -30,19 +30,18 @@ const CARDS = Object.freeze([
   { id: 'interp', chip: 'settings.chip.interp' },
 ])
 const CARD_IDS = Object.freeze(CARDS.map(card => card.id))
-/* Version of the bundle that is running, inlined by tsdown's define. It is the LAST fallback for
-   「当前版本」: the Host's local read (and a check's own answer) report what is installed on disk and
-   are preferred — this only covers a Host that cannot answer at all (an older Host without the
-   route, or an offline one), where showing the running build beats showing nothing.
-   `typeof` keeps the identifier safe when the module is evaluated WITHOUT the build step
-   (`check:client-modules`, SSR rendering): a bare reference would throw ReferenceError there. */
+/* Version of the running bundle, inlined by tsdown's define — the LAST fallback for 「当前版本」:
+   the Host's local read and a check's own answer report what is installed on disk and win; this
+   covers only a Host that cannot answer at all (older Host without the route, or offline), where
+   the running build beats showing nothing. `typeof` keeps the identifier safe under evaluation
+   WITHOUT the build step (`check:client-modules`, SSR): a bare reference would throw ReferenceError. */
 const BUILD_VERSION = typeof __DSH_WS_VERSION__ === 'string' ? __DSH_WS_VERSION__ : null
 
 /* =====================================================================================
-   Search: a DOM-level filter over the rendered rows. Text and value live in the DOM
-   already, so a query hides non-matching units (and empties their sections/cards) without
-   re-plumbing the page into a data model. Re-applied after every render, with a childList
-   observer covering nodes React adds later (interpreter rows, probe results).
+   Search: a DOM-level filter over the rendered rows. Text and value already live in the DOM,
+   so a query hides non-matching units (and empties their sections/cards) without re-plumbing
+   the page into a data model. Re-applied after every render, with a childList observer
+   covering nodes React adds later (interpreter rows, probe results).
    ===================================================================================== */
 const FILTER_UNITS = '[data-unit]'
 const FILTER_BLOCKS = '[data-block]'
@@ -88,11 +87,10 @@ function applySettingsFilter(root, query) {
 /* The sticky bar: jump chips for every card, the match count, and the search box. */
 function SettingsBar({ query, onQuery, matches }) {
   const chipsRef = useRef(null)
-  /* The chip the user just clicked stays lit while its smooth scroll runs: the scroll spy would
-     otherwise report whatever ends up under the threshold (at the page bottom that is always the
-     LAST card, so clicking 对话 would light 解释器). The pin is released by the user's next
-     interaction — a wheel tick, a scrollbar drag, a key — none of which the jump itself produces,
-     so it never depends on how long the smooth animation takes. */
+  /* The clicked chip stays lit while its smooth scroll runs: the scroll spy would otherwise report
+     whatever ends up under the threshold (at the page bottom, always the LAST card — clicking 对话
+     would light 解释器). The pin is released by the user's next interaction (wheel, scrollbar drag,
+     key), none of which the jump itself produces, so it never depends on the animation's duration. */
   const pinnedRef = useRef(null)
   useEffect(() => {
     const chips = chipsRef.current
@@ -193,7 +191,7 @@ function SettingsBar({ query, onQuery, matches }) {
    ===================================================================================== */
 function UpdateRow() {
   const [state, setState] = useState({ phase: 'idle' })
-  /* Local facts (installed version, install mode) so the badge and the install note exist before any check. A Host without the route answers 404 and this stays null — the badge simply waits for a check. */
+  /* Local facts (installed version, install mode) so the badge and install note exist before any check. A Host without the route answers 404 and this stays null — the badge waits for a check. */
   const [info, setInfo] = useState(null)
   const mountedRef = useRef(false)
   const setPhase = useCallback((phase, extra) => {
@@ -227,7 +225,7 @@ function UpdateRow() {
           current: payload.current,
           latest: payload.latest,
           installMode: payload.installMode,
-          /* Host-computed: false when the swap target is not a copy inside a profile (link: / built-in installs), in which case the download button is replaced by an explanation. */
+          /* Host-computed: false when the swap target is not a copy inside a profile (link: / built-in installs) — the download button is then replaced by an explanation. */
           updateSupported: payload.updateSupported !== false,
         })
         return
@@ -253,7 +251,7 @@ function UpdateRow() {
     }
   }, [setPhase, state.installMode, state.latest, state.phase])
   const disabled = state.phase === 'disabled' || info?.enabled === false
-  /* The badge shows the version installed in this profile: the check's own answer, else the Host's local read (available the moment the page opens), else the running bundle's own version. */
+  /* Badge precedence: the check's own answer, else the Host's local read (available the moment the page opens), else the running bundle's own version. */
   const reported = state.phase === 'done'
     ? (state.latest ?? info?.current ?? null)
     : (state.current ?? info?.current ?? null)
@@ -380,7 +378,7 @@ function BrowseCard({ settings, settingsStore }) {
       onReset: () => settingsStore.actions.setPreviewFontScale(FONT_SCALE_DEFAULT),
       custom: previewFontScale !== FONT_SCALE_DEFAULT,
     }),
-    /* One action row, the same shape as a block action: it clears every open tab's own size so they all follow the base size. It cannot know how many tabs carry one (they live in the explorer), so it is always enabled and the explorer's status bar reports the outcome. */
+    /* One action row, shaped like a block action: it clears every open tab's own size so all follow the base size. It cannot know how many tabs carry one (they live in the explorer), so it is always enabled and the explorer's status bar reports the outcome. */
     h('div', { className: 'dsh-ws-row-action' },
       h('button', {
         className: 'dsh-ws-text-button',
@@ -633,7 +631,7 @@ function VcsCard({ settings, settingsStore, vcsHostEnabled }) {
 }
 
 /* =====================================================================================
-   5. 导图（原来的「会话浏览设置」也并到这里：它只有旋转速度一项）
+   5. 导图
    ===================================================================================== */
 function MindmapCard({ settings, settingsStore, summaryModels }) {
   const summaryModelsAvailable = summaryModels !== null && summaryModels?.available === true

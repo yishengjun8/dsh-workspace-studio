@@ -1,7 +1,6 @@
 /* The interpreter card: one row per runnable extension, plus the dialog for editing one.
  *
- * Extracted from settings.js, which keeps the page shell (the row design system is in settings-rows.js):
- * this card is the largest single card on the page.
+ * Extracted from settings.js, which keeps the page shell (the row design system is in settings-rows.js).
  */
 import { createElement as h, Fragment } from 'react'
 import { translate } from '../locale/index.js'

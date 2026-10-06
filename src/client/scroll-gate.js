@@ -1,9 +1,8 @@
-/** Scroll gating for card viewports (Think-card body, edit-card diff/io
- *  bodies): while the card is not "armed" (no click inside its viewport yet),
- *  wheel events are forwarded to the conversation scrollport, so hovering
- *  alone never scrolls the card. A click inside the viewport arms the card;
- *  any click outside disarms it. The armed state is published as a
- *  data-scroll-armed attribute for a light visual cue. */
+/** Scroll gating for card viewports (Think-card body, edit-card diff/io bodies):
+ *  while the card is not "armed" (no click inside its viewport yet), wheel events
+ *  are forwarded to the conversation scrollport, so hovering alone never scrolls
+ *  the card; a click inside the viewport arms it, any click outside disarms it.
+ *  The armed state is published as a data-scroll-armed attribute for a visual cue. */
 export const CONVERSATION_SCROLLPORT_SELECTOR = '[data-conversation-scroll]'
 
 /* Firefox wheel events report deltaMode 1 (lines); approximate a line as 16 px. */

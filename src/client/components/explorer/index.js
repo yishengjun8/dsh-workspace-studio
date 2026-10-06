@@ -42,8 +42,7 @@ import { ReviewView } from '../../renderers/review-view.js'
 /* Whether a preview tab has no file-tree row: a docked mind map, an opened plan,
    an opened change review, or a file OUTSIDE the workspace. Such a tab selects
    nothing in the tree and is never revealed — revealing an outside path would ask
-   the Host to list its "ancestor" directories, which the workspace fence refuses
-   (400 invalid-path). */
+   the Host to list "ancestor" directories the workspace fence refuses (400 invalid-path). */
 function hasNoTreeRow(tab) {
   return isSyntheticTab(tab) || tab?.outside === true
 }
@@ -109,7 +108,6 @@ export function WorkspaceExplorer({
   const [selected, setSelected] = useState(() => {
     if (initialPreviewSession.activePath === null) return undefined
     const activeTab = initialPreviewSession.tabs.find(tab => tab.path === initialPreviewSession.activePath)
-    /* A restored tab with no tree row selects nothing in the file tree. */
     if (activeTab === undefined || hasNoTreeRow(activeTab)) return undefined
     return entryFromPreviewTab(activeTab)
   })
@@ -244,7 +242,7 @@ export function WorkspaceExplorer({
     previousDirtyCountRef.current = dirtyTabCount
   }, [dirtyTabCount])
   /* ONE owner for "patch the tab at this path" (preview-tabs.js patchTab): updateTab names the path,
-     updateActiveTab takes it from the active ref. They were two verbatim copies of the transform. */
+     updateActiveTab takes it from the active ref. */
   const updateTab = useCallback((path, patch) => {
     setTabs(current => patchTab(current, path, patch))
   }, [])
@@ -610,10 +608,9 @@ export function WorkspaceExplorer({
     })
     try {
       const result = await listDirectory(workspace.workspaceId, path, controller.signal)
-      /* Apply only while this request is still the LATEST for the path (a
-         superseded request can resolve after its abort — the fetch may have
-         already settled) and the explorer is still mounted: a stale response
-         must never overwrite a newer listing, and an unmounted explorer must
+      /* Apply only while this request is still the LATEST for the path (a superseded
+         request can resolve after its abort) and the explorer is still mounted: a stale
+         response must never overwrite a newer listing, and an unmounted explorer must
          never setState. */
       if (!mounted.current || requests.current.get(path) !== controller) return
       setDirectories(cur => {
@@ -647,11 +644,10 @@ export function WorkspaceExplorer({
     }
   }, [listDirectory, pruneExpandedPath, workspace.workspaceId])
   useEffect(() => { void loadDirectory('') }, [loadDirectory])
-  /* "Changes only" must show EVERY change without a single click, so every directory that holds a
-     change (any ancestor of any changed path, straight from the status payload) is expanded and
-     listed. Directories already listed are skipped, which makes the effect idempotent across the
-     status polls; the loads run through a small worker pool so a large change set does not fire one
-     request per directory at once. */
+  /* "Changes only" must show EVERY change without a single click: every directory holding one
+     (any ancestor of a changed path, straight from the status payload) is expanded and listed,
+     already-listed ones are skipped (idempotent across status polls), and a small worker pool
+     keeps a large change set from firing one request per directory at once. */
   const autoExpandedRef = useRef(new Set())
   useEffect(() => {
     if (vcsChangesOnly !== true) {
@@ -678,9 +674,8 @@ export function WorkspaceExplorer({
     })
     void loadDirectoriesBounded(pending, loadDirectory)
   }, [directories, loadDirectory, vcs.overlay, vcsChangesOnly])
-  // Restore the persisted expansion: fetch every restored directory's listing
-  // so the tree renders its children. Mount-only; ancestors are already in the
-  // persisted set, so nested folders appear in place.
+  // Restore the persisted expansion: fetch every restored directory's listing so the tree renders
+  // its children. Mount-only; ancestors are already in the persisted set, so nested folders appear.
   useEffect(() => {
     for (const path of initialPreviewSession.expanded ?? []) {
       if (path === '' || path === undefined) continue
@@ -700,10 +695,9 @@ export function WorkspaceExplorer({
         next.add(path)
         return next
       })
-      /* Load every non-ready directory in the chain INCLUDING the entry itself
-         when it is a directory: chooseDirectory only selects + reveals, so
-         skipping the entry here left it stuck on the loading placeholder
-         forever until the user collapsed and re-expanded it. */
+      /* Load every non-ready directory in the chain INCLUDING the entry itself when it
+         is a directory: chooseDirectory only selects + reveals, so skipping the entry
+         left it stuck on the loading placeholder until a collapse + re-expand. */
       const isEntryDirectory = entry.kind === 'directory' && path === entry.path
       if ((isEntryDirectory || path !== entry.path) && directories.get(path)?.state !== 'ready') void loadDirectory(path)
     }
@@ -719,7 +713,6 @@ export function WorkspaceExplorer({
     const nextTab = next.tabs.find(tab => tab.path === next.activePath)
     if (nextTab !== undefined) {
       if (hasNoTreeRow(nextTab)) {
-        /* A tab with no tree row selects nothing in the file tree. */
         setSelected(undefined)
       } else {
         const entry = entryFromPreviewTab(nextTab)
@@ -788,11 +781,10 @@ export function WorkspaceExplorer({
   const promoteTab = useCallback((path) => {
     setTabs(current => promoteTemporaryTab(current, path))
   }, [])
-  /* Editing a preview tab pins it, the same way an editor does: the italic marker drops
-     as soon as the tab holds unsaved work, so the next single click cannot displace a tab
-     whose debounced staging write has not landed yet. Idempotent — once promoted no tab
-     matches again — and free of extra persistence, since `temporary` is outside
-     previewSnapshotFingerprint. */
+  /* Editing a preview tab pins it, the same way an editor does: the italic marker drops as soon
+     as the tab holds unsaved work, so the next single click cannot displace a tab whose debounced
+     staging write has not landed yet. Idempotent (once promoted, no tab matches again) and free of
+     extra persistence — `temporary` is outside previewSnapshotFingerprint. */
   useLayoutEffect(() => {
     const edited = tabs.filter(tab => isTemporaryTab(tab) && (tab.dirty === true || tab.saving === true))
     if (edited.length === 0) return
@@ -802,12 +794,11 @@ export function WorkspaceExplorer({
     setSelected(entry)
     revealPath(entry)
   }, [revealPath])
-  /* Read-only preview of a file OUTSIDE the workspace (the chat's file-open path
-     can name one): the plugin's workspace-confined API cannot serve such a path,
-     so the tab is session-only and its content is read through the harness
-     workspace-files Remote instead. No tree selection (the tree has no row for
-     it) and no reveal — expanding its "ancestors" would fire directory reads the
-     Host refuses on sight, which is exactly the bug this path exists to avoid. */
+  /* Read-only preview of a file OUTSIDE the workspace (the chat's file-open path can name
+     one): the workspace-confined API cannot serve it, so the tab is session-only and its
+     content comes from the harness workspace-files Remote. No tree selection and no reveal:
+     expanding its "ancestors" would fire directory reads the Host refuses on sight — the
+     bug this path exists to avoid. */
   const openOutsideFile = useCallback((entry) => {
     previewTabsBootstrapped.current = true
     setSelected(undefined)
@@ -1016,10 +1007,9 @@ export function WorkspaceExplorer({
     composingRef.current = false
   }, [activePath, dirty])
   const closeEntryDialog=useCallback(()=>{if(entryBusy)return;setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);composingRef.current=false},[entryBusy])
-  // The viewer mode is scoped to one file: switching files lands on that
-  // file's default view — Markdown and HTML files open straight into their
-  // rendered view (document preview / page preview), every other file in the
-  // source editor. The tab lookup reads the refs kept fresh by the layout
+  // The viewer mode is scoped to one file: switching files lands on that file's default view —
+  // Markdown and HTML open straight into their rendered view (document preview / page preview),
+  // every other file in the source editor. The tab lookup reads the refs kept fresh by the layout
   // effects above, so this effect keeps its activePath-only dependency.
   useEffect(() => {
     const tab = tabsRef.current.find(candidate => candidate.path === activePathRef.current)
@@ -1130,14 +1120,12 @@ export function WorkspaceExplorer({
       setDeleteBusy(false)
       for (const item of affected) {
         if (!item.dirty) continue
-        // Use the tab's CURRENT draft, not the stale `affected` snapshot: the
-        // delete dialog keeps editor focus, so the user may have typed after
-        // capture, and a failed delete must not roll the staging draft back.
-        // force=true also re-writes staging drafts of NON-editable dirty tabs
-        // (their scheduleAutosave gate would skip them), so a failed delete
-        // never destroys an orphaned draft. Drop the autosave dedup FIRST:
-        // draftTree already tombstoned these drafts, yet lastWriteRef still
-        // records the same text, so scheduleAutosave's content-dedup would
+        // Use the tab's CURRENT draft, not the stale `affected` snapshot: the delete dialog keeps
+        // editor focus, so the user may have typed after capture, and a failed delete must not roll
+        // the staging draft back. force=true also re-writes staging drafts of NON-editable dirty
+        // tabs (their scheduleAutosave gate would skip them), so a failed delete never destroys an
+        // orphaned draft. Drop the autosave dedup FIRST: draftTree already tombstoned these drafts,
+        // yet lastWriteRef still records the same text, so scheduleAutosave's content-dedup would
         // skip the re-write and the orphaned draft would stay lost.
         const fresh = tabsRef.current.find(tab => tab.path === item.path)
         lastWriteRef.current.delete(item.path)
@@ -1273,11 +1261,10 @@ export function WorkspaceExplorer({
        base revision the change marks are computed against. */
     setDiffBaseEpoch(current => current + 1)
   }, [activePath, dirty, saving, updateActiveTab])
-  /* Reload ONE tab from disk, from the strip's marker or its context menu. A background
-     tab is activated first, because the read effect serves the active path alone; arming
-     the refresh flag makes that pass a full read instead of a cache/fast-path serve.
-     Unsaved work is never discarded: a dirty tab refuses and says why (the status bar's
-     Cancel action is the deliberate way to drop edits). */
+  /* Reload ONE tab from disk, from the strip's marker or its context menu. A background tab is
+     activated first, because the read effect serves the active path alone; arming the refresh
+     flag makes that pass a full read instead of a cache/fast-path serve. Unsaved work is never
+     discarded: a dirty tab refuses and says why (the status bar's Cancel is the deliberate way). */
   const reloadTab = useCallback((path) => {
     const tab = tabsRef.current.find(item => item.path === path)
     if (tab === undefined) return
@@ -1371,7 +1358,6 @@ export function WorkspaceExplorer({
     const nextTab = nextTabs.find(tab => tab.path === nextActivePath)
     if (nextTab !== undefined) {
       if (hasNoTreeRow(nextTab)) {
-        /* A mind-map, plan, review, or outside-workspace tab selects nothing in the file tree. */
         setSelected(undefined)
       } else {
         const entry = entryFromPreviewTab(nextTab)
@@ -1409,7 +1395,6 @@ export function WorkspaceExplorer({
     }
     activatePath(keep.path)
     if (hasNoTreeRow(keep)) {
-      /* A mind-map, plan, review, or outside-workspace tab selects nothing in the file tree. */
       setSelected(undefined)
     } else {
       const entry = entryFromPreviewTab(keep)

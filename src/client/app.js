@@ -11,8 +11,8 @@ import { checkFileChange, createWorkspaceEntry, deleteDraft, deleteMindmapDoc, p
 import { createExplorerPaneStore, createExplorerSettingsStore, createLayoutStore, createPreviewSessionStore, LayoutController } from './stores.js'
 import { currentSessionOf, EditorContextController, openHarnessSession, PromptContextBridge, recentWorkspaceIdOf, selectWorkspaceForSession, workspaceOfSession } from './controllers.js'
 import { EditorContextPrefix, installEditorContextMessageCompactor } from './context-bridge.js'
-/* The session-row context menu is a fixed 3 items + separator; clamp its top
-   edge against its real height so the last item stays reachable. */
+/* The session-row context menu is a fixed 3 items + separator; clamp its top edge
+   against its real height so the last item stays reachable. */
 const SESSION_CONTEXT_MENU_HEIGHT = 140
 import { ThemePresenter } from './theme.js'
 import { mindmapRegistry, useMindmapRegistry } from './mindmap/registry.js'
@@ -47,13 +47,11 @@ export function AppFrame(props) {
   const settings = useSyncExternalStore(props.settingsStore.subscribe, props.settingsStore.getSnapshot)
   const panes = useSyncExternalStore(props.explorerPaneStore.subscribe, props.explorerPaneStore.getSnapshot)
   const mobile = useMobile()
-  // Mirror the sidebar width into the persisted pane store: the layout store
-  // owns the live value but cannot persist wholesale, so the pane store's
-  // small layout value is the durable copy.
+  // Mirror the sidebar width into the persisted pane store: the layout store owns the
+  // live value but cannot persist wholesale, so the pane store's small layout value is the durable copy.
   const sidebarMirrorRef = useRef(null)
-  // Viewport-driven sidebar width ceiling. Declared before the mirror effect
-  // below so the persisted value is not clamped to the 420 fallback while the
-  // live grid allows a wider sidebar.
+  // Viewport-driven sidebar width ceiling, declared before the mirror effect below so the
+  // persisted value is not clamped to the 420 fallback while the live grid allows more.
   const viewportRef = useRef(null)
   const chatSectionRef = useRef(null)
   const [viewportWidth, setViewportWidth] = useState(0)
@@ -61,18 +59,16 @@ export function AppFrame(props) {
     ? Math.max(SIDEBAR_MIN, Math.floor(viewportWidth * SIDEBAR_MAX_RATIO))
     : SIDEBAR_MAX_FALLBACK
   useLayoutEffect(() => {
-    // In mobile mode the sidebar width is a transient force-expand; persisting
-    // it would make a mobile-mode refresh lose the user's collapsed preference.
-    // While mobile, only track the value in the ref.
+    // Mobile's sidebar width is a transient force-expand: persisting it would make a
+    // mobile-mode refresh lose the user's collapsed preference, so only the ref tracks it.
     if (mobile.on) {
       sidebarMirrorRef.current = { value: panels.sidebar, max: sidebarMax }
       return
     }
-    // Before the first viewport measure (viewportWidth === 0) the ceiling is the
-    // 420 fallback: writing here would clamp a wider PERSISTED width into the
-    // durable pane store (the store's own value already equals the layout
-    // seed, so no write is needed). Track the mirror and let the effect re-run
-    // with the measured max (sidebarMax changes → re-run) before persisting.
+    // Before the first viewport measure (viewportWidth === 0) the ceiling is the 420
+    // fallback: writing would clamp a wider PERSISTED width into the durable pane store
+    // (whose own value already equals the layout seed, so no write is needed). Track the
+    // mirror and let the effect re-run with the measured max (sidebarMax changes) before persisting.
     if (viewportWidth === 0) {
       sidebarMirrorRef.current = { value: panels.sidebar, max: sidebarMax }
       return
@@ -111,9 +107,8 @@ export function AppFrame(props) {
       observer.observe(headerElement)
       return () => { observer.disconnect() }
     }
-    /* The header may mount a frame or two after this layout effect, so retry
-       for a few frames before giving up; both paths funnel their observer
-       cleanup through detachObserver so a late-found header never leaks. */
+    /* The header may mount a frame or two after this layout effect, so retry for a few frames;
+       both paths funnel observer cleanup through detachObserver so a late header never leaks. */
     let detachObserver = undefined
     let rafId = 0
     const findHeader = () => section.querySelector('[data-slot="conversation.session.header"]')
@@ -136,9 +131,8 @@ export function AppFrame(props) {
     }
     return () => { cancelAnimationFrame(rafId); detachObserver?.() }
   }, [currentSession, mobile.files, mobile.on])
-  /* Sidebar mind-map entry icon spin: the user speed multiplier becomes the
-     animation duration var; speed 0 freezes the spin. The schema guarantees the
-     range, so no re-clamp is needed here. */
+  /* Sidebar mind-map entry icon spin: the user speed multiplier becomes the animation
+     duration var; speed 0 freezes the spin. The schema guarantees the range, so no re-clamp here. */
   const mindmapSpinSpeed = settings.mindmapSpinSpeed
   const mindmapSpinDuration = mindmapSpinSpeed > 0
     ? `${(MINDMAP_SPIN_BASE_DURATION_S / mindmapSpinSpeed).toFixed(3)}s`
@@ -166,9 +160,8 @@ export function AppFrame(props) {
     () => recentWorkspaceIdOf(workspaces, sessionsById),
     [sessionsById, workspaces],
   )
-  // Right-click session-list menu, the in-place rename overlay, and
-  // archive/reveal feedback are owned here because the target rows live in the
-  // harness sidebar slot this component renders.
+  // The session-list context menu, the in-place rename overlay and archive/reveal feedback
+  // are owned here: the target rows live in the harness sidebar slot this component renders.
   const mountedRef = useRef(true)
   useEffect(() => {
     mountedRef.current = true
@@ -198,9 +191,8 @@ export function AppFrame(props) {
     revealSessionById, revealSessionFromMenu, openMindmapSession, showSessionNotice,
   } = sessionMenu
 
-  /* Same two-stage resolution as workspaceOfSession (membership first, then
-     cwd): the explorer mount and the editor-context injection must never land
-     on different workspaces for the same session. */
+  /* Same two-stage resolution as workspaceOfSession (membership first, then cwd): the
+     explorer mount and the editor-context injection must never disagree for one session. */
   const workspace = useMemo(() => currentSession !== undefined
     ? selectWorkspaceForSession(workspaces, currentSession, currentCwd)
     : workspaces.find(item => item.workspaceId === recent),
@@ -278,11 +270,10 @@ export function AppFrame(props) {
   useEffect(() => {
     if (currentSession !== undefined) props.activateEditorSession(String(currentSession))
   }, [currentSession, props.activateEditorSession])
-  /* Shared dsh-ws-preview persistence: every session of the same mind map
-     (root + all branches) reads and writes one snapshot keyed by the map's
-     root session id; sessions outside any map keep their own key. The
-     explorer's React key uses the same id, so switching between member
-     sessions keeps the whole preview area mounted. */
+  /* Shared dsh-ws-preview persistence: every session of the same mind map (root + all
+     branches) reads and writes one snapshot keyed by the map's root session id; sessions
+     outside a map keep their own key. The explorer's React key uses the same id, so
+     switching between member sessions keeps the whole preview area mounted. */
   const mindmapRegistryState = useMindmapRegistry()
   const previewSessionId = currentSession === undefined
     ? undefined
@@ -295,10 +286,9 @@ export function AppFrame(props) {
   // writes are pure cost.
   const lastPersistedSnapshotRef = useRef(new Map())
   const persistPreviewSession = useCallback((value) => {
-    // Write the snapshot to every key restore may pick: the current session's
-    // persistence key (its mind-map root id when a map member) and the
-    // workspace anchor. The selected key joins them only when it is one of
-    // those two; a borrowed template key is not a write target.
+    // Write the snapshot to every key restore may pick: the current session's persistence
+    // key (its mind-map root id when a map member) and the workspace anchor. The selected
+    // key joins them only when it is one of those two; a borrowed template key is no target.
     const keys = new Set()
     if (previewSessionId !== undefined) keys.add(previewSessionId)
     if (workspaceId !== undefined) keys.add(String(workspaceId))
@@ -339,20 +329,17 @@ export function AppFrame(props) {
     observer.observe(viewport)
     return () => { observer.disconnect() }
   }, [])
-  // Chat drop mask: track file drags over the chat pane (capture phase,
-  // without stopping propagation, so the harness composer still receives the
-  // drop). The mask covers only the chat pane; the harness's full-viewport
-  // mask is hidden by CSS. Enter/leave use a depth counter because Chrome's
-  // dragleave has a null relatedTarget.
-  // Think card behavior (useThinkCard): every think block is kept open so the
-  // harness renders its body; the body viewport shows only the latest
-  // --dsh-ws-think-lines rows and stays scroll-pinned to the newest text. A
-  // row collapsed by the user is never force-reopened.
+  // Chat drop mask: track file drags over the chat pane (capture phase, without stopping
+  // propagation, so the harness composer still receives the drop). The mask covers only the
+  // chat pane; the harness's full-viewport mask is hidden by CSS. Enter/leave use a depth
+  // counter because Chrome's dragleave has a null relatedTarget.
+  // Think card (useThinkCard): every think block is kept open so the harness renders its
+  // body; the body viewport shows only the latest --dsh-ws-think-lines rows, pinned to the
+  // newest text. A row collapsed by the user is never force-reopened.
   const collapsed = panels.sidebar === 0
-  // Mobile mode expands the sidebar so the drawer shows the full browsing
-  // content; the previous collapsed state is restored when mobile turns off.
-  // Declared after `collapsed` so the dependency array reads an initialized
-  // binding (TDZ-safe).
+  // Mobile expands the sidebar so the drawer shows the full browsing content; the previous
+  // collapsed state is restored when mobile turns off. Declared after `collapsed` so the
+  // dependency array reads an initialized binding (TDZ-safe).
   const sidebarWasCollapsedRef = useRef(null)
   useEffect(() => {
     if (mobile.on) {
@@ -449,11 +436,10 @@ export function mountStudio(ctx) {
     return settingsStore.subscribe(applyEditLines)
   }, 'workspace-studio: edit row lines')
   const editorContexts = new EditorContextController()
-  /* Follow the harness language setting when the locale plugin is present:
-     register this plugin's dictionaries, bind the active-locale translator, and
-     expose the locale face to useLocaleText. Without the service everything
-     stays on the zh dictionary. Registered via a deferred inject so a locale
-     service that activates after this plugin still gets wired up. */
+  /* Follow the harness language setting when the locale plugin is present: register this
+     plugin's dictionaries, bind the active-locale translator and expose the locale face to
+     useLocaleText. Without the service everything stays on the zh dictionary. Registered via
+     a deferred inject so a locale service activating later still gets wired up. */
   ctx.inject(['locale'], scope => {
     scope.effect(() => {
       const localeService = scope.get('locale')
@@ -461,17 +447,16 @@ export function mountStudio(ctx) {
       return installLocaleService(localeService)
     }, 'workspace-studio: locale dictionaries')
   })
-  /* Standard workspace-files Remote faces for the renderer views (image bytes,
-     HTML relative assets, paged read-only browse, and the read-only preview of
-     paths OUTSIDE the workspace): installed when the harness Remote service is
-     available; the views degrade to a failure line without it.
-     The workspace-files Remote exposes a single
-     `readBytes(scope, path, { baseFile, range })` whose `data` is native bytes,
-     not base64 (migration table: dev-notes §26) — calling a method that is not there throws SYNCHRONOUSLY inside
-     the renderer's effect, which the harness root error boundary answers by
-     replacing the whole layout. So: install no face at all when the methods are
-     absent (the views then report "unavailable"), and defer every call through a
-     promise so any other throw becomes a displayable Remote failure instead. */
+  /* Standard workspace-files Remote faces for the renderer views (image bytes, HTML
+     relative assets, paged read-only browse, and the read-only preview of paths OUTSIDE
+     the workspace): installed when the harness Remote service is available; the views
+     degrade to a failure line without it.
+     The Remote's single `readBytes(scope, path, { baseFile, range })` answers with `data`,
+     native bytes, not base64 (migration table: dev-notes §26). Calling a method that is not there
+     throws SYNCHRONOUSLY inside the renderer's effect, which the harness root error
+     boundary answers by replacing the whole layout — so install no face at all when the
+     methods are absent (the views then report "unavailable"), and defer every call through
+     a promise so any other throw becomes a displayable Remote failure instead. */
   ctx.inject(['remote', 'remote.workspaceFiles'], scope => {
     scope.effect(() => {
       const remote = scope.get('remote')
@@ -479,9 +464,8 @@ export function mountStudio(ctx) {
       const files = remote.workspaceFiles
       if (files === undefined || files === null) return undefined
       if (typeof files.read !== 'function' || typeof files.readBytes !== 'function') return undefined
-      /* Aborts stay rejections (their callers already ignore them); everything
-         else — a renamed method, a transport fault — becomes the failure line
-         the renderer already knows how to draw. */
+      /* Aborts stay rejections (callers already ignore them); everything else — a renamed
+         method, a transport fault — becomes the failure line the renderer can already draw. */
       const safe = call => (...args) => Promise.resolve().then(() => call(...args)).catch((error) => {
         if (error?.name === 'AbortError') throw error
         return {
@@ -501,14 +485,12 @@ export function mountStudio(ctx) {
       })
     }, 'workspace-studio: renderer remote faces')
   })
-  /* Office → PDF conversion face for the document preview: the harness Host
-     provider owns LibreOffice, its bounded queue and its content cache; this
-     bundle only asks for the bytes. Installed under its own service, so the
-     face appears whenever `remote.officeToPdf` does (and stays absent — the view
-     then reports "unavailable" — when the Host does not mount it). A missing or
-     renamed method must resolve to no face at all: calling it would throw
-     SYNCHRONOUSLY inside the view's effect and the harness root error boundary
-     would replace the whole layout. */
+  /* Office → PDF conversion face for the document preview: the harness Host provider owns
+     LibreOffice, its bounded queue and its content cache; this bundle only asks for the
+     bytes. Installed under its own service, so the face appears whenever `remote.officeToPdf`
+     does (and stays absent — the view then reports "unavailable" — when the Host does not
+     mount it). A missing or renamed method must resolve to no face at all: calling it throws
+     SYNCHRONOUSLY inside the view's effect and the harness root error boundary replaces the layout. */
   ctx.inject(['remote', 'remote.officeToPdf'], scope => {
     scope.effect(() => {
       const remote = scope.get('remote')
@@ -568,8 +550,8 @@ export function mountStudio(ctx) {
       name: 'root',
       children: {
         sidebar: { kind: 'single', scope: 'root' },
-        /* The harness's conversation moved into the keyed `main` slot; the
-           chat column renders it through renderSlot('main', …, { entryKey }). */
+        /* The harness's conversation moved into the keyed `main` slot; the chat column
+           renders it through renderSlot('main', …, { entryKey }). */
         main: { kind: 'keyed', scope: 'root' },
         details: { kind: 'single', scope: 'session' },
         'shell.overlay': { kind: 'list', scope: 'root' },
@@ -601,14 +583,11 @@ export function mountStudio(ctx) {
             const result = await session.rename(title)
             if (!result.ok) throw new Error(result.error.message)
           },
-          // Right-click session-list actions: archive via the harness
-          // workspaces service and read sessions/workspaces snapshots
-          // imperatively.
+          // Right-click session-list actions: archive via the harness workspaces service, read session/workspace snapshots imperatively.
           archiveSession: sessionId => ctx.workspaces.archiveSession(sessionId),
           getSessionList: () => ctx.sessions.list.getSnapshot(),
           getWorkspaceItems: () => ctx.workspaces.list.getSnapshot().items,
-          // Mind-map sidebar entries open the root session and dock the mind
-          // map as a preview tab.
+          // Mind-map sidebar entry: open the root session and dock the map as a preview tab.
           openSession: sessionId => { openHarnessSession(ctx, sessionId) },
           deleteMindmapDoc: (sessionId, signal) => deleteMindmapDoc(sessionId, signal),
           // The docked mind-map view's document/fork/archive action face.
@@ -629,11 +608,10 @@ export function mountStudio(ctx) {
       'workspace-studio: prompt context bridge',
     )
   })
-  /* The /init slash command: the workspace-task entry point. A popupSelect
-     contribution lists the tasks (AGENTS.md generation/merge, the project logic
-     audit, and the stale-content cleanup); the picked option's id IS the locale
-     key of the instruction handed to the model through the session's send seam.
-     Only direct sessions can run it; registered when ui-commands is present. */
+  /* The /init slash command: the workspace-task entry point. Its popupSelect lists the tasks
+     (AGENTS.md generation/merge, the project logic audit, and the stale-content cleanup);
+     the picked option's id IS the locale key of the instruction handed to the model through
+     the session's send seam. Only direct sessions can run it; registered when ui-commands is present. */
   ctx.inject(['commandUi'], scope => {
     scope.effect(() => {
       const commandUi = scope.get('commandUi')
@@ -675,9 +653,8 @@ export function mountStudio(ctx) {
                 id: 'init.prompt.cleanup',
                 label: translate('init.option.cleanup'),
                 detail: translate('init.option.cleanup.detail', { root }),
-                /* Deletion is the one task here that cannot be undone in place, so
-                   the shared shell gates it behind its risk confirmation instead of
-                   running on the pick. */
+                /* Deletion is the one task here that cannot be undone in place, so the shared
+                   shell gates it behind its risk confirmation instead of running on the pick. */
                 confirmation: {
                   title: translate('init.confirm.cleanup.title'),
                   description: translate('init.confirm.cleanup.description', { root }),
@@ -718,9 +695,8 @@ export function mountStudio(ctx) {
   installOpenResourceRouter(ctx)
   installPlanResources(ctx)
   ctx.effect(() => () => { editorContexts.dispose() }, 'workspace-studio: editor context state')
-  /* Mobile mode entries: the sidebar-footer toggle, the session-header whale +
-     file-content-browsing controls, and the hero-page whale. All contributions
-     install when their slot declares. */
+  /* Mobile mode entries: the sidebar-footer toggle, the session-header whale + file-content
+     browsing controls, and the hero-page whale. Every contribution installs with its slot. */
   ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
     name: 'sidebar.footer.action', id: 'workspace-mobile-toggle', order: 110,
   }, MobileModeToggle))
@@ -732,9 +708,8 @@ export function mountStudio(ctx) {
   ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
     name: 'conversation.session.header.actions', id: 'workspace-mindmap-toggle', order: -350,
   }, MindmapHeaderButton))
-  /* Mind-map family sessions (roots + every fork descendant) are hidden from
-     the harness sidebar session list; each mind map is represented by its own
-     sidebar entry instead. */
+  /* Mind-map family sessions (roots + every fork descendant) are hidden from the harness
+     sidebar session list; each map is represented by its own sidebar entry instead. */
   ctx.effect(() => installMindmapBranchHider(
     () => ctx.sessions.list.getSnapshot(),
     () => ctx.workspaces.list.getSnapshot().archivedSessionIds,
@@ -750,17 +725,16 @@ export function mountStudio(ctx) {
     mindmapRegistry.start()
     return () => mindmapRegistry.stop()
   }, 'workspace-studio: mind-map index registry')
-  /* Forks the plugin does not own (the harness chat's own branch button, the
-     workspace navigation fork) bypass the map's fork actions: watch the client
-     session service so such a child is cleaned of the parent's inherited
-     pending input and lands in the map document immediately. */
+  /* Forks the plugin does not own (the chat's own branch button, the workspace navigation
+     fork) bypass the map's fork actions: watch the client session service so such a child
+     is cleaned of the parent's inherited pending input and lands in the map document. */
   ctx.effect(() => installForeignForkWatch(ctx), 'workspace-studio: foreign fork watch')
   ctx.slots.inject('shell.overlay', () => ctx.slots.register({
     name: 'shell.overlay', id: 'workspace-mobile-hero', order: -100,
   }, MobileHeroControls))
-  // The browser Settings page owns every explorer preference as one stack of seven cards
-  // (maintenance & statistics, browsing & preview, icon & highlight colours, version
-  // control, mind map, conversation, interpreters; dev-notes §46).
+  // The Settings page owns every explorer preference as one stack of seven cards (maintenance
+  // & statistics, browsing & preview, icon & highlight colours, version control, mind map,
+  // conversation, interpreters; dev-notes §46).
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section', id: 'workspace-explorer', order: 5, label: () => translate('settings.section.title'),
     inject: () => ({ settingsStore }),

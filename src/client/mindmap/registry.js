@@ -5,9 +5,8 @@ import { fetchMindmapDocIndex } from '../api.js'
 import { createRequestStore } from '../request-store.js'
 import { shouldSkipPoll } from '../poll-gate.js'
 
-/* Module-wide mind-map index registry: sidebar panel and branch hider need the
-   root/branch session sets without fetching on every render; a background
-   refresh keeps the index current, components subscribe via useSyncExternalStore. */
+/* Module-wide mind-map index registry: the sidebar panel and branch hider need the root/branch
+   session sets without fetching on every render; a background refresh keeps the index current. */
 export const mindmapRegistry = {
   _docs: [],
   _roots: new Set(),
@@ -17,11 +16,10 @@ export const mindmapRegistry = {
   _timer: 0,
   _inflight: null,
   _signature: undefined,
-  /* stop() marks the module stopped: an in-flight refresh's finally must not
-     re-arm the background timer after an unload (see stop below). */
+  /* Set by stop(): an in-flight refresh's finally must not re-arm the timer after an unload. */
   _stopped: false,
-  /* A markDirty/refresh that arrived while a refresh was in flight: the
-     in-flight result predates that mutation, so re-run once it settles. */
+  /* A markDirty/refresh that arrived mid-flight: its result predates the mutation, so re-run once
+     it settles. */
   _dirtyDuringRefresh: false,
   subscribe(listener) {
     this._listeners.add(listener)
@@ -32,11 +30,10 @@ export const mindmapRegistry = {
   isRoot(id) { return this._roots.has(String(id)) },
   isBranch(id) { return this._branches.has(String(id)) },
   isMember(id) { const key = String(id); return this._roots.has(key) || this._branches.has(key) },
-  /* Resolve a session to its mind-map ROOT session id: the root itself, or the
-     root of the doc whose branchSessionIds contains it. Returns null when the
-     session belongs to no mind map. Drives the SHARED dsh-ws-preview
-     persistence key: every member of the same map (root + all branches) reads
-     and writes one snapshot under the root's id. */
+  /* Resolve a session to its mind-map ROOT session id: the root itself, or the root of the doc whose
+     branchSessionIds contains it; null when the session belongs to no mind map. Drives the SHARED
+     dsh-ws-preview persistence key: every member of the same map (root + branches) reads and writes
+     one snapshot under the root's id. */
   rootOf(id) {
     const key = String(id)
     for (const doc of this._docs) {
@@ -46,11 +43,10 @@ export const mindmapRegistry = {
     return null
   },
   _apply(docs) {
-    /* Only a signature change (doc added/removed, rootTitle rename, branch-set
-       fork, or updatedAt bump from a folded turn) may bump the version and
-       re-render subscribers — unconditional notify re-ran them on every idle
-       poll tick. updatedAt is included so a doc that gained a turn re-sorts to
-       the top of its sidebar group. */
+    /* Only a signature change (doc added/removed, rootTitle rename, branch-set fork, or an updatedAt
+       bump from a folded turn) may bump the version and re-render subscribers — unconditional notify
+       re-ran them on every idle poll tick. updatedAt is in the signature so a doc that gained a turn
+       re-sorts to the top of its sidebar group. */
     const signature = docs
       .map(doc => `${String(doc.sessionId)}\u0001${String(doc.rootTitle ?? '')}\u0001${(doc.branchSessionIds ?? []).map(String).sort().join('\u0003')}\u0001${Number(doc.updatedAt) || 0}`)
       .sort()
@@ -69,8 +65,7 @@ export const mindmapRegistry = {
   },
   async refresh() {
     if (this._inflight !== null) {
-      /* A mutation landed while a refresh was in flight: its result would be
-         stale, so remember to re-run once the current one settles. */
+      /* A mutation landed mid-flight: its result would be stale — re-run after this one settles. */
       this._dirtyDuringRefresh = true
       return this._inflight
     }
@@ -82,14 +77,13 @@ export const mindmapRegistry = {
       .catch(() => { /* keep the last known index */ })
       .finally(() => {
         this._inflight = null
-        /* A stop() during the flight must stay stopped: re-arming the timer
-           here would leak a 30 s poll (interval + fetch) after unload. */
+        /* A stop() during the flight must stay stopped: re-arming here would leak a 30 s poll
+           (interval + fetch) after unload. */
         if (this._stopped) return
         /* Keep the background timer aligned with the index: docs exist → keep
            polling; empty index → pause (no docs, no work worth doing). */
         this._syncTimerToDocs()
-        /* Re-run when a markDirty/refresh arrived during the in-flight window:
-           the just-applied index predates that mutation. */
+        /* A markDirty/refresh arrived mid-flight: the just-applied index predates it. */
         if (this._dirtyDuringRefresh) {
           this._dirtyDuringRefresh = false
           void this.refresh()
@@ -98,9 +92,8 @@ export const mindmapRegistry = {
     this._inflight = pending
     return pending
   },
-  /* Background polling cadence: MINDMAP_INDEX_REFRESH_MS while at least one
-     doc exists, pausing when the index is empty. A doc created in another tab
-     is only noticed on the next local refresh (accepted). */
+  /* Background polling cadence: MINDMAP_INDEX_REFRESH_MS while at least one doc exists, pausing on
+     an empty index. A doc created in another tab is only noticed on the next local refresh (accepted). */
   _armTimer() {
     if (this._timer !== 0) return
     this._timer = window.setInterval(() => {
@@ -108,7 +101,6 @@ export const mindmapRegistry = {
       void this.refresh()
     }, MINDMAP_INDEX_REFRESH_MS)
   },
-  /* Keep the timer aligned with reality after every completed refresh. */
   _syncTimerToDocs() {
     if (this._docs.length > 0) this._armTimer()
     else if (this._timer !== 0) { window.clearInterval(this._timer); this._timer = 0 }
@@ -120,20 +112,18 @@ export const mindmapRegistry = {
     this._armTimer()
   },
   stop() {
-    /* Mark the module stopped BEFORE clearing the timer: an in-flight
-       refresh's finally consults this flag and skips re-arming, so an unload
-       (AppFrame unmount / plugin reload) cannot leave a leaked interval
+    /* Mark stopped BEFORE clearing the timer: an in-flight refresh's finally consults this flag and
+       skips re-arming, so an unload (AppFrame unmount / plugin reload) cannot leave a leaked interval
        polling /mindmap-doc/index every 30 s. */
     this._stopped = true
     if (this._timer !== 0) { window.clearInterval(this._timer); this._timer = 0 }
   },
   markDirty() { void this.refresh() },
 }
-/* Module-level bound subscribes: useSyncExternalStore compares the subscribe
-   function by identity, so an inline arrow would unsubscribe + resubscribe on
-   every render (perf noise). The arrow wrapper is still required — a naked
-   method reference would drop `this` off the call (React invokes the function
-   bare, reading `undefined._listeners` and crashing the slot on mount). */
+/* Module-level bound subscribes: useSyncExternalStore compares the subscribe function by identity,
+   so an inline arrow would unsubscribe + resubscribe every render (perf noise). The arrow wrapper is
+   still required — a naked method reference drops `this` (React invokes it bare, crashing on
+   `undefined._listeners` at mount). */
 const subscribeRegistry = listener => mindmapRegistry.subscribe(listener)
 export function useMindmapRegistry() {
   useSyncExternalStore(
@@ -143,19 +133,17 @@ export function useMindmapRegistry() {
   return mindmapRegistry
 }
 
-/* Module-wide dock-request bridge: the sidebar mind-map entries and the
-   session-header mind-map button ask the explorer to open the map as a preview
-   tab. The explorer consumes the request only when its previewSessionId matches
-   the request's expectFamily, so a later mount never re-applies a stale request
-   and an unrelated session's explorer never adopts one. */
+/* Module-wide dock-request bridge: the sidebar mind-map entries and the session-header mind-map
+   button ask the explorer to open the map as a preview tab. The explorer consumes the request only
+   when its previewSessionId matches the request's expectFamily, so a later mount never re-applies a
+   stale request and an unrelated session's explorer never adopts one. */
 const pendingDock = createRequestStore()
 
 export const mindmapDockStore = {
   ...pendingDock,
   dock(rootId, name, expectFamily) {
-    /* Only the explorer whose previewSessionId faces expectFamily may consume the
-       request; otherwise the current session's explorer would stamp the tab onto
-       a session the click is about to leave. That family is the request's key. */
+    /* Only the explorer whose previewSessionId faces expectFamily (the request's key) may consume the
+       request; otherwise it would stamp the tab onto a session the click is about to leave. */
     pendingDock.request(expectFamily ?? rootId, {
       rootId: String(rootId),
       name: typeof name === 'string' ? name : '',
@@ -163,16 +151,13 @@ export const mindmapDockStore = {
   },
 }
 
-/* Module-wide document hand-off: a fork made OUTSIDE the map (the harness
-   chat's own branch button) creates a session the document has not adopted
-   yet, and the map body's periodic sync would keep missing it — the Host
-   sync cache serves an incremental `doc: null` once the fork watch's own sync
-   has folded the child, so the poll can never deliver the new branch. The fork
-   watch therefore performs the family sync itself (which adopts + persists on
-   the Host) and hands the resulting document to the mounted body here.
-   Entries are replaced per publish (a stable snapshot identity per change is
-   what useSyncExternalStore requires) and the map is bounded: an entry holds
-   one document, so the oldest is evicted past the cap. */
+/* Module-wide document hand-off: a fork made OUTSIDE the map (the harness chat's own branch button)
+   creates a session the document has not adopted yet, and the map body's periodic sync would keep
+   missing it — the Host sync cache serves an incremental `doc: null` once the fork watch's own sync
+   has folded the child, so the poll can never deliver the new branch. The fork watch therefore does
+   the family sync itself (adopting + persisting on the Host) and hands the document to the body
+   here. Entries are replaced per publish (useSyncExternalStore needs a stable identity per change)
+   and the map is bounded: one document per entry, oldest evicted past the cap. */
 const MINDMAP_HANDOFF_MAX = 8
 const MINDMAP_EMPTY_HANDOFF = { seq: 0, doc: null, sessionId: null }
 export const mindmapDocHandoff = {
@@ -182,8 +167,7 @@ export const mindmapDocHandoff = {
     this._listeners.add(listener)
     return () => { this._listeners.delete(listener) }
   },
-  /* Stable reference while a root has no hand-off: a fresh object per snapshot
-     read would re-render the subscriber forever. */
+  /* Stable reference while a root has no hand-off: a fresh object per read would re-render forever. */
   snapshotOf(rootId) {
     return this._entries.get(String(rootId)) ?? MINDMAP_EMPTY_HANDOFF
   },
@@ -198,22 +182,19 @@ export const mindmapDocHandoff = {
     for (const listener of [...this._listeners]) listener()
   },
 }
-/* Same bare-reference trap as useMindmapRegistry: React invokes the subscribe
-   function without a receiver, so it must be a module-level arrow wrapper. */
+/* Same bare-reference trap as useMindmapRegistry: the subscribe must be a module-level arrow wrapper. */
 const subscribeHandoff = listener => mindmapDocHandoff.subscribe(listener)
 export function useMindmapDocHandoff(rootId) {
   const key = rootId === null || rootId === undefined ? '' : String(rootId)
   return useSyncExternalStore(subscribeHandoff, () => mindmapDocHandoff.snapshotOf(key))
 }
 
-/* Per-group sidebar order of mind-map entries in localStorage (id list per
-   group key; a workspace rename loses the mapping — accepted trade-off). The
-   stored shape is owned by persisted-state.js, which drops anything unusable
-   (including the keys of previous formats) before this module ever reads it. */
-/* Cross-tab serialization for the read-modify-write of the whole map: two GUI
-   tabs writing different maps concurrently would otherwise overwrite each
-   other's entries (lost update). Web Locks serializes the read+write; without
-   the API the write still happens (single-tab behavior unchanged). */
+/* Per-group sidebar order of mind-map entries in localStorage (id list per group key; a workspace
+   rename loses the mapping — accepted trade-off). The stored shape is owned by persisted-state.js,
+   which drops anything unusable (including the keys of previous formats) before this module reads it. */
+/* Cross-tab serialization for the read-modify-write of the whole map: two GUI tabs writing different
+   maps concurrently would otherwise overwrite each other's entries (lost update). Web Locks
+   serializes read+write; without the API the write still happens (single-tab behavior unchanged). */
 async function withMindmapStoreLock(name, operation) {
   if (typeof navigator !== 'undefined' && navigator.locks !== undefined) {
     try {
@@ -230,10 +211,10 @@ function writeMindmapOrder(map) {
     try { window.localStorage.setItem(MINDMAP_ORDER_STORE_KEY, JSON.stringify(map)) } catch { /* quota / private mode */ }
   })
 }
-/* Re-read INSIDE the lock so a concurrent tab's drag is never clobbered (same
-   pattern as writeMindmapLastSession): the caller's in-memory order may be
-   stale, and a bare writeMindmapOrder(map) would overwrite the other tab's
-   entries. Returns the merged map (undefined when storage is unavailable). */
+/* Re-read INSIDE the lock so a concurrent tab's drag is never clobbered (same pattern as
+   writeMindmapLastSession): the caller's order may be stale and a bare writeMindmapOrder(map)
+   would overwrite the other tab's entries. Returns the merged map (undefined when storage is
+   unavailable). */
 export function updateMindmapOrder(groupKey, ids) {
   return withMindmapStoreLock('dsh-workspace-studio:mindmap-order', () => {
     try {
@@ -245,10 +226,9 @@ export function updateMindmapOrder(groupKey, ids) {
   })
 }
 
-/* Per-root last-selected session of a mind map in localStorage (root session id
-   → last selected session id). Restored on the next open so the current
-   highlight (and the right-side chat) return to the last clicked card; a stale
-   entry falls back to the default first branch. */
+/* Per-root last-selected session of a mind map in localStorage (root session id → last selected
+   session id). Restored on the next open so the highlight (and the right-side chat) return to the
+   last clicked card; a stale entry falls back to the default first branch. */
 function readMindmapLastSessionMap() {
   return readPersistedState(MINDMAP_LAST_SESSION_STORE_KEY) ?? {}
 }

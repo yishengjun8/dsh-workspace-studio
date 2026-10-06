@@ -6,20 +6,18 @@ export function parentPath(path){const index=path.lastIndexOf('/');return index<
 export function joinAbsolutePath(root,relative){if(typeof root!=='string'||root==='')return relative;if(relative==='')return root;const separator=/^[A-Za-z]:[\\/]/.test(root)?'\\':'/';return `${root.replace(/[\\/]+$/,'')}${separator}${relative.split('/').join(separator)}`}
 export async function copyText(value){if(typeof navigator!=='undefined'&&typeof navigator.clipboard?.writeText==='function'){try{await navigator.clipboard.writeText(value);return true}catch{/* clipboard API rejects without a user gesture or outside secure contexts; fall back to execCommand */}}const textarea=document.createElement('textarea');textarea.value=value;textarea.style.position='fixed';textarea.style.opacity='0';document.body.append(textarea);textarea.select();let ok=false;try{ok=document.execCommand('copy')}catch{/* execCommand throws in unusual embedders; report failure */}textarea.remove();return ok}
 export function selectedLevelPath(entry){return entry?.kind==='directory'?entry.path:entry?parentPath(entry.path):''}
-/* Whether a `/`-separated path is absolute: a Windows drive (`C:/x`), a UNC
-   share (`//server/share/x`), or a rooted POSIX path (`/x`). DSH file addresses
-   may carry either spelling, so a caller that only knows the path — not the
-   address scope it came from — must ask here before treating it as
-   workspace-relative. */
+/* Whether a `/`-separated path is absolute: a Windows drive (`C:/x`), a UNC share
+   (`//server/share/x`), or a rooted POSIX path (`/x`). DSH file addresses may carry
+   either spelling, so a caller that knows only the path — not the address scope it
+   came from — must ask here before treating it as workspace-relative. */
 export function isAbsoluteWorkspacePath(path){
   if(typeof path!=='string'||path==='')return false
   return path.startsWith('/')||/^[A-Za-z]:/.test(path)
 }
-/* Collapse `.` / `..` segments of an absolute path, keeping a Windows drive or
-   UNC prefix. A path handed to this plugin by a harness surface (a turn's
-   changed-file list) may be spelled relative to the SESSION's cwd, so `..` has to
-   be resolved before the workspace fence can judge it; the plugin's own API never
-   accepts a `..` segment. */
+/* Collapse `.` / `..` segments of an absolute path, keeping a Windows drive or UNC
+   prefix. A harness surface (a turn's changed-file list) may spell a path relative
+   to the SESSION's cwd, so `..` must be resolved before the workspace fence can
+   judge it; the plugin's own API never accepts a `..` segment. */
 export function normalizeAbsolutePath(path) {
   if (typeof path !== 'string' || path === '') return ''
   const normalized = path.replace(/\\/g, '/')

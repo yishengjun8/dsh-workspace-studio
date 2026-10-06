@@ -4,20 +4,17 @@ import { mindmapTabPath } from '../preview-tabs.js'
 import { mindmapRegistry } from './registry.js'
 import { MindMapView } from './view.js'
 
-/* The GLOBAL mind-map view host: every docked map body lives here, mounted
-   once per family root and independent of the per-session explorer (whose React
-   key tears the preview column down on every session switch). The host owns one
-   STABLE container div per body and the explorer physically parks that element
-   (plain appendChild) into its strip placeholder while the tab is shown, and
-   back into the host's hidden holding node while away. Keeping the portal
-   container identity constant for the body's lifetime is what makes the
-   keep-alive real: same fibers, DOM parked wherever the tab currently shows. */
+/* The GLOBAL mind-map view host: every docked map body lives here, mounted once per family
+   root, independent of the per-session explorer (whose React key tears the preview column
+   down on every session switch). One STABLE container div per body; the explorer parks that
+   element (plain appendChild) into its strip placeholder while the tab is shown, and into
+   the hidden holding node while away. Constant container identity for the body's lifetime is
+   what makes the keep-alive real: same fibers, DOM parked wherever the tab shows. */
 
-/* Hidden holding node: the stable containers live here while no strip shows
-   their tab (display:none keeps the bodies invisible but MOUNTED — background
-   sync keeps folding turns while the user is on another session). Created
-   lazily so module evaluation never touches the document (the bundle is
-   injected before the body may exist). */
+/* Hidden holding node: the stable containers live here while no strip shows their tab
+   (display:none keeps the bodies invisible but MOUNTED — background sync keeps folding turns
+   while the user is on another session). Created lazily: the bundle is injected before the
+   body may exist, so module evaluation must never touch the document. */
 let holdingEl = null
 const mindmapHolding = () => {
   if (holdingEl === null) {
@@ -30,30 +27,25 @@ const mindmapHolding = () => {
 }
 
 export const mindmapViewHost = {
-  /* rootId -> { fresh } : every map that currently has a live tab somewhere.
-     `fresh` marks a body whose tab was just created by a DOCK REQUEST: its
-     MindMapView may land the chat on the map's remembered session. Captured by
-     the view's mount-time useRef and then CONSUMED via consumeFresh() — a
-     stale true flag must never replay restoreLastSession on a later remount
-     of the same body. */
+  /* rootId -> { fresh }: every map that currently has a live tab somewhere. `fresh` marks a body
+     whose tab a DOCK REQUEST just created: its MindMapView may land the chat on the map's
+     remembered session. Captured by the view's mount-time useRef and CONSUMED via consumeFresh()
+     — a stale true flag must never replay restoreLastSession on a later remount of the body. */
   _roots: new Map(),
-  /* rootId -> { el, host } : the map's STABLE portal container. `el` is
-     created once per body (lazily, by containerOf) and its identity NEVER
-     changes while the body lives — the MindMapBody portal targets it forever,
-     which is what keeps React from remounting the map. `host` is the
-     placeholder element the container is currently parked in (null = parked
-     in the hidden holding node). Parking/unparking is a plain DOM move. */
+  /* rootId -> { el, host }: the map's STABLE portal container. `el` is created once per body
+     (lazily, by containerOf) and its identity NEVER changes while the body lives — the
+     MindMapBody portal targets it forever, which is what keeps React from remounting the map.
+     `host` is the placeholder the container currently sits in (null = the hidden holding node);
+     parking is a plain DOM move. */
   _containers: new Map(),
-  /* The strip API of the explorer currently mounted (one at a time): doc-gone
-     and title updates reach the tab strip only while it is displayed; the
-     host fixes the persisted family snapshot directly when it is not. */
+  /* The strip API of the explorer currently mounted (one at a time): doc-gone and title updates
+     reach the tab strip only while it is displayed; otherwise the host fixes the snapshot. */
   _strip: null,
-  /* rootId -> last map-internal session id: the current-highlight fallback when
-     the harness current session is not a family member (hero page /
-     transient). */
+  /* rootId -> last map-internal session id: highlight fallback when the harness current session
+     is not a family member (hero page / transient). */
   _sessions: new Map(),
-  /* Registered by MindMapHost (AppFrame) so away-case snapshot fixups can
-     write through the preview-sessions store (see docGone/titleChange). */
+  /* Registered by MindMapHost (AppFrame): away-case snapshot fixups write
+     through the preview-sessions store (see docGone/titleChange). */
   storeRef: { current: null },
   _version: 0,
   _listeners: new Set(),
@@ -68,10 +60,9 @@ export const mindmapViewHost = {
     for (const listener of [...this._listeners]) listener()
   },
   roots() { return [...this._roots.keys()] },
-  /* The map's STABLE portal container: created once per body and parked in
-     the hidden holding node until an explorer places it into a strip
-     placeholder. Idempotent, so both ensure() and a (defensive) bare render
-     can call it — the returned element identity is constant for the body's
+  /* The map's STABLE portal container: created once per body, parked in the hidden holding node
+     until an explorer places it into a strip placeholder. Idempotent — both ensure() and a
+     (defensive) bare render may call it; the returned element identity is constant for the body's
      lifetime, which is the whole point of this design. */
   containerOf(rootId) {
     const key = String(rootId)
@@ -88,11 +79,9 @@ export const mindmapViewHost = {
   isFresh(rootId) {
     return this._roots.get(String(rootId))?.fresh === true
   },
-  /* The body's MindMapView captured the fresh flag into its mount-time ref:
-     clear it so no later (accidental) remount of the same body can replay
-     restoreLastSession with a stale fresh=true (the stale flag would yank
-     the chat onto the map's remembered session instead of the session the
-     user actually opened). */
+  /* The body's MindMapView captured the fresh flag into its mount-time ref: clear it so no later
+     (accidental) remount can replay restoreLastSession with a stale fresh=true — that would yank
+     the chat onto the map's remembered session instead of the one the user actually opened. */
   consumeFresh(rootId) {
     const entry = this._roots.get(String(rootId))
     if (entry === undefined || entry.fresh !== true) return
@@ -102,10 +91,9 @@ export const mindmapViewHost = {
     const value = this._sessions.get(String(rootId))
     return value === undefined ? null : value
   },
-  /* A map tab needs a body: called by the explorer when a dock request is
-     consumed (fresh = true) and when a snapshot-restored tab mounts (fresh =
-     false). Idempotent: an already-mounted body keeps its state — a re-dock
-     of an open tab must never remount it (or flip its fresh flag). */
+  /* A map tab needs a body: the explorer calls this when a dock request is consumed (fresh = true)
+     and when a snapshot-restored tab mounts (fresh = false). Idempotent: an already-mounted body
+     keeps its state — a re-dock of an open tab must never remount it (or flip its fresh flag). */
   ensure(rootId, fresh) {
     const key = String(rootId)
     if (this._roots.has(key)) return
@@ -113,9 +101,9 @@ export const mindmapViewHost = {
     this.containerOf(key)
     this._notify()
   },
-  /* The tab was closed (× button, doc gone, archive whole map): the body
-     unmounts and its sync timers die; the stable container is destroyed with
-     it. A later dock mounts a FRESH body in a new container. */
+  /* The tab was closed (× button, doc gone, archive whole map): the body unmounts and its sync
+     timers die; its stable container is destroyed with it. A later dock mounts a FRESH body in a
+     new container. */
   drop(rootId) {
     const key = String(rootId)
     if (!this._roots.delete(key)) return
@@ -127,13 +115,11 @@ export const mindmapViewHost = {
     this._sessions.delete(key)
     this._notify()
   },
-  /* Park the map's STABLE container into the explorer's strip placeholder for
-     this tab: a plain appendChild move — the portal container identity never
-     changes, so the body's fibers (doc, viewport, highlight, sync timers)
-     survive untouched. Idempotent per placeholder: re-placing into the same
-     element is a no-op (tab churn must not move the body around). The
-     placeholder's own display:none keeps an inactive tab's body hidden while
-     it stays mounted. */
+  /* Park the map's STABLE container into the explorer's strip placeholder for this tab: a plain
+     appendChild move — container identity never changes, so the body's fibers (doc, viewport,
+     highlight, sync timers) survive untouched. Idempotent per placeholder (re-placing into the
+     same element is a no-op; tab churn must not move the body). The placeholder's own display:none
+     keeps an inactive tab's body hidden while it stays mounted. */
   place(rootId, el) {
     if (el === null || el === undefined) return
     const entry = this._containers.get(String(rootId))
@@ -141,11 +127,10 @@ export const mindmapViewHost = {
     el.appendChild(entry.el)
     entry.host = el
   },
-  /* The tab left the strip (closed elsewhere, explorer unmounted): park the
-     stable container back into the hidden holding node. Works even when the
-     placeholder was ALREADY removed by React (explorer teardown): appendChild
-     re-parents the (possibly detached) container into the holding node. No
-     notification: placement is pure DOM, no React state depends on it. */
+  /* The tab left the strip (closed elsewhere, explorer unmounted): park the stable container back
+     into the hidden holding node. Works even when React ALREADY removed the placeholder (explorer
+     teardown) — appendChild re-parents the (possibly detached) container. No notification:
+     placement is pure DOM, no React state depends on it. */
   unplace(rootId) {
     const entry = this._containers.get(String(rootId))
     if (entry === undefined || entry.host === null) return
@@ -155,15 +140,13 @@ export const mindmapViewHost = {
   noteSession(rootId, sessionId) {
     this._sessions.set(String(rootId), String(sessionId))
   },
-  /* Strip API: the mounted explorer registers one object with hasTab/closeTab/
-     updateTab; doc-gone and title updates route through it while the tab is
-     displayed, and fall back to persisted-snapshot fixups below otherwise. */
+  /* Strip API: the mounted explorer registers one object with hasTab/closeTab/updateTab; doc-gone
+     and title updates route through it while the tab is displayed, else through snapshot fixups. */
   registerStrip(api) { this._strip = api },
   unregisterStrip(api) { if (this._strip === api) this._strip = null },
-  /* The map's doc is gone (root archived outside the map): close the tab when
-     a strip shows it (the explorer's closeTab drops the body); otherwise fix
-     the persisted family snapshot so the dead tab never restores, and drop
-     the body. */
+  /* The map's doc is gone (root archived outside the map): close the tab when a strip shows it
+     (the explorer's closeTab drops the body); otherwise fix the persisted family snapshot so the
+     dead tab never restores, and drop the body. */
   docGone(rootId) {
     const key = String(rootId)
     const path = mindmapTabPath(key)
@@ -175,12 +158,11 @@ export const mindmapViewHost = {
     this._removeFromSnapshot(key, path)
     this.drop(key)
   },
-  /* The map's OWN title (doc.rootTitle) changed: keep the tab label in sync
-     while the strip shows it, and always keep the persisted family snapshot
-     current (a rename while the user is on another session must survive). The
-     strip path carries the same name-equality guard as the snapshot path — a
-     title fires on every sync fingerprint change (each folded turn), and a
-     redundant updateTab would re-render the strip for nothing. */
+  /* The map's OWN title (doc.rootTitle) changed: keep the tab label in sync while the strip shows
+     it, and always keep the persisted family snapshot current (a rename while the user is on
+     another session must survive). Both paths carry the name-equality guard — a title fires on
+     every sync fingerprint change (each folded turn) and a redundant updateTab re-renders for
+     nothing. */
   titleChange(rootId, title) {
     const key = String(rootId)
     const path = mindmapTabPath(key)
@@ -203,9 +185,8 @@ export const mindmapViewHost = {
     const value = snap?.previewSessions?.[key]
     return value !== undefined && value !== null && typeof value === 'object' ? value : null
   },
-  /* Remove the map tab from the persisted family snapshot (key = root id, the
-     one restore prefers for member sessions). The store action normalizes the
-     activePath and deletes the entry when it empties out. */
+  /* Remove the map tab from the persisted family snapshot (key = root id, which restore prefers for
+     member sessions). The store action normalizes activePath and deletes an emptied entry. */
   _removeFromSnapshot(key, path) {
     const store = this._snapshotStore()
     if (store === null) return
@@ -239,11 +220,9 @@ export const mindmapViewHost = {
 const subscribeHost = listener => mindmapViewHost.subscribe(listener)
 const hostVersion = () => mindmapViewHost.getVersion()
 
-/* Rendered once by AppFrame (always mounted, even without a workspace): owns
-   every open map body. The bodies portal into their own STABLE containers
-   (created per body, never re-keyed); the current explorer physically parks
-   those containers into its strip placeholders (or the hidden holding node
-   while away) with plain DOM moves. */
+/* Rendered once by AppFrame (always mounted, even without a workspace): owns every open map body,
+   each portal'd into its own STABLE container (per body, never re-keyed) that the current explorer
+   parks into a strip placeholder or the holding node with plain DOM moves. */
 export function MindMapHost({ currentSession, useSessions, mindmapActions, settingsStore, previewSessionsStore }) {
   /* The away-case snapshot fixups need the store; it is stable for the app's
      lifetime, so an inline assignment is idempotent. */
@@ -262,15 +241,13 @@ export function MindMapHost({ currentSession, useSessions, mindmapActions, setti
 }
 
 function MindMapBody({ rootId, currentSession, useSessions, mindmapActions, settingsStore }) {
-  /* Fresh-dock is read at mount (MindMapView captures the prop into a ref and
-     then consumes the flag via onFreshConsumed): a later dock of the
-     already-open tab must not flip this body into "land the chat on the
-     remembered session" mode, and no later remount may replay it either. */
+  /* Read at mount (MindMapView captures the prop into a ref, then consumes it via onFreshConsumed):
+     a later dock of the already-open tab must not flip this body into "land the chat on the
+     remembered session" mode, and no later remount may replay it. */
   const freshDock = mindmapViewHost.isFresh(String(rootId))
-  /* The map's session follows the HARNESS current session whenever it is a
-     member of this family (a sidebar-entry / switcher switch drives the chat
-     directly and the highlight must follow); otherwise the last map-internal
-     selection, falling back to the root. */
+  /* The map's session follows the HARNESS current session whenever it is a member of this family (a
+     sidebar-entry / switcher switch drives the chat directly, so the highlight must follow);
+     otherwise the last map-internal selection, falling back to the root. */
   const sessionId = useMemo(() => {
     const current = currentSession === undefined || currentSession === null
       ? undefined
@@ -281,10 +258,9 @@ function MindMapBody({ rootId, currentSession, useSessions, mindmapActions, sett
     }
     return mindmapViewHost.sessionOf(String(rootId)) ?? String(rootId)
   }, [currentSession, rootId])
-  /* Portal target: the body's OWN stable container — created once per body and
-     never re-keyed. Placement (strip placeholder vs hidden holding node) is a
-     plain DOM move done by the explorer, invisible to React: same fibers, the
-     body's state (doc, viewport, highlight) survives every session switch. */
+  /* Portal target: the body's OWN stable container (created once per body, never re-keyed).
+     Placement is a plain DOM move by the explorer, invisible to React: same fibers, so the body's
+     state (doc, viewport, highlight) survives every session switch. */
   const target = mindmapViewHost.containerOf(String(rootId))
   return createPortal(h(MindMapView, {
     archiveSession: mindmapActions.archiveSession,

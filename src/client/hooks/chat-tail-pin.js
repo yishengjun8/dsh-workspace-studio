@@ -1,10 +1,9 @@
 /** Chat tail-pin compensation (DOM-driven; the harness is not modified).
  *
- *  Tracks whether the user was at the tail when they last left each session
- *  and, on returning to a tail-left session, runs a short settle-pin loop
- *  that drags the viewport to the actual floor until the flow height
- *  stabilizes (or the user scrolls), so the restored position never stays
- *  stuck off the end. */
+ *  Tracks whether the user was at the tail when they last left each session; on
+ *  returning to one, a short settle-pin loop drags the viewport to the actual
+ *  floor until the flow height stabilizes (or the user scrolls), so the restored
+ *  position never stays stuck off the end. */
 import { useEffect, useRef } from 'react'
 
 /* Same tolerance the harness uses to decide "at bottom" (FOLLOW_THRESHOLD). */

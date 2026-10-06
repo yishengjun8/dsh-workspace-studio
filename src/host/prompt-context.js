@@ -73,7 +73,7 @@ function validatePromptContextPayload(value, config) {
   if (!value.dirty && revision === undefined) {
     throw new HttpError(409, 'context-revision-required', '未修改的选区必须携带文件修订版本')
   }
-  // The encoding the client editor used, whitelisted against supported ones; absent payloads default to UTF-8; unknown ids throw via encodingById.
+  // The client editor's encoding, whitelisted; absent payloads default to UTF-8; unknown ids throw via encodingById.
   const encoding = value.encoding === undefined || value.encoding === null
     ? 'utf-8'
     : encodingById(String(value.encoding)).id
@@ -152,7 +152,7 @@ async function readCleanPromptContext(file, maximum) {
   /* openRegularFile: O_NONBLOCK + post-open fstat so a FIFO/device swapped in after verifyPromptContextFile's stat can never hang /context. */
   const handle = await openRegularFile(file.target)
   try {
-    /* openRegularFile already rejected anything that is not a plain file (post-open fstat), so only the size bound is left to check here. */
+    /* openRegularFile already rejected anything not a plain file (post-open fstat), leaving only the size bound to check here. */
     const opened = await handle.stat()
     if (opened.size > maximum) {
       throw new HttpError(413, 'context-source-too-large', `上下文源文件不能超过 ${maximum} 字节`)
@@ -227,8 +227,6 @@ export async function renderPromptContext(ctx, config, req) {
     throw new HttpError(403, 'context-session-denied', '当前会话不属于所选工作区')
   }
   const file = await verifyPromptContextFile(workspace, context.path)
-  /* A clean selection is verified against the file; the Host keeps the slice it derived, so a
-     text-free request renders from the file's own content. */
   const derived = context.mode === 'selection' && !context.dirty
     ? await verifyCleanSelection(file, context, config.maxContextSourceBytes)
     : undefined

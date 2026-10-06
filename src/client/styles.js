@@ -3,14 +3,11 @@ export const styles = `
 .dsh-ws-frame{--dsh-ws-sidebar:280px;--dsh-ws-preview:420px;position:relative;display:grid;grid-template-columns:var(--dsh-ws-sidebar) var(--dsh-ws-preview) minmax(0,1fr);grid-template-rows:100%;width:100%;min-width:0;height:100%;overflow:hidden;background:var(--dsw-alias-bg-base);transition:grid-template-columns var(--ds-transition-duration-slow) var(--ds-ease-in-out)}
 .dsh-ws-frame[data-resizing]{transition:none;user-select:none}.dsh-ws-sidebar,.dsh-ws-tree,.dsh-ws-preview,.dsh-ws-chat{min-width:0;height:100%;overflow:hidden}.dsh-ws-sidebar{background:var(--dsw-specific-sidebar-fill);border-right:1px solid var(--dsw-alias-border-l1)}html:not(.dsh-ws-mobile-on) .dsh-ws-frame[data-preview-right]{grid-template-columns:var(--dsh-ws-sidebar) minmax(0,1fr) var(--dsh-ws-preview)}html:not(.dsh-ws-mobile-on) .dsh-ws-frame[data-preview-right] .dsh-ws-sidebar{grid-column:1;grid-row:1}html:not(.dsh-ws-mobile-on) .dsh-ws-frame[data-preview-right] .dsh-ws-chat{grid-column:2;grid-row:1}html:not(.dsh-ws-mobile-on) .dsh-ws-frame[data-preview-right] .dsh-ws-preview{grid-column:3;grid-row:1;border-right:0;border-left:1px solid var(--dsw-alias-border-l2)}
 .dsh-ws-tree,.dsh-ws-preview{display:flex;flex-direction:column;position:relative;background:var(--dsw-alias-bg-layer-1);border-right:1px solid var(--dsw-alias-border-l2)}.dsh-ws-chat{display:flex;flex-direction:column;position:relative;background:var(--dsw-alias-bg-base)}
-/* Windows Desktop (Electron): the shell draws a caption row over the page — the
-   window drag strip, the preload-mounted menu bar and the native window
-   controls. The shipped layout reserves it in its own frame (padding-top plus a
-   drag ::before), but this plugin's patch disables ui-layout, so neither that
-   markup nor its stylesheet exists here: the plugin's frame owns both the
-   reservation and the shell's window-chrome clearance tokens that portalled
-   overlays read. --dsh-ws-caption-h is the band height the preload publishes.
-   See AGENTS.md「双端目标」and docs/development-notes.md §39. */
+/* Windows Desktop (Electron): the shell draws a caption row (drag strip, menu bar,
+   native controls) over the page. This plugin's patch disables ui-layout, so that
+   markup and its stylesheet are gone and this frame owns the reservation plus the
+   window-chrome clearance tokens portalled overlays read (--dsh-ws-caption-h is the
+   published band height). See AGENTS.md「双端目标」and docs/development-notes.md §39. */
 html[data-windows-titlebar]{--dsh-ws-caption-h:var(--dsh-windows-titlebar-height,40px);--dsh-frame-top-clearance:var(--dsh-ws-caption-h);--dsh-frame-chrome-top:var(--dsh-ws-caption-h);--dsh-frame-overlay-top:calc(var(--dsh-ws-caption-h) + 20px)}
 html[data-windows-titlebar][data-fullscreen]{--dsh-frame-chrome-top:0px;--dsh-frame-overlay-top:20px}
 html[data-windows-titlebar] .dsh-ws-frame{box-sizing:border-box;padding-top:var(--dsh-ws-caption-h);grid-template-rows:minmax(0,1fr)}
@@ -28,14 +25,13 @@ html[data-platform='darwin'][data-fullscreen]{--dsh-frame-overlay-top:20px}
 /* Preview page top rows share the sidebar fill so the file browsing page reads as one band with the sidebar. */
 .dsh-ws-preview .dsh-ws-panel-header{background:var(--dsw-specific-sidebar-fill)}.dsh-ws-preview .dsh-ws-preview-file-header{min-height:26px;gap:4px;padding:0 8px}.dsh-ws-preview-file-path{flex:1;min-width:0;overflow:hidden;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:15px;text-overflow:ellipsis;white-space:nowrap}.dsh-ws-preview-file-header .dsh-ws-icon-button{width:22px;height:22px}.dsh-ws-preview-file-header .dsh-ws-icon-button svg{width:14px;height:14px}.dsh-ws-preview-file-header .dsh-ws-text-button{height:22px;padding:0 6px;font-size:11px}
 .dsh-ws-panel-actions{display:flex;flex:none;align-items:center;gap:2px}.dsh-ws-icon-button,.dsh-ws-text-button{display:inline-flex;align-items:center;justify-content:center;height:30px;padding:0 8px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}.dsh-ws-icon-button{width:30px;padding:0;font-size:18px}.dsh-ws-icon-button svg{display:block;width:16px;height:16px}.dsh-ws-icon-button:hover,.dsh-ws-text-button:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.dsh-ws-icon-button:disabled,.dsh-ws-text-button:disabled{cursor:not-allowed;opacity:.55}
-/* Preview text size. The stepper is the file header's first control (left of 控制台) and publishes
-   --dsh-ws-content-scale on the preview column from the ACTIVE tab: 1 = 100% = the harness's own
-   body size, so a tab that never touched it renders pixel-identically to having no feature.
-   The size drives the SOURCE EDITOR's text and nothing else: the header hides it in every preview
-   state (rendered Markdown / HTML, the read-only paged browse), the surrounding chrome keeps its
-   own fixed sizes, and the editor's gutter slots keep their widths so nothing shifts sideways.
-   The number button becomes an input on click: 1px accent box, 20px tall so the 26px header row
-   does not grow; the box is as wide as the button it replaces, so the row never jumps. */
+/* Preview text size: the file header's first control (left of 控制台) publishes
+   --dsh-ws-content-scale for the ACTIVE tab; 1 = 100% = the harness's own body size,
+   so an untouched tab renders pixel-identically. It sizes the SOURCE EDITOR's text only —
+   the header hides it in every rendered / read-only state, the chrome keeps its fixed
+   sizes, and the gutter slots keep their widths so nothing shifts sideways. Click turns
+   the number button into an input: 1px accent box, 20px tall so the 26px header row does
+   not grow, and as wide as the button it replaces so the row never jumps. */
 .dsh-ws-font-size{flex:none;display:inline-flex;align-items:center;gap:0}
 .dsh-ws-font-size .dsh-ws-font-step{padding:0 4px}
 .dsh-ws-font-a{font-weight:600;letter-spacing:.2px}
@@ -51,21 +47,20 @@ html[data-platform='darwin'][data-fullscreen]{--dsh-frame-overlay-top:20px}
    ghosted placeholder text instead of flagging anything. */
 .dsh-ws-font-field::placeholder{color:var(--dsw-alias-label-caption)}
 .dsh-ws-font-pct{padding-left:1px;color:var(--dsw-alias-label-caption);font-size:10px}
-/* The size act lives on the rule that OWNS this editor's type metrics: .cm-scroller (see the
-   font-size/line-height pair above, 12px/19px scaled by the factor). Sizing .cm-editor instead does
-   nothing — .cm-scroller sets its own font-size, so the text never moves; that mistake is what shipped
-   first. The scroller also contains .cm-gutters, so line numbers scale with the code while the
-   diff / fold slots keep their fixed widths.
-   Deliberately NOT applied to the rendered views (.dsh-ws-md-preview, .dsh-ws-html-preview, the
-   paged browse, the run console): those show content this control does not size, which is why the
-   header hides it there, and their type ladder belongs to the harness components. */
+/* The size acts on the rule that OWNS this editor's metrics: .cm-scroller (the
+   12px/19px pair above, scaled). Sizing .cm-editor does nothing — the scroller sets
+   its own font-size, so the text never moves; that mistake shipped first. The scroller
+   also contains .cm-gutters, so line numbers scale while the diff / fold slots keep
+   their fixed widths. Deliberately NOT applied to the rendered views (.dsh-ws-md-preview,
+   .dsh-ws-html-preview, the paged browse, the run console): they show content this
+   control does not size — hence the hidden header there — and their type ladder
+   belongs to the harness components. */
 .dsh-ws-icon-button:focus-visible,.dsh-ws-text-button:focus-visible,.dsh-ws-tree-row:focus-visible,.dsh-ws-preview-tab-button:focus-visible,.dsh-ws-preview-tab-close:focus-visible,.dsh-ws-preview-tab-mark:focus-visible,.dsh-ws-splitter:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}.dsh-ws-tree-scroll{flex:1;min-height:0;overflow:auto;padding:8px 6px 16px}.dsh-ws-tree-row{display:flex;align-items:center;gap:5px;width:100%;height:var(--dsh-ws-row-height,28px);padding:0 7px 0 calc(7px + var(--dsh-ws-depth,0) * 15px);border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:18px;text-align:left;cursor:pointer;box-sizing:border-box}.dsh-ws-tree-row:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.dsh-ws-tree-row[data-selected]{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary)}.dsh-ws-tree-row:disabled{cursor:not-allowed;opacity:.55}.dsh-ws-tree-row[data-cut]{opacity:.55}
 .dsh-ws-chevron{display:inline-flex;align-items:center;justify-content:center;flex:0 0 12px;color:var(--dsw-alias-label-caption);font-size:10px}.dsh-ws-file-mark{display:inline-flex;align-items:center;justify-content:center;flex:0 0 16px;width:16px;height:16px;border-radius:4px;background:color-mix(in srgb,var(--dsh-ws-file-accent,var(--dsw-alias-label-tertiary)) 16%,transparent);color:var(--dsh-ws-file-accent,var(--dsw-alias-label-tertiary));font-size:8px;font-weight:600;text-transform:uppercase}.dsh-ws-file-mark[data-group='directory']{--dsh-ws-file-accent:var(--dsh-ws-file-directory,#3b82f6)}.dsh-ws-file-mark[data-group='typescript']{--dsh-ws-file-accent:var(--dsh-ws-file-typescript,#3178c6)}.dsh-ws-file-mark[data-group='javascript']{--dsh-ws-file-accent:var(--dsh-ws-file-javascript,#e5c158)}.dsh-ws-file-mark[data-group='json']{--dsh-ws-file-accent:var(--dsh-ws-file-json,#e07a3c)}.dsh-ws-file-mark[data-group='markup']{--dsh-ws-file-accent:var(--dsh-ws-file-markup,#e04a3c)}.dsh-ws-file-mark[data-group='style']{--dsh-ws-file-accent:var(--dsh-ws-file-style,#a855f7)}.dsh-ws-file-mark[data-group='markdown']{--dsh-ws-file-accent:var(--dsh-ws-file-markdown,#12a5a0)}.dsh-ws-file-mark[data-group='log']{--dsh-ws-file-accent:var(--dsh-ws-file-log,#d99a2b)}.dsh-ws-file-mark[data-group='python']{--dsh-ws-file-accent:var(--dsh-ws-file-python,#4b8bb8)}.dsh-ws-file-mark[data-group='shell']{--dsh-ws-file-accent:var(--dsh-ws-file-shell,#22a06b)}.dsh-ws-file-mark[data-group='config']{--dsh-ws-file-accent:var(--dsh-ws-file-config,#8a95a5)}.dsh-ws-file-mark[data-group='c-family']{--dsh-ws-file-accent:var(--dsh-ws-file-c-family,#5a7ba6)}.dsh-ws-file-mark[data-group='csharp']{--dsh-ws-file-accent:var(--dsh-ws-file-csharp,#a25fd0)}.dsh-ws-file-mark[data-group='other']{--dsh-ws-file-accent:var(--dsh-ws-file-other,#9aa3ad)}.dsh-ws-file-mark[data-group='blocked']{--dsh-ws-file-accent:var(--dsh-ws-file-blocked,#e5484d)}.dsh-ws-row-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
-/* Version-control status (git / svn, read-only): the strip above the tree, the collapsible changes
-   list and the row badges. Tones read --dsh-ws-vcs-* (set on the tree panel from the user's colors,
-   falling back to the same default hex the settings picker shows, so picked == rendered). A
-   workspace without a repository renders none of these elements, so the block stays inert. */
+/* Version-control status (git / svn, read-only): the strip above the tree, the changes
+   list and the row badges. Tones read --dsh-ws-vcs-* (user colors, defaulting to the
+   picker's own hex so picked == rendered); with no repository none of it renders. */
 .dsh-ws-vcs-bar{flex:none;display:flex;align-items:center;gap:6px;height:26px;padding:0 8px 0 12px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);box-sizing:border-box;font-size:11px}
 .dsh-ws-vcs-chip{display:flex;align-items:center;gap:5px;flex:1;min-width:0;height:20px;padding:0 6px;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;cursor:pointer}
 .dsh-ws-vcs-chip:hover{background:var(--dsw-alias-interactive-bg-hover)}
@@ -130,33 +125,30 @@ html[data-platform='darwin'][data-fullscreen]{--dsh-frame-overlay-top:20px}
 .dsh-ws-editor-host .dsh-ws-diff-line-modified{background:color-mix(in srgb,var(--dsh-ws-diff-modified,#1a63d8) 10%,transparent)}
 .dsh-ws-editor-host .dsh-ws-diff-line-deleted-top{box-shadow:inset 0 2px 0 -0.5px color-mix(in srgb,var(--dsh-ws-diff-deleted,#d92f24) 60%,transparent)}
 .dsh-ws-editor-host .dsh-ws-diff-line-deleted-bottom{box-shadow:inset 0 -2px 0 -0.5px color-mix(in srgb,var(--dsh-ws-diff-deleted,#d92f24) 60%,transparent)}
-/* Scrollbar change ruler (VS Code's overview ruler): the preview column's VERTICAL scrollbars are
-   widened and the editor's track paints the change map UNDER the native slider — the marks are two
-   gradients the editor writes as custom properties on the scroller element (view.scrollDOM), so
-   dragging, track paging, keyboard, trackpad and the platform's auto-hide all stay native. Width and
-   mark span come from Workspace Settings → Version Control; with the feature off none of these rules
-   apply and every bar keeps the harness's 8px look. Horizontal bars are deliberately left alone (a
-   thicker one would only eat code width). The track's "none" fallback is what a file without a
-   computable base shows. */
+/* Scrollbar change ruler (VS Code's overview ruler): the preview column's VERTICAL bars
+   are widened and the editor's track paints the change map UNDER the native slider — two
+   gradients written as custom properties on view.scrollDOM, so dragging, paging, keyboard,
+   trackpad and auto-hide stay native. Width / mark span come from Workspace Settings →
+   Version Control (off: the harness's 8px look). Horizontal bars are deliberately left
+   alone — thicker would only eat code width; "none" is a file with no computable base. */
 /* The preview column's bars take the file tree's elevated-surface binding (l2) instead of the body's
-   l1: in the light theme the two tokens are the same colour, in the dark theme l2 sits one neutral
-   step brighter, which is what the tree has always shown. */
+   l1: in light the two tokens match, in dark l2 sits one neutral step brighter — what the tree has
+   always shown. */
 .dsh-ws-preview{--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2)}
 .dsh-ws-preview[data-diff-ruler='on']{--dsh-ws-ruler-w:calc(var(--dsh-ws-vscroll-w,14px) - 6px);--dsh-scrollbar-width:var(--dsh-ws-vscroll-w,14px)}
 .dsh-ws-preview[data-diff-ruler='on'][data-diff-ruler-span='full']{--dsh-ws-ruler-w:var(--dsh-ws-vscroll-w,14px)}
 .dsh-ws-preview[data-diff-ruler='on'] ::-webkit-scrollbar:vertical{width:var(--dsh-ws-vscroll-w,14px)}
-/* The slider must not hide the marks it passes over: it keeps its exact size but stays translucent,
-   and the darker hover token pays the alpha back so the bar never reads fainter than the default one.
-   The hovered value is the one that matters while DRAGGING (a held slider is still hovered), so it
-   sits close to the idle one: at 65% the marks stay legible under the slider in both themes, which is
-   exactly what 90% failed at. */
+/* The slider must not hide the marks it passes over: same size, but translucent, with
+   the darker hover token paying the alpha back so the bar never reads fainter than the
+   default one. A held slider is still hovered, so the hover value is what matters while
+   DRAGGING — at 65% the marks stay legible in both themes, which 90% failed at. */
 .dsh-ws-preview[data-diff-ruler='on'] ::-webkit-scrollbar-thumb:vertical{background-color:color-mix(in srgb,var(--dsh-scrollbar-thumb-hover) 55%,transparent);background-clip:padding-box;border:3px solid transparent;border-radius:7px}
 .dsh-ws-preview[data-diff-ruler='on'] ::-webkit-scrollbar-thumb:vertical:hover{background-color:color-mix(in srgb,var(--dsh-scrollbar-thumb-hover) 65%,transparent)}
-/* Hover / drag highlight, EDITOR SCROLLER ONLY: a 1px accent ring hugging the capsule, so the
-   translucent slider still reads as "grabbable" without darkening its fill (which would hide the
-   marks). An inset box-shadow is required — a real border would outline the whole 14px track and
-   shrink the fill to 12px, and outline does not paint on scrollbar pseudo-elements at all (verified).
-   The ring rides the feature's own switch: with the ruler off the bar is back to the harness default. */
+/* Hover / drag highlight, EDITOR SCROLLER ONLY: a 1px accent ring hugging the capsule, so
+   the translucent slider still reads as "grabbable" without darkening its fill (which would
+   hide the marks). An inset box-shadow is required — a real border would outline the whole
+   14px track and shrink the fill to 12px, and outline does not paint on scrollbar
+   pseudo-elements at all (verified). With the ruler off, the bar is harness default again. */
 .dsh-ws-preview[data-diff-ruler='on'] .dsh-ws-editor-host .cm-scroller::-webkit-scrollbar-thumb:vertical:hover{box-shadow:inset 0 0 0 1px var(--dsw-alias-state-business-primary)}
 .dsh-ws-preview[data-diff-ruler='on'][data-diff-ruler-thumb='full'] ::-webkit-scrollbar-thumb:vertical{border-width:0}
 .dsh-ws-editor-host .cm-scroller::-webkit-scrollbar-track:vertical{background-image:var(--dsh-ws-ruler-ticks,none),var(--dsh-ws-ruler-bands,none);background-repeat:no-repeat;background-position:center top;background-size:var(--dsh-ws-ruler-w,8px) 100%,var(--dsh-ws-ruler-w,8px) 100%}
@@ -206,9 +198,9 @@ html[data-platform='darwin'][data-fullscreen]{--dsh-frame-overlay-top:20px}
 .dsh-ws-search-line{flex:none;width:32px;color:var(--dsw-alias-label-caption);font-variant-numeric:tabular-nums;text-align:right}
 .dsh-ws-search-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dsh-ws-search-hit{background:var(--dsw-alias-state-business-tertiary);color:var(--dsw-alias-state-business-primary);border-radius:2px}
-/* Workspace settings page (设置 → 工作区设置): a stack of cards over one shared row grid —
-   label | control | reset slot. Long explanations live in a per-card 说明 block that is
-   collapsed by default, and every reset is the same ↺ icon instead of a repeated text button. */
+/* Workspace settings page (设置 → 工作区设置): cards over one shared row grid —
+   label | control | reset. Long explanations live in a per-card 说明 block,
+   collapsed by default, and every reset is the same ↺ icon. */
 /* Field label/select shared by the dialogs (encoding picker, token statistics): the settings page
    no longer uses these two classes, but the dialogs still do. */
 .dsh-ws-settings-label{flex:none;min-width:64px;color:var(--dsw-alias-label-primary);font-size:13px}
@@ -365,14 +357,13 @@ body[data-ds-dark-theme] .dsh-ws-editor-host{--dsh-ws-token-directive:#c586c0}
 .dsh-ws-frame[data-sidebar-files] .dsh-ws-sidebar-files{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;margin-right:12px;--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2)}
 .dsh-ws-frame[data-sidebar-files] .dsh-ws-sidebar-files .dsh-ws-tree{flex:1;min-height:0;height:auto;border-right:0}
 /* Sidebar foot: the global panel list (the Plugins seat ui-plugin-manager
-   registers into sidebar.panellist) leaves the top of the column and joins the
-   foot stack — below the Mobile-mode row, above the Settings row. The shell
-   draws the foot as ONE box wrapping the two footer seats, so that box is
-   dissolved (display:contents) and the three become column flex items of the
-   shell root, ordered explicitly. The list node itself never leaves its
-   React-owned position: relocating it would make React's own uninstall path
-   call removeChild on a parent it no longer has (NotFoundError).
-   The three box hooks are the shell's class names (no data-slot of their own). */
+   registers into sidebar.panellist) leaves the column top and joins the foot stack —
+   below Mobile-mode, above Settings. The shell draws the foot as ONE box around the
+   two footer seats, so that box is dissolved (display:contents) and the three are
+   ordered flex items of the shell root. The list node never leaves its React-owned
+   position: relocating it would make React's uninstall path call removeChild on a
+   parent it no longer has (NotFoundError). The three box hooks are the shell's class
+   names (no data-slot of their own). */
 .dsh-ws-frame [data-slot="sidebar"] > div > div[class*="footArea"]{display:contents}
 .dsh-ws-frame [data-slot="sidebar"] > div > div[class*="footArea"] > div[class*="footerActions"]{order:10}
 .dsh-ws-frame [data-slot="sidebar"] > div > nav{order:20}
@@ -435,10 +426,9 @@ body > [role="status"]:has(svg){display:none!important}
 @keyframes dsh-ws-toast-fade{to{opacity:0}}
 @media (prefers-reduced-motion: reduce){.dsh-ws-toast{animation:dsh-ws-toast-fade 1000ms ease 3000ms forwards}.dsh-ws-frame [data-slot="sidebar"] > div[class*="railIn"] > div[class*="footArea"] > div{animation:none}}
 /* ── Mobile (phone-column) mode ─────────────────────────────────────────
-   The document-class gate (dsh-ws-mobile-on) drives every override; the
-   floating sidebar drawer and the file-fullscreen view ride sibling
-   classes. The aside becomes an absolute drawer, so explicit grid-column
-   keeps each section in the phone track. */
+   The document-class gate (dsh-ws-mobile-on) drives every override; the floating
+   sidebar drawer and the file-fullscreen view ride sibling classes. The aside is an
+   absolute drawer, so explicit grid-column keeps each section in the phone track. */
 .dsh-ws-mobile-toggle{flex:none;display:flex;align-items:center;gap:8px;width:calc(100% + 8px);height:34px;margin:4px -4px 4px;padding:6px 2px 6px 10px;box-sizing:border-box;border:0;border-radius:12px;background:transparent;cursor:pointer;overflow:hidden;color:var(--dsw-alias-label-primary);font-family:inherit;font-size:14px;line-height:22px;text-align:left}.dsh-ws-mobile-toggle:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.dsh-ws-mobile-toggle[data-open]{color:var(--dsw-alias-brand-primary)}.dsh-ws-mobile-toggle[data-rail]{width:36px;height:36px;margin:8px 0 10px;justify-content:center;gap:0;padding:0;border-radius:50%}.dsh-ws-mobile-toggle:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}.dsh-ws-mobile-toggle-icon{flex:none;width:16px;height:16px}.dsh-ws-mobile-toggle[data-rail] .dsh-ws-mobile-toggle-icon{width:18px;height:18px}.dsh-ws-mobile-toggle-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 html.dsh-ws-mobile-on .dsh-ws-frame{grid-template-columns:0 minmax(0,430px) 0!important;justify-content:center}
 html.dsh-ws-mobile-on .dsh-ws-chat{grid-column:2}
@@ -473,10 +463,9 @@ html.dsh-ws-mobile-on [data-slot="conversation.session.header.utilities"]{displa
 /* Hero whale + file button: a frame-level overlay visible only on the blank-session hero. */
 .dsh-ws-mobile-hero{display:none;position:absolute;top:10px;left:calc(max(0px,50% - 215px) + 8px)}
 html.dsh-ws-mobile-on:has([data-slot="main"] [data-phase="hero"]) .dsh-ws-mobile-hero{display:flex;align-items:center;gap:2px}
-/* Settings dialog: in mobile the centered 800px modal becomes a fullscreen
-   phone panel with the section nav as a horizontal bottom bar. The drawer
-   keeps a transform even when open, which would make the dialog's
-   position:fixed overlay resolve against the drawer instead of the viewport;
+/* Settings dialog: in mobile the centered 800px modal becomes a fullscreen phone panel with the
+   section nav as a horizontal bottom bar. The drawer keeps a transform even when open, which would
+   make the dialog's position:fixed overlay resolve against the drawer instead of the viewport;
    dropping the transform frees the modal to cover the phone column. */
 html.dsh-ws-mobile-on .dsh-ws-sidebar:has([data-slot="sidebar.settings"] [role="dialog"][aria-modal="true"]){transform:none;transition:none}
 html.dsh-ws-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal="true"]:has(> nav){width:100vw;height:100vh;height:100dvh;max-width:none;max-height:none;border-radius:0;flex-direction:column;overflow:hidden}
@@ -499,14 +488,12 @@ html.dsh-ws-mobile-on [data-slot="sidebar.settings"] [role="dialog"][aria-modal=
 .dsh-ws-session-rename-input:disabled{opacity:.7;cursor:not-allowed}
 .dsh-ws-session-rename-error{position:fixed;z-index:45;max-width:280px;padding:2px 6px;border:1px solid var(--dsw-alias-border-l2);border-radius:4px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-state-error-primary);font-size:11px;line-height:16px;box-shadow:var(--dsw-shadow-elevated,0 4px 12px rgba(0,0,0,.18))}
 .dsh-ws-copy-notice[data-error]{color:var(--dsw-alias-state-error-primary)}
-/* Mind-map conversation branching view ("导图") and the sidebar branch-row hider. */
 /* Mind-map conversation branching view ("导图") and the sidebar branch-row hider.
-   Semantic tones for everything that is NOT one of the four user-pickable accents
-   (hover / selected / head / end): the folded-run slate and the AI pink. Base values
-   are the LIGHT theme ones; the dark block further down overrides them (same
-   convention as the shiki highlight presets). --dsh-ws-mm-fold also tints the fold
-   card's wash, its dashed border, its ×N badge and the 折叠 pill, so "folded" is one
-   axis; --dsh-ws-mm-ai tints both summarize entry points (card pill + head button). */
+   Semantic tones for everything NOT one of the four user-pickable accents (hover /
+   selected / head / end): the folded-run slate and the AI pink. Base values are the LIGHT
+   ones, overridden by the dark block below (as with the shiki presets). --dsh-ws-mm-fold
+   tints the fold wash, dashed border, ×N badge and 折叠 pill, so "folded" is one axis;
+   --dsh-ws-mm-ai tints both summarize entry points. */
 .dsh-ws-mindmap{--dsh-ws-mm-fold:#64748b;--dsh-ws-mm-ai:#db2777;height:100%;position:relative;box-sizing:border-box;padding:14px 16px;display:flex;flex-direction:column;overflow:hidden}
 body[data-ds-dark-theme] .dsh-ws-mindmap{--dsh-ws-mm-fold:#94a3b8;--dsh-ws-mm-ai:#f472b6}
 .dsh-ws-mindmap-toolbar{flex:none;display:flex;align-items:center;flex-wrap:wrap;gap:8px;row-gap:6px;margin-bottom:8px}
@@ -623,10 +610,10 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-mindmap-canvas{position:absolute;left:0;top:0;transform-origin:0 0}
 .dsh-ws-mindmap-edges{position:absolute;inset:0;pointer-events:none;overflow:visible}
 .dsh-ws-mindmap-edge:not(.dsh-ws-mindmap-edge-flow){fill:none;stroke:var(--dsw-alias-border-l2,#8a8f98);stroke-width:1.5;opacity:.62}
-/* V3 mount edges (root → top-level session head, parent card → nested session head): the IDENTITY
-   violet, dashed and weaker than the ancestor-trace classes below. Deliberately NOT the primary
-   blue any more: the blue dashed edge means "the selected card's chain", so a structural edge and
-   a state edge must not share a color. */
+/* V3 mount edges (root → session head, parent card → nested head): the IDENTITY violet,
+   dashed and weaker than the ancestor traces below. Deliberately NOT primary blue any more —
+   blue dashed means "the selected card's chain", so a structural edge must not share a
+   state edge's color. */
 .dsh-ws-mindmap-edge-mount{stroke:var(--dsh-ws-mindmap-head,var(--dsw-alias-state-business-primary));stroke-width:1.6;opacity:.55;stroke-dasharray:4 4}
 .dsh-ws-mindmap-edge.dsh-ws-mindmap-edge-flow-under{fill:none;stroke-width:3;stroke-linecap:round;opacity:.9}
 .dsh-ws-mindmap-edge-flow{fill:none;stroke-width:3;stroke-linecap:round;stroke-dasharray:10 8;opacity:1;animation:dsh-ws-mindmap-edge-flow 1.1s linear infinite}
@@ -670,23 +657,21 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-mindmap-head-meta-live{color:var(--dsw-alias-state-business-primary)}
 .dsh-ws-mindmap-head-summary{flex:1;min-height:0;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;overflow:hidden;font-size:10px;line-height:14px;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}
 .dsh-ws-mindmap-head-summary-empty{color:var(--dsw-alias-label-tertiary,var(--dsw-alias-label-secondary));font-style:italic}
-/* Session-head hover actions: bottom-left 归档 + bottom-right 总结会话, revealed on card hover or
-   keyboard focus. The row is a transparent absolute overlay (no scrim: a filled strip would paint
-   a solid band across the card's tinted bottom edge) — the fixed card box never shifts, the
-   summary's last line is only overlaid while the buttons show, and the full text stays in the card
-   tooltip. Hidden via opacity + pointer-events:none so it never intercepts a click meant for the
-   card. Both buttons share the in-card pill tone system but sit one size UP (11px / 20px): they
-   carry the heaviest consequences on the map (an irreversible branch archive, a paid model call)
-   and used to be the SMALLEST buttons on the canvas at 10px. */
+/* Session-head hover actions: bottom-left 归档 + bottom-right 总结会话, revealed on card hover /
+   focus. A transparent absolute overlay, no scrim — a filled strip would paint a solid band
+   across the card's tinted bottom edge — so the card box never shifts and only the summary's
+   last line is covered; the full text stays in the tooltip. opacity + pointer-events:none keep
+   it from intercepting a click meant for the card. Both sit one size UP (11px / 20px) from the
+   in-card pills: heaviest consequences here (an irreversible archive, a paid model call), and
+   they used to be the smallest buttons on the canvas at 10px. */
 .dsh-ws-mindmap-head-actions{position:absolute;left:0;right:0;bottom:0;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:6px;padding:4px 6px 5px;box-sizing:border-box;opacity:0;pointer-events:none;transition:opacity .12s ease}
 .dsh-ws-mindmap-head:hover .dsh-ws-mindmap-head-actions,.dsh-ws-mindmap-head:focus-within .dsh-ws-mindmap-head-actions{opacity:1;pointer-events:auto}
 .dsh-ws-mindmap-head-action{--dsh-ws-mm-tone:var(--dsh-ws-mm-ai);--dsh-ws-mm-tone-bg:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 88%,var(--dsh-ws-mm-tone) 12%);--dsh-ws-mm-tone-border:color-mix(in srgb,var(--dsh-ws-mm-tone) 45%,transparent);flex:none;display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 9px;box-sizing:border-box;border:1px solid var(--dsh-ws-mm-tone-border);border-radius:999px;background:var(--dsh-ws-mm-tone-bg);color:var(--dsh-ws-mm-tone);font:inherit;font-size:11px;line-height:15px;white-space:nowrap;cursor:pointer;transition:background .12s ease,border-color .12s ease,color .12s ease}
 .dsh-ws-mindmap-head-action svg{display:block;flex:none}
 /* ARCHIVE rests in the neutral fold slate and only turns red while pointed at: it is the one
-   destructive action here, it already sits behind a type-"yes" confirmation dialog, and a red
-   capsule on every head card the pointer crosses reads as an error state. Its partner keeps the AI
-   pink at rest — that one is the useful action of the pair, and red/pink are ~70° apart in hue so
-   the two never blur together. */
+   destructive action here, already behind a type-"yes" dialog, and a red capsule on every
+   crossed head card reads as an error state. Its partner keeps the AI pink at rest — the useful
+   action of the pair, and red/pink are ~70° apart in hue so the two never blur. */
 .dsh-ws-mindmap-head-action-danger{--dsh-ws-mm-tone:var(--dsh-ws-mm-fold)}
 .dsh-ws-mindmap-head-action:hover{--dsh-ws-mm-tone-bg:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 74%,var(--dsh-ws-mm-tone) 26%);--dsh-ws-mm-tone-border:var(--dsh-ws-mm-tone)}
 .dsh-ws-mindmap-head-action-danger:hover{--dsh-ws-mm-tone:var(--dsw-alias-state-error-primary);--dsh-ws-mm-tone-border:var(--dsw-alias-state-error-primary)}
@@ -696,9 +681,9 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
    button" treatment the in-card pills use. Declared last, and for the hovered case too, so neither
    a tone or the red hover tint can leak back in. */
 .dsh-ws-mindmap-head-action:disabled,.dsh-ws-mindmap-head-action:disabled:hover{--dsh-ws-mm-tone:var(--dsw-alias-label-tertiary);--dsh-ws-mm-tone-bg:transparent;--dsh-ws-mm-tone-border:color-mix(in srgb,var(--dsw-alias-label-tertiary) 45%,transparent);border-style:dashed;cursor:not-allowed}
-/* "Summary in flight" marker, replacing the sparkle: the same pulsing dot the streaming status row
-   uses, in the primary blue. It deliberately survives the disabled (dashed, colorless) capsule —
-   "already running" must stay distinguishable from "nothing to summarize" (0 rounds). */
+/* "Summary in flight" marker, replacing the sparkle: the streaming status row's pulsing dot, in
+   primary blue. It deliberately survives the disabled (dashed, colorless) capsule — "already
+   running" must stay distinguishable from "nothing to summarize" (0 rounds). */
 .dsh-ws-mindmap-head-action-dot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--dsw-alias-state-business-primary);animation:dsh-ws-mindmap-dot-pulse 1s ease-in-out infinite}
 @media (prefers-reduced-motion: reduce){.dsh-ws-mindmap-head-action-dot{animation:none}}
 /* Live streaming pair: the STREAMING CARD keeps the rotating conic ring (border plus a
@@ -707,13 +692,14 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
    the 2px border and the card interior, travelling the same way as the connecting edge's dashes. */
 @property --dsw-ws-mm-angle{syntax:'<angle>';initial-value:0deg;inherits:false}
 @property --dsh-ws-mm-flow{syntax:'<length>';initial-value:0px;inherits:false}
-/* Parent flow, three background layers (top to bottom): a static base-colour scrim (padding-box,
-   66% — keeps title/question readable), the translucent interior flow (padding-box, 42% of the
-   pair palette) and the opaque border flow (border-box). Both flow layers share ONE 480px period,
-   repeat-x and the same phase, so a single band of light crosses border and interior alike; the
-   0 -> 480px shift is exactly one period, so the loop is seamless and moves left to right. The 2px
-   transparent border plus compensated padding keep content from shifting when the ring appears.
-   Declared BEFORE the streaming rule below, which resets these background longhands via shorthand. */
+/* Parent flow, three background layers (top to bottom): a static base-colour scrim
+   (padding-box, 66% — keeps title/question readable), the translucent interior flow
+   (padding-box, 42% of the pair palette) and the opaque border flow (border-box). The two
+   flow layers share ONE 480px period, repeat-x and phase, so one band of light crosses
+   border and interior alike; the 0 -> 480px shift is exactly one period, so the loop is
+   seamless and moves left to right. The 2px transparent border + compensated padding keep
+   content from shifting as the ring appears. Declared BEFORE the streaming rule below,
+   which resets these background longhands via shorthand. */
 .dsh-ws-mindmap-node.dsh-ws-mindmap-node-ring,.dsh-ws-mindmap-head.dsh-ws-mindmap-node-ring{border:2px solid transparent;border-radius:12px;box-shadow:0 0 14px color-mix(in srgb,var(--dsw-ws-mm-c1) 18%,transparent);background-image:linear-gradient(color-mix(in srgb,var(--dsw-alias-bg-layer-1) 66%,transparent),color-mix(in srgb,var(--dsw-alias-bg-layer-1) 66%,transparent)),linear-gradient(90deg,color-mix(in srgb,var(--dsw-ws-mm-c1) 42%,transparent) 0%,color-mix(in srgb,var(--dsw-ws-mm-c2) 42%,transparent) 33.33%,color-mix(in srgb,var(--dsw-ws-mm-c3) 42%,transparent) 66.67%,color-mix(in srgb,var(--dsw-ws-mm-c1) 42%,transparent) 100%),linear-gradient(90deg,var(--dsw-ws-mm-c1) 0%,var(--dsw-ws-mm-c2) 33.33%,var(--dsw-ws-mm-c3) 66.67%,var(--dsw-ws-mm-c1) 100%);background-size:auto,480px 100%,480px 100%;background-repeat:no-repeat,repeat-x,repeat-x;background-origin:padding-box,padding-box,border-box;background-clip:padding-box,padding-box,border-box;background-position:0 0,var(--dsh-ws-mm-flow) 0,var(--dsh-ws-mm-flow) 0;animation:dsh-ws-mindmap-ring-flow 3.2s linear infinite}
 /* Compensated padding per card kind (the head rule wins over the node rule by source order: a head
    carries both classes). The head also pins the plain card fill so a purple-tinted head turns into
@@ -752,18 +738,17 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-mindmap-loading-hint{margin-top:8px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
 .dsh-ws-mindmap-error{color:var(--dsw-alias-state-error-primary)}
 /* Transient map messages (fold/unfold notices, fork failures) are an absolutely
-   positioned OVERLAY, never in-flow flex rows: as siblings above the viewport
-   they used to push the whole canvas down by their own height (~31px + margin)
-   for as long as they lived and let it snap back when they expired, so a click
-   aimed at a card's fold pill landed on whatever had moved into that spot.
-   pointer-events:none keeps a message from ever eating a click; the shadow keeps
-   an opaque bubble legible over the cards. */
+   positioned OVERLAY, never in-flow flex rows: as siblings above the viewport they used
+   to push the whole canvas down by their own height (~31px + margin) for as long as they
+   lived and let it snap back on expiry, so a click aimed at a card's fold pill landed on
+   whatever had moved into that spot. pointer-events:none keeps a message from eating a
+   click; the shadow keeps an opaque bubble legible over the cards. */
 .dsh-ws-mindmap-toasts{position:absolute;left:50%;bottom:14px;z-index:6;display:flex;flex-direction:column;align-items:center;gap:8px;max-width:min(560px,calc(100% - 32px));transform:translateX(-50%);pointer-events:none;box-sizing:border-box}
 .dsh-ws-mindmap-fork-error{padding:6px 10px;border:1px solid var(--dsw-alias-state-error-primary);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:17px;box-shadow:var(--dsw-shadow-lv3,0 8px 24px rgba(0,0,0,.24));box-sizing:border-box}
 .dsh-ws-mindmap-notice{padding:6px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:12px;line-height:17px;box-shadow:var(--dsw-shadow-lv3,0 8px 24px rgba(0,0,0,.24));box-sizing:border-box}
 .dsh-ws-mindmap-notice-error{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}
 .dsh-ws-mindmap-node[data-branch]{border-style:solid}
-/* Folded card: one compact card standing in for a maximal run of consecutive folded turns — dashed border + muted wash, fold icon + count badge in the title row, first-turn text in the body. Placed after the [data-branch] solid rule and before the ancestor/hover rules so the traces keep their border-color overrides. A RING card is exempt: this rule's background shorthand would otherwise wipe the streaming pair's flow layers (a folded card can be a streaming card's parent), and its dashed border would replace the flow border. */
+/* Folded card: one compact card for a maximal run of consecutive folded turns — dashed border + muted wash, fold icon + count badge in the title row, first-turn text in the body. Placed after the [data-branch] solid rule and before the ancestor/hover rules so the traces keep their border-color overrides. A RING card is exempt: its background shorthand would wipe the streaming pair's flow layers (a folded card can parent a streaming card) and its dashed border would replace the flow border. */
 .dsh-ws-mindmap-node.dsh-ws-mindmap-folded:not(.dsh-ws-mindmap-node-ring){border-style:dashed;border-color:color-mix(in srgb,var(--dsh-ws-mm-fold) 42%,transparent);background-color:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 90%,var(--dsh-ws-mm-fold) 10%);background-image:repeating-linear-gradient(135deg,color-mix(in srgb,var(--dsh-ws-mm-fold) 26%,transparent) 0 5px,transparent 5px 11px)}
 /* Folded-run count badge: a neutral OUTLINED capsule on the fold slate. It used to be a solid
    business-blue pill — the same shape and color as the "当前" badge and the hint chip — which read
@@ -778,28 +763,27 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 /* Selected-card ancestor trace: the current card's chain back to the root — edges turn dashed primary-blue, parent nodes get a dashed primary-blue border. */
 .dsh-ws-mindmap-edge.dsh-ws-mindmap-edge-active{stroke:var(--dsh-ws-mindmap-selected,var(--dsw-alias-state-business-primary));stroke-dasharray:6 5;stroke-width:2;opacity:1}
 .dsh-ws-mindmap-node.dsh-ws-mindmap-node-ancestor{border-style:dashed;border-color:var(--dsh-ws-mindmap-selected,var(--dsw-alias-state-business-primary));box-shadow:0 0 0 1px color-mix(in srgb,var(--dsh-ws-mindmap-selected,var(--dsw-alias-state-business-primary)) 18%,transparent)}
-/* Hover ancestor trace: the card under the pointer gets a solid amber border + soft glow, its ancestors and path edges go amber dashed — visually distinct from the selected card's primary-blue chain. Each hover class sits after its blue counterpart, so the hover wins when a card or edge is on both paths. Ring (streaming) cards are excluded. */
+/* Hover ancestor trace: the card under the pointer gets a solid amber border + soft glow, its ancestors and path edges go amber dashed — distinct from the selected card's blue chain. Each hover class sits after its blue counterpart, so hover wins when a card or edge is on both paths. Ring (streaming) cards are excluded. */
 .dsh-ws-mindmap-edge.dsh-ws-mindmap-edge-hover-active{stroke:var(--dsh-ws-mindmap-hover,var(--dsw-alias-state-warn-primary));stroke-dasharray:6 5;stroke-width:2;opacity:1}
 .dsh-ws-mindmap-node.dsh-ws-mindmap-node-hover-ancestor{border-style:dashed;border-color:var(--dsh-ws-mindmap-hover,var(--dsw-alias-state-warn-primary));box-shadow:0 0 0 1px color-mix(in srgb,var(--dsh-ws-mindmap-hover,var(--dsw-alias-state-warn-primary)) 22%,transparent)}
 .dsh-ws-mindmap-node.dsh-ws-mindmap-node-hover:not(.dsh-ws-mindmap-node-ring){border-style:solid;border-color:var(--dsh-ws-mindmap-hover,var(--dsw-alias-state-warn-primary));box-shadow:0 0 0 1px color-mix(in srgb,var(--dsh-ws-mindmap-hover,var(--dsw-alias-state-warn-primary)) 35%,transparent),0 0 14px color-mix(in srgb,var(--dsh-ws-mindmap-hover,var(--dsw-alias-state-warn-primary)) 22%,transparent)}
 /* Hover hint chip: tells the user what a click on this card will do. It is NOT a button
    (pointer-events:none), so it must not LOOK like one — it used to be a blue capsule with a solid
-   border, indistinguishable from the real action pills, and it sits in the very corner the
-   colored 总结卡片 / 立刻折叠 pill uses. Neutral text on a faint wash with a DASHED border says
-   "this is a caption"; the colorless corner also lets the action pill stay dominant. */
+   border, indistinguishable from the real pills, in the very corner the colored 总结卡片 / 立刻折叠
+   pill uses. Neutral text on a faint wash with a DASHED border says "caption", and the colorless
+   corner keeps the action pill dominant. */
 .dsh-ws-mindmap-node-hint{position:absolute;right:5px;bottom:5px;z-index:1;max-width:calc(100% - 10px);padding:1px 7px;border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 94%,transparent);color:var(--dsw-alias-label-secondary);border:1px dashed color-mix(in srgb,var(--dsw-alias-label-secondary) 50%,transparent);font-size:10px;line-height:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;box-sizing:border-box}
-/* In-card hover pills — the card's four buttons: 折叠 / 取消折叠 / 立刻折叠 / 总结卡片. They share ONE
-   tone system (--dsh-ws-mm-tone + a 12% opaque wash, a 45% border and the tone as text) and only
-   [data-tone] picks the hue: 折叠 = fold slate, 取消折叠 = primary blue, 立刻折叠 = warn amber,
-   总结卡片 = AI pink. Two deliberate departures from the old single gray capsule: (1) the tone is
-   STATIC — the old rule was neutral until :hover, so all four buttons looked identical until you
-   were already pointing at one; (2) the wash is OPAQUE — a folded card carries 135° stripes and a
-   streaming parent a moving light band, and a 92%-transparent capsule let those patterns show
-   through the 11px label. The behavior contract is untouched: the hidden state keeps opacity:0 +
-   pointer-events:none (an invisible pill must never steal the card's own click: fork / switch /
-   peek) and the status row cross-fades out underneath, which now happens between SAME-hue values
-   (已折叠 slate ↔ 折叠 slate, peek amber ↔ 立刻折叠 amber) instead of gray-to-color. The pills sit
-   exactly where the status row was, so the fixed card box never shifts. */
+/* In-card hover pills — the card's four buttons: 折叠 / 取消折叠 / 立刻折叠 / 总结卡片. One tone
+   system (--dsh-ws-mm-tone + 12% wash, 45% border, tone as text); only [data-tone] picks the hue:
+   折叠 = fold slate, 取消折叠 = primary blue, 立刻折叠 = warn amber, 总结卡片 = AI pink. Two
+   departures from the old single gray capsule: (1) the tone is STATIC — that rule stayed neutral
+   until :hover, so all four looked identical until you already pointed at one; (2) the wash is
+   OPAQUE — folded cards carry 135° stripes and a streaming parent a moving light band, and a
+   92%-transparent capsule let those patterns show through the 11px label. Contract untouched: the
+   hidden state keeps opacity:0 + pointer-events:none (an invisible pill must never steal the card's
+   own click: fork / switch / peek), and the status row cross-fades underneath between SAME-hue
+   values instead of gray-to-color. The pills sit exactly where the status row was, so the fixed
+   card box never shifts. */
 .dsh-ws-mindmap-node-status{transition:opacity .12s ease}
 .dsh-ws-mindmap-node-foldpill{--dsh-ws-mm-tone:var(--dsh-ws-mm-fold);--dsh-ws-mm-tone-bg:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 88%,var(--dsh-ws-mm-tone) 12%);--dsh-ws-mm-tone-border:color-mix(in srgb,var(--dsh-ws-mm-tone) 45%,transparent);position:absolute;left:10px;bottom:5px;z-index:2;height:20px;padding:0 8px;box-sizing:border-box;display:inline-flex;align-items:center;gap:4px;border:1px solid var(--dsh-ws-mm-tone-border);border-radius:999px;background:var(--dsh-ws-mm-tone-bg);color:var(--dsh-ws-mm-tone);cursor:pointer;font:inherit;font-size:11px;line-height:15px;white-space:nowrap;opacity:0;transform:translateY(2px);pointer-events:none;transition:opacity .12s ease,transform .12s ease,border-color .12s ease,color .12s ease,background .12s ease}
 .dsh-ws-mindmap-node-foldpill svg{display:block;flex:none}
@@ -812,10 +796,7 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-mindmap-node-foldpill:active{--dsh-ws-mm-tone-bg:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 66%,var(--dsh-ws-mm-tone) 34%)}
 .dsh-ws-mindmap-node-foldpill:focus-visible{outline:2px solid var(--dsh-ws-mm-tone);outline-offset:1px}
 .dsh-ws-mindmap-node:has(>.dsh-ws-mindmap-node-foldpill):hover>.dsh-ws-mindmap-node-status{opacity:0}
-/* A disabled pill (the card's summary is already being generated) drops its color and switches to a
-   DASHED border instead of fading the whole capsule, so "not clickable right now" reads as a state
-   rather than as a lighter button. The reveal rules keep pointer events on: a click must land here
-   instead of falling through to the card and forking (same contract as the head's disabled button). */
+/* A disabled pill (this card's summary is already generating) drops its color and switches to a DASHED border instead of fading the capsule, so "not clickable right now" reads as a state, not a lighter button. The reveal rules keep pointer events on: the click must land here rather than fall through to the card and fork (same contract as the head's disabled button). */
 .dsh-ws-mindmap-node-foldpill:disabled{opacity:0;cursor:default;border-style:dashed;--dsh-ws-mm-tone:var(--dsw-alias-label-tertiary);--dsh-ws-mm-tone-bg:transparent;--dsh-ws-mm-tone-border:color-mix(in srgb,var(--dsw-alias-label-tertiary) 45%,transparent)}
 .dsh-ws-mindmap-node:hover>.dsh-ws-mindmap-node-foldpill:disabled{opacity:.9}
 /* Settings color swatch for the mind-map highlight pickers. */
@@ -920,7 +901,6 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-tool-io-section{max-height:calc(var(--dsh-ws-edit-lines,10) * 20px + 24px)}
 /* ---- Think card (chat thinking blocks): the block stays open as a card (hooks/think-card.js keeps rows open) whose body viewport shows only the latest --dsh-ws-think-lines rows, with the card's own slim scrollbar. The body class is a CSS-module name (may be hashed), so rules match the "thinkBody" substring. ---- */
 .dsh-ws-chat [data-variant="think"]{box-sizing:border-box;margin:6px 0;border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-alias-bg-layer-1);overflow:hidden}
-/* Scroll-gate armed cue: the card owns the wheel after a click inside. */
 .dsh-ws-chat [data-variant="think"][data-scroll-armed]{border-color:var(--dsw-alias-state-business-primary);box-shadow:0 0 0 1px var(--dsw-alias-state-business-primary)}
 .dsh-ws-chat [data-variant="think"] [class*="thinkBody"]{box-sizing:border-box;max-height:calc(var(--dsh-ws-think-lines,10) * (20px + var(--dsh-content-font-delta-secondary,0px)) + 11px);overflow-y:auto;padding:2px 10px 8px 22px;border-top:1px solid var(--dsw-alias-border-l1);overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--dsw-alias-scrollbar-bg-l2,transparent) transparent}
 .dsh-ws-chat [data-variant="think"] [class*="thinkBody"]::-webkit-scrollbar{width:6px}
@@ -929,13 +909,13 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-chat [data-variant="think"] [class*="thinkBody"]::-webkit-scrollbar-track{background:transparent}
 /* Think-card header chevron: nudge the disclosure glyph right off the card's left border edge. */
 .dsh-ws-chat [data-variant="think"] [data-disclosure-row] > span:first-child{margin-left:6px}
-/* Token statistics dialog (设置 → 工作区设置 → Token 统计): a wide panel split into two columns — the
-   model-detail column and the quick-calculator card — with the range controls and the foot line
-   full width above/below them. Each column owns one scrolling list, so a long model list can never
-   spill out of the panel or push the name filter / the calculator out of view; the whole dialog is a
-   flex column because the body's flex:1 / min-height:0 means nothing inside a block parent (the
-   rows would just overflow the fixed-height box and become unreachable). The body's own overflow is
-   only a fallback for a window too short to hold both columns' minimum height. */
+/* Token statistics dialog (设置 → 工作区设置 → Token 统计): a wide two-column panel — model detail |
+   quick calculator — with the range controls and the foot line full width above/below. Each column
+   owns one scrolling list, so a long model list can never spill out of the panel or push the name
+   filter / calculator out of view; the dialog is a flex column because the body's flex:1 /
+   min-height:0 means nothing inside a block parent (the rows would just overflow the fixed-height
+   box unreachable). The body's own overflow is only a fallback for a window too short for both
+   columns' minimum height. */
 .dsh-ws-token-dialog{display:flex;flex-direction:column;width:min(1400px,100%);height:min(700px,92vh);overflow:hidden;border-radius:12px}
 .dsh-ws-token-dialog .dsh-ws-dialog-header,.dsh-ws-token-dialog .dsh-ws-token-foot{flex:none}
 .dsh-ws-token-dialog .dsh-ws-dialog-body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;gap:10px}
@@ -943,14 +923,14 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-token-dialog .dsh-ws-dialog-body>.dsh-ws-token-kpis{flex:none}
 .dsh-ws-token-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .dsh-ws-token-controls .dsh-ws-settings-select{flex:1;min-width:0;max-width:200px}
-/* Model name filter: the left column's own control chip, framed exactly like the calculator's price
-   chips (same border / radius / fill) and like them hugging its content — align-self overrides the
-   column's stretch, and max-width:100% plus the field's own min-width:0 keeps the chip shrinking with
+/* Model name filter: the left column's own control chip, framed exactly like the calculator's
+   price chips (same border / radius / fill) and hugging its content — align-self overrides the
+   column's stretch, and max-width:100% plus the field's min-width:0 keeps the chip shrinking with
    the card instead of overflowing it when the divider is dragged far right. Reuses
    .dsh-ws-search-input for the field look and .dsh-ws-search-hit for matched fragments; the model
    count it used to carry now lives in the column header. box-sizing:border-box is declared because
-   this plugin has no global reset — without it max-width:100% would cap the chip's content and the
-   padding+border would still push it past the card's edge on a narrow column. */
+   this plugin has no global reset — without it max-width:100% would cap only the content and the
+   padding+border would still push past the card's edge on a narrow column. */
 .dsh-ws-token-filter{display:flex;align-items:center;gap:8px;flex-wrap:wrap;align-self:flex-start;box-sizing:border-box;max-width:100%;padding:5px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2)}
 .dsh-ws-token-filter-field{position:relative;display:inline-flex;align-items:center;flex:1 1 auto;width:300px;min-width:0;max-width:340px}
 .dsh-ws-token-filter-field .dsh-ws-search-input{width:100%;height:28px;padding-right:26px}
@@ -958,16 +938,15 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-token-date{height:28px;padding:0 6px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;box-sizing:border-box}
 .dsh-ws-token-date:disabled{opacity:.5}
 .dsh-ws-token-check{display:inline-flex;align-items:center;gap:5px;color:var(--dsw-alias-label-secondary);font-size:12px;cursor:pointer;user-select:none}
-/* Two-column body: 模型明细 (left) | 快速计算 (right). flex, never grid — a grid auto row takes its
-   content height and ignores the container, so a long list would blow the panel open; flex's
-   flex:1 1 0% + min-height:0 is what actually hands each column the leftover height and lets the
-   table inside scroll. box-sizing is declared here because this plugin has no global reset. */
+/* Two-column body: 模型明细 (left) | 快速计算 (right). flex, never grid — a grid auto row takes
+   its content height and ignores the container, so a long list would blow the panel open; flex's
+   flex:1 1 0% + min-height:0 is what hands each column the leftover height and lets the table
+   inside scroll. box-sizing is declared here because this plugin has no global reset. */
 .dsh-ws-token-split{display:flex;flex:1 1 0%;gap:0;min-width:0;min-height:220px}
 .dsh-ws-token-pane{display:flex;flex:1 1 0%;flex-direction:column;gap:8px;box-sizing:border-box;min-width:0;min-height:0}
-/* Both columns are one card design: same border, radius, padding and fill, so the panel reads as two
-   equal halves and only the divider tells them apart. box-sizing is border-box (base rule above), so
-   the left column's remembered pixel width still includes its border — the divider's maths is
-   unaffected by the card. */
+/* Both columns are one card design: same border, radius, padding and fill, so the panel reads as
+   two equal halves and only the divider separates them. box-sizing is border-box, so the left
+   column's remembered pixel width still includes its border — the divider's maths is unaffected. */
 .dsh-ws-token-pane[data-side='left'],
 .dsh-ws-token-pane[data-side='right']{padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-2)}
 /* Never dragged: the built-in ratio, so both columns keep scaling with the window. */
@@ -976,12 +955,12 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 /* Dragged at least once: the left column is the remembered pixel width. max-width is the second
    clamp — a width stored on a wide window must not squeeze the right column on a narrow one. */
 .dsh-ws-token-split[data-custom]>.dsh-ws-token-pane[data-side='left']{flex:0 1 auto;width:var(--dsh-ws-token-split);max-width:calc(100% - 424px)}
-/* …and the right column must then take the WHOLE remainder. The two ratio factors add up to 2, so in
-   the default state both columns grow and the panel fills exactly; with the left column pinned, its
-   grow factor is 0 and the only one left is 0.92 — and by the flexbox rule for a grow-factor sum below
-   one, only that fraction of the free space is handed out and the rest is left unused. The card then
-   floated inward by a gap (8% of the remainder) that changed with every drag, so its right border no
-   longer lined up with the panel's right edge / the summary strip above it. */
+/* …and the right column must then take the WHOLE remainder. The two ratio factors add up to 2, so
+   by default both columns grow and the panel fills exactly; with the left column pinned its grow
+   factor is 0 and only 0.92 is left — and by the flexbox rule for a grow-factor sum below one, only
+   that fraction of the free space is handed out. The card then floated inward by a gap (8% of the
+   remainder) that changed with every drag, so its right border no longer lined up with the panel's
+   right edge / the summary strip above it. */
 .dsh-ws-token-split[data-custom]>.dsh-ws-token-pane[data-side='right']{flex-grow:1}
 .dsh-ws-token-pane-head{display:flex;align-items:center;gap:8px;flex:none}
 .dsh-ws-token-pane-title{display:inline-flex;align-items:center;gap:8px;color:var(--dsw-alias-label-primary);font-size:13px;font-weight:600;line-height:20px}
@@ -1000,9 +979,9 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-token-pane[data-side='right']>.dsh-ws-token-cost-head,
 .dsh-ws-token-pane[data-side='right']>.dsh-ws-token-prices{flex:none}
 .dsh-ws-token-pane[data-side='right']>.dsh-ws-token-table-wrap{flex:1 1 auto;min-height:0}
-/* Summary strip above the split. Hidden whenever there is nothing to summarize. The six cards are
-   the five token figures plus the quick calculator's money total, so the strip ends on the number
-   the user came for. */
+/* Summary strip above the split, hidden when there is nothing to summarize. Its six cards are the
+   five token figures plus the calculator's money total, so the strip ends on the number the user
+   came for. */
 .dsh-ws-token-kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}
 .dsh-ws-token-kpi{display:flex;flex-direction:column;gap:2px;padding:8px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2);box-sizing:border-box}
 .dsh-ws-token-kpi-label{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}
@@ -1030,37 +1009,36 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-token-table tbody tr:last-child td{border-bottom:0}
 .dsh-ws-token-table tbody tr:hover td{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 6%,transparent)}
 .dsh-ws-token-table .dsh-ws-token-dim td{opacity:.45}
-/* The per-model checkbox is the model cell's first inline box — there is no checkbox column any more.
-   That column measured 46px (declared width 34px + 12px padding, content box: this plugin has no global
-   box-sizing) while the checkbox itself is 13px, so two thirds of it was empty gutter; merging the two
-   also lets the 模型 header and the 汇总 row start flush at the cell's left edge instead of being pushed
-   right by a whole empty column. width/height are pinned like the collection-member checkbox does;
-   margin:0 is required because the UA stylesheet gives a checkbox 4px/3px margins, which this table used
-   to keep. */
+/* The per-model checkbox is the model cell's first inline box — there is no checkbox column any
+   more. That column measured 46px (declared 34px + 12px padding, content box: this plugin has no
+   global box-sizing) while the checkbox is 13px, so two thirds was empty gutter; merging the two
+   also lets the 模型 header and 汇总 row start flush at the cell's left edge. width/height are
+   pinned like the collection-member checkbox; margin:0 is required because the UA stylesheet gives
+   a checkbox 4px/3px margins, which this table used to keep. */
 .dsh-ws-token-table .dsh-ws-token-model-check{width:13px;height:13px;margin:0 6px 0 0;vertical-align:-2px;accent-color:var(--dsw-alias-state-business-primary);cursor:pointer}
-/* The model column is PINNED, not merely capped. Both tables share this cell class, and with only a
-   max-width the column still grew with the card's slack — measured 355px in the model table against
-   402px in the calculator at the same card width, so the two 模型 columns stopped matching as soon as the
-   divider was dragged. border-box makes 304px the whole column (12px + 280px content + 12px), i.e. exactly
-   the width the cap produced before; the number columns left of it absorb the remainder, so the table
-   still fills its card and its right edge stays aligned with the card. Trade-off to know about: on a card
-   wider than the table's content the extra width now goes to the number columns, the name column stays at
-   280px (that is what max-width:280px always meant). */
+/* The model column is PINNED, not merely capped. Both tables share this cell class, and with only
+   a max-width the column still grew with the card's slack — measured 355px in the model table
+   against 402px in the calculator at the same card width, so the two 模型 columns stopped matching
+   as soon as the divider was dragged. border-box makes 304px the whole column (12px + 280px +
+   12px), exactly what the cap produced before; the number columns left of it absorb the remainder,
+   so the table still fills its card and its right edge stays aligned. Trade-off: on a wider card
+   the extra width goes to the number columns, the name column stays at 280px (what max-width:280px
+   always meant). */
 .dsh-ws-token-table .dsh-ws-token-model{width:304px;max-width:304px;box-sizing:border-box;overflow:hidden;text-overflow:ellipsis;text-align:left}
 .dsh-ws-token-table .dsh-ws-token-total-row td{font-weight:700;background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 8%,transparent)}
 /* The summary row rides the bottom of its own scroll region, so scrolling a long list never hides
    the totals. Both tables use the same row class; the opaque background is required — the plain
    total-row tint above is translucent and the rows scrolling underneath would show through. */
 .dsh-ws-token-table tr.dsh-ws-token-total-row td{position:sticky;bottom:0;z-index:1;background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 8%,var(--dsw-alias-bg-layer-1))}
-/* The whole model row is a second hit area for its checkbox: pointer cursor on the row plus a slightly stronger hover/active tint, so the click target is obvious without adding a hint line. Specificity beats the plain row-hover rule above. The checkbox now sits inside that same cell, so it keeps the pointer cursor too — clicking it is the same action, not a second path. */
+/* The whole model row is a second hit area for its checkbox: pointer cursor on the row plus a slightly stronger hover/active tint, so the target is obvious without adding a hint line. Specificity beats the plain row-hover rule above. The checkbox sits in that same cell, so it keeps the pointer cursor — clicking it is the same action, not a second path. */
 .dsh-ws-token-table tbody tr.dsh-ws-token-selectable{cursor:pointer}
 .dsh-ws-token-table tbody tr.dsh-ws-token-selectable:hover td{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent)}
 .dsh-ws-token-table tbody tr.dsh-ws-token-selectable:active td{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 14%,transparent)}
-/* Both tables' data rows and summary rows are pinned to the same height. The calculator's rows each sit in
-   their own <tbody> and keep a collapsed border under every model, which rounded them half a pixel taller
-   than the model table's rows (33.5 against 33) — across ten models that half pixel becomes a visible drift
-   between the two row grids. An explicit height is only a floor in table layout: taller content (the
-   expanded price row, a larger font) still wins, nothing gets clipped. */
+/* Both tables' data and summary rows are pinned to the same height. The calculator's rows each sit
+   in their own <tbody> and keep a collapsed border under every model, which rounded them half a
+   pixel taller than the model table's rows (33.5 vs 33) — across ten models that drift becomes
+   visible between the two row grids. An explicit height is only a floor in table layout: taller
+   content (the expanded price row, a larger font) still wins, nothing gets clipped. */
 .dsh-ws-token-table tbody tr.dsh-ws-token-selectable,
 .dsh-ws-token-table tbody tr.dsh-ws-token-cost-row,
 .dsh-ws-token-table tbody tr.dsh-ws-token-total-row{height:34px}
@@ -1069,14 +1047,13 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-token-foot{padding:10px 14px;border-top:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:17px;display:flex;flex-direction:column;gap:2px}
 .dsh-ws-token-failed{color:var(--dsw-alias-state-error-primary)}
 .dsh-ws-token-warming{color:var(--dsw-alias-label-secondary)}
-/* ---- Quick calculator: the right column of the split — shared unit prices (per 1M tokens) as one bordered chip per field, plus a per-model amount table whose price line sits on its own row so the table stays at five columns and never needs a horizontal scrollbar. No new colors — the money column reuses the success tint, everything else the shared aliases. The card look (border / radius / padding) lives with the pane rules above. ---- */
+/* ---- Quick calculator: the split's right column — shared unit prices (per 1M tokens) as one bordered chip per field, plus a per-model amount table whose price line sits on its own row so the table stays at five columns and never needs a horizontal scrollbar. No new colors: the money column reuses the success tint, everything else the shared aliases. The card look (border / radius / padding) lives with the pane rules above. ---- */
 .dsh-ws-token-cost{display:flex;flex-direction:column;gap:8px}
 .dsh-ws-token-cost-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .dsh-ws-token-cost-title{display:inline-flex;align-items:center;gap:8px;color:var(--dsw-alias-label-primary);font-size:13px;font-weight:600;line-height:20px}
 .dsh-ws-token-cost-title::before{content:'';flex:none;width:3px;height:13px;border-radius:2px;background:var(--dsw-alias-state-business-primary)}
-/* Default prices: one chip = one label + its input. The chip is flex:none and the label never wraps, so a narrow panel breaks between chips and a label can never drift away from its own box. */
 .dsh-ws-token-prices{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-/* Default prices: one chip = one label + its input. The chip is flex:none and the label never wraps, so a narrow panel breaks between chips and a label can never drift away from its own box. Padding (5px) + a 28px input give a 40px chip — exactly the height of the model-filter chip in the left column, which must stay equal: the two control rows sit in twin cards at the same y, and a 4px difference reads as a misalignment. Change one side and change the other. */
+/* Default prices: one chip = one label + its input — flex:none with a never-wrapping label, so a narrow panel breaks between chips and a label can never drift away from its own box. Padding (5px) + a 28px input give a 40px chip — exactly the height of the model-filter chip in the left column, which must stay equal: the two control rows sit in twin cards at the same y, and a 4px difference reads as a misalignment. Change one side and change the other. */
 .dsh-ws-token-price-group{display:inline-flex;flex:none;align-items:center;gap:6px;padding:5px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2)}
 .dsh-ws-token-price-label{flex:none;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:16px;white-space:nowrap}
 /* 28px, the same height the filter chip's search field uses, so both control rows measure 40px. The per-row override boxes inside the money table keep their own 24px (rule further down). */
@@ -1095,10 +1072,10 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 /* Clicking a model row reveals its price boxes; a row with its own prices is always open, so it keeps the default cursor and a disabled toggle. */
 .dsh-ws-token-cost-row{cursor:pointer}
 .dsh-ws-token-cost-row[data-locked]{cursor:default}
-/* The calculator's ▸/▾ row toggle occupies exactly what the model table's checkbox does — a 13px box plus
-   a 6px gap — so both tables' names start at the same offset inside their model column (31px) and the two
+/* The calculator's ▸/▾ row toggle occupies exactly what the model table's checkbox does — a 13px box
+   plus a 6px gap — so both tables' names start at the same offset in their model column (31px) and the
    row grids line up. Its vertical-align matches the checkbox's -2px too, instead of the middle it used
-   before, which is what made the calculator's rows a pixel taller. */
+   before, which made the calculator's rows a pixel taller. */
 .dsh-ws-token-cost-toggle{width:13px;height:13px;margin-right:6px;padding:0;border:0;border-radius:3px;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:10px;line-height:1;cursor:pointer;vertical-align:-2px}
 .dsh-ws-token-cost-toggle:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .dsh-ws-token-cost-toggle:disabled{cursor:default;opacity:.6}
@@ -1241,8 +1218,8 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 @media (prefers-reduced-motion:reduce){.dsh-ws-preview-tab-run{animation:none}}
 /* ================= Workspace collections (dev-notes §47) =================
    Dropdown replacing the Harness section title, its member dialog, the workspace-row membership
-   menu, and the sidebar chips. The chips' CONTENT is generated per workspace by the filter
-   stylesheet (that rule sets content); these rules only style the box it draws. */
+   menu and the sidebar chips. The chips' CONTENT comes from the filter stylesheet; these rules only
+   style the box it draws. */
 .dsh-ws-sidebar-collections{flex:none;display:flex;align-items:center;min-width:0}
 /* The Harness section label steps aside only while this seat exists (it is removed with the seat). */
 .dsh-ws-sidebar-collections ~ [class*="sectionLabel"]{display:none}

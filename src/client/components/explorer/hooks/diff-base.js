@@ -4,10 +4,10 @@ import { fetchVcsBase } from '../../../api.js'
 /**
  * Base revision (HEAD / SVN BASE) of the file shown in the editor, fetched once per path + encoding.
  *
- * The editor diffs this text against its LIVE buffer, so the request is per file rather than per
- * keystroke; `epoch` lets the caller invalidate it (the header refresh, a commit or a branch switch
- * seen in the status payload). A failed read is reported as `error` and the gutter degrades to
- * "not computed" — never to a wrong set of marks.
+ * The editor diffs it against its LIVE buffer, so the request is per file, not per keystroke;
+ * `epoch` lets the caller invalidate it (the header refresh, a commit or a branch switch seen in
+ * the status payload). A failed read is `error` and the gutter degrades to "not computed" — never
+ * to a wrong set of marks.
  *
  * @param options - `{ workspaceId, path, encoding, enabled, epoch }`.
  * @returns `{ status: 'idle' | 'loading' | 'ready' | 'error', payload, message }`, where a `ready`

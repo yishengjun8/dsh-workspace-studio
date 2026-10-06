@@ -3,12 +3,12 @@ import { translate } from '../../locale/index.js'
 import { IconVcsBranch, IconVcsWarning } from '../../icons.js'
 
 /**
- * Version-control strip above the file tree: what repository the workspace belongs to,
- * how many changes it has, and the two display filters. The whole strip is absent when
- * the workspace has no repository, so a non-VCS workspace looks exactly as before.
+ * Version-control strip above the file tree: names the repository, shows its change count, and drives the
+ * two display filters. The whole strip is absent when the workspace has no repository, so a non-VCS
+ * workspace looks exactly as before.
  *
- * Every piece of change information lives in the tree itself (badges, directory roll-ups,
- * deleted ghost rows); this strip only names the repository and drives the two filters.
+ * Every piece of change information lives in the tree itself (badges, directory roll-ups, deleted ghost
+ * rows).
  */
 export function VcsBar({ model, changesOnly, showIgnored, ignored, onToggleChangesOnly, onToggleIgnored, onRefresh }) {
   if (model === undefined || model.visible !== true) return null

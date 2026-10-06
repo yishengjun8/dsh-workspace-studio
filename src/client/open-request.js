@@ -1,10 +1,9 @@
 import { createRequestStore } from './request-store.js'
 
-/* Module-wide open-file request bridge: the chat's file-open path asks the
-   mounted explorer to open a file as a preview tab. The explorer consumes a
-   request only when its workspace matches the request's workspaceId, so a
-   later mount never re-applies a stale request; a request with no mounted
-   explorer stays pending until the matching mount consumes it. */
+/* Module-wide open-file request bridge: the chat's file-open path asks the mounted
+   explorer to open a file as a preview tab. The explorer consumes a request only when
+   its workspace matches the request's workspaceId, so a later mount never re-applies a
+   stale request, and an unmounted explorer leaves it pending until the matching mount. */
 const pendingOpen = createRequestStore()
 
 export const fileOpenRequestStore = {

@@ -8,11 +8,11 @@ import { shouldSkipPoll } from '../../../poll-gate.js'
  * Working-copy status (git / svn) of the mounted workspace, shared by the status bar,
  * the tree badges and the changes list.
  *
- * One request per trigger, deduplicated through an AbortController; a failure keeps the
- * last good payload on screen (the bar reports the failure) so badges never flicker away.
- * Polling is skipped while the browser tab is hidden or the file-browsing pane is not laid
- * out — the tree lives in the sidebar's files region, which is `display:none` outside the
- * files view, and a status command must not be spawned for a pane nobody is looking at.
+ * One request per trigger, deduplicated through an AbortController; a failure keeps the last
+ * good payload on screen (the bar reports it) so badges never flicker away. Polling is skipped
+ * while the tab is hidden or the file-browsing pane is not laid out — the tree lives in the
+ * sidebar's files region, `display:none` outside the files view, and no status command may be
+ * spawned for a pane nobody is looking at.
  *
  * @param options - `{ workspaceId, enabled, autoRefresh, includeIgnored, isPaneVisible }`.
  * @returns `{ payload, overlay, error, loading, refresh, refreshSoon }`.

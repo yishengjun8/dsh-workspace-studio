@@ -1,9 +1,9 @@
 /** Change marks for the editor's gutter: what changed in the buffer relative to the repository base.
  *
- * Pure by design — the base text and the live document text go in, per-line marks and the summary
- * come out — so the mapping rules (including where a pure deletion's triangle lands) are testable
- * without a DOM or a CodeMirror view. The diff itself is the merge module's budgeted Myers, which
- * the save-time three-way merge already uses, so no extra diff implementation ships.
+ * Pure by design — base text and live document text in, per-line marks and the summary out — so the
+ * mapping rules (including where a pure deletion's triangle lands) are testable without a DOM or a
+ * CodeMirror view. The diff is the merge module's budgeted Myers, already used by the save-time
+ * three-way merge, so no extra diff implementation ships.
  */
 import { DIFF_GUTTER_MAX_LINES, DIFF_RULER_MAX_RUNS } from './constants.js'
 import { diffColorDefault } from './format.js'
@@ -66,8 +66,8 @@ export function diffMarks(baseText, docText) {
     }
     if (removed > 0 && inserted === 0) {
       summary.deleted += removed
-      /* Nothing in the document represents the removed lines, so the triangle sits on the line the
-         removal preceded — or on the last line's bottom edge when the removal was at end of file. */
+      /* The removed lines have no document representative, so the triangle sits on the line the
+         removal preceded — or the last line's bottom edge when the removal was at end of file. */
       const atEnd = docPos >= docLines.length
       mark(atEnd ? Math.max(1, docLines.length) : docPos + 1, { deleted: atEnd ? 'bottom' : 'top' })
     }
@@ -177,8 +177,7 @@ export function rulerLayers(marks, totalLines) {
     parts.push(`transparent ${cursor} 100%`)
     ticks = `linear-gradient(to bottom,${parts.join(',')})`
   }
-  /* Nothing to draw at all (a clean file, or marks the ruler cannot use): say so, so the caller
-     clears the track instead of writing an all-transparent gradient. */
+  /* Nothing to draw (a clean file, or marks the ruler cannot use): say so, so the caller clears the track instead of writing an all-transparent gradient. */
   if (bands === null && ticks === null) return null
   return { bands, ticks }
 }

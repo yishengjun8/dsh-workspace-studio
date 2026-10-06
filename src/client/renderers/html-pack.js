@@ -1,11 +1,10 @@
 /* HTML preview packing: collect statically declared relative classic scripts and stylesheets, read
-   them via the readRelated Remote, and build a bootstrap srcDoc. Relative URLs the packer does NOT
-   handle — images, fonts, media, CSS url(), and every reference a page script builds at runtime —
-   are resolved by the browser itself through the preview's token-gated site route, whose prefix the
-   caller passes in as `base` and the bootstrap installs as the document's <base>. That route is why
-   this packing can stay narrow: without it a srcdoc document resolves relative URLs against the
-   embedding application page (measured), and the opaque-origin frame cannot load a parent-created
-   blob URL. Ported from the harness html packer (MIT). */
+   them via the readRelated Remote, and build a bootstrap srcDoc. Relative URLs it does NOT handle —
+   images, fonts, media, CSS url(), and anything a page script builds at runtime — resolve through
+   the preview's token-gated site route, whose prefix the caller passes in as `base` and the bootstrap
+   installs as the document's <base>. That route is why this packing can stay narrow: without it a
+   srcdoc document resolves relative URLs against the embedding application page (measured), and the
+   opaque-origin frame cannot load a parent-created blob URL. Ported from the harness html packer (MIT). */
 const MAX_ASSET_BYTES = 4 * 1024 * 1024
 const MAX_TOTAL_BYTES = 32 * 1024 * 1024
 const MAX_ASSETS = 64

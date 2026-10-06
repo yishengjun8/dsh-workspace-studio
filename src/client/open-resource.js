@@ -8,10 +8,10 @@
  * tab, a path outside it as the session-only read-only preview. A PLAN address
  * (ui-plan's 「查看全文」 and the turn's plan card) is routed to planOpenStore
  * instead, a CHANGE-REVIEW address (ui-deliverables' changed-files card) to
- * reviewOpenStore, and any other address is handed back to the harness
- * implementation — its own registered tab types, or (because this layout mounts
- * no right-Sidebar seat) one notice instead of an uncaught throw. The patch only
- * claims the addresses this layout can actually draw.
+ * reviewOpenStore, and every other address to the harness implementation — its
+ * own registered tab types, or one notice instead of an uncaught throw for the
+ * missing seat. The patch claims only the addresses this layout can actually
+ * draw.
  *
  * The patch follows the sendSession bridge convention: a marker + recorded
  * original let an overlapping re-install unwrap a stale wrapper instead of

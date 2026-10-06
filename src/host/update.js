@@ -1,22 +1,20 @@
-/** Self-update support: check this plugin's GitHub repo (main-branch
-    package.json version vs the installed version — the repo publishes releases
-    as plain version bumps, no tags/releases are maintained) and, on request,
-    atomically swap the checked source tarball into the installed package
-    directory.
+/** Self-update support: check this plugin's GitHub repo (main-branch package.json
+    version vs the installed version — the repo publishes releases as plain version
+    bumps, no tags/releases) and, on request, atomically swap the checked source
+    tarball into the installed package directory.
 
     Transport note: MANY machines redirect github.com / api.github.com /
     raw.githubusercontent.com to a local TLS proxy via hosts entries (GitHub
     accelerators); Node's own CA store rejects that proxy's certificate while
     codeload.github.com is never redirected. The whole check + install path
-    therefore uses ONLY codeload.github.com, so the feature works on such
-    machines. The check downloads the main-branch tarball and CACHES the
-    extracted payload; the install consumes exactly those cached bytes
-    (verified again), so no check→install race exists and no commit pin is
-    needed.
+    therefore uses ONLY codeload.github.com. The check downloads the main-branch
+    tarball and CACHES the extracted payload; the install consumes exactly those
+    cached bytes (verified again), so no check→install race exists and no commit
+    pin is needed.
 
-    The running process keeps executing the OLD code until dsh is restarted,
-    so the check reports restartPending (on-disk version vs the version this
-    loaded module was built with) for the UI to surface a restart notice. */
+    The running process keeps executing the OLD code until dsh is restarted, so the
+    check reports restartPending (on-disk version vs the version this loaded module
+    was built with) for the UI to surface a restart notice. */
 import { gunzipSync } from 'node:zlib'
 import { readFileSync } from 'node:fs'
 import { promises as fsp } from 'node:fs'
@@ -35,17 +33,17 @@ const CHECK_TIMEOUT_MS = 30_000
 const DOWNLOAD_TIMEOUT_MS = 120_000
 const MAX_TARBALL_BYTES = 50 * 1024 * 1024
 const SEMVER_RE = /^\d+\.\d+\.\d+$/
-/* Reuse window for the cached check payload: an unforced check whose cached metadata is younger than this skips the (~MB) tarball download; 重新检查 / 重试 pass force=true and always fetch. */
+/* Reuse window for the cached check payload: an unforced check with younger metadata skips the (~MB) tarball download; 重新检查 / 重试 pass force=true and always fetch. */
 const CHECK_CACHE_TTL_MS = 15 * 60_000
 const CHECK_BASE = join(homedir(), '.dsh-plugin', 'dsh-workspace-studio', 'updates')
 const CHECKED_META = 'checked.json'
 const CHECKED_CONTENT = 'checked-content'
 
 let updateInProgress = false
-/* Serialize the checked-content directory exchange: two concurrent downloadAndCache calls would otherwise interleave their rename pairs — on Windows the second rename fails and a worse interleaving can leave the meta pointing at content that was renamed over. The downloads themselves may run concurrently; only the exchange is serialized. */
+/* Serialize the checked-content directory exchange: concurrent downloadAndCache calls would interleave their rename pairs — on Windows the second rename fails, and a worse interleaving can leave the meta pointing at content that was renamed over. Downloads may run concurrently; only the exchange is serialized. */
 let contentSwapChain = Promise.resolve()
 
-/** Own installed package directory. Everything in the host bundle is inlined into lib/index.js, so the root is located by walking up from this module's file until a package.json naming this plugin is found — import.meta.url always points at the bundle the user's profile actually loads, so the swap below targets the INSTALLED copy (in the dev layout it targets the checkout). */
+/** Own installed package directory: the host bundle is inlined into a single lib/index.js, so the root is found by walking up from this module's file to the package.json naming this plugin. import.meta.url points at the bundle the profile actually loads, so the swap targets the INSTALLED copy (in the dev layout, the checkout). */
 function ownPackageDir() {
   let dir = fileURLToPath(new URL('.', import.meta.url))
   for (let depth = 0; depth < 6; depth += 1) {
@@ -68,7 +66,7 @@ function readOwnPackageJson() {
   }
 }
 
-/* Version captured when THIS module loaded = the version of the running code. After a successful swap the on-disk package.json differs from it — exactly the "update installed, restart required" signal. */
+/* Version captured when THIS module loaded = the running code's version. After a successful swap the on-disk package.json differs — exactly the "update installed, restart required" signal. */
 const LOADED_VERSION = readOwnPackageJson()?.version ?? null
 
 function parseSemver(value) {
@@ -87,7 +85,7 @@ function compareVersions(a, b) {
   return 0
 }
 
-/* Install mode of the profile manifest's dependency spec: 'file' (local checkout / local path — the swap only replaces the profile copy), 'git' (fetched from GitHub, pinned by the profile lockfile), 'other' (anything else, including installs that are not laid out under a profile at all). Every source the README documents must land in one bucket: the settings panel picks its note from this, and the Desktop profile's own plugin page writes the `git+https://github.com/...` form — the old `file:`/`github:` prefix test reported that install as 'other', so its note never appeared. */
+/* Install mode of the profile manifest's dependency spec: 'file' (local checkout / local path — the swap only replaces the profile copy), 'git' (fetched from GitHub, pinned by the profile lockfile), 'other' (anything else, including installs that are not laid out under a profile at all). Every source the README documents must land in one bucket: the settings panel picks its note from this, and the Desktop profile's plugin page writes the `git+https://github.com/...` form — the old `file:`/`github:` prefix test reported that install as 'other', so its note never appeared. */
 const GIT_SPEC_PREFIXES = ['git+', 'github:', 'git@', 'git://']
 const GITHUB_URL_RE = /^https?:\/\/(?:www\.)?github\.com\//i
 const LOCAL_PATH_RE = /^(?:[A-Za-z]:[\\/]|[\\/]|\.{1,2}[\\/])/
@@ -99,7 +97,7 @@ function classifySpec(spec) {
   return 'other'
 }
 
-/** The profile root this module is installed under, or null. Both layouts are recognized: the hoisted tree (`<profile>/node_modules/<name>`) and pnpm's isolated virtual store (`<profile>/node_modules/.pnpm/<pkg>@<v>/node_modules/<name>`). A `link:` install resolves import.meta.url to the LINKED directory instead, so no profile is found — exactly the case the swap must refuse. */
+/** The profile root this module is installed under, or null. Recognizes the hoisted tree (`<profile>/node_modules/<name>`) and pnpm's virtual store (`<profile>/node_modules/.pnpm/<pkg>@<v>/node_modules/<name>`). A `link:` install resolves import.meta.url to the LINKED directory, so no profile is found — exactly the case the swap must refuse. */
 function profileDirOf(packageDir) {
   let dir = packageDir
   for (let depth = 0; depth < 8; depth += 1) {
@@ -139,9 +137,8 @@ async function inspectInstall() {
   }
 }
 
-/* The check cache's metadata. A file that cannot be parsed, or that does not carry the current
-   fields, is unusable (it can never satisfy the version comparison below), so it is quarantined and
-   treated as "no cache yet" — which only costs one re-download of the tarball. */
+/* Check-cache metadata: an unparseable file, or one lacking the current fields, can never satisfy
+   the version comparison below — quarantine it and treat as "no cache yet" (one re-download). */
 async function readCheckedMeta() {
   const path = join(CHECK_BASE, CHECKED_META)
   const read = await readJsonStrict(path)
@@ -211,7 +208,7 @@ async function downloadAndCache(timeoutMs) {
     }
     const version = pkg.version
     await verifyPackage(extracted, version)
-    /* Atomically replace the cached payload: old content aside → new in → drop the old; the meta is written only after the content landed, so a crash mid-swap leaves a stale meta whose content check fails (→ the next check re-downloads). The exchange runs under the module-level swap chain so concurrent callers cannot interleave their renames. */
+    /* Atomically replace the cached payload: old content aside → new in → drop the old; the meta is written only after the content landed, so a crash mid-swap leaves a stale meta whose content check fails (→ the next check re-downloads). Runs under the module-level swap chain so concurrent callers cannot interleave renames. */
     const contentDir = join(CHECK_BASE, CHECKED_CONTENT)
     const runSwap = contentSwapChain.then(async () => {
       const oldContent = join(CHECK_BASE, `${CHECKED_CONTENT}.old-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`)
@@ -239,7 +236,7 @@ async function downloadAndCache(timeoutMs) {
   }
 }
 
-/** Local-only facts about this installation, for the settings panel's permanently visible 「当前版本」 badge: the version sitting on disk in this profile, the install mode, whether the swap target is a profile copy, and whether the running code is stale (an update landed after startup). Reads one file and walks the directory layout — no network, no cache write, no install mutation, so the panel can call it the moment it opens (and offline). */
+/** Local-only facts for the settings panel's permanently visible 「当前版本」 badge: the on-disk version in this profile, the install mode, whether the swap target is a profile copy, and whether the running code is stale (an update landed after startup). No network, no cache write, no install mutation — the panel can call it the moment it opens (and offline). */
 export async function installedInfo(config) {
   const disk = readOwnPackageJson()
   const current = typeof disk?.version === 'string' ? disk.version : null
@@ -301,7 +298,7 @@ function parsePaxRecords(data) {
     const record = data.subarray(space + 1, cursor + length).toString('utf8')
     const eq = record.indexOf('=')
     if (eq !== -1) {
-      /* pax record values are newline-terminated ("len key=value\n"); the trailing newline is part of the record framing, NOT the value — a 'path' value carrying it would extract a file name with an embedded newline. */
+      /* pax values are newline-terminated ("len key=value\n"); that newline is record framing, NOT part of the value — a 'path' carrying it would extract a name with an embedded newline. */
       records.push({ key: record.slice(0, eq), value: record.slice(eq + 1).replace(/\r?\n$/, '') })
     }
     cursor += length
@@ -320,7 +317,7 @@ function validEntryPath(path) {
   return true
 }
 
-/** Minimal tar extraction: gunzip (node:zlib) + a ustar reader that also understands pax extended headers ('x' — git archive emits these for long paths) and GNU long names ('L'). Regular files and directories only; any other entry type or an invalid path fails the archive. */
+/** Minimal tar extraction: gunzip (node:zlib) + a ustar reader that also understands pax extended headers ('x' — git archive emits these for long paths) and GNU long names ('L'). Regular files/directories only; any other entry type or invalid path fails the archive. */
 async function extractTarball(tarballPath, destDir) {
   let tar
   try {
@@ -396,7 +393,7 @@ function uniqueSuffix() {
   return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
 }
 
-/** Atomic swap: rename the installed package dir aside, move the verified new copy into place, re-verify the installed copy, then KEEP the backup (a dev-layout install would otherwise destroy the previous working copy, including any uncommitted changes). Any failure rolls back to the backup before surfacing. */
+/** Atomic swap: rename the installed package dir aside, move the verified new copy in, re-verify, then KEEP the backup (a dev-layout install would otherwise destroy the previous working copy, including uncommitted changes). Any failure rolls back to the backup before surfacing. */
 async function swapPackage(extractedDir, version) {
   const packageDir = ownPackageDir()
   const parent = dirname(packageDir)
@@ -426,7 +423,7 @@ async function swapPackage(extractedDir, version) {
   }
 }
 
-/** Install the version the client received from the check: the payload is the CACHED checked tarball content (re-verified), fetched again only when the cache is missing or its version no longer matches — in which case the user must re-check first. The staging/swap happens on the same volume as the install in the standard layout; a cross-volume failure surfaces as a clear swap error and the backup rollback keeps the old install intact. */
+/** Install the version the client received from the check: the payload is the CACHED checked tarball content (re-verified), fetched again only when the cache is missing or its version no longer matches — the user must then re-check first. Staging/swap shares the install's volume in the standard layout; a cross-volume failure surfaces as a clear swap error and the backup rollback keeps the old install intact. */
 export async function downloadUpdate(ctx, config, payload) {
   if (config.enableUpdateCheck === false) {
     throw new HttpError(403, 'update-disabled', '已禁用检查更新')
@@ -454,7 +451,7 @@ export async function downloadUpdate(ctx, config, payload) {
     if (!install.insideProfile) {
       throw new HttpError(409, 'update-target-unsupported', `当前安装不在 profile 内（${install.packageDir}），已拒绝自动更新；请从插件页重装`)
     }
-    /* Consume the cached content under the SAME swap chain as downloadAndCache: a concurrent forced check renames checked-content away between cachedContentValid() and the install's renames — the install would fail (ENOENT → 409) or the verify-rollback would destroy the racing download's cached payload. The exchange is serialized; downloads themselves stay concurrent. */
+    /* Consume the cached content under the SAME swap chain as downloadAndCache: a concurrent forced check renames checked-content away between cachedContentValid() and the install's renames — the install would fail (ENOENT → 409) or the verify-rollback would destroy the racing download's cached payload. */
     const runInstall = contentSwapChain.then(() => swapPackage(contentDir, version))
     contentSwapChain = runInstall.catch(() => {})
     await runInstall

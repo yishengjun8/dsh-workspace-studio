@@ -50,8 +50,6 @@ function remember(key, entry) {
 }
 
 /**
- * Read one file's bytes through a Remote face.
- *
  * @param options.scope - cache namespace ('image' | 'pdf' | 'office').
  * @param options.read - the Remote call, or undefined while the face is not installed.
  * @param options.sessionId - owning session.

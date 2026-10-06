@@ -35,8 +35,7 @@ import {
   TREE_DEFAULT, TREE_MAX, TREE_MIN, VCS_HIDE_METADATA_DEFAULT, WATCH_FILES_DEFAULT, cssColorToHex,
 } from './constants.js'
 import { normalizePreviewSession, serializePreviewSession } from './preview-tabs.js'
-/* The store keys of every format BEFORE the current one. They are deleted on load: their content
-   is never interpreted, so nothing here has to know what those shapes were. */
+/* Store keys of every format before the current one: deleted on load and never interpreted, so nothing here knows those shapes. */
 const LEGACY_STORE_KEYS = Object.freeze([
   'dsh.workspace.studio.preview-sessions.v1',
   'dsh.workspace.studio.settings.v1',
@@ -225,10 +224,9 @@ function normalizePrices(value) {
   }
 }
 
-/* Preview snapshots: the tab shape itself is defined by normalizePreviewSession /
-   serializePreviewSession (the same pair the live explorer uses), so the gate only adds the
-   per-key storage rules — a snapshot with nothing left to restore is not stored at all, and the
-   stored session count is capped by most-recent update. */
+/* Preview snapshots: normalizePreviewSession / serializePreviewSession (the live explorer's own
+   pair) define the tab shape, so the gate only adds the per-key storage rules — a snapshot with
+   nothing left to restore is not stored, and the count is capped by most-recent update. */
 function normalizePreviewSessions(value) {
   if (!isPlainObject(value) || !isPlainObject(value.previewSessions)) return null
   const sessions = {}
@@ -246,8 +244,7 @@ function normalizePreviewSessions(value) {
   }
   const entries = Object.entries(sessions)
   if (entries.length > PREVIEW_SESSION_MAX) {
-    /* A stamp-less snapshot sorts as newest (the write path stamps every session, so an unstamped
-       one can only be hand-written data). */
+    /* A stamp-less snapshot sorts as newest: the write path stamps every session, so an unstamped one can only be hand-written data. */
     const stampOf = entry => (Number.isFinite(Number(entry[1].updatedAt)) ? Number(entry[1].updatedAt) : Infinity)
     entries.sort((a, b) => stampOf(b) - stampOf(a))
     return { previewSessions: Object.fromEntries(entries.slice(0, PREVIEW_SESSION_MAX)) }
@@ -255,8 +252,7 @@ function normalizePreviewSessions(value) {
   return { previewSessions: sessions }
 }
 
-/* Mind-map sidebar order: group key -> session-id list. A group whose value is not a list, or
-   whose ids are not usable strings, is dropped. */
+/* Mind-map sidebar order: group key -> session-id list; a group whose value is not a list, or whose ids are not usable strings, is dropped. */
 function normalizeMindmapOrder(value) {
   if (!isPlainObject(value)) return null
   const order = {}
@@ -316,7 +312,7 @@ export function readPersistedState(key, storage) {
   return schema.normalize(parsed)
 }
 
-/** Remove the keys of every previous format. Their content is never interpreted. */
+/** Remove every previous-format key; their content is never interpreted. */
 function dropLegacyPersistedState(storage) {
   const target = storageOf(storage)
   if (target === undefined) return
@@ -328,11 +324,11 @@ function dropLegacyPersistedState(storage) {
 }
 
 /**
- * Mount-time gate: delete every previous-format key, then make the current keys canonical on disk
- * (a key whose top level cannot be parsed at all is removed; a repaired value is written back).
- * Must run BEFORE any store is created, because the harness's persistence rehydrates a store by
- * replacing its whole state with the raw JSON. Never throws: a storage failure (private mode,
- * quota) leaves the raw value alone and the plugin keeps working from the schema-read defaults.
+ * Mount-time gate: drop every previous-format key, then make the current keys canonical on disk (an
+ * unparseable key is removed; a repaired value is written back). Must run BEFORE any store is
+ * created — the harness's persistence rehydrates a store by replacing its whole state with the raw
+ * JSON. Never throws: a storage failure (private mode, quota) leaves the raw value and the plugin
+ * keeps its schema-read defaults.
  */
 export function sanitizePersistedClientState(storage) {
   const target = storageOf(storage)

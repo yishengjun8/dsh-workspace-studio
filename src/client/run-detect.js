@@ -1,11 +1,10 @@
 /* Executable-file detection + run-console text helpers.
  *
  * Pure functions only (no React, no API): the extension whitelist is the SHARED table the Host also
- * resolves against (src/shared/run-extensions.js) so the UI's "offer a console" decision and the
+ * resolves against (src/shared/run-extensions.js), so the UI's "offer a console" decision and the
  * Host's resolver cannot drift; the state mapper turns one Host status payload into the console's
- * visual state, and the chunk accumulator turns streamed stdout/stderr bytes into the line list the
- * panel renders. Keeping them here makes "what does this file's console look like" testable without
- * a DOM or a Host.
+ * visual state, the chunk accumulator turns streamed stdout/stderr bytes into the rendered line list,
+ * and both are testable here without a DOM or a Host.
  */
 import { RUN_OUTPUT_LINE_MAX } from './constants.js'
 import { translate } from './locale/index.js'
