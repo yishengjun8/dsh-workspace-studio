@@ -88,7 +88,7 @@ function useDialogEscape(onCancel, busy) {
  *   hooks. An empty list means the dialog has no footer at all (the × / backdrop / Escape are its only
  *   ways out).
  */
-export function Modal({ busy, onCancel, title, className, bodyClassName, style, foot, dismissOnBackdrop = true, actions, children }) {
+export function Modal({ busy, onCancel, title, className, bodyClassName, style, foot, dismissOnBackdrop = true, actions = [], children }) {
   const dialogFocusRef = useDialogFocusTrap()
   return h('div', {
     className: 'dsh-ws-dialog-backdrop',

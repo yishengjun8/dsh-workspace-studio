@@ -929,21 +929,100 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-chat [data-variant="think"] [class*="thinkBody"]::-webkit-scrollbar-track{background:transparent}
 /* Think-card header chevron: nudge the disclosure glyph right off the card's left border edge. */
 .dsh-ws-chat [data-variant="think"] [data-disclosure-row] > span:first-child{margin-left:6px}
-/* Token statistics dialog (设置 → 工作区设置 → Token 统计): a wide, tall panel whose body scrolls between the fixed header and footer. */
-.dsh-ws-token-dialog{width:min(920px,100%);height:min(700px,92vh)}
-.dsh-ws-token-dialog .dsh-ws-dialog-body{flex:1;min-height:0;overflow-y:auto}
+/* Token statistics dialog (设置 → 工作区设置 → Token 统计): a wide panel split into two columns — the
+   model-detail column and the quick-calculator card — with the range controls and the foot line
+   full width above/below them. Each column owns one scrolling list, so a long model list can never
+   spill out of the panel or push the name filter / the calculator out of view; the whole dialog is a
+   flex column because the body's flex:1 / min-height:0 means nothing inside a block parent (the
+   rows would just overflow the fixed-height box and become unreachable). The body's own overflow is
+   only a fallback for a window too short to hold both columns' minimum height. */
+.dsh-ws-token-dialog{display:flex;flex-direction:column;width:min(1400px,100%);height:min(700px,92vh);overflow:hidden;border-radius:12px}
+.dsh-ws-token-dialog .dsh-ws-dialog-header,.dsh-ws-token-dialog .dsh-ws-token-foot{flex:none}
+.dsh-ws-token-dialog .dsh-ws-dialog-body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;gap:10px}
+.dsh-ws-token-dialog .dsh-ws-dialog-body>.dsh-ws-token-controls,
+.dsh-ws-token-dialog .dsh-ws-dialog-body>.dsh-ws-token-kpis{flex:none}
 .dsh-ws-token-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .dsh-ws-token-controls .dsh-ws-settings-select{flex:1;min-width:0;max-width:200px}
-/* Model name filter row (per-model view): a second controls line under the range/view selects. Reuses .dsh-ws-search-input for the field look and .dsh-ws-search-hit for matched fragments. */
-.dsh-ws-token-filter{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.dsh-ws-token-filter-field{position:relative;display:inline-flex;align-items:center;flex:1;min-width:0;max-width:300px}
+/* Model name filter: the left column's own control chip, framed exactly like the calculator's price
+   chips (same border / radius / fill) and like them hugging its content — align-self overrides the
+   column's stretch, and max-width:100% plus the field's own min-width:0 keeps the chip shrinking with
+   the card instead of overflowing it when the divider is dragged far right. Reuses
+   .dsh-ws-search-input for the field look and .dsh-ws-search-hit for matched fragments; the model
+   count it used to carry now lives in the column header. box-sizing:border-box is declared because
+   this plugin has no global reset — without it max-width:100% would cap the chip's content and the
+   padding+border would still push it past the card's edge on a narrow column. */
+.dsh-ws-token-filter{display:flex;align-items:center;gap:8px;flex-wrap:wrap;align-self:flex-start;box-sizing:border-box;max-width:100%;padding:5px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2)}
+.dsh-ws-token-filter-field{position:relative;display:inline-flex;align-items:center;flex:1 1 auto;width:300px;min-width:0;max-width:340px}
 .dsh-ws-token-filter-field .dsh-ws-search-input{width:100%;height:28px;padding-right:26px}
 .dsh-ws-token-filter-clear{position:absolute;right:3px;width:22px;height:22px;font-size:15px;line-height:1}
-.dsh-ws-token-filter-count{flex:none;margin-left:auto;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;white-space:nowrap;font-variant-numeric:tabular-nums}
 .dsh-ws-token-date{height:28px;padding:0 6px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;box-sizing:border-box}
 .dsh-ws-token-date:disabled{opacity:.5}
 .dsh-ws-token-check{display:inline-flex;align-items:center;gap:5px;color:var(--dsw-alias-label-secondary);font-size:12px;cursor:pointer;user-select:none}
-.dsh-ws-token-table-wrap{overflow-x:auto;border:1px solid var(--dsw-alias-border-l2);border-radius:8px}
+/* Two-column body: 模型明细 (left) | 快速计算 (right). flex, never grid — a grid auto row takes its
+   content height and ignores the container, so a long list would blow the panel open; flex's
+   flex:1 1 0% + min-height:0 is what actually hands each column the leftover height and lets the
+   table inside scroll. box-sizing is declared here because this plugin has no global reset. */
+.dsh-ws-token-split{display:flex;flex:1 1 0%;gap:0;min-width:0;min-height:220px}
+.dsh-ws-token-pane{display:flex;flex:1 1 0%;flex-direction:column;gap:8px;box-sizing:border-box;min-width:0;min-height:0}
+/* Both columns are one card design: same border, radius, padding and fill, so the panel reads as two
+   equal halves and only the divider tells them apart. box-sizing is border-box (base rule above), so
+   the left column's remembered pixel width still includes its border — the divider's maths is
+   unaffected by the card. */
+.dsh-ws-token-pane[data-side='left'],
+.dsh-ws-token-pane[data-side='right']{padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-2)}
+/* Never dragged: the built-in ratio, so both columns keep scaling with the window. */
+.dsh-ws-token-split>.dsh-ws-token-pane[data-side='left']{flex-grow:1.08}
+.dsh-ws-token-split>.dsh-ws-token-pane[data-side='right']{flex-grow:0.92}
+/* Dragged at least once: the left column is the remembered pixel width. max-width is the second
+   clamp — a width stored on a wide window must not squeeze the right column on a narrow one. */
+.dsh-ws-token-split[data-custom]>.dsh-ws-token-pane[data-side='left']{flex:0 1 auto;width:var(--dsh-ws-token-split);max-width:calc(100% - 424px)}
+/* …and the right column must then take the WHOLE remainder. The two ratio factors add up to 2, so in
+   the default state both columns grow and the panel fills exactly; with the left column pinned, its
+   grow factor is 0 and the only one left is 0.92 — and by the flexbox rule for a grow-factor sum below
+   one, only that fraction of the free space is handed out and the rest is left unused. The card then
+   floated inward by a gap (8% of the remainder) that changed with every drag, so its right border no
+   longer lined up with the panel's right edge / the summary strip above it. */
+.dsh-ws-token-split[data-custom]>.dsh-ws-token-pane[data-side='right']{flex-grow:1}
+.dsh-ws-token-pane-head{display:flex;align-items:center;gap:8px;flex:none}
+.dsh-ws-token-pane-title{display:inline-flex;align-items:center;gap:8px;color:var(--dsw-alias-label-primary);font-size:13px;font-weight:600;line-height:20px}
+.dsh-ws-token-pane-title::before{content:'';flex:none;width:3px;height:13px;border-radius:2px;background:var(--dsw-alias-state-business-primary)}
+/* The trailing figure of a column header: both columns render the same 选中 N 个模型 line, pushed to
+   the far right of their own card, so the two headers line up and only the titles differ. */
+.dsh-ws-token-pane-sub{flex:none;margin-left:auto;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;white-space:nowrap;font-variant-numeric:tabular-nums}
+/* Left column: the filter is fixed, the table is scroll region 1. */
+.dsh-ws-token-pane[data-side='left']>.dsh-ws-token-filter,
+.dsh-ws-token-pane[data-side='left']>.dsh-ws-token-state{flex:none}
+.dsh-ws-token-pane[data-side='left']>.dsh-ws-token-table-wrap{flex:1 1 auto;min-height:0}
+.dsh-ws-token-pane[data-side='left']>.dsh-ws-token-state{flex:1 1 auto;justify-content:center}
+/* Right column: the quick-calculator card. Header and price chips are fixed, the money table is
+   scroll region 2. The old padding-top + border-top divider is gone — the card's own border does it. */
+.dsh-ws-token-cost{gap:8px}
+.dsh-ws-token-pane[data-side='right']>.dsh-ws-token-cost-head,
+.dsh-ws-token-pane[data-side='right']>.dsh-ws-token-prices{flex:none}
+.dsh-ws-token-pane[data-side='right']>.dsh-ws-token-table-wrap{flex:1 1 auto;min-height:0}
+/* Summary strip above the split. Hidden whenever there is nothing to summarize. The six cards are
+   the five token figures plus the quick calculator's money total, so the strip ends on the number
+   the user came for. */
+.dsh-ws-token-kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}
+.dsh-ws-token-kpi{display:flex;flex-direction:column;gap:2px;padding:8px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2);box-sizing:border-box}
+.dsh-ws-token-kpi-label{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}
+.dsh-ws-token-kpi-value{color:var(--dsw-alias-label-primary);font-size:16px;font-weight:600;line-height:22px;font-variant-numeric:tabular-nums}
+.dsh-ws-token-kpi[data-accent] .dsh-ws-token-kpi-value{color:var(--dsw-alias-state-business-primary)}
+/* The money card reuses the money column's success tint; a genuine zero (no prices filled in yet)
+   stays quiet instead of shouting a green ¥0.0000. */
+.dsh-ws-token-kpi[data-money] .dsh-ws-token-kpi-value{color:var(--dsw-alias-state-success-primary)}
+.dsh-ws-token-kpi[data-money][data-zero] .dsh-ws-token-kpi-value{color:var(--dsw-alias-label-tertiary);font-weight:400}
+/* The token panel's divider: the shared .dsh-ws-splitter drag/keyboard behaviour, placed as a real
+   flex child instead of an absolutely positioned frame handle. Declared after the base rule on
+   purpose — same specificity, so source order is what makes the inline variant win. */
+.dsh-ws-splitter-inline{position:relative;top:auto;bottom:auto;left:auto;z-index:2;flex:none;align-self:stretch;width:14px;height:auto;margin:0}
+.dsh-ws-splitter-inline::after{left:6px;border-radius:2px}
+.dsh-ws-splitter-inline:focus-visible{outline:none}
+.dsh-ws-token-table-wrap{overflow:auto;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;scrollbar-width:thin;scrollbar-color:var(--dsw-alias-scrollbar-bg-l2,transparent) transparent}
+.dsh-ws-token-table-wrap::-webkit-scrollbar{width:8px;height:8px}
+.dsh-ws-token-table-wrap::-webkit-scrollbar-thumb{background:var(--dsw-alias-scrollbar-bg-l2,transparent);border:2px solid transparent;border-radius:8px;background-clip:padding-box}
+.dsh-ws-token-table-wrap::-webkit-scrollbar-thumb:hover{background:var(--dsw-alias-scrollbar-hover-l2,transparent);background-clip:padding-box}
+.dsh-ws-token-table-wrap::-webkit-scrollbar-track{background:transparent}
 .dsh-ws-token-table{width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap}
 .dsh-ws-token-table th{position:sticky;top:0;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-weight:600;text-align:right;padding:7px 12px;border-bottom:1px solid var(--dsw-alias-border-l2);z-index:1}
 .dsh-ws-token-table th:first-child,.dsh-ws-token-table td:first-child{text-align:left}
@@ -954,6 +1033,10 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-token-table .dsh-ws-token-chk{width:34px;text-align:center;padding:7px 6px}
 .dsh-ws-token-table .dsh-ws-token-model{max-width:280px;overflow:hidden;text-overflow:ellipsis;text-align:left}
 .dsh-ws-token-table .dsh-ws-token-total-row td{font-weight:700;background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 8%,transparent)}
+/* The summary row rides the bottom of its own scroll region, so scrolling a long list never hides
+   the totals. Both tables use the same row class; the opaque background is required — the plain
+   total-row tint above is translucent and the rows scrolling underneath would show through. */
+.dsh-ws-token-table tr.dsh-ws-token-total-row td{position:sticky;bottom:0;z-index:1;background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 8%,var(--dsw-alias-bg-layer-1))}
 /* The whole model row is a second hit area for its checkbox: pointer cursor on the row (the checkbox cell keeps the normal cursor) plus a slightly stronger hover/active tint, so the click target is obvious without adding a hint line. Specificity beats the plain row-hover rule above. */
 .dsh-ws-token-table tbody tr.dsh-ws-token-selectable{cursor:pointer}
 .dsh-ws-token-table tbody tr.dsh-ws-token-selectable:hover td{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent)}
@@ -964,18 +1047,18 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-token-foot{padding:10px 14px;border-top:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:17px;display:flex;flex-direction:column;gap:2px}
 .dsh-ws-token-failed{color:var(--dsw-alias-state-error-primary)}
 .dsh-ws-token-warming{color:var(--dsw-alias-label-secondary)}
-/* ---- Quick calculator at the bottom of the token-stats panel: shared unit prices (per 1M tokens) as one bordered chip per field, plus a per-model amount table whose price line sits on its own row so the table stays at five columns and never needs a horizontal scrollbar. No new colors — the money column reuses the success tint, everything else the shared aliases. ---- */
-.dsh-ws-token-cost{display:flex;flex-direction:column;gap:8px;padding-top:10px;border-top:1px solid var(--dsw-alias-border-l2)}
+/* ---- Quick calculator: the right column of the split — shared unit prices (per 1M tokens) as one bordered chip per field, plus a per-model amount table whose price line sits on its own row so the table stays at five columns and never needs a horizontal scrollbar. No new colors — the money column reuses the success tint, everything else the shared aliases. The card look (border / radius / padding) lives with the pane rules above. ---- */
+.dsh-ws-token-cost{display:flex;flex-direction:column;gap:8px}
 .dsh-ws-token-cost-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .dsh-ws-token-cost-title{display:inline-flex;align-items:center;gap:8px;color:var(--dsw-alias-label-primary);font-size:13px;font-weight:600;line-height:20px}
 .dsh-ws-token-cost-title::before{content:'';flex:none;width:3px;height:13px;border-radius:2px;background:var(--dsw-alias-state-business-primary)}
-.dsh-ws-token-cost-sub{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}
-.dsh-ws-token-cost-head .dsh-ws-text-button{margin-left:auto;height:24px;font-size:11px}
 /* Default prices: one chip = one label + its input. The chip is flex:none and the label never wraps, so a narrow panel breaks between chips and a label can never drift away from its own box. */
 .dsh-ws-token-prices{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-.dsh-ws-token-price-group{display:inline-flex;flex:none;align-items:center;gap:6px;padding:4px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2)}
+/* Default prices: one chip = one label + its input. The chip is flex:none and the label never wraps, so a narrow panel breaks between chips and a label can never drift away from its own box. Padding (5px) + a 28px input give a 40px chip — exactly the height of the model-filter chip in the left column, which must stay equal: the two control rows sit in twin cards at the same y, and a 4px difference reads as a misalignment. Change one side and change the other. */
+.dsh-ws-token-price-group{display:inline-flex;flex:none;align-items:center;gap:6px;padding:5px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2)}
 .dsh-ws-token-price-label{flex:none;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:16px;white-space:nowrap}
-.dsh-ws-token-price-input{width:66px;height:26px;padding:0 7px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;text-align:right;font-variant-numeric:tabular-nums;box-sizing:border-box}
+/* 28px, the same height the filter chip's search field uses, so both control rows measure 40px. The per-row override boxes inside the money table keep their own 24px (rule further down). */
+.dsh-ws-token-price-input{width:66px;height:28px;padding:0 7px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;text-align:right;font-variant-numeric:tabular-nums;box-sizing:border-box}
 .dsh-ws-token-price-input:focus{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}
 .dsh-ws-token-price-input::placeholder{color:var(--dsw-alias-label-caption);opacity:.75}
 .dsh-ws-token-price-cur{width:40px;text-align:center}
@@ -999,7 +1082,6 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-token-cost-table .dsh-ws-token-money{font-weight:600;color:var(--dsw-alias-state-success-primary)}
 .dsh-ws-token-cost-table .dsh-ws-token-money[data-zero]{color:var(--dsw-alias-label-tertiary);font-weight:400}
 .dsh-ws-token-cost-table .dsh-ws-token-total-row td.dsh-ws-token-money{font-size:13px}
-.dsh-ws-token-cost-note{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}
 .dsh-ws-token-override-clear{flex:none;width:22px;height:22px;padding:0;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:transparent;color:var(--dsw-alias-label-caption);font:inherit;font-size:11px;line-height:1;cursor:pointer}
 .dsh-ws-token-override-clear:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 /* Executable-file run console (see run-panel.js / run-store.js): the preview column's lower half

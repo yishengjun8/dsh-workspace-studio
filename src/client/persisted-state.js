@@ -29,8 +29,10 @@ import {
   MINDMAP_SUMMARY_MAX_LENGTH, MINDMAP_SUMMARY_MIN_LENGTH, MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH, MINDMAP_SUMMARY_SESSION_LENGTH_STEP,
   MINDMAP_SUMMARY_SESSION_MAX_LENGTH, MINDMAP_SUMMARY_SESSION_MIN_LENGTH, PREVIEW_DEFAULT, PREVIEW_MAX, PREVIEW_MIN, PREVIEW_RIGHT_DEFAULT,
   PREVIEW_SESSION_MAX, PREVIEW_SESSION_STORE_KEY, ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MAX, ROW_HEIGHT_MIN, SEARCH_MATCH_EXPAND_DEFAULT, SIDEBAR_DEFAULT,
-  SIDEBAR_MIN, THINK_LINES_DEFAULT, THINK_LINES_MAX, THINK_LINES_MIN, TOKEN_CURRENCY_MAX_LENGTH, TOKEN_PRICE_DEFAULT_CURRENCY, TOKEN_PRICE_FIELDS,
-  TOKEN_PRICE_MAX_LENGTH, TOKEN_PRICES_STORE_KEY, TREE_DEFAULT, TREE_MAX, TREE_MIN, VCS_HIDE_METADATA_DEFAULT, WATCH_FILES_DEFAULT, cssColorToHex,
+  SIDEBAR_MIN, THINK_LINES_DEFAULT, THINK_LINES_MAX, THINK_LINES_MIN, TOKEN_CURRENCY_MAX_LENGTH, TOKEN_LAYOUT_STORE_KEY,
+  TOKEN_PRICE_DEFAULT_CURRENCY, TOKEN_PRICE_FIELDS,
+  TOKEN_PRICE_MAX_LENGTH, TOKEN_PRICES_STORE_KEY, TOKEN_SPLIT_DEFAULT, TOKEN_SPLIT_MAX, TOKEN_SPLIT_MIN,
+  TREE_DEFAULT, TREE_MAX, TREE_MIN, VCS_HIDE_METADATA_DEFAULT, WATCH_FILES_DEFAULT, cssColorToHex,
 } from './constants.js'
 import { normalizePreviewSession, serializePreviewSession } from './preview-tabs.js'
 /* The store keys of every format BEFORE the current one. They are deleted on load: their content
@@ -197,6 +199,12 @@ const LAYOUT_SCHEMA = Object.freeze({
   sidebar: { kind: 'number', min: SIDEBAR_MIN, max: SIDEBAR_PERSIST_SANITY_MAX, zeroAllowed: true, default: SIDEBAR_DEFAULT },
 })
 
+/* Token-stats panel geometry: one draggable divider. 0 is a real state ("never dragged", the panel
+   then uses its built-in column ratio), so zero is allowed and is also the default. */
+const TOKEN_LAYOUT_SCHEMA = Object.freeze({
+  split: { kind: 'number', min: TOKEN_SPLIT_MIN, max: TOKEN_SPLIT_MAX, zeroAllowed: true, default: TOKEN_SPLIT_DEFAULT },
+})
+
 /* Token-price records drop every field the current schema does not name. */
 function normalizePrices(value) {
   if (!isPlainObject(value)) return null
@@ -274,6 +282,7 @@ function normalizeMindmapLastSession(value) {
 const PERSISTED_SCHEMAS = Object.freeze({
   [EXPLORER_SETTINGS_STORE_KEY]: { normalize: value => normalizeBySchema(SETTINGS_SCHEMA, value) },
   [EXPLORER_LAYOUT_STORE_KEY]: { normalize: value => normalizeBySchema(LAYOUT_SCHEMA, value) },
+  [TOKEN_LAYOUT_STORE_KEY]: { normalize: value => normalizeBySchema(TOKEN_LAYOUT_SCHEMA, value) },
   [TOKEN_PRICES_STORE_KEY]: { normalize: normalizePrices },
   [PREVIEW_SESSION_STORE_KEY]: { normalize: normalizePreviewSessions },
   [MINDMAP_ORDER_STORE_KEY]: { normalize: normalizeMindmapOrder },

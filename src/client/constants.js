@@ -31,6 +31,13 @@ export const TOKEN_PRICE_MAX_LENGTH = 14
    dropped by the persisted-state gate. */
 export const TOKEN_PRICE_FIELDS = Object.freeze(['input', 'cacheRead', 'output'])
 export const TOKEN_PRICE_DEFAULT_CURRENCY = '¥'
+/* Token-stats panel geometry: the draggable divider between the model-detail column and the
+   quick-calculator column. Its own key (not the explorer layout key) because that key is
+   serialized wholesale by its store, so a foreign field written into it would be wiped on the
+   store's next write. 0 = never dragged: the panel then uses the built-in column ratio, so the
+   two columns keep scaling with the window; any other value is the left column's pixel width. */
+export const TOKEN_LAYOUT_STORE_KEY = 'dsh.workspace.studio.token-layout.v1'
+export const TOKEN_SPLIT_DEFAULT = 0, TOKEN_SPLIT_MIN = 380, TOKEN_SPLIT_MAX = 980, TOKEN_SPLIT_RIGHT_MIN = 440
 export const SIDEBAR_DEFAULT = 280, SIDEBAR_COLLAPSED = 56, SIDEBAR_MIN = 240, SIDEBAR_MAX_RATIO = 0.8, SIDEBAR_MAX_FALLBACK = 420
 export const EXPLORER_MAX_RATIO = 0.8
 export const TREE_DEFAULT = 280, TREE_MIN = 220, TREE_MAX = 520

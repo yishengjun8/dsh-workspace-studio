@@ -1,17 +1,20 @@
-/** Token usage statistics: settings group (设置 → 工作区设置 → Token 统计) with a modal panel that queries the Host's token-stats endpoint. Ranges (standard week/month presets and a custom date pair) are resolved to [from, to) epoch-ms in the browser's local timezone; the per-model view checkboxes decide which models feed the Summary row. That view also carries a name-fragment filter: keywords are matched (case-insensitively, OR-combined) against the whole `provider/model` label and narrow both the table and the Summary row — client-side only, so it never re-queries the Host. The Host answers from its cached usage index and flags `warming` while a background scan is still running, so the panel shows the partial numbers and polls until that scan settles.
+/** Token usage statistics: settings group (设置 → 工作区设置 → Token 统计) with a wide modal panel that queries the Host's token-stats endpoint. Ranges (today, the standard week/month presets and a custom date pair) are resolved to [from, to) epoch-ms in the browser's local timezone; the per-model view checkboxes decide which models feed the Summary row. That view also carries a name-fragment filter: keywords are matched (case-insensitively, OR-combined) against the whole `provider/model` label and narrow both the table and the Summary row — client-side only, so it never re-queries the Host. The Host answers from its cached usage index and flags `warming` while a background scan is still running, so the panel shows the partial numbers and polls until that scan settles.
 
-Below the table sits the quick calculator: three unit-price fields (input / cache read / output, per 1M tokens), a currency symbol and one money column. It multiplies the Host's own token numbers — the same visible rows the Summary covers — so nothing has to be retyped, and every row may override any of the three prices (an empty cell falls back to the shared default). Prices are per-million-token numbers only; the panel never guesses a unit or a rate. Everything typed here (defaults, per-row overrides, currency) is local-only localStorage state and is never sent to the Host. */
+The body is two columns, both drawn as the same card: on the left the model-detail column (its own title with the live count of selected models on the right, the name filter in its own bordered band, the per-model table); on the right the quick calculator (three unit-price fields — input / cache read / output, per 1M tokens — a currency symbol and one money column), whose header carries the same selected-model count so the two cards read alike. Each column scrolls its own list, so a long model list can never push the filter or the calculator out of the panel; a draggable divider between them sets the left column's pixel width, remembered across panel opens (0 = never dragged → the built-in column ratio, so the columns keep scaling with the window; a double-click on the divider goes back to that ratio). The calculator has no collapse button: both columns are the same card, and the divider already gives the model list more room than hiding one list ever could. Prices multiply the Host's own token numbers — the same visible rows the Summary covers — so nothing has to be retyped, and every row may override any of the three prices (an empty cell falls back to the shared default). Everything typed here (defaults, per-row overrides, currency) is local-only localStorage state and is never sent to the Host. */
 import { createElement as h, Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { translate } from '../locale/index.js'
 import { PanelState } from '../panel-state.js'
 import { fetchTokenStats } from '../api.js'
-import { TOKEN_CURRENCY_MAX_LENGTH, TOKEN_PRICE_DEFAULT_CURRENCY, TOKEN_PRICE_FIELDS, TOKEN_PRICE_MAX_LENGTH, TOKEN_PRICES_STORE_KEY } from '../constants.js'
+import { TOKEN_CURRENCY_MAX_LENGTH, TOKEN_LAYOUT_STORE_KEY, TOKEN_PRICE_DEFAULT_CURRENCY, TOKEN_PRICE_FIELDS, TOKEN_PRICE_MAX_LENGTH, TOKEN_PRICES_STORE_KEY, TOKEN_SPLIT_DEFAULT, TOKEN_SPLIT_MIN, TOKEN_SPLIT_RIGHT_MIN } from '../constants.js'
 import { readPersistedState } from '../persisted-state.js'
 import { Modal } from './dialogs.js'
+import { ResizeHandle } from './menus.js'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const WEEK_MS = 7 * DAY_MS
-const TOKEN_RANGE_IDS = ['this-week', 'last-week', 'this-month', 'last-month', 'all', 'custom']
+/* Dropdown order is this array's order, not the selected value's: 当天 comes before 本周 while the
+   dialog still OPENS on 本周 (see the range state's initial value). */
+const TOKEN_RANGE_IDS = ['today', 'this-week', 'last-week', 'this-month', 'last-month', 'all', 'custom']
 
 function startOfDay(date) {
   const d = new Date(date)
@@ -57,6 +60,8 @@ function rangeBoundsOf(range, startDate, endDate) {
   const weekStart = startOfIsoWeek(current)
   const monthStart = startOfMonth(current)
   switch (range) {
+    case 'today':
+      return { from: startOfDay(current).getTime(), to: now }
     case 'this-week':
       return { from: weekStart.getTime(), to: now }
     case 'last-week':
@@ -123,6 +128,19 @@ function writePersistedTokenPrices(state) {
   try {
     localStorage.setItem(TOKEN_PRICES_STORE_KEY, JSON.stringify(state))
   } catch { /* quota / private mode: the calculator keeps working in memory */ }
+}
+/* The divider between the two columns is remembered across panel opens (0 = never dragged, i.e.
+   the built-in column ratio). Same contract as the prices: the shape lives in persisted-state.js,
+   so an absent or unusable key just yields the default. */
+function readPersistedTokenSplit() {
+  const layout = readPersistedState(TOKEN_LAYOUT_STORE_KEY)
+  return layout === null ? TOKEN_SPLIT_DEFAULT : layout.split
+}
+function writePersistedTokenSplit(split) {
+  if (typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(TOKEN_LAYOUT_STORE_KEY, JSON.stringify({ split }))
+  } catch { /* quota / private mode: the width still applies for this session */ }
 }
 /* A price input; `placeholder` shows the effective default inside an empty per-row override cell, so "leave empty to use the default price" is visible without a tooltip. */
 function priceInput(options) {
@@ -219,15 +237,40 @@ function TokenStatsDialog({ onClose }) {
   const [filterQuery, setFilterQuery] = useState('')
   /* Quick calculator: shared unit prices + per-model overrides + currency symbol, restored from localStorage and written back on every change. */
   const [priceState, setPriceState] = useState(readPersistedTokenPrices)
-  const [costCollapsed, setCostCollapsed] = useState(false)
   /* Models whose price line the user revealed by clicking the row. In-memory only: a reload starts collapsed again, except for rows that carry their own prices — those are persisted and therefore always open. */
   const [openPriceRows, setOpenPriceRows] = useState(() => new Set())
+  /* Two-column geometry: the persisted left-column width (0 = never dragged) plus the measured
+     widths the divider needs — its drag base and its ceiling come from the live panel, never from
+     a remembered number that a smaller window would make wrong. */
+  const [splitWidth, setSplitWidth] = useState(readPersistedTokenSplit)
+  const [splitBoxWidth, setSplitBoxWidth] = useState(0)
+  const [leftPaneWidth, setLeftPaneWidth] = useState(0)
+  const splitRef = useRef(null)
+  const leftPaneRef = useRef(null)
   const mountedRef = useRef(true)
   useEffect(() => {
     mountedRef.current = true
     return () => { mountedRef.current = false }
   }, [])
   useEffect(() => { writePersistedTokenPrices(priceState) }, [priceState])
+  useEffect(() => { writePersistedTokenSplit(splitWidth) }, [splitWidth])
+  /* Measure the split container and the left column (same measure + ResizeObserver shape as
+     review-view.js): the observer also catches window/locale/font reflows, and the one-shot call
+     keeps a browser without ResizeObserver usable. */
+  useEffect(() => {
+    const box = splitRef.current
+    if (box === null) return undefined
+    const measure = () => {
+      setSplitBoxWidth(box.getBoundingClientRect().width)
+      const left = leftPaneRef.current
+      if (left !== null) setLeftPaneWidth(left.getBoundingClientRect().width)
+    }
+    measure()
+    if (typeof ResizeObserver !== 'function') return undefined
+    const observer = new ResizeObserver(measure)
+    observer.observe(box)
+    return () => observer.disconnect()
+  }, [])
   const setDefaultPrice = useCallback((field, text) => {
     setPriceState(prev => ({ ...prev, prices: { ...prev.prices, [field]: sanitizePriceInput(text) } }))
   }, [])
@@ -356,6 +399,17 @@ function TokenStatsDialog({ onClose }) {
   }, { calls: 0, input: 0, cacheRead: 0, output: 0 })
   /* The token panel's state line: the shared panel message pinned to this panel's class. */
   const stateBox = (text, isError) => h(PanelState, { className: 'dsh-ws-token-state', error: isError === true, layout: 'inline', message: text })
+  /* Both column headers carry the same figure: how many models the totals actually cover — the visible
+     rows minus the ones the user unchecked — so the two headers can never disagree with each other or
+     with the 汇总 / 合计 rows below them (`costIncluded` is that identical set in the model view and an
+     unfiltered `rows` in the total view, so one source serves both). Declared here, above the quick
+     calculator, because that block renders its own copy of the line: a definition further down would be
+     in its temporal dead zone (see dev-notes §16). `live` is set on the left column only — that is where
+     the checkboxes are, and two polite live regions carrying one string would read it out twice. */
+  const countLine = live => rows.length === 0 ? null : h('span', {
+    ...(live === true ? { 'aria-live': 'polite' } : {}),
+    className: 'dsh-ws-token-pane-sub',
+  }, translate('tokens.selectedCount', { n: fmtCount(summaryRows.length) }))
   let content
   if (invalid !== null) {
     content = stateBox(invalid, true)
@@ -436,14 +490,14 @@ function TokenStatsDialog({ onClose }) {
   const defaultPricePlaceholder = field => (priceState.prices[field] === undefined || priceState.prices[field] === '' ? '0' : priceState.prices[field])
   /* `dash` marks a row that is excluded from the total; `muted` keeps a genuine zero (no prices filled in yet) visually quiet instead of hiding it. */
   const costAmountCell = (value, { dash = false, muted = false } = {}) => h('td', { className: 'dsh-ws-token-money', ...(muted ? { 'data-zero': true } : {}) }, dash ? '—' : fmtMoney(value, priceState.currency))
-  const costSection = costRows.length === 0 ? null : h('div', { className: 'dsh-ws-token-cost' },
+  /* The quick calculator is the right-hand column of the split, so it carries the pane geometry too. */
+  const costSection = costRows.length === 0 ? null : h('div', { className: 'dsh-ws-token-pane dsh-ws-token-cost', 'data-side': 'right' },
     h('div', { className: 'dsh-ws-token-cost-head' },
       h('span', { className: 'dsh-ws-token-cost-title' }, translate('tokens.cost.title')),
-      h('span', { className: 'dsh-ws-token-cost-sub' }, translate('tokens.cost.sub', { n: fmtCount(costIncluded.length), amount: fmtMoney(costTotal, priceState.currency) })),
-      h('button', { className: 'dsh-ws-text-button', onClick: () => setCostCollapsed(value => !value), type: 'button' },
-        costCollapsed ? translate('tokens.cost.expand') : translate('tokens.cost.collapse'))),
-    costCollapsed ? null : h(Fragment, null,
-      /* One bordered chip per default price: each label stays glued to its own input, so which box belongs to which price is unmistakable. */
+      h('span', { className: 'dsh-ws-token-price-unit' }, translate('tokens.cost.unit')),
+      countLine(false)),
+    h(Fragment, null,
+      /* One bordered chip per default price: each label stays glued to its own input, so which box belongs to which price is unmistakable. The unit (per 1M tokens) is stated once, in this column's header — a second copy here would wrap onto its own line as soon as the column narrows. */
       h('div', { className: 'dsh-ws-token-prices' },
         h('span', { className: 'dsh-ws-token-price-group' },
           h('label', { className: 'dsh-ws-token-price-label', htmlFor: 'dsh-ws-token-currency' }, translate('tokens.cost.currencyShort')),
@@ -464,8 +518,7 @@ function TokenStatsDialog({ onClose }) {
             id: `dsh-ws-token-price-${field}`,
             onChange: text => setDefaultPrice(field, text),
             value: priceState.prices[field] ?? '',
-          }))),
-        h('span', { className: 'dsh-ws-token-price-unit' }, translate('tokens.cost.unit'))),
+          })))),
       h('div', { className: 'dsh-ws-token-table-wrap' },
         h('table', { className: 'dsh-ws-token-table dsh-ws-token-cost-table' },
           h('thead', null, h('tr', null,
@@ -524,8 +577,60 @@ function TokenStatsDialog({ onClose }) {
             h('tr', { className: 'dsh-ws-token-total-row' },
               h('td', { className: 'dsh-ws-token-model' }, translate('tokens.cost.totalRow')),
               TOKEN_PRICE_FIELDS.map(field => h('td', { key: `token-${field}` }, fmtCount(costIncluded.reduce((sum, row) => sum + (Number(row[field]) || 0), 0)))),
-              costAmountCell(costTotal, { muted: costTotal === 0 }))))),
-      h('div', { className: 'dsh-ws-token-cost-note' }, translate('tokens.cost.formula'))))
+              costAmountCell(costTotal, { muted: costTotal === 0 })))))))
+  /* One card per summary figure above the split: the same numbers the left table's own Summary row
+     carries, lifted into view so a long list never hides them. The last card previews the quick
+     calculator's money total — same rows, same prices, same formula as the money table's 合计 row,
+     so the two can never disagree. */
+  const kpiCards = [
+    { key: 'calls', label: translate('tokens.col.calls'), text: fmtCount(summary.calls) },
+    { key: 'input', label: translate('tokens.col.input'), text: fmtCount(summary.input) },
+    { key: 'cacheRead', label: translate('tokens.col.cacheRead'), text: fmtCount(summary.cacheRead) },
+    { key: 'output', label: translate('tokens.col.output'), text: fmtCount(summary.output) },
+    { accent: true, key: 'sum', label: translate('tokens.col.sum'), text: fmtCount(summary.input + summary.cacheRead + summary.output) },
+    { key: 'amount', label: translate('tokens.cost.amount'), money: true, text: fmtMoney(costTotal, priceState.currency), zero: costTotal === 0 },
+  ]
+  const kpiStrip = rows.length === 0 ? null : h('div', { className: 'dsh-ws-token-kpis' },
+    kpiCards.map(card => h('div', {
+      className: 'dsh-ws-token-kpi',
+      key: card.key,
+      ...(card.accent === true ? { 'data-accent': '' } : {}),
+      ...(card.money === true ? { 'data-money': '', ...(card.zero === true ? { 'data-zero': '' } : {}) } : {}),
+    },
+      h('span', { className: 'dsh-ws-token-kpi-label' }, card.label),
+      h('span', { className: 'dsh-ws-token-kpi-value' }, card.text))))
+  /* The name filter belongs to the left column, above its list, in its own bordered band (the same
+     chip framing the calculator's price fields use). */
+  const filterRow = filterActive ? h('div', { className: 'dsh-ws-token-filter' },
+    h('label', { className: 'dsh-ws-settings-label', htmlFor: 'dsh-ws-token-filter' }, translate('tokens.filter')),
+    h('div', { className: 'dsh-ws-token-filter-field' },
+      h('input', {
+        'aria-label': translate('tokens.filter'),
+        autoComplete: 'off',
+        className: 'dsh-ws-search-input',
+        id: 'dsh-ws-token-filter',
+        onChange: e => setFilterQuery(e.target.value),
+        onKeyDown: e => {
+          /* IME composition must never be read as a command (same guard as every other text input in this plugin). */
+          if (e.isComposing) return
+          /* A non-empty filter swallows Escape (clear it) instead of letting the window-level handler close the dialog. */
+          if (e.key !== 'Escape' || filterQuery === '') return
+          e.preventDefault()
+          e.stopPropagation()
+          setFilterQuery('')
+        },
+        placeholder: translate('tokens.filter.placeholder'),
+        spellCheck: false,
+        type: 'text',
+        value: filterQuery,
+      }),
+      filterQuery === '' ? null : h('button', {
+        'aria-label': translate('tokens.filter.clear'),
+        className: 'dsh-ws-icon-button dsh-ws-token-filter-clear',
+        onClick: () => setFilterQuery(''),
+        title: translate('tokens.filter.clear'),
+        type: 'button',
+      }, '×'))) : null
   const rangeLine = range === 'all'
     ? translate('tokens.range.all.label')
     : payload !== null && payload.available !== false
@@ -593,41 +698,33 @@ function TokenStatsDialog({ onClose }) {
           h('label', { className: 'dsh-ws-token-check' },
             h('input', { checked: archived, onChange: e => setArchived(e.target.checked), type: 'checkbox' }),
             translate('tokens.archived'))),
-        filterActive ? h('div', { className: 'dsh-ws-token-filter' },
-          h('label', { className: 'dsh-ws-settings-label', htmlFor: 'dsh-ws-token-filter' }, translate('tokens.filter')),
-          h('div', { className: 'dsh-ws-token-filter-field' },
-            h('input', {
-              'aria-label': translate('tokens.filter'),
-              autoComplete: 'off',
-              className: 'dsh-ws-search-input',
-              id: 'dsh-ws-token-filter',
-              onChange: e => setFilterQuery(e.target.value),
-              onKeyDown: e => {
-                /* IME composition must never be read as a command (same guard as every other text input in this plugin). */
-                if (e.isComposing) return
-                /* A non-empty filter swallows Escape (clear it) instead of letting the window-level handler close the dialog. */
-                if (e.key !== 'Escape' || filterQuery === '') return
-                e.preventDefault()
-                e.stopPropagation()
-                setFilterQuery('')
-              },
-              placeholder: translate('tokens.filter.placeholder'),
-              spellCheck: false,
-              type: 'text',
-              value: filterQuery,
-            }),
-            filterQuery === '' ? null : h('button', {
-              'aria-label': translate('tokens.filter.clear'),
-              className: 'dsh-ws-icon-button dsh-ws-token-filter-clear',
-              onClick: () => setFilterQuery(''),
-              title: translate('tokens.filter.clear'),
-              type: 'button',
-            }, '×')),
-          h('span', { 'aria-live': 'polite', className: 'dsh-ws-token-filter-count' },
-            terms.length === 0
-              ? translate('tokens.filter.count', { n: fmtCount(rows.length) })
-              : translate('tokens.filter.countFiltered', { shown: fmtCount(filteredRows.length), total: fmtCount(rows.length) }))) : null,
-        content,
-        costSection,
+        kpiStrip,
+        h('div', {
+          className: 'dsh-ws-token-split',
+          ref: splitRef,
+          ...(splitWidth > 0 ? { 'data-custom': '', style: { '--dsh-ws-token-split': `${splitWidth}px` } } : {}),
+        },
+          h('div', { className: 'dsh-ws-token-pane', 'data-side': 'left', ref: leftPaneRef },
+            h('div', { className: 'dsh-ws-token-pane-head' },
+              h('span', { className: 'dsh-ws-token-pane-title' }, translate('tokens.pane.models')),
+              countLine(true)),
+            filterRow,
+            content),
+          /* The divider is only meaningful while both columns exist: with no rows to price there is
+             no right column, and the left one then takes the whole panel. */
+          costSection === null ? null : h(ResizeHandle, {
+            inline: true,
+            label: translate('resize.tokenSplit'),
+            max: Math.max(TOKEN_SPLIT_MIN + 1, Math.round(splitBoxWidth - TOKEN_SPLIT_RIGHT_MIN)),
+            min: TOKEN_SPLIT_MIN,
+            /* Starting a drag from the built-in ratio needs the column's real width as the base. */
+            value: splitWidth > 0 ? splitWidth : Math.max(TOKEN_SPLIT_MIN, Math.round(leftPaneWidth)),
+            onDragging: () => {},
+            /* Double-click drops the remembered width and goes back to the built-in ratio (0 = never
+               dragged), which also persists — the divider's own title spells the gesture out. */
+            onReset: () => setSplitWidth(TOKEN_SPLIT_DEFAULT),
+            onResize: setSplitWidth,
+          }),
+          costSection),
   )
 }
