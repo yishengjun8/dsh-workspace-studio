@@ -446,7 +446,6 @@ function TokenStatsDialog({ onClose }) {
       h('div', { className: 'dsh-ws-token-table-wrap' },
         h('table', { className: 'dsh-ws-token-table' },
           h('thead', null, h('tr', null,
-            h('th', { className: 'dsh-ws-token-chk' }, null),
             h('th', { className: 'dsh-ws-token-model' }, translate('tokens.col.model')),
             numberHeaders.map(header => h('th', { key: header }, header)))),
           h('tbody', null,
@@ -464,13 +463,16 @@ function TokenStatsDialog({ onClose }) {
                   toggleKey(key)
                 },
               },
-                h('td', { className: 'dsh-ws-token-chk' },
-                  h('input', { 'aria-label': translate('tokens.col.model'), checked: !off, onChange: () => toggleKey(key), type: 'checkbox' })),
-                h('td', { className: 'dsh-ws-token-model' }, ...highlightLabel(`${row.provider}/${row.model}`, terms)),
+                h('td', { className: 'dsh-ws-token-model' },
+                  /* The checkbox is the model cell's first inline box, not a column of its own: a 46px-wide
+                     checkbox column was two thirds empty gutter, and dropping it also lets the 汇总 row
+                     start flush at the cell's left edge. The cell's own ellipsis only ever eats the end of
+                     the line, so a truncated name can never clip its checkbox away. */
+                  h('input', { className: 'dsh-ws-token-model-check', 'aria-label': translate('tokens.col.model'), checked: !off, onChange: () => toggleKey(key), type: 'checkbox' }),
+                  ...highlightLabel(`${row.provider}/${row.model}`, terms)),
                 numberCells(row))
             }),
             h('tr', { className: 'dsh-ws-token-total-row' },
-              h('td', { className: 'dsh-ws-token-chk' }, null),
               h('td', { className: 'dsh-ws-token-model' }, translate('tokens.totalRow')),
               h('td', null, fmtCount(summary.calls)),
               h('td', null, fmtCount(summary.input)),

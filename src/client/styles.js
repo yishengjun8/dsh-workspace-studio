@@ -1030,18 +1030,40 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-token-table tbody tr:last-child td{border-bottom:0}
 .dsh-ws-token-table tbody tr:hover td{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 6%,transparent)}
 .dsh-ws-token-table .dsh-ws-token-dim td{opacity:.45}
-.dsh-ws-token-table .dsh-ws-token-chk{width:34px;text-align:center;padding:7px 6px}
-.dsh-ws-token-table .dsh-ws-token-model{max-width:280px;overflow:hidden;text-overflow:ellipsis;text-align:left}
+/* The per-model checkbox is the model cell's first inline box — there is no checkbox column any more.
+   That column measured 46px (declared width 34px + 12px padding, content box: this plugin has no global
+   box-sizing) while the checkbox itself is 13px, so two thirds of it was empty gutter; merging the two
+   also lets the 模型 header and the 汇总 row start flush at the cell's left edge instead of being pushed
+   right by a whole empty column. width/height are pinned like the collection-member checkbox does;
+   margin:0 is required because the UA stylesheet gives a checkbox 4px/3px margins, which this table used
+   to keep. */
+.dsh-ws-token-table .dsh-ws-token-model-check{width:13px;height:13px;margin:0 6px 0 0;vertical-align:-2px;accent-color:var(--dsw-alias-state-business-primary);cursor:pointer}
+/* The model column is PINNED, not merely capped. Both tables share this cell class, and with only a
+   max-width the column still grew with the card's slack — measured 355px in the model table against
+   402px in the calculator at the same card width, so the two 模型 columns stopped matching as soon as the
+   divider was dragged. border-box makes 304px the whole column (12px + 280px content + 12px), i.e. exactly
+   the width the cap produced before; the number columns left of it absorb the remainder, so the table
+   still fills its card and its right edge stays aligned with the card. Trade-off to know about: on a card
+   wider than the table's content the extra width now goes to the number columns, the name column stays at
+   280px (that is what max-width:280px always meant). */
+.dsh-ws-token-table .dsh-ws-token-model{width:304px;max-width:304px;box-sizing:border-box;overflow:hidden;text-overflow:ellipsis;text-align:left}
 .dsh-ws-token-table .dsh-ws-token-total-row td{font-weight:700;background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 8%,transparent)}
 /* The summary row rides the bottom of its own scroll region, so scrolling a long list never hides
    the totals. Both tables use the same row class; the opaque background is required — the plain
    total-row tint above is translucent and the rows scrolling underneath would show through. */
 .dsh-ws-token-table tr.dsh-ws-token-total-row td{position:sticky;bottom:0;z-index:1;background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 8%,var(--dsw-alias-bg-layer-1))}
-/* The whole model row is a second hit area for its checkbox: pointer cursor on the row (the checkbox cell keeps the normal cursor) plus a slightly stronger hover/active tint, so the click target is obvious without adding a hint line. Specificity beats the plain row-hover rule above. */
+/* The whole model row is a second hit area for its checkbox: pointer cursor on the row plus a slightly stronger hover/active tint, so the click target is obvious without adding a hint line. Specificity beats the plain row-hover rule above. The checkbox now sits inside that same cell, so it keeps the pointer cursor too — clicking it is the same action, not a second path. */
 .dsh-ws-token-table tbody tr.dsh-ws-token-selectable{cursor:pointer}
 .dsh-ws-token-table tbody tr.dsh-ws-token-selectable:hover td{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent)}
 .dsh-ws-token-table tbody tr.dsh-ws-token-selectable:active td{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 14%,transparent)}
-.dsh-ws-token-table tbody tr.dsh-ws-token-selectable td.dsh-ws-token-chk{cursor:default}
+/* Both tables' data rows and summary rows are pinned to the same height. The calculator's rows each sit in
+   their own <tbody> and keep a collapsed border under every model, which rounded them half a pixel taller
+   than the model table's rows (33.5 against 33) — across ten models that half pixel becomes a visible drift
+   between the two row grids. An explicit height is only a floor in table layout: taller content (the
+   expanded price row, a larger font) still wins, nothing gets clipped. */
+.dsh-ws-token-table tbody tr.dsh-ws-token-selectable,
+.dsh-ws-token-table tbody tr.dsh-ws-token-cost-row,
+.dsh-ws-token-table tbody tr.dsh-ws-token-total-row{height:34px}
 .dsh-ws-token-state{display:flex;flex-direction:column;align-items:center;gap:10px;padding:36px 16px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px;text-align:center}
 .dsh-ws-token-state[data-error]{color:var(--dsw-alias-state-error-primary)}
 .dsh-ws-token-foot{padding:10px 14px;border-top:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:17px;display:flex;flex-direction:column;gap:2px}
@@ -1073,7 +1095,11 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 /* Clicking a model row reveals its price boxes; a row with its own prices is always open, so it keeps the default cursor and a disabled toggle. */
 .dsh-ws-token-cost-row{cursor:pointer}
 .dsh-ws-token-cost-row[data-locked]{cursor:default}
-.dsh-ws-token-cost-toggle{width:16px;height:16px;margin-right:4px;padding:0;border:0;border-radius:4px;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:10px;line-height:1;cursor:pointer;vertical-align:middle}
+/* The calculator's ▸/▾ row toggle occupies exactly what the model table's checkbox does — a 13px box plus
+   a 6px gap — so both tables' names start at the same offset inside their model column (31px) and the two
+   row grids line up. Its vertical-align matches the checkbox's -2px too, instead of the middle it used
+   before, which is what made the calculator's rows a pixel taller. */
+.dsh-ws-token-cost-toggle{width:13px;height:13px;margin-right:6px;padding:0;border:0;border-radius:3px;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:10px;line-height:1;cursor:pointer;vertical-align:-2px}
 .dsh-ws-token-cost-toggle:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .dsh-ws-token-cost-toggle:disabled{cursor:default;opacity:.6}
 /* Each override box lives in the cell of the token column it prices, so its right edge lines up with the number above. */
