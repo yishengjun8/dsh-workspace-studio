@@ -22,7 +22,29 @@ import { workspaceFor } from './workspace.js'
 export const name = 'workspace-studio'
 
 /** Host services required by the workspace browser route. */
-export const inject = ['webServer', 'workspaceRegistry', 'webRuntime', 'sessions']
+export const inject = ['webServer', 'workspaceRegistry', 'sessions']
+
+/* The invocation's extra trust authorities come from a harness service whose name moved in the
+   0.2.1-alpha.1 Web profile: `webRuntime` was replaced by `webStartup`
+   (harness docs/upgrade-guide/v0.2.1-alpha.1/web-listener-trust-config). Neither name may be listed
+   in `inject`: a row that injects a service its harness never provides waits forever, so the whole
+   plugin would silently never activate. Both names are read lazily instead, newest first, and a
+   harness offering neither contributes no extra authority — the loopback/bind fence in http.js still
+   applies, so this degrades to "only local browsers reach the API" rather than to an open or a dead
+   plugin. */
+function trustedHostsOf(ctx) {
+  for (const service of ['webStartup', 'webRuntime']) {
+    let candidate
+    try {
+      candidate = ctx.get(service)
+    } catch {
+      continue
+    }
+    const hosts = candidate === null || candidate === undefined ? undefined : candidate.trustedHosts
+    if (Array.isArray(hosts)) return [...hosts]
+  }
+  return []
+}
 
 /** Host-side limits. All bounds are deployment-configurable in cordis.patch.yml. */
 export const Config = z.object({
@@ -263,7 +285,7 @@ async function refreshMindmapDocLoad(ctx, persistence, doc) {
   /* `refresh` flags ride along so the GET route can seed the sync cache with the same policy the sync settle uses (clean + persisted doc only). `warnings` MUST ride along too: the seed guard requires the array (and rejects non-clean refreshes) — without it the seed silently no-ops on every reopen. */
   return { doc: result, warnings: refresh.warnings, refresh: { changed: refresh.changed, wrote, adoptIncomplete: refresh.adoptIncomplete, warnings: refresh.warnings } }
 }
-async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
+async function handleRequest(ctx, config, writeQueues, req, res) {
   const url = new URL(req.url ?? '/', 'http://127.0.0.1')
   /* The HTML-preview "site" byte route is TOKEN-gated instead of fence-gated (see site.js): the
      preview frame is an opaque origin, so its subresource requests are legitimately `cross-site`
@@ -283,7 +305,7 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
     }
     return
   }
-  if (!isTrustedRequest(req, trustedHosts)) {
+  if (!isTrustedRequest(req, trustedHostsOf(ctx))) {
     sendError(req, res, 403, 'request-not-trusted', '请求来源未获授权')
     return
   }
@@ -724,13 +746,12 @@ async function handleRequest(ctx, config, trustedHosts, writeQueues, req, res) {
 }
 /** Register the workspace-confined browser API. */
 export function apply(ctx, config) {
-  const trustedHosts = [...ctx.webRuntime.trustedHosts]
   const writeQueues = new Map()
   ctx.effect(
     () => ctx.webServer.register({
       kind: 'prefix',
       path: API_PREFIX,
-      handler: (req, res) => handleRequest(ctx, config, trustedHosts, writeQueues, req, res),
+      handler: (req, res) => handleRequest(ctx, config, writeQueues, req, res),
     }),
     'workspace-studio: workspace API',
   )

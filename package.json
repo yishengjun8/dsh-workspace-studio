@@ -1,12 +1,11 @@
 {
   "name": "@yishengjun8/dsh-workspace-studio",
   "description": "DeepSeek Harness single-package plugin: workspace-confined editable file API, CodeMirror 6 editor, and a three-pane workspace-studio Web layout",
-  "version": "1.0.80",
+  "version": "1.0.81",
   "type": "module",
   "main": "./lib/index.js",
   "exports": {
     ".": "./lib/index.js",
-    "./invariant": "./lib/invariant.js",
     "./client": "./lib/client.js",
     "./package.json": "./package.json"
   },
@@ -86,7 +85,6 @@
   },
   "files": [
     "lib/index.js",
-    "lib/invariant.js",
     "lib/client.js",
     "cordis.patch.yml",
     "install.sh",

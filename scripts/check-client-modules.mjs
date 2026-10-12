@@ -29,7 +29,7 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const CLIENT = join(ROOT, 'src', 'client')
 
 /** Built artifacts that must import cleanly (lib/client.js is DOM-bound and checked by node --check). */
-const ARTIFACTS = ['lib/index.js', 'lib/invariant.js'].map(path => join(ROOT, path))
+const ARTIFACTS = ['lib/index.js'].map(path => join(ROOT, path))
 
 /**
  * Collect every .js source under a directory.

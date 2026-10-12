@@ -66,26 +66,12 @@ const host = defineConfig({
   },
 })
 
-/* The package-owned invariant companion package.json exports as
-   `./invariant`. Its own config (rather than a second entry of `host`) because
-   a multi-entry build requires code splitting, and this artifact must stay a
-   standalone ESM file. Building it from src/ keeps a clean rebuild complete:
-   the file used to exist only under lib/, with no source and no entry. */
-const invariant = defineConfig({
-  name: `${ID}/invariant`,
-  entry: { invariant: 'src/host/invariant.js' },
-  outDir: 'lib',
-  format: 'esm',
-  platform: 'node',
-  target: 'es2022',
-  dts: false,
-  sourcemap: false,
-  minify: false,
-  clean: false,
-  outputOptions: {
-    entryFileNames: 'invariant.js',
-    codeSplitting: false,
-  },
-})
+/* The package-owned invariant companion (`./invariant`) is deliberately gone: the
+   Harness removed `@deepseek-ai/dsh-invariants`, the `ctx.invariants` service, and
+   every `<package>/invariant` subpath in 0.2.1-alpha.1, so such a row would inject a
+   service that never mounts (Harness upgrade guide
+   v0.2.0-rc.2/remove-runtime-invariants). It registered no checks anyway: every
+   path-containment, symlink, and write-eligibility check lives in src/host/paths.js
+   and src/host/write.js. */
 
-export default [client, host, invariant]
+export default [client, host]

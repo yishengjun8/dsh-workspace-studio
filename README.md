@@ -130,8 +130,8 @@ bash ./install.sh web      # 也可显式指定 profile
 
 ### 从 Git 直接安装
 
-不依赖本地副本，直接从插件仓库安装。仓库随源码提交了构建产物（`lib/client.js`、`lib/index.js`、
-`lib/invariant.js` 与 `cordis.patch.yml`），安装时**不需要**在用户机上构建，因此 pnpm ≥ 10 不会索要
+不依赖本地副本，直接从插件仓库安装。仓库随源码提交了构建产物（`lib/client.js`、`lib/index.js`
+与 `cordis.patch.yml`），安装时**不需要**在用户机上构建，因此 pnpm ≥ 10 不会索要
 `allowBuilds` 放行：
 
 ```sh
@@ -277,11 +277,12 @@ bash ./uninstall.sh
 
 ## 🧩 双面实现
 
-一个包内封装三个端面：
+一个包内封装两个端面：
 
 - **Host 端**（`lib/index.js`）注册 `/workspace-studio/api`，按 Workspace ID 授权当前 Session（membership projection 或规范化 cwd），并分为九组接口：**读**（`/tree`、`/search`、`/file` GET/HEAD、`/raw`、`/open`、`/external-file`、`/encodings`、`/reveal`、`/vcs` 与 `/vcs-base`（只读 Git / SVN 状态与单文件基线））；**预览站点**（`/site-token` 签发一次性令牌，`/site/<token>/<路径…>` 是该令牌闸门的只读字节路由——**唯一不走向信任围栏的接口**：HTML 预览帧是不透明源，其子资源请求必然 `cross-site`，令牌即凭据，只服务该文档所属工作区内的路径，见 dev-notes §49）；**写**（仅在显式启用编辑时接受：`/file` PUT 保存、`/entry` 新建与重命名、`/fs` 复制 / 移动 / 删除，全部经修订版本校验、单段名称校验与原子替换，过期修订返回冲突而不静默覆盖）；**运行**（`/run` 启动、`/run/status` 增量取输出、`/run/stop` 中止、`/run/plan` 解析将执行的命令、`/run/policy` 读写「不再询问」与解释器路径、`/run/interpreters` 返回每个可运行后缀解析到的解释器、`/run/probe` 做一次性版本探测，见 `src/host/run.js`，只执行白名单内的可运行文件且不经 shell，结束记录保留 10 分钟供刷新回看）；**上下文**（`/context` 按磁盘修订校验 clean 选区并渲染 `<opened_file>` / `<selection>` 封套，发送前调用）；**草稿**（`/draft`、`/draft-tree`，持久化到工作区之外的暂存盘，带 owner 校验、generation fence 与 tombstone）；**导图**（`/mindmap-doc` 读 / 写 / 删与 `/mindmap-doc/sync`、`/index`、`/rename`、`/models`、`/fork-cleanup`、`/regenerate-summary`、`/regenerate-all`、`/regenerate-session-summaries`、`/summarize-session`，按会话持久化导图文档、反向解析完整事件日志折叠所有会话的轮次，重命名只更新导图标题而不整份往返，AI 摘要的生成 / 重算 / 会话总结由 Host 串行调度）；**合集**（`/collections` 读 / 补丁写工作区合集，插件级、不要求 workspaceId，与草稿、导图文档同一层存储）；**插件级**（`/update/installed` 纯本地读取已装版本，`/update/check` 与 `/update/download` 支撑「插件更新」组，替换后需重启 dsh 生效；`/token-stats` 按客户端给定的 `[from, to)` 毫秒窗口汇总所有会话日志的 `assistant/message` usage 记录，`archived=0` 排除已归档会话，Host 以 `~/.dsh-plugin/dsh-workspace-studio/token-stats/usage-index.json` 增量缓存按日按模型的汇总结果，并以 `sessionRowFingerprint`（单会话物理修订 + `sizeBytes`，legacy 行的全库语料尾串已剥离）为变更信号）。
 - **Browser 端**（`lib/client.js`）提供兼容的 `ctx.layout` 服务与 `usePanelInfo` 标准 Hook（`panelInfo` 根贡献），占用根 Slot，声明 `sidebar`、`main`（keyed，承载新版 Harness 的会话面板）、`details` 与 `shell.overlay`，并加入文件树、CodeMirror 6 浏览器 / 编辑器、编辑器上下文行、工作区设置页、`/init` 命令、渲染视图与会话分支导图（预览标签页）。
-- **共享不变量**（`lib/invariant.js`）：只向 Harness 的 invariant 注册表登记本包的归属，当前**为空实现**；每次 Host 请求的路径包含、符号链接与写入资格校验都在 `src/host/paths.js` 与 `src/host/write.js` 里完成。
+
+> **没有第三个「共享不变量」产物**：0.2.1-alpha.1 起 Harness 移除了 `@deepseek-ai/dsh-invariants`、`ctx.invariants` 服务与所有 `<包>/invariant` 子路径导出，本插件随之删掉 `lib/invariant.js`（详见 [docs/host-notes.md](docs/host-notes.md)）。它原本只登记包归属、不装任何检查；每次 Host 请求的路径包含、符号链接与写入资格校验一直在 `src/host/paths.js` 与 `src/host/write.js` 里完成。
 
 ### 激活模型
 
@@ -340,7 +341,6 @@ Browser 发送桥把渲染后的文本拼接到直接用户提示前，因此普
 │   ├── quarantine.js                     # 读不出当前格式的持久化内容的隔离区
 │   └── prompt-context.js / markdown.js / mindmap.js / token-stats.js / update.js
 ├── lib/index.js                         # Host：有界的 Workspace 读、保存、新建、重命名、草稿、合集、导图、统计、版本控制状态、运行与自更新 API
-├── lib/invariant.js                     # 向 Harness invariant 注册表登记本包（空实现，见「双面实现」）
 └── lib/client.js                        # 预构建三栏布局、文件树、编辑器、渲染视图与导图
 ```
 
@@ -348,4 +348,9 @@ CodeMirror 与语言模块已内联到预构建的普通 JavaScript Client bundl
 
 ## 🔄 兼容性说明
 
-本版本针对提供 `conversation.input.dock` Slot、Session 输入 resolver、会话发送服务、`ctx.sidebarRight.openResource` 与 `ctx.sessions.fork` 的 Harness 编写；**已验证基线为 Harness `0.2.0-rc.2`**（Web 端与官方桌面端 nightly 同为该版本），并要求 shell 提供 `@deepseek-ai/dsh-client-ui-primitives` 平台种子。编辑器上下文、聊天文件接管与导图均完全由本 bundle 实现，不要求修改 Harness 源码；上述 seam 都封装在 bundle 内的桥接代码里，未来版本可能只需更新这部分。其他高优先级 profile / home patch 若重新启用 `ui-layout`，会与本插件同时占用根 Slot；请保留本 bundle 对 `ui-layout` 的禁用设置。本插件对 **Web 端与桌面端（Electron 打包版）双端对等**：任何功能默认两端同时成立、不需要两套产物，两端差异只在 profile、页面源与生效方式（见上文「桌面端」小节）；确有无法对等的能力时，会在这里与「桌面端」小节明确写出降级行为，不做静默失效。
+本版本针对提供 `conversation.input.dock` Slot、Session 输入 resolver、会话发送服务、`ctx.sidebarRight.openResource` 与 `ctx.sessions.fork` 的 Harness 编写；**已验证基线为 Harness `0.2.1-alpha.2`**（Web 端与桌面端 profile 同源），同时兼容 `0.2.0-rc.2`。两处 Harness 变更已在本包内消化：
+
+- **监听信任服务改名（0.2.1-alpha.1）**：`webRuntime` 被 `webStartup` 取代，且 `webRuntime` 已从 Web profile 移除——继续 `inject` 它的行会永远等待一个不会挂载的服务，整个插件（含 `/workspace-studio/api` 与客户端 bundle）都不会激活。本插件**不再注入任一名字**，改为按请求惰性读取（先 `webStartup`、再 `webRuntime`），故新旧 Harness 上都能激活；两者都取不到时不信任任何额外 authority，`http.js` 的回环 / 绑定 IP 栅栏照旧生效。
+- **`ctx.invariants` 与 `<包>/invariant` 子路径移除（0.2.1-alpha.1）**：本插件随之删除 `lib/invariant.js`、`./invariant` 导出与对应构建入口（它原本是空实现，只登记包归属）。路径包含、符号链接与写入资格校验一直在 `src/host/paths.js` 与 `src/host/write.js`。
+
+本插件要求 shell 提供 `@deepseek-ai/dsh-client-ui-primitives` 平台种子。编辑器上下文、聊天文件接管与导图均完全由本 bundle 实现，不要求修改 Harness 源码；上述 seam 都封装在 bundle 内的桥接代码里，未来版本可能只需更新这部分。其他高优先级 profile / home patch 若重新启用 `ui-layout`，会与本插件同时占用根 Slot；请保留本 bundle 对 `ui-layout` 的禁用设置。本插件对 **Web 端与桌面端（Electron 打包版）双端对等**：任何功能默认两端同时成立、不需要两套产物，两端差异只在 profile、页面源与生效方式（见上文「桌面端」小节）；确有无法对等的能力时，会在这里与「桌面端」小节明确写出降级行为，不做静默失效。
