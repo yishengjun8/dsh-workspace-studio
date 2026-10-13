@@ -6,6 +6,7 @@ export const zh = {
   'panel.chooseSession': '请选择一个工作区中的会话',
   'panel.filePreview': '文件预览',
   'panel.chooseWorkspaceToBrowse': '选择工作区后可浏览文件',
+  'panel.loadingWorkspaces': '正在加载工作区信息…',
   'panel.previewHint': '在文件树中选择文件以预览内容',
   'tree.loading': '正在读取…',
   'tree.empty': '空目录',

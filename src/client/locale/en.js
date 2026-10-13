@@ -6,6 +6,7 @@ export const en = {
   'panel.chooseSession': 'Select a session in a workspace',
   'panel.filePreview': 'File Preview',
   'panel.chooseWorkspaceToBrowse': 'Choose a workspace to browse files',
+  'panel.loadingWorkspaces': 'Loading workspace information…',
   'panel.previewHint': 'Select a file in the tree to preview it',
   'tree.loading': 'Loading…',
   'tree.empty': 'Empty',
