@@ -348,9 +348,11 @@ CodeMirror 与语言模块已内联到预构建的普通 JavaScript Client bundl
 
 ## 🔄 兼容性说明
 
-本版本针对提供 `conversation.input.dock` Slot、Session 输入 resolver、会话发送服务、`ctx.sidebarRight.openResource` 与 `ctx.sessions.fork` 的 Harness 编写；**已验证基线为 Harness `0.2.1-alpha.2`**（Web 端与桌面端 profile 同源），同时兼容 `0.2.0-rc.2`。两处 Harness 变更已在本包内消化：
+本版本针对提供 `conversation.input.dock` Slot、Session 输入 resolver、会话发送服务、`ctx.sidebarRight.openResource` 与 `ctx.sessions.fork` 的 Harness 编写；**已验证基线为 Harness `0.2.1-rc.2`**（Web 端本机实测；桌面端打包版内置仍为 `0.2.0-rc.2`，同一份产物保持兼容）。四处 Harness 变更已在本包内消化：
 
 - **监听信任服务改名（0.2.1-alpha.1）**：`webRuntime` 被 `webStartup` 取代，且 `webRuntime` 已从 Web profile 移除——继续 `inject` 它的行会永远等待一个不会挂载的服务，整个插件（含 `/workspace-studio/api` 与客户端 bundle）都不会激活。本插件**不再注入任一名字**，改为按请求惰性读取（先 `webStartup`、再 `webRuntime`），故新旧 Harness 上都能激活；两者都取不到时不信任任何额外 authority，`http.js` 的回环 / 绑定 IP 栅栏照旧生效。
 - **`ctx.invariants` 与 `<包>/invariant` 子路径移除（0.2.1-alpha.1）**：本插件随之删除 `lib/invariant.js`、`./invariant` 导出与对应构建入口（它原本是空实现，只登记包归属）。路径包含、符号链接与写入资格校验一直在 `src/host/paths.js` 与 `src/host/write.js`。
+- **侧栏折叠改为会话水位线（0.2.1）**：分组的 overflow 按钮数字现在由 Harness 按「未渲染条数」计算，且 current / 运行中 / 待交互的会话会自动抬高水位。导图隐藏器不再按 ids 重算这个数字，而是以按钮自身文本为基准、只减去「被本插件隐藏且未渲染」的会话（并排除 subagent、非当前空白行，按归档过滤取舍）；归档过滤本身从 ui-workspace 持久化的视图状态 `dsh.workspace.view.v<n>` 读取（Workspace 快照从未提供该字段），取不到时退化为按已渲染行判断。
+- **用户消息文本改由 `conversation.user.text` Factory 渲染（0.2.1）**：消息正文是一棵 React 管理的 `display:contents` 文本树。编辑器上下文折叠不再写 `bubble.textContent`（那会销毁 React 元素），只改写承载 envelope 的前导文本节点；引用 chip 与额外内容块保持原样，卸载时也只还原自己写过的节点。
 
 本插件要求 shell 提供 `@deepseek-ai/dsh-client-ui-primitives` 平台种子。编辑器上下文、聊天文件接管与导图均完全由本 bundle 实现，不要求修改 Harness 源码；上述 seam 都封装在 bundle 内的桥接代码里，未来版本可能只需更新这部分。其他高优先级 profile / home patch 若重新启用 `ui-layout`，会与本插件同时占用根 Slot；请保留本 bundle 对 `ui-layout` 的禁用设置。本插件对 **Web 端与桌面端（Electron 打包版）双端对等**：任何功能默认两端同时成立、不需要两套产物，两端差异只在 profile、页面源与生效方式（见上文「桌面端」小节）；确有无法对等的能力时，会在这里与「桌面端」小节明确写出降级行为，不做静默失效。

@@ -29,7 +29,14 @@ import { mindmapRegistry } from './registry.js'
    ALSO published as selectors (same idiom as the collections filter): a row the
    census already knows carries `display:none` from the moment React inserts it,
    so it never enters that measurement. The class pass stays as belt-and-braces
-   — it is also what the overflow COUNT pass reads. */
+   — it is also what the overflow COUNT pass reads. The count is patched from
+   the Harness's own `sessions.expand` number and only the hidden rows the
+   Harness still counts (hidden, not rendered) are subtracted: the Harness now
+   computes that number from its archived filter and its session watermark, so
+   recomputing it locally would encode a sidebar model that no longer exists.
+   The archived filter itself is read from ui-workspace's persisted view state
+   (`dsh.workspace.view.v<n>`) with a rendered-rows fallback, never from a
+   Workspace snapshot field: the snapshot never carried one. */
 
 /* The published-sheet id; one sheet per install, removed on dispose. */
 const HIDDEN_ROWS_STYLE_ID = 'dsh-ws-mindmap-hidden-rows'
@@ -63,7 +70,30 @@ function hiddenRowsCss(hiddenIds, buttonKeys) {
   return rules.join('\n')
 }
 
-export function installMindmapBranchHider(getSessionList, getArchivedSessionIds, getWorkspaces, getArchivedFilter) {
+/* The archived-row filter is ui-workspace's private view-store choice: the
+   Workspace snapshot never exposed it, so the count logic reads it where the
+   feature itself persists it (`dsh.workspace.view.v<n>`) and falls back to what
+   is on screen when that storage is absent or unreadable. `show`/`only` both
+   render archived rows; `default` hides them. */
+function archivedFilterOf(renderedIds, archived) {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      for (let index = 0; index < localStorage.length; index += 1) {
+        const key = localStorage.key(index)
+        if (key === null || !/^dsh\.workspace\.view\.v\d+$/u.test(key)) continue
+        const state = JSON.parse(localStorage.getItem(key) ?? 'null')
+        const filter = state?.archivedFilter
+        if (filter === 'default' || filter === 'show' || filter === 'only') return filter
+      }
+    }
+  } catch {
+    /* Storage unavailable or holding a foreign shape: use the rendered rows. */
+  }
+  for (const id of renderedIds) if (archived.has(id)) return 'show'
+  return 'default'
+}
+
+export function installMindmapBranchHider(getSessionList, getArchivedSessionIds, getWorkspaces) {
   if (typeof document === 'undefined') return () => {}
   let timer = 0
   let lastRun = 0
@@ -77,11 +107,14 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
      gone, group fully hidden, or dispose): the harness re-renders the button on
      session changes, but a static group would keep the patched number forever.
      Also marks a button as "patched by us" for the mutation filter below. */
+  /* Original text and the text this hider wrote, per patched button: `base` is
+     the Harness's own count, `written` lets a later pass tell a React rewrite
+     (current text is a fresh baseline) from our own leftover patch. */
   const patchedButtons = new WeakMap()
   const restoreButtonText = (button) => {
     const original = patchedButtons.get(button)
     if (original !== undefined) {
-      button.textContent = original
+      button.textContent = original.base
       /* Unmark: a later foreign rewrite of the SAME node must rescan again
          (the marker deletion costs at most one extra no-op scan). */
       patchedButtons.delete(button)
@@ -99,6 +132,24 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
          (row-class rewrites → frame path): every other attribute change cannot
          alter hiding or counts and must not schedule the throttled scan. */
       if (record.type === 'attributes') continue
+      /* Text rewrites matter in two places the row/button passes READ: the
+         overflow button's count (the archived-filter switch and watermark
+         changes rewrite just that number) and a row's title. React writes text
+         through characterData, which carries no childList record, so without
+         this branch a filter switch leaves a stale count. Our own count write is
+         not news; anything else is. */
+      if (record.type === 'characterData') {
+        const parent = record.target.parentElement
+        if (!(parent instanceof Element)) continue
+        const button = parent.closest('button[aria-expanded]')
+        if (button !== null) {
+          const stored = patchedButtons.get(button)
+          if (stored !== undefined && record.target.nodeValue === stored.written) continue
+          return true
+        }
+        if (parent.closest('[role="treeitem"]') !== null) return true
+        continue
+      }
       const target = record.target
       if (target instanceof Element) {
         if (target.tagName === 'BUTTON') {
@@ -173,6 +224,28 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
       && (mindmapRegistry.isBranch(currentId)
         || isMindmapFamilySession(list, currentId)
         || mindmapBlankSessions.has(currentId))
+    /* The sidebar on screen is the truth for two things the Workspace snapshot
+       cannot answer: which sessions are rendered at all (the Harness folds
+       groups with a watermark) and whether archived rows are being shown
+       (`WorkspaceSnapshot` has no archived filter — that choice lives in
+       ui-workspace's private view store). Read both off the rendered rows,
+       which carry `data-row-key="session:<id>"`. */
+    const browser = document.querySelector('[data-slot="sidebar.workspaces"]')
+    if (browser === null) return
+    /* Collect the rows ONCE: the per-group count pass reuses this list (via
+       section.contains) instead of re-querying the DOM once per group. */
+    const rows = [...browser.querySelectorAll('[role="treeitem"]')]
+    const renderedIds = new Set()
+    for (const row of rows) {
+      const rowKey = row.getAttribute('data-row-key')
+      if (rowKey !== null && rowKey.startsWith('session:')) renderedIds.add(rowKey.slice('session:'.length))
+    }
+    /* The archived filter decides which sessions the Harness counts as rows at
+       all. Read it from ui-workspace's persisted view state (with a DOM
+       fallback), then derive the two modes the census and count need. */
+    const archivedFilter = archivedFilterOf(renderedIds, archived)
+    const archivedShown = archivedFilter !== 'default'
+    const onlyArchived = archivedFilter === 'only'
     const byTitle = new Map()
     /* All driving inputs folded into the scan signature (see header): the row
        pass and the per-group count pass only run when one of them changed. */
@@ -189,9 +262,11 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
          title must count as a visible vote — otherwise the double guarantee
          is computed over a different population than the rows it hides.
          Blank rows stay excluded (matched structurally below, never by the
-         stored title). */
+         stored title). Archived rows vote only while the Harness renders them:
+         under the default filter they can never appear, so they must not vote;
+         with "show"/"only" they are exactly the family rows that would leak. */
       if (summary.blank) continue
-      if (archived.has(String(id))) continue
+      if (!archivedShown && archived.has(String(id))) continue
       if (title === '') continue
       if (!byTitle.has(title)) byTitle.set(title, { hidden: 0, visible: 0 })
       const entry = byTitle.get(title)
@@ -202,11 +277,6 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
     for (const [title, entry] of byTitle) {
       if (entry.hidden > 0 && entry.visible === 0) hideTitles.add(title)
     }
-    const browser = document.querySelector('[data-slot="sidebar.workspaces"]')
-    if (browser === null) return
-    /* Collect the rows ONCE: the per-group count pass reuses this list (via
-       section.contains) instead of re-querying the DOM once per group. */
-    const rows = [...browser.querySelectorAll('[role="treeitem"]')]
     const rowDecisions = []
     const rowSig = []
     for (const row of rows) {
@@ -240,7 +310,7 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
     const wsSig = workspaces
       .map(w => `${String(w.title ?? '')}\u0001${(w.sessionIds ?? []).map(String).sort().join('\u0003')}`)
       .join('\u0002')
-    const signature = `${sessionSig.join('\u0002')}\u0003${wsSig}\u0003${rowSig.join('\u0002')}\u0003${buttonTextSig}\u0003${blankFamilyCurrent ? 1 : 0}`
+    const signature = `${sessionSig.join('\u0002')}\u0003${wsSig}\u0003${rowSig.join('\u0002')}\u0003${buttonTextSig}\u0003${blankFamilyCurrent ? 1 : 0}\u0003${archivedShown ? 1 : 0}`
     /* Identical inputs → the DOM already reflects the desired state: skip
        every write (class toggles, count patches) and the per-group pass. */
     if (signature === lastSignature) return
@@ -265,19 +335,29 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
     /* An overflow button whose whole group is hidden has nothing left to reveal
        (that group's mind-map entries are its access path), so it must leave the
        layout with those rows — a frame later it would skew the same animation by
-       its own height. The test is strict: every group session is hidden or one
-       the Harness would not render here anyway (its sessionVisible: unknown id,
-       non-current blank, archived under the default filter — never under `show` /
-       `only`, where those rows are exactly what the button reveals). */
-    const archivedFilter = getArchivedFilter?.() ?? 'default'
+       its own height. The test is strict: every group session is hidden, or one
+       the Harness would not render here anyway (unknown id, non-current blank,
+       archived while no archived row is on screen). */
+    /* The Harness's row population: subagents are never rendered as session
+       rows, non-current blanks are dropped, and archived sessions appear only
+       while the filter shows them. */
+    const countedByHarness = (key) => {
+      const summary = list.byId[key]
+      if (summary === undefined) return false
+      if (summary.origin === 'subagent') return false
+      if (summary.blank) return false
+      if (onlyArchived) return archived.has(key)
+      return archivedShown || !archived.has(key)
+    }
     const buttonKeys = []
     const allHidden = (ids) => ids.length > 0 && ids.every((id) => {
       const key = String(id)
       if (hiddenIds.has(key)) return true
       const summary = list.byId[key]
-      if (summary === undefined) return true
+      if (summary === undefined || summary.origin === 'subagent') return true
       if (summary.blank === true && key !== String(currentId)) return true
-      return archivedFilter === 'default' && archived.has(key)
+      if (onlyArchived) return !archived.has(key)
+      return !archivedShown && archived.has(key)
     })
     const accounted = new Set(workspaces.flatMap(workspace => (workspace.sessionIds ?? []).map(String)))
     for (const workspace of workspaces) {
@@ -291,8 +371,11 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
     for (const decision of rowDecisions) {
       decision.row.classList.toggle('dsh-ws-mindmap-hidden-row', decision.matched)
     }
-    /* The harness sizes the overflow button from group.sessions.length (hidden
-       rows included) — recompute the visible remainder, then patch or hide it. */
+    /* The Harness's own `sessions.expand` number is the baseline: it already
+       reflects the archived filter and the session watermark (how many rows the
+       group keeps folded). This hider only subtracts the rows IT hides that the
+       Harness still counts — hidden sessions that are not rendered at all.
+       Hidden rendered rows are already outside that baseline. */
     for (const header of browser.querySelectorAll('[role="treeitem"][aria-expanded]')) {
       /* Real-workspace headers sit inside a HoverCard span (ungrouped header
          does not); walk up to the section holding the overflow button. */
@@ -306,10 +389,6 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
       if (button === null) continue
       /* Expanded list shows the collapse label — nothing to fix. */
       if (button.getAttribute('aria-expanded') === 'true') continue
-      /* Session rows are also HoverCard-wrapped (not direct children) — reuse
-         the rows collected once above, dropping the group headers. */
-      const sectionRows = rows.filter(row => !row.hasAttribute('aria-expanded') && section.contains(row))
-      const hiddenInRows = sectionRows.filter(row => row.classList.contains('dsh-ws-mindmap-hidden-row')).length
       /* Match group by header title: real workspace -> its sessionIds; else
          the ungrouped bucket (sessions no workspace has). */
       const titleEl = header.querySelector('span[class*="title"]')
@@ -322,43 +401,34 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
         const accounted = new Set(workspaces.flatMap(w => (w.sessionIds ?? []).map(String)))
         ids = list.ids.filter(id => !accounted.has(String(id)))
       }
-      /* Count the group's sessions the way the harness renders them, minus
-         titles this hider hides. Subagent sessions ARE rendered as rows, so they
-         must count here — excluding them makes `remaining` negative in mixed
-         groups and wrongly hides the overflow button (its hidden mindmap rows
-         became unreachable). Archived and blank non-current sessions are not
-         rendered by the harness, so they stay excluded (sectionRows has none). */
-      let visibleCount = 0
-      for (const id of ids) {
-        const summary = list.byId[id]
-        if (summary === undefined) continue
-        if (archived.has(String(id))) continue
-        if (summary.blank && String(id) !== String(currentId)) continue
-        const title = typeof summary.displayTitle === 'string' ? summary.displayTitle.trim() : ''
-        if (title === '' || hideTitles.has(title)) continue
-        visibleCount += 1
+      /* `base` is the Harness's untouched text; `written` is our own last patch.
+         A different current text means the Harness (React) rewrote this node, so
+         the fresh text — not the stored base — is the new baseline. */
+      const stored = patchedButtons.get(button)
+      const currentText = button.textContent ?? ''
+      const base = stored !== undefined && currentText === stored.written ? stored.base : currentText
+      const baseNumber = base.match(/\d+/)
+      if (baseNumber === null) {
+        restoreButtonText(button)
+        continue
       }
-      /* A visible blank CURRENT session renders as a provisional New Session row,
-         so the harness counts it among the group's rendered rows and the
-         recomputed remainder must too (its stored title is empty and the loop
-         above skips it). When this hider hides that blank family row it behaves
-         like the hidden rows: excluded here, counted by hiddenInRows below. */
-      if (!blankFamilyCurrent && currentId !== null && ids.includes(currentId)
-        && list.byId[currentId]?.blank === true) visibleCount += 1
-      const remaining = visibleCount - (sectionRows.length - hiddenInRows)
+      let hiddenUnrendered = 0
+      for (const id of ids) {
+        const key = String(id)
+        if (hiddenIds.has(key) && !renderedIds.has(key) && countedByHarness(key)) hiddenUnrendered += 1
+      }
+      const remaining = Number(baseNumber[0]) - hiddenUnrendered
       if (remaining > 0) {
         button.classList.remove('dsh-ws-mindmap-no-overflow')
-        /* The button's only number is the count — swap it in place, keeping the
-           original text so it can be restored later. */
-        const currentNumber = button.textContent.match(/\d+/)
-        if (currentNumber !== null && Number(currentNumber[0]) !== remaining) {
-          /* The harness may have re-rendered the button since the first patch
-             (session count changed): refresh the stored "original" from the
-             CURRENT text so a later restore writes back the real count, not a
-             stale pre-patch value. */
-          patchedButtons.set(button, button.textContent)
-          button.textContent = button.textContent.replace(/\d+/, String(remaining))
+        if (Number(baseNumber[0]) === remaining) {
+          if (stored !== undefined) restoreButtonText(button)
+          continue
         }
+        /* The button's only number is the count — swap it in place, keeping the
+           baseline so a later restore writes the real count back. */
+        const written = base.replace(/\d+/, String(remaining))
+        patchedButtons.set(button, { base, written })
+        button.textContent = written
       } else {
         button.classList.add('dsh-ws-mindmap-no-overflow')
         restoreButtonText(button)
@@ -445,14 +515,21 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
     observedTarget = target
     /* Class attributes are watched for the row-rewrite path above: React wiping
        dsh-ws-mindmap-hidden-row emits NO childList record. */
-    observer.observe(target, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] })
+    observer.observe(target, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'], characterData: true })
   }
   const observer = new MutationObserver(schedule)
   /* Guard: re-anchor ONLY when the observed target was actually replaced
      (disconnected) — plain body churn (portals, toasts, dialogs) does zero work,
      and the slot's own creation/replacement is one of these mutations. */
   const guardObserver = new MutationObserver(() => {
-    if (observedTarget === null || !observedTarget.isConnected) ensureObserved()
+    if (observedTarget === null || !observedTarget.isConnected) {
+      ensureObserved()
+      /* A replaced slot arrives with no hidden classes and an unpatched count;
+         re-anchoring alone would leave the fresh DOM stale until the next
+         unrelated mutation (the archived-filter switch replaces the list and
+         then goes quiet). Re-apply against the new target now. */
+      apply()
+    }
   })
   guardObserver.observe(document.body, { childList: true })
   ensureObserved()

@@ -206,7 +206,46 @@ function parseEditorContextEnvelope(text) {
   return parseOpenedFileContext(text) ?? parseSelectionContext(text)
 }
 
-function findEditorContextBubble(candidate) {
+/* The rendered message text is React-owned: since 0.2.1 the Harness renders it
+   through its `conversation.user.text` Factory, which emits its own spans and
+   reference chips. Rewriting `bubble.textContent` would destroy those React
+   elements (a later reconcile then operates on detached nodes), so only the
+   leading TEXT NODES that carry the envelope are rewritten here. Every element
+   — reference chips and extra blocks included — stays untouched.
+   @param root - element whose rendered text starts with the envelope.
+   @param context - parsed envelope (its `raw` is the prefix to remove).
+   @returns the touched text nodes with their original and written values, or
+   undefined when the prefix is not where the parse said it was. */
+function stripLeadingEnvelope(root, context) {
+  const nodes = []
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  let total = ''
+  /* The envelope plus its blank-line separator fits in the first few runs; the
+     walk can stop once the whole prefix has been read. */
+  const wanted = context.raw.length + 4
+  for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+    nodes.push(node)
+    total += node.nodeValue ?? ''
+    if (total.length >= wanted) break
+  }
+  if (!total.startsWith(OPENED_FILE_PREFIX) && !total.startsWith(SELECTION_PREFIX)) return undefined
+  const afterEnvelope = total.slice(context.raw.length)
+  const separator = afterEnvelope.startsWith('\r\n\r\n') ? 4 : afterEnvelope.startsWith('\n\n') ? 2 : 0
+  let strip = context.raw.length + separator
+  const touched = []
+  for (const node of nodes) {
+    if (strip <= 0) break
+    const value = node.nodeValue ?? ''
+    const remove = Math.min(value.length, strip)
+    const written = value.slice(remove)
+    node.nodeValue = written
+    touched.push({ node, value, written })
+    strip -= remove
+  }
+  return touched
+}
+
+function findEditorContextContent(candidate) {
   for (let current = candidate; current instanceof HTMLElement; current = current.parentElement) {
     if (current.parentElement?.parentElement?.hasAttribute('data-time-hover-root')) return current
     /* Pending steering messages have no data-time-hover-root ancestor, so without this branch a split envelope never folds. */
@@ -237,6 +276,22 @@ function findEditorContextBubble(candidate) {
     current = next
   }
   return current
+}
+
+/* Anchor the summary chip and the text rewrite on the message BUBBLE. The row
+   container no longer nests a stack of DIVs (user text renders through the
+   Harness's own Factory as spans), so look for the bubble inside the content
+   first and fall back to the previously found element when the class shape is
+   unknown. Keeping the anchor on the bubble preserves the chip's seat above
+   the bubble and confines the rewrite to the message text. */
+function findEditorContextBubble(candidate) {
+  const content = findEditorContextContent(candidate)
+  if (content === null) return null
+  if (typeof content.matches === 'function' && content.matches('[class*="bubble"]')) return content
+  const inner = content.querySelector?.('[class*="bubble"]')
+  if (inner instanceof HTMLElement) return inner
+  const outer = content.closest?.('[class*="bubble"]')
+  return outer instanceof HTMLElement ? outer : content
 }
 
 function findEditorContextCandidate(container) {
@@ -288,12 +343,19 @@ export function installEditorContextMessageCompactor() {
     const text = bubble.textContent ?? ''
     const context = parseEditorContextEnvelope(text)
     if (context === null) return
-    /* Store the summary row reference so cleanup can remove it even after the bubble left the document. */
-    originals.set(bubble, { text, summary: renderEditorContextSummary(bubble, consumeEditorContextDisplay(text) ?? context) })
+    /* Strip the envelope from the leading text nodes only; every element of the
+       React-rendered message (reference chips, extra blocks) keeps its identity.
+       Store the touched nodes and the summary row so cleanup restores exactly
+       what this pass rewrote and nothing a later render owns. */
+    const touched = stripLeadingEnvelope(bubble, context)
+    if (touched === undefined) return
+    originals.set(bubble, {
+      touched,
+      summary: renderEditorContextSummary(bubble, consumeEditorContextDisplay(text) ?? context),
+    })
     bubble.classList.add('dsh-ws-message-context-bubble')
     if (context.visibleText === '') bubble.setAttribute('data-dsh-ws-empty-prompt', '')
     else bubble.removeAttribute('data-dsh-ws-empty-prompt')
-    bubble.textContent = context.visibleText
   }
   /* Cache each container's leading text slice (WeakMap keys let removed containers be collected) and skip the read while it is unchanged. */
   const containerPrefixes = new WeakMap()
@@ -336,10 +398,15 @@ export function installEditorContextMessageCompactor() {
     for (const [bubble, original] of originals) {
       /* A disconnected bubble still owns its summary row: remove it too, or a ghost "↳ file" line lingers. */
       if (original?.summary instanceof HTMLElement && original.summary.isConnected) original.summary.remove()
+      /* Restore only text nodes this pass rewrote and that still carry our
+         value: React may have re-rendered them meanwhile, and a stale restore
+         would resurrect the envelope or an older message. */
+      for (const entry of original?.touched ?? []) {
+        if (entry.node.isConnected && entry.node.nodeValue === entry.written) entry.node.nodeValue = entry.value
+      }
       if (!bubble.isConnected) continue
       bubble.classList.remove('dsh-ws-message-context-bubble')
       bubble.removeAttribute('data-dsh-ws-empty-prompt')
-      bubble.textContent = original?.text ?? ''
     }
     originals.clear()
   }
