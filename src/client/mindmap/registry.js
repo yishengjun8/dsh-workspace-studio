@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react'
-import { MINDMAP_INDEX_REFRESH_MS, MINDMAP_LAST_SESSION_STORE_KEY, MINDMAP_ORDER_STORE_KEY } from '../constants.js'
+import { MINDMAP_INDEX_REFRESH_MS, MINDMAP_LAST_SESSION_STORE_KEY, MINDMAP_MEMBER_TTL_MS, MINDMAP_ORDER_STORE_KEY } from '../constants.js'
 import { readPersistedState } from '../persisted-state.js'
 import { fetchMindmapDocIndex } from '../api.js'
 import { createRequestStore } from '../request-store.js'
@@ -11,6 +11,17 @@ export const mindmapRegistry = {
   _docs: [],
   _roots: new Set(),
   _branches: new Set(),
+  /* Optimistic session -> family root for sessions THIS client just created or adopted (a map
+     fork, a root-node "new session", an external chat fork). The doc write and the chat switch
+     both happen before the async index refresh, and a null mapping in that window changes the
+     explorer's React key — the whole preview column, docked map included, remounts empty. These
+     bridge exactly that window; the refreshed index confirms and prunes them. */
+  _members: new Map(),
+  /* Optimistic root aliases written when an open map is RE-ANCHORED (its root session was
+     archived or replaced): the index still serves the old root for a few hundred ms, but every
+     family member now belongs to the new one. Consulted BEFORE the index, so the preview key
+     flips once, in the same commit that migrates the host body, tab and snapshot. */
+  _rootAliases: new Map(),
   _version: 0,
   _listeners: new Set(),
   _timer: 0,
@@ -31,18 +42,117 @@ export const mindmapRegistry = {
   isBranch(id) { return this._branches.has(String(id)) },
   isMember(id) { const key = String(id); return this._roots.has(key) || this._branches.has(key) },
   /* Resolve a session to its mind-map ROOT session id: the root itself, or the root of the doc whose
-     branchSessionIds contains it; null when the session belongs to no mind map. Drives the SHARED
-     dsh-ws-preview persistence key: every member of the same map (root + branches) reads and writes
-     one snapshot under the root's id. */
+      branchSessionIds contains it; null when the session belongs to no mind map. Drives the SHARED
+      dsh-ws-preview persistence key: every member of the same map (root + branches) reads and writes
+      one snapshot under the root's id.
+      Optimistic entries come FIRST: they exist precisely because the index is still stale (a session
+      created a moment ago, or a family re-anchored to a new root), and every consumer — the preview
+      key, the highlight, the hider — must see the same family the client already committed to. */
   rootOf(id) {
     const key = String(id)
+    const alias = this._rootAliases.get(key)
+    if (alias !== undefined && Date.now() - alias.at < MINDMAP_MEMBER_TTL_MS) return String(alias.root)
+    const member = this._members.get(key)
+    if (member !== undefined) {
+      if (Date.now() - member.at < MINDMAP_MEMBER_TTL_MS) return String(member.root)
+      this._members.delete(key)
+    }
     for (const doc of this._docs) {
       if (String(doc.sessionId) === key) return String(doc.sessionId)
       if ((doc.branchSessionIds ?? []).some(branch => String(branch) === key)) return String(doc.sessionId)
     }
     return null
   },
+  /* Record a freshly created/adopted child BEFORE the chat switches to it: from that instant every
+     render (the session switch, the map body's highlight) resolves the child to its family root, so
+     the preview column's React key never changes. No-op when the index already knows the member. */
+  noteMember(rootId, sessionId) {
+    const root = String(rootId)
+    const child = String(sessionId)
+    if (root === '' || child === '' || child === 'undefined' || child === 'null' || root === child) return
+    if (this._roots.has(child) || this._branches.has(child)) return
+    const previous = this._members.get(child)
+    if (previous !== undefined && String(previous.root) === root) return
+    this._members.set(child, { root, at: Date.now() })
+    this._version += 1
+    for (const listener of [...this._listeners]) listener()
+  },
+  /* Batch form for a whole loaded document: one notify for every member the index does not know
+     yet. The single-member form above is for the write paths (which switch the chat immediately). */
+  noteMembers(rootId, sessionIds) {
+    const root = String(rootId)
+    if (root === '') return
+    let changed = false
+    for (const sessionId of Array.isArray(sessionIds) ? sessionIds : []) {
+      if (sessionId === undefined || sessionId === null) continue
+      const child = String(sessionId)
+      if (child === '' || child === 'undefined' || child === 'null' || child === root) continue
+      if (this._roots.has(child) || this._branches.has(child)) continue
+      const previous = this._members.get(child)
+      if (previous !== undefined && String(previous.root) === root) continue
+      this._members.set(child, { root, at: Date.now() })
+      changed = true
+    }
+    if (!changed) return
+    this._version += 1
+    for (const listener of [...this._listeners]) listener()
+  },
+  /* Drop an optimistic member again (its doc write failed and the orphan session was archived):
+     leaving it behind would keep claiming a family for a dead session. */
+  forgetMember(sessionId) {
+    if (!this._members.delete(String(sessionId))) return
+    this._version += 1
+    for (const listener of [...this._listeners]) listener()
+  },
+  /* Move an open family to a new root in the registry: alias the OLD root, the NEW root and every
+     member of the fresh document to the new root until the index catches up. The doc itself already
+     moved Host-side (root replacement writes the new file + an alias stub at the old root), so the
+     stale index is the only thing still naming the old root. */
+  rekeyRoot(oldRoot, newRoot, familyIds) {
+    const from = String(oldRoot)
+    const to = String(newRoot)
+    if (from === '' || to === '' || from === to) return
+    const at = Date.now()
+    this._rootAliases.set(to, { root: to, at })
+    this._rootAliases.set(from, { root: to, at, retired: true })
+    for (const id of Array.isArray(familyIds) ? familyIds : []) {
+      const key = String(id)
+      if (key !== '') this._rootAliases.set(key, { root: to, at })
+    }
+    for (const [child, entry] of this._members) {
+      if (String(entry.root) === from) this._members.set(child, { root: to, at: entry.at })
+    }
+    /* Mirror the move in the derived sets the hider/sidebar read, so the old root stops looking
+       like a live map root and the new one starts (the index refresh recomputes both anyway). */
+    if (this._roots.delete(from)) this._roots.add(to)
+    this._branches.delete(to)
+    this._version += 1
+    for (const listener of [...this._listeners]) listener()
+  },
+  /* Drop optimistic entries the refreshed index has confirmed, plus entries older than the TTL.
+     A stale alias is worse than a remount: it would keep resolving sessions to a family the Host
+     no longer serves. */
+  _pruneOptimistic(docs) {
+    const now = Date.now()
+    for (const [child, entry] of this._members) {
+      if (now - entry.at > MINDMAP_MEMBER_TTL_MS) { this._members.delete(child); continue }
+      const doc = docs.find(item => String(item.sessionId) === String(entry.root))
+      if (doc !== undefined && (doc.branchSessionIds ?? []).some(branch => String(branch) === child)) this._members.delete(child)
+    }
+    for (const [id, entry] of this._rootAliases) {
+      if (now - entry.at > MINDMAP_MEMBER_TTL_MS) { this._rootAliases.delete(id); continue }
+      const target = docs.find(item => String(item.sessionId) === String(entry.root))
+      if (target === undefined) continue
+      if (String(id) === String(entry.root)) { this._rootAliases.delete(id); continue }
+      if ((target.branchSessionIds ?? []).some(branch => String(branch) === String(id))) { this._rootAliases.delete(id); continue }
+      /* The retired root: its document is gone from the index, so the alias has done its job.
+         Member aliases are never doc roots, so they must not use this test — they stay until the
+         TTL unless the branch list above confirmed them. */
+      if (entry.retired === true && !docs.some(item => String(item.sessionId) === String(id))) this._rootAliases.delete(id)
+    }
+  },
   _apply(docs) {
+    this._pruneOptimistic(docs)
     /* Only a signature change (doc added/removed, rootTitle rename, branch-set fork, or an updatedAt
        bump from a folded turn) may bump the version and re-render subscribers — unconditional notify
        re-ran them on every idle poll tick. updatedAt is in the signature so a doc that gained a turn

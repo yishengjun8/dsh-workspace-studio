@@ -27,7 +27,7 @@ const EMPTY_FAMILY_IDS = []
    rendered from the doc, with pan/zoom and per-card forking. Rendered as a
    preview tab (dsh-ws-preview); card clicks switch the right-side chat. */
 
-export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, deleteDoc, forkAt, createSession, listWorkspaces, openSession, renameSession, renameDoc, archiveSession, settingsStore, onDocGone, onFreshConsumed, onTitleChange, freshDock }) {
+export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc, deleteDoc, forkAt, createSession, listWorkspaces, openSession, renameSession, renameDoc, archiveSession, settingsStore, onDocGone, onFreshConsumed, onRootChange, onTitleChange, freshDock }) {
   const settings = useSyncExternalStore(settingsStore.subscribe, settingsStore.getSnapshot)
   const [phase, setPhase] = useState({ status: 'loading' })
   /* Manual retry for a failed load: the load effect's deps are sessionId-only,
@@ -150,6 +150,29 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
      doc — a dock with an unknown title (fresh conversion) or a root rename self-corrects it. */
   const onTitleChangeRef = useRef(onTitleChange)
   onTitleChangeRef.current = onTitleChange
+  /* Re-anchor callback (host): moves the open family's body key, tab and persisted snapshot to
+     the new root. Read at call time; the host function is stable across renders. */
+  const onRootChangeRef = useRef(onRootChange)
+  onRootChangeRef.current = onRootChange
+  /* Move the OPEN family to a new root in ONE synchronous step: the host body/tab/snapshot and the
+     registry alias migrate together, so the preview column flips its React key once, already
+     carrying the docked map tab — no empty strip, and the body's portal container identity never
+     changes. The Host leaves an alias stub at the retired root, so in-flight reads under the old id
+     still resolve to the moved document. `familyIds` lets the registry resolve every member
+     immediately (the session set that is already in memory, not the stale index). */
+  const reanchorTo = useCallback((nextRoot) => {
+    const target = String(nextRoot)
+    const previous = rootIdRef.current
+    if (previous !== null && previous !== undefined && String(previous) !== target) {
+      const familyIds = [target, ...(docRef.current?.sessions ?? [])
+        .map(session => session?.sessionId)
+        .filter(id => id !== undefined && id !== null)
+        .map(String)]
+      onRootChangeRef.current?.(String(previous), target, docRef.current?.rootTitle, familyIds)
+    }
+    rootIdRef.current = target
+    setRootId(target)
+  }, [])
   const lastFingerprintRef = useRef('')
   const savingRef = useRef(0)
   /* Counter (not a boolean): every doc-writing operation increments it on
@@ -303,6 +326,15 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     if (freshDockRef.current === true) onFreshConsumedRef.current?.()
     return () => { mountedRef.current = false }
   }, [])
+  /* Safety net for membership: every session the LOADED document carries belongs to this family
+     from that moment on, even when it arrived through a path that did not note it explicitly
+     (a sync adopting a foreign fork, a hand-off document). The write paths note the child
+     synchronously before switching the chat; this effect just keeps the registry converged —
+     noteMember is a no-op for members the index or an earlier note already knows. */
+  useEffect(() => {
+    if (doc === null || rootId === null) return
+    mindmapRegistry.noteMembers(String(rootId), (doc.sessions ?? []).map(session => session?.sessionId))
+  }, [doc, rootId])
 
   const notices = useMindmapNotices({ mountedRef })
   const layoutRef = useRef(null)
@@ -516,14 +548,17 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     if (next !== null && next !== undefined) {
       const nextRoot = String(next.rootSessionId ?? '')
       if (nextRoot !== '' && nextRoot !== String(rootIdRef.current)) {
-        /* The doc's anchor changed (another tab deleted the root card → root replacement
-           R1→R2 served through the alias stub). Re-anchor THIS page: fork/delete/archives
-           build their writes with the root id and the Host validates
+        /* The doc's anchor changed (another tab deleted/archived the root card → root
+           replacement R1→R2 served through the alias stub). Re-anchor THIS page: the host
+           body/tab/snapshot migrate with the registry alias, and if the chat was ON the
+           retired root it follows the doc to the new one. fork/delete/archive writes are
+           built with the current root id and the Host validates
            doc.rootSessionId === sessionId — a stale R1 would 400 every subsequent write. The
            doc itself is applied below (the fingerprint includes rootSessionId, so it cannot
            be skipped). */
-        rootIdRef.current = nextRoot
-        setRootId(nextRoot)
+        const retired = String(rootIdRef.current ?? '')
+        reanchorTo(nextRoot)
+        if (retired !== '' && String(sessionIdRef.current) === retired) switchToSession(nextRoot)
       }
       const fp = mindmapDocFingerprint(next)
       if (fp !== lastFingerprintRef.current) {
@@ -581,7 +616,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       }
       return prev
     })
-  }, [])
+  }, [reanchorTo, switchToSession])
 
   /* The doc-family sessions currently running: a live streaming card attaches
      to EACH of their chains (regardless of which session the map is "on"), and
@@ -967,9 +1002,14 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
              a dead branch for up to 2.5 s. */
           setDoc(prev => (prev === next ? base : prev))
           lastFingerprintRef.current = mindmapDocFingerprint(base)
+          mindmapRegistry.forgetMember(String(childId))
           throw error
         }
         if (!mountedRef.current) return
+        /* The child belongs to THIS family from this instant, before the chat switches to it:
+           the preview column's key must not fall back to the raw child id while the index
+           refresh is still in flight (that remount would hide the docked map tab). */
+        mindmapRegistry.noteMember(String(root), String(childId))
         /* Open into chat so the next message extends from exactly the clicked
            card. */
         switchToSession(String(childId))
@@ -1036,9 +1076,12 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
           try { await archiveSessionRef.current(String(childId)) } catch { /* best effort */ }
           setDoc(prev => (prev === next ? base : prev))
           lastFingerprintRef.current = mindmapDocFingerprint(base)
+          mindmapRegistry.forgetMember(String(childId))
           throw error
         }
         if (!mountedRef.current) return
+        /* Family membership before the chat switch — see forkBranchAt above. */
+        mindmapRegistry.noteMember(String(root), String(childId))
         /* Open the new session into chat so the next message starts it. */
         switchToSession(String(childId))
       })
@@ -1601,6 +1644,13 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
       setArchiveBranchError(translate('mindmap.delete.lastSession'))
       return
     }
+    /* The archive call removes the CURRENT session for this flow in the common case (the head's
+       own "archive" action targets the session being viewed). The harness clears
+       `dsh.sessions.current` the moment its session is archived, and every transient current
+       change remounts the whole preview column — the docked map tab vanishes for the round trip.
+       Move the chat to the surviving anchor BEFORE archiving, so no intermediate dead-current
+       render can happen (the confirm dialog already announces this switch). */
+    const archivesCurrent = (plan.archiveIds ?? []).includes(String(sessionIdRef.current))
     forkingRef.current = true
     setArchiveBranchBusy(true)
     setArchiveBranchError(null)
@@ -1621,6 +1671,11 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     }
     setDoc(next)
     lastFingerprintRef.current = mindmapDocFingerprint(next)
+    /* Leave the session that is about to be archived BEFORE the archive request (see
+       archivesCurrent above). A root replacement migrates the host/tab in the success branch
+       instead — until the doc write lands, the branch is still a member of the old family, and
+       a failed write must not leave the client anchored on a root that does not exist. */
+    if (archivesCurrent) switchToSession(String(saveRoot))
     /* Archive-first for NON-root removals: the Host's stale-write guard restores any
        session the incoming doc drops that is NOT archived yet (see src/host/mindmap.js
        writeMindmapDoc), so the pruned sessions must be archived BEFORE the doc write or
@@ -1648,22 +1703,16 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
           setDoc(written.doc)
           lastFingerprintRef.current = mindmapDocFingerprint(written.doc)
         }
+        /* The moved document is now on disk (and the Host wrote the old root's alias stub in the
+           same request): migrate this open family to the new root in one step — host body key,
+           docked tab and persisted snapshot — before archiving the retired root. */
+        if (isRootReplacement && mountedRef.current) reanchorTo(String(saveRoot))
         return isRootReplacement ? archivePruned() : undefined
       })
       .then(() => {
         if (!mountedRef.current) return
-        if (String(saveRoot) !== String(root)) {
-          setRootId(String(saveRoot))
-          /* Keep the ref in lockstep so switchToSession below remembers the
-             last-selected session under the NEW root. */
-          rootIdRef.current = String(saveRoot)
-        }
         setArchiveBranchTarget(null)
         mindmapRegistry.markDirty()
-        /* If the current chat session was archived, switch to the (re-anchored)
-           root so the view is never left on a dead session. switchToSession
-           (not openSessionRef) also records the last-selected session. */
-        if ((plan.archiveIds ?? []).includes(String(sessionId))) switchToSession(String(saveRoot))
         showNotice(translate('mindmap.branchArchived'))
       })
       .catch((error) => {
@@ -1696,10 +1745,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
           if (loaded !== null && loaded !== undefined && (loaded.sessions ?? []).length > 0) {
             lastFingerprintRef.current = mindmapDocFingerprint(loaded)
             setDoc(loaded)
-            if (String(loaded.rootSessionId) !== adoptRoot) {
-              setRootId(String(loaded.rootSessionId))
-              rootIdRef.current = String(loaded.rootSessionId)
-            }
+            if (String(loaded.rootSessionId) !== adoptRoot) reanchorTo(String(loaded.rootSessionId))
           }
           showNoticeError(translate('mindmap.archive.writeFailed', { message: error instanceof Error ? error.message : String(error) }))
         }).catch(() => {
@@ -2305,13 +2351,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
           lastFingerprintRef.current = mindmapDocFingerprint(written.doc)
         }
         if (!mountedRef.current) return
-        if (String(saveRoot) !== String(root)) {
-          setRootId(String(saveRoot))
-          /* Keep the ref in lockstep so switchToSession below remembers the
-             last-selected session under the NEW root (the ref only re-syncs on
-             the next render, which is after this handler). */
-          rootIdRef.current = String(saveRoot)
-        }
+        if (String(saveRoot) !== String(root)) reanchorTo(String(saveRoot))
         /* Close the dialog before the notice and any session switch. */
         setDeleteTarget(null)
         mindmapRegistry.markDirty()
@@ -2357,10 +2397,7 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
           if (loaded !== null && loaded !== undefined && (loaded.sessions ?? []).length > 0) {
             lastFingerprintRef.current = mindmapDocFingerprint(loaded)
             setDoc(loaded)
-            if (String(loaded.rootSessionId) !== adoptRoot) {
-              setRootId(String(loaded.rootSessionId))
-              rootIdRef.current = String(loaded.rootSessionId)
-            }
+            if (String(loaded.rootSessionId) !== adoptRoot) reanchorTo(String(loaded.rootSessionId))
           }
           showNoticeError(translate('mindmap.delete.writeFailed', { message: error instanceof Error ? error.message : String(error) }))
         }).catch(() => {

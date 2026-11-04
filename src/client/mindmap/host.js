@@ -32,6 +32,10 @@ export const mindmapViewHost = {
      remembered session. Captured by the view's mount-time useRef and CONSUMED via consumeFresh()
      — a stale true flag must never replay restoreLastSession on a later remount of the body. */
   _roots: new Map(),
+  /* Monotonic id for the React key of each body: a map that is RE-ANCHORED to a new root keeps
+     its body alive (same bodyKey, same portal container) while its rootId prop changes. Keying the
+     body by rootId would remount it on every root replacement and rebuild the whole map. */
+  _bodySeq: 0,
   /* rootId -> { el, host }: the map's STABLE portal container. `el` is created once per body
      (lazily, by containerOf) and its identity NEVER changes while the body lives — the
      MindMapBody portal targets it forever, which is what keeps React from remounting the map.
@@ -59,7 +63,7 @@ export const mindmapViewHost = {
     this._version += 1
     for (const listener of [...this._listeners]) listener()
   },
-  roots() { return [...this._roots.keys()] },
+  roots() { return [...this._roots.entries()].map(([rootId, entry]) => ({ bodyKey: entry.bodyKey, rootId })) },
   /* The map's STABLE portal container: created once per body, parked in the hidden holding node
      until an explorer places it into a strip placeholder. Idempotent — both ensure() and a
      (defensive) bare render may call it; the returned element identity is constant for the body's
@@ -97,7 +101,8 @@ export const mindmapViewHost = {
   ensure(rootId, fresh) {
     const key = String(rootId)
     if (this._roots.has(key)) return
-    this._roots.set(key, { fresh: Boolean(fresh) })
+    this._bodySeq += 1
+    this._roots.set(key, { bodyKey: `mindmap-body-${this._bodySeq}`, fresh: Boolean(fresh) })
     this.containerOf(key)
     this._notify()
   },
@@ -114,6 +119,74 @@ export const mindmapViewHost = {
     }
     this._sessions.delete(key)
     this._notify()
+  },
+  /* A root replacement moved this map's document to a NEW root (the old root was archived or its
+     card truncated). Migrate the open body in place: the entry keeps its bodyKey and its portal
+     container, so React re-renders the SAME MindMapView with a new rootId prop (doc, viewport and
+     sync timers survive); the docked tab and the persisted family snapshot follow to the new key.
+     Returns false when no body is open for the old root (nothing to migrate). */
+  rekey(oldRoot, newRoot, title) {
+    const from = String(oldRoot)
+    const to = String(newRoot)
+    if (from === '' || to === '' || from === to) return false
+    const entry = this._roots.get(from)
+    if (entry === undefined) return false
+    this._roots.delete(from)
+    this._roots.set(to, entry)
+    const container = this._containers.get(from)
+    if (container !== undefined) {
+      this._containers.delete(from)
+      this._containers.set(to, container)
+    }
+    if (this._sessions.has(from)) {
+      const last = this._sessions.get(from)
+      this._sessions.set(to, String(last) === from ? to : last)
+      this._sessions.delete(from)
+    }
+    this._migrateSnapshot(from, to, title)
+    this._notify()
+    return true
+  },
+  /* Move the family's persisted preview snapshot to the new key and rewrite its map tab (the tab's
+     synthetic path and its stamps are the old root). The retired key is emptied, which deletes it:
+     a later session switch must never restore the dead map. */
+  _migrateSnapshot(from, to, title) {
+    const store = this._snapshotStore()
+    if (store === null) return
+    const fromPath = mindmapTabPath(from)
+    const toPath = mindmapTabPath(to)
+    const mapTab = (name) => ({ kind: 'mindmap', path: toPath, name, sessionId: to, dockedAt: to })
+    const value = this._snapshotValue(from)
+    if (value !== null) {
+      const tabs = []
+      let moved = false
+      for (const tab of Array.isArray(value.tabs) ? value.tabs : []) {
+        if (tab === null || tab === undefined || tab.kind !== 'mindmap' || tab.path !== fromPath) {
+          tabs.push(tab)
+          continue
+        }
+        moved = true
+        tabs.push({
+          ...tab,
+          path: toPath,
+          sessionId: to,
+          dockedAt: to,
+          ...(typeof title === 'string' && title !== '' ? { name: title } : {}),
+        })
+      }
+      /* The snapshot write can lag the dock by one commit: the body is provably open (rekey only
+         runs for a mounted one), so a missing map tab is re-synthesized instead of silently
+         dropping the tab on the key flip. */
+      if (!moved && typeof title === 'string' && title !== '') tabs.push(mapTab(title))
+      store.actions.rememberPreviewSession(to, {
+        ...value,
+        activePath: value.activePath === fromPath ? toPath : value.activePath,
+        tabs,
+      })
+    } else if (typeof title === 'string' && title !== '') {
+      store.actions.rememberPreviewSession(to, { activePath: toPath, tabs: [mapTab(title)], expanded: [] })
+    }
+    store.actions.rememberPreviewSession(from, null)
   },
   /* Park the map's STABLE container into the explorer's strip placeholder for this tab: a plain
      appendChild move — container identity never changes, so the body's fibers (doc, viewport,
@@ -230,9 +303,9 @@ export function MindMapHost({ currentSession, useSessions, mindmapActions, setti
   useSyncExternalStore(subscribeHost, hostVersion)
   const roots = mindmapViewHost.roots()
   return h(Fragment, null,
-    ...roots.map(rootId => h(MindMapBody, {
+    ...roots.map(({ bodyKey, rootId }) => h(MindMapBody, {
       currentSession,
-      key: rootId,
+      key: bodyKey,
       mindmapActions,
       rootId,
       settingsStore,
@@ -268,11 +341,14 @@ function MindMapBody({ rootId, currentSession, useSessions, mindmapActions, sett
     deleteDoc: mindmapActions.deleteDoc,
     forkAt: mindmapActions.forkAt,
     freshDock,
-    key: rootId,
     listWorkspaces: mindmapActions.listWorkspaces,
     loadDoc: mindmapActions.loadDoc,
     onDocGone: () => mindmapViewHost.docGone(String(rootId)),
     onFreshConsumed: () => mindmapViewHost.consumeFresh(String(rootId)),
+    onRootChange: (from, to, title, familyIds) => {
+      mindmapViewHost.rekey(String(from), String(to), title)
+      mindmapRegistry.rekeyRoot(String(from), String(to), familyIds)
+    },
     onTitleChange: (title) => mindmapViewHost.titleChange(String(rootId), title),
     openSession: (id) => {
       mindmapActions.openSession(String(id))

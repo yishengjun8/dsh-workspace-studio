@@ -34,6 +34,22 @@ import { mindmapRegistry } from './registry.js'
    Harness still counts (hidden, not rendered) are subtracted: the Harness now
    computes that number from its archived filter and its session watermark, so
    recomputing it locally would encode a sidebar model that no longer exists.
+
+   That patch writes ONLY the value of the text node React owns. Replacing the
+   child (the old `textContent` write) detaches React's HostText instance, so
+   every later count React renders lands outside the document and the button
+   keeps showing a stale number — the next pass then subtracts from that stale
+   value, the displayed count climbs instead of reaching zero, and the "nothing
+   left to reveal" branch never fires. The baseline is likewise the last text
+   the Harness itself wrote (captured from its characterData records), never a
+   value this pass wrote.
+
+   A Harness expand click raises its watermark by five RAW rows, so a click can
+   reveal five rows this hider hides and nothing on screen. The click is
+   therefore followed by a bounded series of the same clicks until one row is
+   actually visible, the Harness switches to its collapse label, or the count is
+   exhausted.
+
    The archived filter itself is read from ui-workspace's persisted view state
    (`dsh.workspace.view.v<n>`) with a rendered-rows fallback, never from a
    Workspace snapshot field: the snapshot never carried one. */
@@ -45,6 +61,11 @@ const hiddenRowsSheet = createStyleSheet(HIDDEN_ROWS_STYLE_ID)
 /* Same ceiling as the collections filter: a pathological profile must not build
    a giant sheet (the class pass still hides whatever falls outside it). */
 const HIDDEN_SESSION_RULE_MAX = 4000
+/* Rows one Harness expand click adds (WorkspaceBrowser's SESSION_WATERMARK_BASE). */
+const OVERFLOW_ROWS_PER_CLICK = 5
+/* Backstop for the click advance: a profile with more folded rows than this in a
+   single group simply needs a second click (the advance is user-driven, not a loop). */
+const OVERFLOW_ADVANCE_MAX = 40
 const REGION = '[data-slot="sidebar.workspaces"]'
 
 /* Selectors are built from Harness-minted ids (never user text) but are still
@@ -102,31 +123,85 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
   /* Signature of the last applied scan (all driving inputs + the resulting
      row states + overflow-button texts): an identical scan writes nothing. */
   let lastSignature = null
-  /* Original textContent of every overflow button whose count this hider
-     patched, so it can be restored when the patch no longer applies (all docs
-     gone, group fully hidden, or dispose): the harness re-renders the button on
-     session changes, but a static group would keep the patched number forever.
-     Also marks a button as "patched by us" for the mutation filter below. */
-  /* Original text and the text this hider wrote, per patched button: `base` is
-     the Harness's own count, `written` lets a later pass tell a React rewrite
-     (current text is a fresh baseline) from our own leftover patch. */
+  /* Overflow-button text bookkeeping. The Harness renders the count as the
+     button's single text child, and React owns that node: patching it means
+     writing the node's VALUE, never replacing the child (see the module header).
+     `patchedButtons` holds `{base, written}` per patched button — `base` is the
+     Harness's text the patch was computed from, `written` is what this hider put
+     in its place, so a later pass can tell "still ours" from "React rewrote it".
+     `harnessTexts` remembers the Harness's own text per TEXT NODE (React may
+     replace the node on a label switch, which is a fresh baseline), and
+     `ownTextWrites` marks this hider's writes so a characterData record can
+     never be mistaken for the Harness's. */
   const patchedButtons = new WeakMap()
+  const harnessTexts = new WeakMap()
+  const ownTextWrites = new WeakMap()
+  /* Write through the live text node React owns. A replaced child would detach
+     React's HostText instance and freeze the visible count. */
+  const writeButtonText = (button, text) => {
+    const node = button.firstChild
+    if (node === null || node.nodeType !== 3 || node.nextSibling !== null) return false
+    /* Already there: no write, no record, no reason to disturb React. */
+    if (node.nodeValue === text) return true
+    ownTextWrites.set(node, text)
+    node.nodeValue = text
+    return true
+  }
+  /* The Harness's own count for a button. While the visible text is still this
+     hider's patch, the baseline is the last text the Harness wrote to that node
+     (or the value the patch was computed from); otherwise React owns the text and
+     it IS the baseline. Never the number this pass wrote. */
+  const harnessTextOf = (button) => {
+    const currentText = button.textContent ?? ''
+    const stored = patchedButtons.get(button)
+    if (stored === undefined || currentText !== stored.written) return currentText
+    const node = button.firstChild
+    if (node !== null && node.nodeType === 3) {
+      const captured = harnessTexts.get(node)
+      if (captured !== undefined) return captured
+    }
+    return stored.base
+  }
+  /* Put the Harness's count back; no-op once React owns the current text again. */
   const restoreButtonText = (button) => {
     const original = patchedButtons.get(button)
-    if (original !== undefined) {
-      button.textContent = original.base
-      /* Unmark: a later foreign rewrite of the SAME node must rescan again
-         (the marker deletion costs at most one extra no-op scan). */
-      patchedButtons.delete(button)
+    if (original === undefined) return
+    /* Unmark first: a later foreign rewrite of the SAME node must rescan again
+       (the marker deletion costs at most one extra no-op scan). */
+    patchedButtons.delete(button)
+    if ((button.textContent ?? '') !== original.written) return
+    writeButtonText(button, original.base)
+  }
+  /* Record every Harness count write before a scan can read the button (this runs
+     at the START of a mutation batch, before `apply` can write again, so the node
+     values it reads are the ones the records carry). Returns the records that are
+     this hider's own writes, so the mutation filter does not treat them as news. */
+  const captureButtonTexts = (records) => {
+    const own = new WeakSet()
+    for (const record of records) {
+      if (record.type !== 'characterData' || !(record.target instanceof Text)) continue
+      const node = record.target
+      if (ownTextWrites.get(node) === node.nodeValue) {
+        /* Consume the marker: a later Harness write of the SAME text is still a
+           fresh baseline, and value equality alone could never tell them apart. */
+        ownTextWrites.delete(node)
+        own.add(record)
+        continue
+      }
+      if (node.parentElement?.closest?.('button[aria-expanded]') == null) continue
+      harnessTexts.set(node, node.nodeValue ?? '')
     }
+    return own
   }
   /* The published sheet (see the module header): the shared style-sheet primitive owns create-lazily / reuse / write-on-change / dispose in one place. */
   const publishHiddenRows = (css) => hiddenRowsSheet.publish(css)
   /* Whether a mutation batch can change what this hider renders: a session row
      or overflow button added / removed / rewritten — everything else (panel
      button/label renders, seat re-anchors, decorative nodes, this hider's own
-     count patches) cannot alter any hidden class or count. */
-  const mutatesHiderState = (records) => {
+     count patches) cannot alter any hidden class or count.
+     @param ownRecords - characterData records this batch that are this hider's own
+       count writes (see captureButtonTexts): not news. */
+  const mutatesHiderState = (records, ownRecords) => {
     for (const record of records) {
       /* Attribute records are handled exclusively by wipesHiddenRowClass below
          (row-class rewrites → frame path): every other attribute change cannot
@@ -136,28 +211,22 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
          overflow button's count (the archived-filter switch and watermark
          changes rewrite just that number) and a row's title. React writes text
          through characterData, which carries no childList record, so without
-         this branch a filter switch leaves a stale count. Our own count write is
-         not news; anything else is. */
+         this branch a filter switch leaves a stale count. */
       if (record.type === 'characterData') {
+        if (ownRecords?.has(record) === true) continue
         const parent = record.target.parentElement
         if (!(parent instanceof Element)) continue
-        const button = parent.closest('button[aria-expanded]')
-        if (button !== null) {
-          const stored = patchedButtons.get(button)
-          if (stored !== undefined && record.target.nodeValue === stored.written) continue
-          return true
-        }
+        if (parent.closest('button[aria-expanded]') !== null) return true
         if (parent.closest('[role="treeitem"]') !== null) return true
         continue
       }
       const target = record.target
       if (target instanceof Element) {
         if (target.tagName === 'BUTTON') {
-          /* Our own count-patch / restore writes target a button we patched:
-             skip (de-self-trigger). A foreign overflow-button rewrite (text
-             set on the same node) must rescan — its count may be stale again.
-             Plain panel buttons cannot affect hiding or counts either. */
-          if (patchedButtons.has(target)) continue
+          /* Count patches write the text node's value (characterData above), so a
+             childList change on an overflow button means React replaced its text
+             node — a fresh baseline that must rescan. Plain panel buttons cannot
+             affect hiding or counts. */
           if (target.getAttribute('aria-expanded') !== null) return true
           continue
         }
@@ -401,12 +470,9 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
         const accounted = new Set(workspaces.flatMap(w => (w.sessionIds ?? []).map(String)))
         ids = list.ids.filter(id => !accounted.has(String(id)))
       }
-      /* `base` is the Harness's untouched text; `written` is our own last patch.
-         A different current text means the Harness (React) rewrote this node, so
-         the fresh text — not the stored base — is the new baseline. */
-      const stored = patchedButtons.get(button)
-      const currentText = button.textContent ?? ''
-      const base = stored !== undefined && currentText === stored.written ? stored.base : currentText
+      /* `base` is the Harness's own number: its last captured text, else the text
+         this element currently shows — never a value this pass wrote itself. */
+      const base = harnessTextOf(button)
       const baseNumber = base.match(/\d+/)
       if (baseNumber === null) {
         restoreButtonText(button)
@@ -421,19 +487,79 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
       if (remaining > 0) {
         button.classList.remove('dsh-ws-mindmap-no-overflow')
         if (Number(baseNumber[0]) === remaining) {
-          if (stored !== undefined) restoreButtonText(button)
+          restoreButtonText(button)
           continue
         }
         /* The button's only number is the count — swap it in place, keeping the
            baseline so a later restore writes the real count back. */
         const written = base.replace(/\d+/, String(remaining))
+        /* No single text node to patch in place: leave the Harness's label alone
+           rather than replacing React's child (module header). */
+        if (!writeButtonText(button, written)) { restoreButtonText(button); continue }
         patchedButtons.set(button, { base, written })
-        button.textContent = written
       } else {
         button.classList.add('dsh-ws-mindmap-no-overflow')
         restoreButtonText(button)
       }
     }
+  }
+  /* A Harness expand click raises its watermark by five RAW rows; when those five
+     are rows this hider hides, nothing appears on screen and the user has to click
+     through every hidden row to reach a real session. Follow the click with the
+     same clicks — one per frame, bounded by the Harness's own folded-row count —
+     until a row is actually visible (or the Harness shows its collapse label, the
+     button vanished, or the count is exhausted). Only user clicks start it: the
+     generated clicks are untrusted and must not re-enter. */
+  let advanceToken = 0
+  /* Rows the user can actually see: census-hidden rows carry display:none from the
+     sheet, and a detached/animated row has no client rects, so rects are the test. */
+  const visibleSessionRows = (section) => {
+    let visible = 0
+    for (const row of section.querySelectorAll('[role="treeitem"][data-row-key^="session:"]')) {
+      if (row.getClientRects().length > 0) visible += 1
+    }
+    return visible
+  }
+  const advanceOverflow = (button, section, left, token) => {
+    if (token !== advanceToken || left <= 0) return
+    if (!button.isConnected || !section.isConnected) return
+    /* Hidden by the census (nothing left this hider would reveal) or expanded. */
+    if (button.getClientRects().length === 0) return
+    if (button.getAttribute('aria-expanded') === 'true') return
+    const before = visibleSessionRows(section)
+    button.click()
+    window.requestAnimationFrame(() => {
+      if (token !== advanceToken || !button.isConnected) return
+      if (button.getAttribute('aria-expanded') === 'true') return
+      if (visibleSessionRows(section) > before) return
+      advanceOverflow(button, section, left - 1, token)
+    })
+  }
+  const startOverflowAdvance = (button) => {
+    const section = button.parentElement
+    if (section === null) return
+    const folded = Number((harnessTextOf(button).match(/\d+/) ?? [])[0] ?? 0)
+    const limit = Math.max(1, Math.min(OVERFLOW_ADVANCE_MAX, Math.ceil(folded / OVERFLOW_ROWS_PER_CLICK) + 1))
+    const before = visibleSessionRows(section)
+    const token = ++advanceToken
+    /* The user's own click is handled by the Harness first; only a batch with no
+       visible row needs the follow-up clicks. */
+    window.requestAnimationFrame(() => {
+      if (token !== advanceToken || !button.isConnected) return
+      if (button.getAttribute('aria-expanded') === 'true') return
+      if (visibleSessionRows(section) > before) return
+      advanceOverflow(button, section, limit - 1, token)
+    })
+  }
+  const onClickCapture = (event) => {
+    if (!event.isTrusted) return
+    const target = event.target instanceof Element
+      ? event.target.closest('button[data-row-key^="overflow:"]')
+      : null
+    /* Any other user click supersedes a running advance. */
+    if (target === null || target.closest(REGION) === null) { advanceToken += 1; return }
+    if (target.getAttribute('aria-expanded') === 'true') { advanceToken += 1; return }
+    startOverflowAdvance(target)
   }
   /* Whether a mutation batch ADDS session rows or overflow buttons — the
      expand/collapse case. These appear only when the user expands a group (rows)
@@ -471,6 +597,10 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
      replacement, invisible to the body guard), so re-anchor here inside the
      throttled callback — a stale slot must never leave the hider dead. */
   const schedule = (records) => {
+    /* Record the Harness's own count text first: a batch can carry both the row
+       insertion and the button's characterData, and the scan must read the new
+       baseline, not the one from before the commit. */
+    const ownRecords = records !== undefined && records.length > 0 ? captureButtonTexts(records) : null
     if (records !== undefined && records.length > 0 && addsHiderNodes(records)) {
       /* Expansion/collapse: scan synchronously — the observer callback runs
          at the microtask checkpoint, before paint, so rows are hidden before
@@ -498,7 +628,7 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
     if (timer !== 0) return
     /* Mutation filter (header): scan only when the batch can change hiding state
        (a row or overflow button touched). Registry pushes (no records) always scan. */
-    if (records !== undefined && records.length > 0 && !mutatesHiderState(records)) return
+    if (records !== undefined && records.length > 0 && !mutatesHiderState(records, ownRecords)) return
     const wait = Math.max(0, MINDMAP_HIDER_THROTTLE_MS - (Date.now() - lastRun))
     timer = window.setTimeout(() => { timer = 0; ensureObserved(); apply() }, wait)
   }
@@ -533,11 +663,17 @@ export function installMindmapBranchHider(getSessionList, getArchivedSessionIds,
   })
   guardObserver.observe(document.body, { childList: true })
   ensureObserved()
+  /* Capture phase: read the visible rows BEFORE the Harness processes the click,
+     then follow it with bounded clicks when the batch revealed nothing visible. */
+  document.addEventListener('click', onClickCapture, true)
   const unsubscribe = mindmapRegistry.subscribe(schedule)
   apply()
   return () => {
     observer.disconnect()
     guardObserver.disconnect()
+    document.removeEventListener('click', onClickCapture, true)
+    /* Cancel any running advance: the button it clicks may be about to vanish. */
+    advanceToken += 1
     unsubscribe()
     if (timer !== 0) { clearTimeout(timer); timer = 0 }
     if (frame !== 0) { window.cancelAnimationFrame(frame); frame = 0 }

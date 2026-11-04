@@ -59,7 +59,7 @@ export function wrapPromptClaim(claim, submitWithContext) {
  * Route a prompt-bearing claim adjudication outcome through the
  * context-injecting submitter while leaving every other outcome untouched.
  * @param outcome - the slash pipeline's PickOutcome.
- * @param submitWithContext - (claim, args, actx, attachments) => Promise<SubmitOutcome>.
+ * @param submitWithContext - same injector callback as wrapPromptClaim.
  * @returns the outcome, with a wrapped claim when this command carries a prompt.
  */
 export function wrapPromptClaimOutcome(outcome, submitWithContext) {

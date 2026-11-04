@@ -263,6 +263,10 @@ export const MINDMAP_PAN_OUT_MAX = 0.8
 export const MINDMAP_WHEEL_STEP = 0.0016
 /* Mind-map doc-index refresh interval; also bumped on every doc mutation, so the idle poll only catches external changes. */
 export const MINDMAP_INDEX_REFRESH_MS = 30000
+/* Lifetime of the client-side optimistic family mappings (a session this client just created or
+   adopted, a root this client just re-anchored). They bridge the window until the async index
+   refresh carries the same fact; the TTL only bounds a mapping the Host never confirms. */
+export const MINDMAP_MEMBER_TTL_MS = 60_000
 /* Re-sync the doc this often while the map is mounted so a completed branch turn folds in live. */
 export const MINDMAP_SYNC_MS = 2500
 /* Mind-map request timeouts. The generic 30 s request timeout is far below the

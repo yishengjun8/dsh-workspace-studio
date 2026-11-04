@@ -56,6 +56,10 @@ function handOffForeignFork(parentSessionId, childId) {
     root = null
   }
   if (root === null) return
+  /* The chat navigates to the fork child as soon as the wrapped fork resolves, while the async
+     index refresh still knows nothing about it. Note the membership NOW, or the preview column's
+     key falls back to the raw child id and remounts empty (the docked map tab blinks away). */
+  mindmapRegistry.noteMember(root, childId)
   void Promise.resolve(syncMindmapDoc(root))
     .then((payload) => {
       if (payload === null || payload === undefined || payload.exists === false) return

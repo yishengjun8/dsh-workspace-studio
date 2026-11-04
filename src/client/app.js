@@ -348,13 +348,6 @@ export function AppFrame(props) {
     observer.observe(viewport)
     return () => { observer.disconnect() }
   }, [])
-  // Chat drop mask: track file drags over the chat pane (capture phase, without stopping
-  // propagation, so the harness composer still receives the drop). The mask covers only the
-  // chat pane; the harness's full-viewport mask is hidden by CSS. Enter/leave use a depth
-  // counter because Chrome's dragleave has a null relatedTarget.
-  // Think card (useThinkCard): every think block is kept open so the harness renders its
-  // body; the body viewport shows only the latest --dsh-ws-think-lines rows, pinned to the
-  // newest text. A row collapsed by the user is never force-reopened.
   const collapsed = panels.sidebar === 0
   // Mobile expands the sidebar so the drawer shows the full browsing content; the previous
   // collapsed state is restored when mobile turns off. Declared after `collapsed` so the

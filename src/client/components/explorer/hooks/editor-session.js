@@ -137,7 +137,7 @@ export function useEditorSession({
   }, [preview, publishContextState])
   /* Preview auto-sync: a clean active tab re-reads (auto) or shows a "changed" marker (watch-only); a dirty tab is never overwritten; a BACKGROUND tab is only MARKED — never reloaded — so a file moving under the user's other tabs stays visible without silently swapping content. */
   const syncControllerRef = useRef()
-  /* Flash a tab whose content an AUTO reload just replaced; the timer clears the flag, without which the next reload's CSS animation would not replay. */
+  /* Flash a tab whose content an AUTO reload just replaced; the timer clears the flag. */
   const flashTab = useCallback((path) => {
     updateTab(path, { flash: true })
     const timers = flashTimersRef.current
@@ -159,7 +159,7 @@ export function useEditorSession({
       && (isByteKind(preview.kind) || (preview.editable !== false && !preview.readOnlyReason))
     /* A non-editable tab (a read-only preview holding a leftover draft) can never be in conflict: its draft has no save path. */
     const dirtyEditable = tab.dirty === true && tab.editing !== false
-    /* A BACKGROUND tab is marked only: reloading it would swap content the user is not looking at (and the read pass serves the active path alone), so the strip's marker is its only honest channel — no status is written either. */
+    /* A BACKGROUND tab is marked only (the read pass serves the active path alone): the strip's marker is its only channel, and no status is written. */
     if (!activeNow) {
       if (tab.saving) return
       updateTab(path, { diskState: dirtyEditable ? DISK_STATE_CONFLICT : DISK_STATE_STALE })
