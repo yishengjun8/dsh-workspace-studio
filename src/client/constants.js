@@ -231,6 +231,11 @@ export const MOBILE_CLASS = 'dsh-ws-mobile-on'
 export const MOBILE_DRAWER_CLASS = 'dsh-ws-mobile-drawer-open'
 export const MOBILE_FILES_CLASS = 'dsh-ws-mobile-files-on'
 export const MOBILE_HEADER_FALLBACK_H = 52
+/* Sidebar dock geometry, published by hooks/sidebar-chrome.js and consumed by styles.js:
+   the global panel list's measured height (the slot reserved above Settings) and the
+   footer action seat's measured height (how far the list hangs below the scroller). */
+export const PANEL_NAV_HEIGHT_VAR = '--dsh-ws-panel-nav-h'
+export const PANEL_FOOT_HEIGHT_VAR = '--dsh-ws-panel-footer-h'
 /* Mind-map conversation branching ("导图"): a docked preview tab rendering a persisted per-root-session document (session turn-chains + fork branches) left-to-right; branch sessions are hidden from the sidebar list. */
 export const MINDMAP_NODE_W = 236
 /* Card height fits the branch-title row, clamped two-line question, and status row. */

@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react'
+import { PANEL_FOOT_HEIGHT_VAR, PANEL_NAV_HEIGHT_VAR } from '../constants.js'
 
 /**
  * @param options.collections - whether the workspace-collection dropdown is active (it owns the
@@ -92,7 +93,36 @@ export function useSidebarChrome(options = {}) {
     }
     const groupsEqual = (a, b) => a.length === b.length
       && a.every((group, index) => group.container === b[index]?.container && group.title === b[index]?.title)
+    /* The global panel list docks into the foot (styles.js): the shell keeps it
+       inside its shared scroller, so CSS pins it below that scroller and needs two
+       measured heights — the list's own height (the slot reserved above Settings)
+       and the footer action seat's height (how far below the scroller the list
+       hangs). Both change with the pinned panels, the collapsed rail and the
+       locale; observe the two nodes rather than measuring once. */
+    let dockNav = null
+    let dockFoot = null
+    const measureDock = () => {
+      aside.style.setProperty(PANEL_NAV_HEIGHT_VAR, `${dockNav === null ? 0 : dockNav.offsetHeight}px`)
+      aside.style.setProperty(PANEL_FOOT_HEIGHT_VAR, `${dockFoot === null ? 0 : dockFoot.offsetHeight}px`)
+    }
+    const dockObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measureDock)
+    const syncDock = () => {
+      const nav = aside.querySelector('[data-slot="sidebar"] > div > div[class*="scrollRegion"] > div[class*="scrollArea"] > nav')
+      const foot = aside.querySelector('[data-slot="sidebar"] > div > div[class*="footArea"] > div[class*="footerActions"]')
+      if (nav !== dockNav) {
+        if (dockNav !== null) dockObserver?.unobserve(dockNav)
+        dockNav = nav
+        if (dockNav !== null) dockObserver?.observe(dockNav)
+      }
+      if (foot !== dockFoot) {
+        if (dockFoot !== null) dockObserver?.unobserve(dockFoot)
+        dockFoot = foot
+        if (dockFoot !== null) dockObserver?.observe(dockFoot)
+      }
+      measureDock()
+    }
     let current = ensure()
+    syncDock()
     if (current !== null) setSidebarChrome(current)
     /* Coalesce mutation bursts to one ensure() per frame. */
     let scheduled = false
@@ -104,6 +134,7 @@ export function useSidebarChrome(options = {}) {
         scheduled = false
         rafId = 0
         const next = ensure()
+        syncDock()
         if (next === null) return
         setSidebarChrome(prev => (prev !== null && prev.top === next.top && prev.files === next.files
           && prev.fallback === next.fallback && prev.header === next.header && groupsEqual(prev.groups, next.groups) ? prev : next))
@@ -112,6 +143,9 @@ export function useSidebarChrome(options = {}) {
     observer.observe(aside, { childList: true, subtree: true })
     return () => {
       observer.disconnect()
+      dockObserver?.disconnect()
+      aside.style.removeProperty(PANEL_NAV_HEIGHT_VAR)
+      aside.style.removeProperty(PANEL_FOOT_HEIGHT_VAR)
       if (scheduled) {
         scheduled = false
         if (rafId !== 0) cancelAnimationFrame(rafId)

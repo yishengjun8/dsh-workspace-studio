@@ -357,24 +357,38 @@ body[data-ds-dark-theme] .dsh-ws-editor-host{--dsh-ws-token-directive:#c586c0}
 .dsh-ws-frame[data-sidebar-files] .dsh-ws-sidebar-files{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;margin-right:12px;--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2)}
 .dsh-ws-frame[data-sidebar-files] .dsh-ws-sidebar-files .dsh-ws-tree{flex:1;min-height:0;height:auto;border-right:0}
 /* Sidebar foot: the global panel list (the Plugins seat ui-plugin-manager
-   registers into sidebar.panellist) leaves the column top and joins the foot stack —
-   below Mobile-mode, above Settings. The shell draws the foot as ONE box around the
-   two footer seats, so that box is dissolved (display:contents) and the three are
-   ordered flex items of the shell root. The list node never leaves its React-owned
-   position: relocating it would make React's uninstall path call removeChild on a
-   parent it no longer has (NotFoundError). The three box hooks are the shell's class
-   names (no data-slot of their own). */
+   registers into sidebar.panellist) leaves the column top and docks into the foot
+   stack — below Mobile-mode, above Settings. The shell wraps that list in its
+   shared scroller (scrollRegion > scrollArea) since the vertical-space update, and
+   the node never leaves that scroller: relocating it would make React's uninstall
+   path call removeChild on a parent it no longer has (NotFoundError). scrollRegion
+   is a positioned size container, so the list is absolutely positioned against it
+   and hangs below it. The plugin measures the list and the footer seat
+   (hooks/sidebar-chrome.js) and publishes --dsh-ws-panel-nav-h plus
+   --dsh-ws-panel-footer-h; the Settings seat takes a top margin of the list's
+   height, and THAT margin is the dock's slot. The list therefore ends above
+   Mobile-mode and nothing overlaps. */
 .dsh-ws-frame [data-slot="sidebar"] > div > div[class*="footArea"]{display:contents}
 .dsh-ws-frame [data-slot="sidebar"] > div > div[class*="footArea"] > div[class*="footerActions"]{order:10}
-.dsh-ws-frame [data-slot="sidebar"] > div > nav{order:20}
-.dsh-ws-frame [data-slot="sidebar"] > div > div[class*="footArea"] > div[class*="settingsArea"]{order:30}
+.dsh-ws-frame [data-slot="sidebar"] > div > div[class*="footArea"] > div[class*="settingsArea"]{order:30;margin-top:var(--dsh-ws-panel-nav-h,0px)}
+.dsh-ws-frame [data-slot="sidebar"] > div > div[class*="scrollRegion"] > div[class*="scrollArea"] > nav{position:absolute;left:-4px;right:-4px;bottom:calc(-1 * (var(--dsh-ws-panel-footer-h,0px) + var(--dsh-ws-panel-nav-h,0px)));z-index:6;display:flex;flex-direction:column;gap:0;margin:0;max-height:45vh;overflow-y:auto;overscroll-behavior:contain}
 /* Wide sidebar: each panel row takes the Mobile-mode row's box (34px, 12px
-   radius, the same 6px glyph inset and 4px/-4px margins, no list gap), so the
-   rows read as one stack at an 8px rhythm; the Settings row keeps its own 42px
-   box and the collapsed rail keeps the shell's 36px rows. */
-.dsh-ws-frame:not([data-sidebar-collapsed]) [data-slot="sidebar"] > div > nav{gap:0;margin:0 0 4px}
-.dsh-ws-frame:not([data-sidebar-collapsed]) [data-slot="sidebar"] > div > nav > button{height:34px;min-height:34px;margin:4px -4px;padding:6px 2px 6px 10px;gap:8px;border-radius:12px;color:var(--dsw-alias-label-primary);font-size:14px;line-height:22px}
-.dsh-ws-frame:not([data-sidebar-collapsed]) [data-slot="sidebar"] > div > nav > button[aria-current="page"]{color:var(--dsw-alias-brand-primary)}
+   radius, the same 10px left inset and 4px vertical margins, no list gap), so the dock
+   reads as one stack at an 8px rhythm; the Settings row keeps its own box and
+   the collapsed rail keeps the shell's 36px rows. Panel rows are wrapped by the
+   shell's panelEntry and More anchor, so both wrappers carry the row box. */
+.dsh-ws-frame:not([data-sidebar-collapsed]) [data-slot="sidebar"] > div > div[class*="scrollRegion"] > div[class*="scrollArea"] > nav > [class*="panelEntry"]{height:34px;margin:4px 0;border-inline:0;border-radius:12px}
+.dsh-ws-frame:not([data-sidebar-collapsed]) [data-slot="sidebar"] > div > div[class*="scrollRegion"] > div[class*="scrollArea"] > nav > [class*="moreAnchor"]{height:34px;margin:4px 0;border-radius:12px}
+.dsh-ws-frame:not([data-sidebar-collapsed]) [data-slot="sidebar"] > div > div[class*="scrollRegion"] > div[class*="scrollArea"] > nav [class*="panelRow"]{width:100%;height:34px;min-height:34px;margin:0;padding:6px 38px 6px 10px;gap:8px;border:0;border-radius:12px;color:var(--dsw-alias-label-primary);font-size:14px;line-height:22px}
+.dsh-ws-frame:not([data-sidebar-collapsed]) [data-slot="sidebar"] > div > div[class*="scrollRegion"] > div[class*="scrollArea"] > nav > [class*="moreAnchor"] [class*="panelRow"]{padding-right:10px}
+.dsh-ws-frame:not([data-sidebar-collapsed]) [data-slot="sidebar"] > div > div[class*="scrollRegion"] > div[class*="scrollArea"] > nav [class*="panelEntryActive"]{background-color:var(--dsw-alias-interactive-bg-active)}
+.dsh-ws-frame:not([data-sidebar-collapsed]) [data-slot="sidebar"] > div > div[class*="scrollRegion"] > div[class*="scrollArea"] > nav [aria-current="page"]{color:var(--dsw-alias-brand-primary)}
+.dsh-ws-frame:not([data-sidebar-collapsed]) [data-slot="sidebar"] > div > div[class*="scrollRegion"] > div[class*="scrollArea"] > nav [class*="panelUnpin"]{top:3px;right:2px}
+/* Collapsed rail: the dock is a centered column of 36px icon rows. */
+.dsh-ws-frame[data-sidebar-collapsed] [data-slot="sidebar"] > div > div[class*="scrollRegion"] > div[class*="scrollArea"] > nav{left:0;right:0;gap:12px;margin:0;align-items:flex-start;max-height:none;overflow:visible}
+.dsh-ws-frame[data-sidebar-collapsed] [data-slot="sidebar"] > div > div[class*="scrollRegion"] > div[class*="scrollArea"] > nav > [class*="panelEntry"]{width:36px;height:36px;margin:0;border-radius:12px}
+.dsh-ws-frame[data-sidebar-collapsed] [data-slot="sidebar"] > div > div[class*="scrollRegion"] > div[class*="scrollArea"] > nav > [class*="moreAnchor"]{width:36px;height:36px;margin:0}
+.dsh-ws-frame[data-sidebar-collapsed] [data-slot="sidebar"] > div > div[class*="scrollRegion"] > div[class*="scrollArea"] > nav [class*="panelRow"]{width:36px;height:36px;min-height:36px;margin:0;padding:0;gap:0;justify-content:center;border:0;border-radius:12px}
 /* The foot box paints nothing as display:contents, so the shell's rail entry
    fade (.railIn .footArea) is carried on the two seats it used to wrap.
    [class*=railIn] is the shell's own rail flag: the only selector here not
@@ -382,8 +396,10 @@ body[data-ds-dark-theme] .dsh-ws-editor-host{--dsh-ws-token-directive:#c586c0}
 @keyframes dsh-ws-foot-rail-in{from{opacity:0}}
 .dsh-ws-frame [data-slot="sidebar"] > div[class*="railIn"] > div[class*="footArea"] > div{animation:dsh-ws-foot-rail-in 150ms var(--ds-ease-in-out) backwards}
 /* The desktop shell hides the whole foot in its collapsed rail; dissolving the
-   box above must not resurrect it there. */
+   box above must not resurrect it there. With no footer seat to measure, the
+   dock sits at the scroller's bottom instead of hanging below it. */
 html[data-windows-titlebar] .dsh-ws-frame[data-sidebar-collapsed] [data-slot="sidebar"] > div > div[class*="footArea"]{display:none}
+html[data-windows-titlebar] .dsh-ws-frame[data-sidebar-collapsed] [data-slot="sidebar"] > div > div[class*="scrollRegion"] > div[class*="scrollArea"] > nav{bottom:0}
 /* CodeMirror search panel (Ctrl+F) renders into .dsh-ws-preview-search, so the panel rules stay scoped to that container; !important keeps the controls legible under the harness's global styles. */
 .dsh-ws-preview-search{flex:none;min-width:0;background:var(--dsw-alias-bg-layer-1);user-select:none}
 .dsh-ws-preview-search .cm-panels.cm-panels-top{background:var(--dsw-alias-bg-layer-1)!important;color:var(--dsw-alias-label-primary)!important;border-bottom:1px solid var(--dsw-alias-border-l2)!important}
