@@ -19,6 +19,10 @@ const MENU_ROW_HEIGHT = 28
 const MENU_CHROME_HEIGHT = 70
 const WORKSPACE_MENU_HEIGHT = 96
 const SUBMENU_HEIGHT = 150
+/* The row's action menu: 4px padding top/bottom + three 28px items + one separated item. */
+const ROW_MENU_WIDTH = 216
+const ROW_MENU_HEIGHT = 101
+const ROW_MENU_GUTTER = 4
 
 /** Duplicate-name and limit failures use the text the user is looking at; anything else keeps the
  *  Host's message (already localized by apiErrorMessage). */
@@ -36,6 +40,29 @@ function collectionMenuBox(anchor, height) {
   return anchorBox(rect === null ? 8 : rect.left, rect === null ? 8 : rect.bottom + 4, MENU_WIDTH, height)
 }
 
+/** Fixed-position placement for one row's action menu. The menu drops from the row's left edge (so
+ *  the row's text is covered cleanly and the ⋯ stays visible); a context-menu open keeps the pointer
+ *  as its origin. Both flip above the anchor rather than being clamped over it when the bottom is
+ *  short. */
+function rowMenuBox(anchor) {
+  let left
+  let top
+  if (anchor.row !== undefined && anchor.row !== null) {
+    const rect = anchor.row.getBoundingClientRect()
+    left = rect.left
+    top = rect.bottom + 4
+    if (top + ROW_MENU_HEIGHT > window.innerHeight - ROW_MENU_GUTTER) top = rect.top - ROW_MENU_HEIGHT - 4
+  } else {
+    left = anchor.x
+    top = anchor.y
+    if (top + ROW_MENU_HEIGHT > window.innerHeight - ROW_MENU_GUTTER) top = anchor.y - ROW_MENU_HEIGHT
+  }
+  return {
+    left: clamp(left, ROW_MENU_GUTTER, Math.max(ROW_MENU_GUTTER, window.innerWidth - ROW_MENU_WIDTH - ROW_MENU_GUTTER)),
+    top: clamp(top, ROW_MENU_GUTTER, Math.max(ROW_MENU_GUTTER, window.innerHeight - ROW_MENU_HEIGHT - ROW_MENU_GUTTER)),
+  }
+}
+
 /** The built-in views, pinned above the user collections in this order. They are not stored, cannot be
  *  renamed / deleted / dragged, and their counts come from collectionWorkspaceCount. */
 const BUILTIN_ROWS = [
@@ -43,44 +70,55 @@ const BUILTIN_ROWS = [
   { id: COLLECTION_UNOWNED_ID, nameKey: 'collections.unowned' },
 ]
 
-/** One collection row: grip + check + name + count + row-menu trigger. */
-function CollectionRow({ row, count, isCurrent, dragging, onOpenMenu, onSelect, drag }) {
+/** One collection row: name + count + row-menu trigger. The row itself is the drag handle. */
+function CollectionRow({ row, count, isCurrent, dragging, menuOpen, onContextMenu, onSelect, onToggleMenu, drag }) {
   const builtin = row.builtin === true
-  return h('button', {
+  return h('div', {
     'aria-selected': isCurrent,
     className: 'dsh-ws-collection-row',
     'data-builtin': builtin || undefined,
     'data-coll': row.id,
-    'data-current': isCurrent || undefined,
     'data-dragging': dragging || undefined,
+    'data-menu-open': menuOpen || undefined,
     draggable: builtin ? undefined : true,
     /* Every row selects, the built-in one included: it is the only way back to the total view, and
        without it a user who switched into a collection is stuck there (the regression that made this
        line unconditional). Dragging is what the built-in row does NOT do. */
     onClick: () => onSelect(row.id),
+    onContextMenu: event => {
+      event.preventDefault()
+      if (builtin) return
+      onContextMenu(row.id, event)
+    },
     onDragEnd: drag.onEnd,
     onDragOver: event => drag.onOver(event, row),
     onDragStart: event => drag.onStart(event, row),
     onDrop: event => drag.onDrop(event, row),
+    onKeyDown: event => {
+      if (event.target !== event.currentTarget) return
+      if (event.key !== 'Enter' && event.key !== ' ') return
+      event.preventDefault()
+      onSelect(row.id)
+    },
     role: 'option',
-    type: 'button',
-  },
-  h('span', {
-    'aria-hidden': true,
-    className: 'dsh-ws-collection-grip',
+    tabIndex: 0,
     title: builtin ? undefined : translate('collections.drag.title'),
-  }, builtin ? '' : '⠿'),
-  h('span', { 'aria-hidden': true, className: 'dsh-ws-collection-check' }, isCurrent ? '✓' : ''),
+  },
   h('span', { className: 'dsh-ws-collection-rowname', title: row.name }, row.name),
   h('span', { className: 'dsh-ws-collection-count' }, String(count)),
   builtin
     ? null
-    : h('span', {
+    : h('button', {
+      'aria-expanded': menuOpen === true,
+      'aria-haspopup': 'menu',
       'aria-label': translate('collections.rowMenu'),
       className: 'dsh-ws-collection-dots',
-      onClick: event => { event.stopPropagation(); onOpenMenu(row.id) },
-      role: 'button',
-      tabIndex: 0,
+      onClick: event => {
+        event.stopPropagation()
+        onToggleMenu(row.id, event.currentTarget.closest('.dsh-ws-collection-row'))
+      },
+      title: translate('collections.rowMenu'),
+      type: 'button',
     }, '⋯'))
 }
 
@@ -111,6 +149,7 @@ export function CollectionsDropdown({ doc, workspaces, onSelect, onPatch, notice
   const [box, setBox] = useState({ left: 8, top: 8 })
   const buttonRef = useRef(null)
   const menuRef = useRef(null)
+  const rowMenuRef = useRef(null)
 
   const current = collectionById(doc, doc.selectedId)
   const currentName = current !== undefined
@@ -144,19 +183,27 @@ export function CollectionsDropdown({ doc, workspaces, onSelect, onPatch, notice
       if (!(target instanceof Node)) return false
       return (menuRef.current !== null && menuRef.current.contains(target))
         || (buttonRef.current !== null && buttonRef.current.contains(target))
+        || (rowMenuRef.current !== null && rowMenuRef.current.contains(target))
     }
     const onPointerDown = event => { if (!inside(event)) closeAll() }
     const onKeyDown = event => {
       if (event.key !== 'Escape') return
+      /* The row menu is the topmost layer: Escape closes it first and leaves the dropdown open. */
+      if (rowMenu !== undefined) { setRowMenu(undefined); return }
       if (renaming !== undefined || creating) { setRenaming(undefined); setCreating(false); setError(undefined) }
       else closeAll()
     }
     const onMove = () => closeAll()
-    /* The popup's own list scrolls (long collection lists): that scroll belongs
-       to the menu, not to the region behind it, so it must not close it. */
+    /* The popup's own list scrolls (long collection lists): that scroll belongs to the menu, not to
+       the region behind it, so it must not close either layer. Scrolling the list itself moves the
+       row the action menu is anchored to, so that layer closes while the dropdown stays. */
     const onScroll = event => {
       const target = event.target
-      if (menuRef.current !== null && target instanceof Node && menuRef.current.contains(target)) return
+      if (rowMenuRef.current !== null && target instanceof Node && rowMenuRef.current.contains(target)) return
+      if (menuRef.current !== null && target instanceof Node && menuRef.current.contains(target)) {
+        if (rowMenu !== undefined) setRowMenu(undefined)
+        return
+      }
       if (dismissesMenuOnScroll(event, buttonRef.current)) closeAll()
     }
     window.addEventListener('pointerdown', onPointerDown)
@@ -169,7 +216,32 @@ export function CollectionsDropdown({ doc, workspaces, onSelect, onPatch, notice
       window.removeEventListener('resize', onMove)
       window.removeEventListener('scroll', onScroll, true)
     }
-  }, [closeAll, creating, open, renaming])
+  }, [closeAll, creating, open, renaming, rowMenu])
+
+  /* A click anywhere outside the row's action menu closes it; a click on its own ⋯ is left to the
+     button's toggle so the second click closes rather than re-opening. Clicks inside the sibling
+     dropdown stay the dropdown's business (a row click selects, the title closes only this layer). */
+  useEffect(() => {
+    if (rowMenu === undefined) return undefined
+    const onPointerDown = event => {
+      const target = event.target
+      if (!(target instanceof Element)) return
+      if (rowMenuRef.current !== null && rowMenuRef.current.contains(target)) return
+      const dots = target.closest('.dsh-ws-collection-dots')
+      const row = dots === null ? null : dots.closest('.dsh-ws-collection-row')
+      if (row !== null && row.getAttribute('data-coll') === rowMenu.id) return
+      setRowMenu(undefined)
+    }
+    window.addEventListener('pointerdown', onPointerDown)
+    return () => window.removeEventListener('pointerdown', onPointerDown)
+  }, [rowMenu])
+
+  /* Move focus into the action menu so it is usable from the keyboard; Escape is handled globally. */
+  useEffect(() => {
+    if (rowMenu === undefined || rowMenuRef.current === null) return
+    const first = rowMenuRef.current.querySelector('button:not(:disabled)')
+    if (first !== null) first.focus()
+  }, [rowMenu])
 
   /** Selecting a collection is a completed action: the popup closes with it (like every edit). */
   const selectCollection = useCallback((id) => {
@@ -264,10 +336,11 @@ export function CollectionsDropdown({ doc, workspaces, onSelect, onPatch, notice
 
   const onKeyDown = useCallback(event => {
     if (event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
-      const target = rowMenu ?? (renaming === undefined ? doc.selectedId : undefined)
+      const target = rowMenu?.id ?? (renaming === undefined ? doc.selectedId : undefined)
       /* Alt+↑/↓ moves USER collections; a built-in view is pinned at the top, never a move target. */
       if (target === undefined || isBuiltinCollection(target)) return
       event.preventDefault()
+      if (rowMenu !== undefined) setRowMenu(undefined)
       void keyboardMove(target, event.key === 'ArrowUp' ? -1 : 1)
       return
     }
@@ -302,6 +375,41 @@ export function CollectionsDropdown({ doc, workspaces, onSelect, onPatch, notice
     },
     onEnd: () => { setDragId(undefined); setDropAt(-1) },
   }), [commitOrder, dragId])
+
+  const openRowMenu = useCallback((id, anchor) => {
+    if (isBuiltinCollection(id)) return
+    setRowMenu({ id, ...rowMenuBox(anchor) })
+  }, [])
+
+  const toggleRowMenu = useCallback((id, row) => {
+    if (isBuiltinCollection(id)) return
+    setRowMenu(previous => previous?.id === id ? undefined : { id, ...rowMenuBox({ row }) })
+  }, [])
+
+  const startRowRename = useCallback(() => {
+    if (rowMenu === undefined || isBuiltinCollection(rowMenu.id)) return
+    const id = rowMenu.id
+    const collection = collectionById(doc, id)
+    setRowMenu(undefined)
+    if (collection === undefined) return
+    setRenaming(id)
+    setDraft(collection.name)
+    setError(undefined)
+  }, [doc, rowMenu])
+
+  const openRowMembers = useCallback(() => {
+    if (rowMenu === undefined || isBuiltinCollection(rowMenu.id)) return
+    setMembersTarget(rowMenu.id)
+    setRowMenu(undefined)
+    setOpen(false)
+  }, [rowMenu])
+
+  const deleteRowCollection = useCallback(() => {
+    if (rowMenu === undefined || isBuiltinCollection(rowMenu.id)) return
+    const id = rowMenu.id
+    setRowMenu(undefined)
+    void removeCollection(id)
+  }, [removeCollection, rowMenu])
 
   return h(Fragment, null,
     h('button', {
@@ -354,36 +462,14 @@ export function CollectionsDropdown({ doc, workspaces, onSelect, onPatch, notice
             drag,
             dragging: dragId === row.id,
             isCurrent: doc.selectedId === row.id,
-            onOpenMenu: id => setRowMenu(previous => (previous === id ? undefined : id)),
+            menuOpen: rowMenu?.id === row.id,
+            onContextMenu: (id, event) => openRowMenu(id, { x: event.clientX, y: event.clientY }),
             onSelect: selectCollection,
+            onToggleMenu: toggleRowMenu,
             row,
           }),
         renaming === row.id && error !== undefined
           ? h('div', { className: 'dsh-ws-collection-error', role: 'alert' }, error)
-          : null,
-        rowMenu === row.id
-          ? h('div', { className: 'dsh-ws-collection-rowmenu', role: 'menu' },
-            h('button', {
-              className: 'dsh-ws-collection-rowitem',
-              disabled: busy,
-              onClick: () => { setRenaming(row.id); setDraft(row.name); setError(undefined); setRowMenu(undefined) },
-              role: 'menuitem',
-              type: 'button',
-            }, translate('collections.rename')),
-            h('button', {
-              className: 'dsh-ws-collection-rowitem',
-              disabled: busy,
-              onClick: () => { setMembersTarget(row.id); setRowMenu(undefined); setOpen(false) },
-              role: 'menuitem',
-              type: 'button',
-            }, translate('collections.members')),
-            h('button', {
-              className: 'dsh-ws-collection-rowitem dsh-ws-collection-rowitem-danger',
-              disabled: busy,
-              onClick: () => { void removeCollection(row.id) },
-              role: 'menuitem',
-              type: 'button',
-            }, translate('collections.delete')))
           : null)),
       h('div', { className: 'dsh-ws-collection-separator', role: 'separator' }),
       creating
@@ -426,6 +512,38 @@ export function CollectionsDropdown({ doc, workspaces, onSelect, onPatch, notice
           ? h('div', { className: 'dsh-ws-collection-hint' }, translate('collections.none'))
           : null)
       : null,
+    rowMenu === undefined
+      ? null
+      : h('div', {
+        'aria-label': translate('collections.rowMenu'),
+        className: 'dsh-ws-collection-rowmenu',
+        onContextMenu: event => event.preventDefault(),
+        ref: rowMenuRef,
+        role: 'menu',
+        style: { left: `${rowMenu.left}px`, top: `${rowMenu.top}px` },
+      },
+      h('button', {
+        className: 'dsh-ws-collection-rowitem',
+        disabled: busy,
+        onClick: startRowRename,
+        role: 'menuitem',
+        type: 'button',
+      }, translate('collections.rename')),
+      h('button', {
+        className: 'dsh-ws-collection-rowitem',
+        disabled: busy,
+        onClick: openRowMembers,
+        role: 'menuitem',
+        type: 'button',
+      }, translate('collections.members')),
+      h('div', { className: 'dsh-ws-collection-rowmenu-sep', role: 'separator' }),
+      h('button', {
+        className: 'dsh-ws-collection-rowitem dsh-ws-collection-rowitem-danger',
+        disabled: busy,
+        onClick: deleteRowCollection,
+        role: 'menuitem',
+        type: 'button',
+      }, translate('collections.delete'))),
     membersTarget === undefined
       ? null
       : h(CollectionsMembersDialog, {
