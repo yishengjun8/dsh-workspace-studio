@@ -243,6 +243,133 @@ export function collectionClickAction(doc, id) {
   return { same: true, notice: { key: 'collections.alreadyIn', params: { name } } }
 }
 
+/* ---- live activity: which collection rows have a session running or waiting (see dev-notes §47) ---- */
+
+/** The all-idle answer, shared so the tallies allocate nothing for quiet sessions. */
+const NO_ACTIVITY = Object.freeze({ running: false, waiting: false })
+
+/** One entry of the Harness's useSessionStatus snapshot, or undefined without that hook. */
+function statusOf(statuses, sessionId) {
+  if (statuses === null || statuses === undefined) return undefined
+  const value = typeof statuses.get === 'function' ? statuses.get(sessionId) : statuses[sessionId]
+  return value !== null && typeof value === 'object' ? value : undefined
+}
+
+/** Whether one catalogued subagent is running: the live status first, its summary row second. */
+function subagentRunning(sessions, statuses, child) {
+  const childId = String(child?.id ?? '')
+  if (childId === '') return false
+  if (statusOf(statuses, childId)?.running === true) return true
+  return sessions?.byId?.[childId]?.running === true
+}
+
+/**
+ * Whether one Session carries live activity, and whether part of it is waiting on the user.
+ *
+ * Running covers the Session's own turn and its catalogued subagents (the same attention rule the
+ * Harness applies to its session rows). Waiting is a pending approval / plan review / question.
+ * Blank and subagent rows never carry activity themselves, and an unread completion is NOT activity:
+ * this marker means "work is happening", not "work finished".
+ * @returns `{ running, waiting }`.
+ */
+function sessionActivity(sessions, statuses, childrenByParent, sessionId) {
+  const summary = sessions?.byId?.[sessionId]
+  if (summary === undefined || summary.blank === true || summary.origin === 'subagent') return NO_ACTIVITY
+  const status = statusOf(statuses, sessionId)
+  const waiting = status?.pendingInteraction !== undefined
+  let running = (status?.running ?? summary.running) === true
+  if (!running) {
+    const catalog = sessions?.projectionsBySession?.[sessionId]?.values?.subagentCatalog
+    if (Array.isArray(catalog)) {
+      running = catalog.some(child => subagentRunning(sessions, statuses, child))
+    }
+    if (!running) {
+      /* A harness that publishes no catalog still lists retained child rows; the parent index is
+         the fallback that keeps this feature working instead of silently going quiet. */
+      for (const childId of childrenByParent.get(sessionId) ?? []) {
+        if ((statusOf(statuses, childId)?.running ?? sessions?.byId?.[childId]?.running) === true) {
+          running = true
+          break
+        }
+      }
+    }
+  }
+  if (!running && !waiting) return NO_ACTIVITY
+  return { running, waiting }
+}
+
+/**
+ * Activity tallies for every collection row, built-in views included.
+ *
+ * Pure so the dropdown only paints the answer: the Host store and the Harness session state are the
+ * sources, and nothing here persists. A workspace feeds every view that shows it (a workspace can
+ * belong to several collections), and the built-in "all workspaces" / "unowned workspaces" views
+ * follow the same visibility rule the sidebar filter uses.
+ *
+ * @param input.doc - normalized collection document.
+ * @param input.workspaces - Harness workspace items (membership lives on their sessionIds).
+ * @param input.sessions - `{ byId, projectionsBySession }` from the Harness useSessions store.
+ * @param input.statuses - useSessionStatus snapshot (Map), or undefined when the harness has no hook.
+ * @param input.archivedSessionIds - archived ids (Set or array): hidden rows never light a view.
+ * @returns Map<collectionId, { running, waiting }>; rows with nothing live are simply absent.
+ */
+export function collectionActivities({ doc, workspaces, sessions, statuses, archivedSessionIds }) {
+  const archived = archivedSessionIds instanceof Set ? archivedSessionIds : new Set(archivedSessionIds ?? [])
+  /* One parent index for the catalog-less fallback: building it here keeps the per-session lookup
+     O(children) instead of walking the whole byId table for every idle row. */
+  const childrenByParent = new Map()
+  for (const [id, row] of Object.entries(sessions?.byId ?? {})) {
+    const parentId = String(row?.parentId ?? '')
+    if (parentId === '') continue
+    const list = childrenByParent.get(parentId)
+    if (list === undefined) childrenByParent.set(parentId, [id])
+    else list.push(id)
+  }
+  const memo = new Map()
+  const activityOf = (sessionId) => {
+    let value = memo.get(sessionId)
+    if (value === undefined) {
+      value = archived.has(sessionId) ? NO_ACTIVITY : sessionActivity(sessions, statuses, childrenByParent, sessionId)
+      memo.set(sessionId, value)
+    }
+    return value
+  }
+  /* One tally per workspace, then each collection sums the workspaces it shows. Without this pass a
+     fifty-collection profile would re-count the same sessions fifty times. */
+  const byWorkspace = new Map()
+  for (const workspace of workspaces ?? []) {
+    const workspaceId = String(workspace?.workspaceId ?? '')
+    if (workspaceId === '') continue
+    let running = 0
+    let waiting = 0
+    for (const rawId of workspace.sessionIds ?? []) {
+      const activity = activityOf(String(rawId))
+      if (activity.running) running += 1
+      if (activity.waiting) waiting += 1
+    }
+    if (running > 0 || waiting > 0) byWorkspace.set(workspaceId, { running, waiting })
+  }
+  const collectionIds = [
+    COLLECTION_ALL_ID,
+    COLLECTION_UNOWNED_ID,
+    ...(doc?.collections ?? []).map(collection => collection.id),
+  ]
+  const result = new Map()
+  for (const collectionId of collectionIds) {
+    let running = 0
+    let waiting = 0
+    for (const workspace of workspaces ?? []) {
+      const workspaceId = String(workspace?.workspaceId ?? '')
+      const tally = byWorkspace.get(workspaceId)
+      if (tally === undefined || !visibleWorkspace(doc, collectionId, workspaceId)) continue
+      running += tally.running
+      waiting += tally.waiting
+    }
+    if (running > 0 || waiting > 0) result.set(collectionId, { running, waiting })
+  }
+  return result
+}
+
 /**
  * The Harness workspace-browser grouping mode, read from its persisted view store.
  *

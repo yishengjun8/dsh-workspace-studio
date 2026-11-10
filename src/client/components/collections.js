@@ -10,7 +10,7 @@ import { COLLECTION_ALL_ID, COLLECTION_LIMIT, COLLECTION_UNOWNED_ID, CONTEXT_MEN
 import { dismissesMenuOnScroll, anchorBox } from '../menu-dismiss.js'
 import { translate, useLocaleText } from '../locale/index.js'
 import { clamp } from '../format.js'
-import { collectionById, collectionWorkspaceCount, isBuiltinCollection } from '../collections.js'
+import { collectionActivities, collectionById, collectionWorkspaceCount, isBuiltinCollection } from '../collections.js'
 import { Modal } from './dialogs.js'
 
 const MENU_WIDTH = 250
@@ -70,12 +70,34 @@ const BUILTIN_ROWS = [
   { id: COLLECTION_UNOWNED_ID, nameKey: 'collections.unowned' },
 ]
 
+/* Activity subscriptions live in the dropdown, not in the frame: a status tick then re-renders the
+   trigger + menu only. Both hooks are harness-provided; the fallbacks keep the component renderable
+   on a Client that does not publish one of them (then only the summary's own running flag shows). */
+const NO_SESSIONS = Object.freeze({ byId: Object.freeze({}), projectionsBySession: Object.freeze({}) })
+const useNoSessions = selector => selector(NO_SESSIONS)
+const NO_STATUSES = new Map()
+const useNoSessionStatus = () => NO_STATUSES
+
+/** One-line activity summary: the count's tooltip and the row's screen-reader text. */
+function activitySummary(activity) {
+  if (activity === undefined) return ''
+  if (activity.running > 0 && activity.waiting > 0) {
+    return translate('collections.active.both', { running: activity.running, waiting: activity.waiting })
+  }
+  return activity.waiting > 0
+    ? translate('collections.active.waiting', { n: activity.waiting })
+    : translate('collections.active.running', { n: activity.running })
+}
+
 /** One collection row: name + count + row-menu trigger. The row itself is the drag handle. */
-function CollectionRow({ row, count, isCurrent, dragging, menuOpen, onContextMenu, onSelect, onToggleMenu, drag }) {
+function CollectionRow({ row, count, activity, isCurrent, dragging, menuOpen, onContextMenu, onSelect, onToggleMenu, drag }) {
   const builtin = row.builtin === true
+  const activityLabel = activitySummary(activity)
   return h('div', {
     'aria-selected': isCurrent,
     className: 'dsh-ws-collection-row',
+    'data-activity': activity === undefined ? undefined : '',
+    'data-attention': activity !== undefined && activity.waiting > 0 ? '' : undefined,
     'data-builtin': builtin || undefined,
     'data-coll': row.id,
     'data-dragging': dragging || undefined,
@@ -105,7 +127,12 @@ function CollectionRow({ row, count, isCurrent, dragging, menuOpen, onContextMen
     title: builtin ? undefined : translate('collections.drag.title'),
   },
   h('span', { className: 'dsh-ws-collection-rowname', title: row.name }, row.name),
-  h('span', { className: 'dsh-ws-collection-count' }, String(count)),
+  /* The ring and dot are decorative; this is what a screen reader gets. */
+  activityLabel === '' ? null : h('span', { className: 'dsh-ws-collection-sr' }, activityLabel),
+  h('span', {
+    className: 'dsh-ws-collection-count',
+    title: activityLabel === '' ? undefined : activityLabel,
+  }, String(count)),
   builtin
     ? null
     : h('button', {
@@ -133,8 +160,13 @@ function CollectionRow({ row, count, isCurrent, dragging, menuOpen, onContextMen
  * @param props.unavailable - true while the Host store could not be read (an older Host without the
  *   `/collections` route yet, or a failed request): the popup then says so instead of pretending the
  *   profile simply has no collections, and creating stays disabled until a reload succeeds.
+ * @param props.useSessions - Harness session store hook (`byId`, `projectionsBySession`): the rows'
+ *   live running state and their subagent catalogs.
+ * @param props.useSessionStatus - Harness status hook (`running`, `pendingInteraction`): turns a row
+ *   into its activity ring and chooses the dot's waiting colour.
+ * @param props.archivedSessionIds - archived ids; a hidden session never lights a collection.
  */
-export function CollectionsDropdown({ doc, workspaces, onSelect, onPatch, notice, unavailable }) {
+export function CollectionsDropdown({ doc, workspaces, onSelect, onPatch, notice, unavailable, useSessions, useSessionStatus, archivedSessionIds }) {
   const [open, setOpen] = useState(false)
   const [rowMenu, setRowMenu] = useState()
   const [renaming, setRenaming] = useState()
@@ -150,6 +182,21 @@ export function CollectionsDropdown({ doc, workspaces, onSelect, onPatch, notice
   const buttonRef = useRef(null)
   const menuRef = useRef(null)
   const rowMenuRef = useRef(null)
+
+  /* The activity subscription belongs to this component, not to the frame: a status tick re-renders
+     the trigger and (while open) the menu, never the three-pane layout. The tally itself is pure. */
+  const useSessionsHook = typeof useSessions === 'function' ? useSessions : useNoSessions
+  const useStatusHook = typeof useSessionStatus === 'function' ? useSessionStatus : useNoSessionStatus
+  const sessionsById = useSessionsHook(state => state.byId)
+  const projectionsBySession = useSessionsHook(state => state.projectionsBySession)
+  const statuses = useStatusHook(state => state)
+  const activity = useMemo(() => collectionActivities({
+    archivedSessionIds,
+    doc,
+    sessions: { byId: sessionsById, projectionsBySession },
+    statuses,
+    workspaces,
+  }), [archivedSessionIds, doc, projectionsBySession, sessionsById, statuses, workspaces])
 
   const current = collectionById(doc, doc.selectedId)
   const currentName = current !== undefined
@@ -458,6 +505,7 @@ export function CollectionsDropdown({ doc, workspaces, onSelect, onPatch, notice
               value: draft,
             }))
           : h(CollectionRow, {
+            activity: activity.get(row.id),
             count: collectionWorkspaceCount(doc, row.id, workspaces),
             drag,
             dragging: dragId === row.id,
