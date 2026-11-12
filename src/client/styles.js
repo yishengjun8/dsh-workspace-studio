@@ -847,12 +847,21 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-html-preview iframe{display:block;width:100%;height:100%;border:0}
 .dsh-ws-html-preview .dsh-ws-banner{position:absolute;top:0;left:0;right:0;z-index:1}
 /* ---- Renderer views (registry-driven, mirroring the harness right-Sidebar document-preview pipeline) ---- */
-/* Standalone image view and paged read-only browse share the scrollable body. */
-.dsh-ws-renderer-view{flex:1;min-height:0;overflow:auto;box-sizing:border-box;background:var(--dsw-alias-bg-base)}
+/* Standalone image view, paged read-only browse and the converted PDF/Office view all share the
+   pane body and must fill it. The body IS the definite-height flex item (.dsh-ws-preview-body),
+   but its children sit in normal block flow, where flex:1 / min-height:0 do nothing: the view
+   collapsed to its content, so the PDF iframe kept its 150px intrinsic height (an Office slide
+   showed only its top edge, see §30) and an oversized image was clipped by the body's
+   overflow:hidden instead of fitting. Anchoring the view to the body's padding box gives it the
+   pane's real box without turning the body into a flex container (the CodeMirror host and the
+   dock variants keep their own layout). */
+.dsh-ws-renderer-view{position:absolute;inset:0;overflow:auto;box-sizing:border-box;background:var(--dsw-alias-bg-base)}
 .dsh-ws-renderer-image{display:flex;align-items:center;justify-content:center;padding:16px}
 .dsh-ws-renderer-image img{max-width:100%;max-height:100%;object-fit:contain}
 .dsh-ws-renderer-browse{padding:16px 20px}
-.dsh-ws-renderer-status{display:flex;align-items:center;justify-content:center;flex:1;min-height:0;padding:16px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;text-align:center}
+/* The same status line doubles as a whole-pane placeholder, so it is anchored too (loading and
+   failure states replace the view entirely and read as centered copy). */
+.dsh-ws-renderer-status{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:16px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;text-align:center}
 .dsh-ws-renderer-status[data-error]{color:var(--dsw-alias-state-error-primary)}
 /* PDF / Office view: a banner (missing fonts) above a full-height native PDF frame. The frame is deliberately NOT sandboxed — a sandboxed frame has no PDF viewer in Chromium. */
 .dsh-ws-renderer-status-stack{display:flex;flex-direction:column;align-items:center;gap:8px}
