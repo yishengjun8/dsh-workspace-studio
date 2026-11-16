@@ -3,7 +3,7 @@
  *
  * `loading` covers the other reason this placeholder can be on screen: the harness workspace/session
  * lists are still arriving, so there is no workspace to name yet. Reporting "no workspace selected"
- * there would be a lie about settled state — the same lie the removed guessed-workspace mount told.
+ * there would be a lie about settled state.
  *
  * It lives here rather than in components/settings.js: it is explorer chrome, not a settings surface, and
  * that module has no other reason to know about `treePortalTarget`.

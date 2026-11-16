@@ -1,10 +1,8 @@
 /* One pending-request slot, shared by every chat → explorer bridge.
  *
  * Each bridge (a file open, a plan open, a change review, a mind-map dock) publishes at most one
- * ADDRESSED request, and the explorer that owns the addressed session consumes it. Four copies had
- * to keep the same four invariants in step — an immutable snapshot React can compare, a monotonic
- * seq that makes every publish a new value, an address match before adoption, and a consume that
- * publishes only while a request is pending — so they live here once.
+ * ADDRESSED request, and the explorer that owns the addressed session consumes it; the four
+ * invariants below live here once instead of in four copies.
  *
  * The address travels INSIDE the snapshot (`key`), never in the store object: every bridge exports
  * `{ ...store, open(...) }`, and a spread copy is a different object, so an address attached to the

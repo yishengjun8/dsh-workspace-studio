@@ -261,7 +261,7 @@ export function hostAbsoluteHref(relative) {
   if (typeof origin !== 'string' || origin === '') return relative
   try { return new URL(relative, origin).href } catch { return relative }
 }
-/* Cheap file-change check for open preview tabs: the Host stats the file and compares mtime/size/hash against the previous snapshot. Returns `changed` plus the new baseline snapshot; null means the file is gone. A null previousSnapshot is sent as an explicit { gone: true } marker so a re-created file reports `changed`. The baseline travels in the BODY (POST) rather than in the query string, so a long-running session with many tabs never builds a giant URL. NOTE: a MISSING file is NOT an error here — the Host answers 200 with { exists: false, snapshot: null }. */
+/* Cheap file-change check for open preview tabs: the Host stats the file and compares mtime/size/hash against the previous snapshot, returning `changed` plus the new baseline snapshot (null = the file is gone). A null previousSnapshot is sent as an explicit { gone: true } marker so a re-created file reports `changed`, and the baseline rides in the BODY (POST) rather than the query string so a long-running session with many tabs never builds a giant URL. NOTE: a MISSING file is NOT an error here — the Host answers 200 with { exists: false, snapshot: null }. */
 export function checkFileChange(workspaceId, path, previousSnapshot, signal) {
   let previous
   if (previousSnapshot === null) previous = { gone: true }

@@ -646,8 +646,7 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
   }, [])
 
   // Save shortcut (Ctrl/Cmd+S) at the window level (capture phase) so it works from
-  // every focus state; the editor keymap path only fired while the editor itself was
-  // focused. The save callback no-ops when the tab is clean or saving.
+  // every focus state. The save callback no-ops when the tab is clean or saving.
   useEffect(() => {
     const onKeyDown = (event) => {
       if (event.isComposing) return

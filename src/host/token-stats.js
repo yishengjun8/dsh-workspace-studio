@@ -183,9 +183,8 @@ async function refreshUsageIndex(ctx, persistence) {
     const id = sessionRowId(row)
     if (id === undefined) continue
     /* Fingerprint (per-session physical revision, legacy corpus suffix stripped) instead of the raw
-       revision: a legacy row's revision embeds a hash over EVERY log in the store, so the key changed
-       whenever any unrelated session appended — every sync re-read the whole legacy population (1100+
-       sessions here) and the Host never went idle. */
+       revision: a legacy revision embeds a hash over EVERY log in the store, so an unrelated append
+       changes it and every sync re-reads the whole legacy population (1100+ sessions here). */
     entries.push({ key: id, rev: sessionRowFingerprint(row) })
   }
   usageIndexProgress = { processed: 0, total: entries.length }
@@ -216,9 +215,7 @@ async function refreshUsageIndex(ctx, persistence) {
       cached = undefined
       changed = true
     }
-    /* A cached "unreadable" verdict is trusted only for UNREADABLE_RETRY_MS: beyond that the
-       session is re-attempted once (see the constant), so a harness that learned to read the
-       format is not locked out by a verdict minted before the upgrade. */
+    /* A cached "unreadable" verdict is trusted only for UNREADABLE_RETRY_MS (see the constant). */
     const verdictExpired = isPlainObject(cached) && cached.unreadable === true
       && !(Number(cached.at) > 0 && Date.now() - Number(cached.at) < UNREADABLE_RETRY_MS)
     if (!verdictExpired && isPlainObject(cached) && cached.rev === identity && (Array.isArray(cached.rows) || cached.unreadable === true)) {

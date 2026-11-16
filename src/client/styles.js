@@ -766,9 +766,8 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-mindmap-node[data-branch]{border-style:solid}
 /* Folded card: one compact card for a maximal run of consecutive folded turns — dashed border + muted wash, fold icon + count badge in the title row, first-turn text in the body. Placed after the [data-branch] solid rule and before the ancestor/hover rules so the traces keep their border-color overrides. A RING card is exempt: its background shorthand would wipe the streaming pair's flow layers (a folded card can parent a streaming card) and its dashed border would replace the flow border. */
 .dsh-ws-mindmap-node.dsh-ws-mindmap-folded:not(.dsh-ws-mindmap-node-ring){border-style:dashed;border-color:color-mix(in srgb,var(--dsh-ws-mm-fold) 42%,transparent);background-color:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 90%,var(--dsh-ws-mm-fold) 10%);background-image:repeating-linear-gradient(135deg,color-mix(in srgb,var(--dsh-ws-mm-fold) 26%,transparent) 0 5px,transparent 5px 11px)}
-/* Folded-run count badge: a neutral OUTLINED capsule on the fold slate. It used to be a solid
-   business-blue pill — the same shape and color as the "当前" badge and the hint chip — which read
-   as "primary action" for what is only a count of collapsed turns. */
+/* Folded-run count badge: a neutral OUTLINED capsule, not a solid blue pill — it only counts
+   collapsed turns, so it must not read as "primary action". */
 .dsh-ws-mindmap-fold-count{flex:none;padding:0 6px;border:1px solid color-mix(in srgb,var(--dsh-ws-mm-fold) 55%,transparent);border-radius:999px;background:transparent;color:var(--dsw-alias-label-secondary);font-size:10px;line-height:14px;font-weight:600}
 .dsh-ws-mindmap-node-q-folded{color:var(--dsw-alias-label-secondary);font-style:italic;font-weight:500}
 .dsh-ws-mindmap-node-folded-status{color:var(--dsh-ws-mm-fold)}
@@ -1177,9 +1176,8 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-run-confirm-button{background:var(--dsw-alias-state-business-primary);color:#fff}
 .dsh-ws-run-confirm-button:hover{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 84%,#fff);color:#fff}
 .dsh-ws-run-dialog{width:min(392px,100%)}
-/* Interpreter button in the console's meta row (the old plain text became the only entry point for a
-   per-file override). The source tag is what makes 「py -3」 unambiguous; the tone per source tells
-   auto-detection from an override at a glance, and a disabled button means "nothing to point at". */
+/* Interpreter button in the console's meta row. The source tag makes 「py -3」 unambiguous, its tone
+   separates auto-detection from an override, and a disabled button means "nothing to point at". */
 .dsh-ws-run-meta-label{flex:none}
 .dsh-ws-run-interp{display:inline-flex;flex:0 1 auto;align-items:center;gap:5px;min-width:0;height:19px;padding:0 5px 0 7px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:17px;cursor:pointer}
 .dsh-ws-run-interp:hover:not(:disabled){border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-primary)}

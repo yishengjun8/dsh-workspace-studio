@@ -52,8 +52,6 @@ export function useMindmapViewport({ layoutRef }) {
   useLayoutEffect(() => {
     applyViewTransform()
   })
-  /* Mirror the viewport element's presence into state so the wheel effect
-     re-runs the moment it appears. */
   useLayoutEffect(() => {
     setViewportMounted(viewportRef.current !== null)
   })

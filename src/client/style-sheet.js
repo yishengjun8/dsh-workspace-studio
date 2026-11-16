@@ -1,8 +1,6 @@
 /* One lazily-created `<style id>` in the document head, written only when its text actually changes.
  *
- * Two sidebar features hand-rolled this same lifecycle: the workspace-collection filter
- * (hooks/sidebar-collections.js) and the mind-map row hider (mindmap/hider.js). Both need the same four
- * properties, and getting one of them wrong is silent:
+ * Four properties matter here, and getting one of them wrong is silent:
  *   - create on first use, in <head>;
  *   - REUSE an element a previous install left behind (a remount must not stack sheets);
  *   - write nothing when the decision did not change (the sidebar re-renders on every poll);

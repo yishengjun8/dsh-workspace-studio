@@ -445,8 +445,7 @@ export async function writeRunPolicy(workspaceId, payload, queues) {
     throw new HttpError(400, 'invalid-run-policy', '没有要更新的运行设置')
   }
   const policy = await serializeWrite(queues, 'run:policy', async () => {
-    /* The store returns the NORMALIZED policy, so writing it back also drops every unnamed field
-       (notably the retired per-family `interpreters` map). */
+    /* Writing back the NORMALIZED store drops every unnamed field. */
     const current = await readRunPolicyStore()
     if (trustedPatch !== undefined) {
       const key = String(workspaceId)

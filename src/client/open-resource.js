@@ -1,22 +1,19 @@
 /* Route the chat's resource-open path into the plugin's own preview tabs.
  *
- * The shipped chat opens files through ctx.sidebarRight.openResource, which
- * requires the harness right-Sidebar seat this root layout never mounts. This
- * module patches openResource to resolve a FILE address against the session's
- * workspace and publish an open request to the mounted explorer
- * (fileOpenRequestStore): a path inside the workspace opens as a normal preview
- * tab, a path outside it as the session-only read-only preview. A PLAN address
- * (ui-plan's 「查看全文」 and the turn's plan card) is routed to planOpenStore
- * instead, a CHANGE-REVIEW address (ui-deliverables' changed-files card) to
- * reviewOpenStore, and every other address to the harness implementation — its
- * own registered tab types, or one notice instead of an uncaught throw for the
- * missing seat. The patch claims only the addresses this layout can actually
- * draw.
+ * The shipped chat opens files through ctx.sidebarRight.openResource, which requires
+ * the harness right-Sidebar seat this root layout never mounts. This module patches
+ * openResource: a FILE address is resolved against the session's workspace and
+ * published to the mounted explorer (fileOpenRequestStore) — inside the workspace it
+ * opens as a normal preview tab, outside as the session-only read-only preview; a
+ * PLAN address (ui-plan's 「查看全文」 and the turn's plan card) goes to planOpenStore;
+ * a CHANGE-REVIEW address (ui-deliverables' changed-files card) to reviewOpenStore;
+ * every other address back to the harness implementation (its own registered tab
+ * types, or one notice instead of an uncaught throw for the missing seat). The patch
+ * claims only the addresses this layout can draw.
  *
- * The patch follows the sendSession bridge convention: a marker + recorded
- * original let an overlapping re-install unwrap a stale wrapper instead of
- * recursing, and cleanup restores only when the current value is still our
- * wrapper.
+ * It follows the sendSession bridge convention: a marker + recorded original let an
+ * overlapping re-install unwrap a stale wrapper instead of recursing, and cleanup
+ * restores only when the current value is still our wrapper.
  */
 import { OPEN_RESOURCE_BRIDGE_MARKER, OPEN_RESOURCE_BRIDGE_ORIGINAL } from './constants.js'
 import { translate } from './locale/index.js'
@@ -68,7 +65,6 @@ function parseFileAddress(address) {
   return undefined
 }
 
-/* Normalize a native workspace root to `/` separators with no trailing slash. */
 function normalizeRoot(path) {
   return path.replace(/\\/g, '/').replace(/\/+$/, '')
 }
@@ -125,7 +121,6 @@ export function requestFileOpen(workspaceId, rootPath, path, name, line) {
   fileOpenRequestStore.request(String(workspaceId), path, label, line)
 }
 
-/* Resolve a parsed file address and publish the open request. */
 function routeFileOpen(ctx, parsed, options) {
   const sessions = ctx.sessions.list.getSnapshot()
   const sessionId = parsed.scope === 'session'
@@ -160,11 +155,6 @@ export function installOpenResourceRouter(ctx) {
         original = original[OPEN_RESOURCE_BRIDGE_ORIGINAL] ?? original
       }
       const patched = function openResourceRouted(address, options) {
-        /* Only the addresses this layout can draw are claimed: a file address
-           opens a preview tab, a plan address opens a plan tab, a change-review
-           address opens the review tab, and everything else goes back to the
-           harness implementation instead of this plugin inventing a failure for
-           a tab type it does not host. */
         const file = parseFileAddress(address)
         if (file !== undefined) { routeFileOpen(ctx, file, options); return }
         const plan = parsePlanResourceAddress(address)

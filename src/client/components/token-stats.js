@@ -643,8 +643,7 @@ function TokenStatsDialog({ onClose }) {
     ? translate('tokens.warming', { done: fmtCount(payload?.progress?.processed ?? 0), total: fmtCount(payload?.progress?.total ?? 0) })
     : null
   return h(Modal, {
-    /* No footer buttons: the close button, the backdrop and Escape are its ways out. Its own foot line sits */
-    /* outside the scrolling body, so it travels as the foot slot. */
+    /* No footer buttons: the close button, the backdrop and Escape are its ways out. Its own foot line sits outside the scrolling body, so it travels as the foot slot. */
     bodyClassName: 'dsh-ws-token-body',
     className: 'dsh-ws-token-dialog',
     onCancel: onClose,

@@ -10,14 +10,13 @@
  *                                                            field declares a step);
  *   - an unknown field or group                            → dropped.
  * The format version travels in the storage KEY (…settings.v2): a shape change bumps the key and
- * LEGACY_STORE_KEYS deletes the previous key outright, so no reader ever sees an older shape and
- * no per-version branch exists anywhere.
+ * LEGACY_STORE_KEYS deletes the previous key outright, so no reader sees an older shape and no
+ * per-version branch exists.
  *
  * readPersistedState() is the single place that knows a shape; the mount-time gate
- * (sanitizePersistedClientState) additionally makes the cleanup durable by rewriting the cleaned
- * value (and removing a key it cannot parse at all) BEFORE the stores rehydrate — the harness's
- * attachPersistence replaces the whole store state from the raw JSON, so a canonical value must
- * be on disk by then.
+ * (sanitizePersistedClientState) makes the cleanup durable by rewriting the cleaned value (and
+ * removing a key it cannot parse) BEFORE the stores rehydrate — the harness's attachPersistence
+ * replaces the whole store state from the raw JSON, so a canonical value must be on disk by then.
  */
 import {
   AUTO_SYNC_MODE_AUTO, AUTO_SYNC_MODE_WATCH_ONLY, CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MAX, CONFLICT_FONT_SIZE_MIN,

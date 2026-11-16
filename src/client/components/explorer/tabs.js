@@ -65,7 +65,6 @@ export function PreviewTabs({ tabs, activePath, draggingPath, dropIndex, contain
       onDragStart: event => onDragStart(tab.path, event),
       title: tabTitle,
     },
-      /* Small tabbed-panel glyph marks a docked mind map. */
       tab.kind === 'mindmap'
         ? h('span', { 'aria-hidden': true, className: 'dsh-ws-preview-tab-mindmap' },
           h('svg', { viewBox: '0 0 16 16' },
@@ -78,7 +77,6 @@ export function PreviewTabs({ tabs, activePath, draggingPath, dropIndex, contain
               strokeWidth: 1.5,
             })))
         : null,
-      /* A document glyph marks an opened plan. */
       isPlanTab(tab)
         ? h('span', { 'aria-hidden': true, className: 'dsh-ws-preview-tab-plan' },
           h('svg', { viewBox: '0 0 16 16' },
@@ -91,7 +89,6 @@ export function PreviewTabs({ tabs, activePath, draggingPath, dropIndex, contain
               strokeWidth: 1.5,
             })))
         : null,
-      /* A comparison glyph marks an opened change review. */
       isReviewTab(tab)
         ? h('span', { 'aria-hidden': true, className: 'dsh-ws-preview-tab-review' },
           h('svg', { viewBox: '0 0 16 16' },

@@ -66,9 +66,8 @@ function useDialogEscape(onCancel, busy) {
  * The one dialog skeleton: backdrop (a click outside cancels), a titled panel with the close button, the
  * body, and a footer of buttons.
  *
- * Four of this module's five dialogs were the same twelve lines with different copy, so the skeleton —
- * focus trap and the × / backdrop busy rules included — lives here once; per dialog only the data differs:
- * title, body, extra class/style, buttons.
+ * The skeleton — focus trap and the × / backdrop busy rules included — lives here once; per dialog only
+ * the data differs.
  *
  * @param busy - locks the × / backdrop cancel (a dialog that must not be dismissed mid-request). The
  *   caller also passes `disabled: busy` on its own cancel BUTTON, since a dialog may need a different

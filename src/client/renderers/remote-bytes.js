@@ -1,9 +1,8 @@
 /* One Remote bytes read behind a renderer view, with a bounded blob-URL cache.
  *
- * The image and PDF/Office views had the same skeleton twice (abort controller, `result.ok`, blob URL,
- * revoke on cleanup) and — because they revoked unconditionally — they re-transferred the WHOLE file
- * every time the tab remounted (switching away and back, or any explorer remount). This hook owns that
- * skeleton once and keeps the object URL alive across remounts.
+ * Shared by the image and PDF/Office views so the object URL outlives a remount: revoking it on cleanup
+ * re-transferred the WHOLE file every time the tab mounted again (switching away and back, or any
+ * explorer remount).
  *
  * Freshness contract: the cache key carries `readEpoch`, the explorer's "this file was re-read" counter.
  * A tab switch does NOT bump it (the file is unchanged), so the cached URL is exactly as fresh as a

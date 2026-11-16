@@ -152,7 +152,7 @@ async function readCleanPromptContext(file, maximum) {
   /* openRegularFile: O_NONBLOCK + post-open fstat so a FIFO/device swapped in after verifyPromptContextFile's stat can never hang /context. */
   const handle = await openRegularFile(file.target)
   try {
-    /* openRegularFile already rejected anything not a plain file (post-open fstat), leaving only the size bound to check here. */
+    /* Non-regular files were already rejected at open; only the size bound remains. */
     const opened = await handle.stat()
     if (opened.size > maximum) {
       throw new HttpError(413, 'context-source-too-large', `上下文源文件不能超过 ${maximum} 字节`)

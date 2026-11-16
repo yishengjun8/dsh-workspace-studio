@@ -1,9 +1,9 @@
 /* The draft-restore DECISION: given what the Host says about a file's draft file and what the tab holds
  * in memory, what content should the editor show, is it dirty, and which banner (if any) applies?
  *
- * Extracted from the read pass in hooks/editor-session.js, where it was ~50 lines of inline booleans
- * inside a 700-line callback. Everything here is a pure function of its arguments — no refs, no setters,
- * no requests — which is what makes the Host's draft-record contract checkable by reading one file.
+ * Extracted from the read pass in hooks/editor-session.js. Everything here is a pure function of its
+ * arguments — no refs, no setters, no requests — which is what makes the Host's draft-record contract
+ * checkable by reading one file.
  *
  * The CONTRACT (enforced by the Host when it writes and reads the record, so a record that violates it is
  * treated as "not restorable" rather than patched up from the current disk revision):

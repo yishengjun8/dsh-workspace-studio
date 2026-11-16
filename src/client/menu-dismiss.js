@@ -27,8 +27,7 @@ const MENU_GUTTER = 4
 /**
  * Where a floating menu goes: `x`/`y` are the preferred left/top (a click point or an anchor's edge)
  * and `width`/`height` its measured size. One implementation for every menu, so the trailing gutter
- * cannot be forgotten on one caller and kept on another — as it was while this rule was copy-pasted
- * into five call sites.
+ * cannot be forgotten on one caller and kept on another.
  */
 export function anchorBox(x, y, width, height) {
   return {

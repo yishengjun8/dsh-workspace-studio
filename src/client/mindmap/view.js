@@ -2243,10 +2243,8 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     const root = rootIdRef.current ?? rootId
     const base = docRef.current ?? doc
     if (root === null || base === null) return
-    /* Recompute the plan from the LATEST doc (docRef), not the render-time closure: a
-       sync that folded new turns while the dialog was open must not be rolled back by a
-       write built from the stale session list (the Host's stale-write guard only protects
-       whole sessions, not per-session turn regressions). */
+    /* Same stale-closure rule as confirmArchiveBranch: rebuild the plan from docRef, not the
+       render-time closure, so a sync that landed while the dialog was open survives. */
     const plan = mindmapDeletePlan(base, deleteTarget.sessionId, deleteTarget.turnSeq, deleteTarget.empty)
     if (plan === null) { setDeleteError(translate('mindmap.delete.missing')); return }
     if (plan.lastSession === true) { setDeleteError(translate('mindmap.delete.lastSession')); return }
@@ -2317,21 +2315,17 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         next.updatedAt = Date.now()
         setDoc(next)
         lastFingerprintRef.current = mindmapDocFingerprint(next)
-        /* Archive-first for NON-root removals: the Host's stale-write guard restores any
-           session the incoming doc drops that is NOT archived yet (see src/host/mindmap.js
-           writeMindmapDoc), so the pruned subtree AND the replaced session must be archived
-           BEFORE the doc write or the guard would resurrect them for up to a sync cycle.
-           Root replacements (prevRoot) retire the old root via a fresh doc file + alias stub
-           in the SAME request and keep archive-after-write: a failed write must never leave
-           the map without a root doc, and the archive that follows it is the truncation's
-           only durability step. */
+        /* Same archive-first contract as confirmArchiveBranch (src/host/mindmap.js
+           writeMindmapDoc resurrects anything the doc drops but is not archived yet), here
+           covering the pruned subtree AND the replaced session; root replacements (prevRoot)
+           keep archive-after-write — for a truncation that archive is the only durability
+           step, and a failed write must never leave the map without a root doc. */
         const archiveIds = [...plan.archiveIds]
         if (plan.replaced !== null) archiveIds.push(String(plan.replaced.sessionId))
         const archiveRetired = () => Promise.all(archiveIds.map(id => archiveSessionRef.current(String(id)).catch(() => {})))
         if (prevRoot === undefined) await archiveRetired()
-        /* Archive-first has made a NON-ROOT removal irreversible before the write: retry a
-           transient 409 (concurrent root replacement / lock contention) once — it materially
-           narrows the "failed write = whole branch gone" window without masking real errors. */
+        /* Same one-shot 409 retry as confirmArchiveBranch: archive-first already made this
+           removal irreversible, so retry once to narrow the "failed write = gone" window. */
         let written
         for (let attempt = 0; ; attempt += 1) {
           try {
@@ -2343,9 +2337,8 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
           }
         }
         if (prevRoot !== undefined) await archiveRetired()
-        /* Adopt the Host's canonical doc (it may have clamped next or restored
-           a session): client memory converges to server truth so a later
-           structural write can never clobber from a stale copy. */
+        /* Same canonical-doc adoption as confirmArchiveBranch: client memory converges to
+           server truth so a later structural write cannot clobber from a stale copy. */
         if (written?.doc !== null && written?.doc !== undefined && mountedRef.current) {
           setDoc(written.doc)
           lastFingerprintRef.current = mindmapDocFingerprint(written.doc)
@@ -2384,11 +2377,8 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
         }
         setDeleteTarget(null)
         const adoptRoot = String(saveRoot)
-        /* Family-generation guard: the reload is async and the map body stays mounted
-           across family switches (mountedRef is always true while the body is open), so a
-           stale reload could overwrite the NEW family's view and pollute rootIdRef —
-           stranding the periodic sync on the old family. Apply the doc only when the family
-           is unchanged. */
+        /* Same family-generation guard as confirmArchiveBranch: the reload is async, so apply
+           the doc only when rootIdRef still names the family the reload was issued for. */
         const reloadFamily = String(rootIdRef.current ?? rootId)
         void Promise.resolve(loadDocRef.current(adoptRoot)).then((payload) => {
           if (!mountedRef.current) return

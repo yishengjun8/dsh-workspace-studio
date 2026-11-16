@@ -43,7 +43,7 @@ export function translate(key, params) {
   return boundTranslate(key, params)
 }
 
-/* Wire the harness locale service: register this plugin's dictionaries, bind the active-locale translator, and forward the service's notifications into the module-level listener set. Returns the dispose function. */
+/* Wire the harness locale service: register the dictionaries, bind the active-locale translator, forward its notifications through the bridge above. Returns the dispose function. */
 export function installLocaleService(service) {
   const disposeDicts = service.register(EXPLORER_LOCALE_NS, { zh, en })
   boundTranslate = service.bind(EXPLORER_LOCALE_NS)

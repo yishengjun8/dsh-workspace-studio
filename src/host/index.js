@@ -310,7 +310,6 @@ async function handleRequest(ctx, config, writeQueues, req, res) {
     return
   }
   try {
-    /* Method whitelist and 404 decision come from THE route table (see ROUTES above). */
     const route = ROUTES[url.pathname]
     if (route === undefined) {
       sendError(req, res, 404, 'endpoint-not-found', '接口不存在')
@@ -686,11 +685,10 @@ async function handleRequest(ctx, config, writeQueues, req, res) {
       sendJson(req, res, 200, await openInDefaultApp(workspace, relativePath))
       return
     }
-    /* Scoped to the FILE endpoint: a stray `check=1` on /tree, /entry or a PUT must never hijack the real operation, and the client's `changed` answer comes from the snapshot comparison below. */
+    /* Scoped to the FILE endpoint: a stray `check=1` on /tree, /entry or a PUT must never hijack the real operation. */
     /* Cheap change check for open preview tabs: the client polls this on a fixed cadence (no SSE push).
-       POST (not GET) so the previous snapshot travels in the body: a JSON blob in a query string was
-       both opaque and length-bound, and the polling tab count decides how many of them are in flight.
-       The previous snapshot is parsed once and passed into fileChangeSnapshot so an unchanged
+       POST (not GET) so the previous snapshot travels in the body instead of a length-bound query
+       string. The previous snapshot is parsed once and passed into fileChangeSnapshot so an unchanged
        mtime/size short-circuits before the hash, then the returned snapshot is compared for the
        client's `changed` answer. */
     if (fileEndpoint && req.method === 'POST' && url.searchParams.get('check') === '1') {

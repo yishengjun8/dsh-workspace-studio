@@ -14,7 +14,6 @@ import { translate } from '../locale/index.js'
 import { IconRefresh } from '../icons.js'
 import { HIGHLIGHT_PRESETS, highlightPresetLabel } from '../format.js'
 
-/* A note entry is either a key or `{ key, params }`. */
 function noteKey(entry) {
   return typeof entry === 'string' ? entry : entry.key
 }

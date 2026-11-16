@@ -1,9 +1,8 @@
 /* Interpreter configuration store.
  *
- * Owns everything about WHICH interpreter a runnable file will use: the resolved per-extension table
- * (what each suffix resolves to right now), which the settings page renders, plus the Host policy maps
- * (global per-extension + per-file overrides), read and written by the settings page and the console's
- * dialog.
+ * Owns WHICH interpreter a runnable file will use: the resolved per-extension table (what each suffix
+ * resolves to right now) that the settings page renders, plus the Host policy maps (global
+ * per-extension + per-file overrides) the settings page and the console's dialog read and write.
  *
  * The Host-side policy file is the single source of truth (both ends share it, so a refresh is a
  * re-read, not a restore), and this module is a cache with a version counter. The console's per-file

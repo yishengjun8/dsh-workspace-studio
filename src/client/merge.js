@@ -116,7 +116,6 @@ function sideSliceForSpan(base, side, changes, start, end) {
   let sidePos = 0
   for (const change of changes) {
     if (change.from >= end) break
-    // Unchanged run base[basePos..change.from): copy the side's corresponding lines.
     const keepStart = Math.max(basePos, start)
     const keepEnd = Math.min(change.from, end)
     if (keepEnd > keepStart) {

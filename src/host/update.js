@@ -85,7 +85,7 @@ function compareVersions(a, b) {
   return 0
 }
 
-/* Install mode of the profile manifest's dependency spec: 'file' (local checkout / local path — the swap only replaces the profile copy), 'git' (fetched from GitHub, pinned by the profile lockfile), 'other' (anything else, including installs that are not laid out under a profile at all). Every source the README documents must land in one bucket: the settings panel picks its note from this, and the Desktop profile's plugin page writes the `git+https://github.com/...` form — the old `file:`/`github:` prefix test reported that install as 'other', so its note never appeared. */
+/* Install mode of the profile manifest's dependency spec: 'file' (local checkout / local path — the swap only replaces the profile copy), 'git' (fetched from GitHub, pinned by the profile lockfile), 'other' (anything else, including installs that are not laid out under a profile at all). Every source the README documents must land in one bucket: the settings panel picks its note from this, and the Desktop profile's plugin page writes the `git+https://github.com/...` form, which must therefore classify as 'git'. */
 const GIT_SPEC_PREFIXES = ['git+', 'github:', 'git@', 'git://']
 const GITHUB_URL_RE = /^https?:\/\/(?:www\.)?github\.com\//i
 const LOCAL_PATH_RE = /^(?:[A-Za-z]:[\\/]|[\\/]|\.{1,2}[\\/])/

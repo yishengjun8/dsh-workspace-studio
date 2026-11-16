@@ -334,7 +334,6 @@ export function useEditorSession({
       const size = Number.isFinite(outsideTab.size) ? outsideTab.size : null
       const outsideByteKind = byteKindOf(name)
       if (outsideByteKind !== undefined) {
-        /* Images, PDFs and Office documents render from bytes, never through a text read. */
         setPreview({
           state: 'ready',
           kind: outsideByteKind,
@@ -684,7 +683,6 @@ export function useEditorSession({
     requestedEncodingRef.current = undefined
     const selection = tab === undefined ? { kind: 'file', name: activePath.slice(activePath.lastIndexOf('/') + 1), path: activePath } : entryFromPreviewTab(tab)
     setSelected(selection)
-    /* editing / dirty / saving are the tab's own fields now — nothing to re-seed on a tab switch. */
     /* Error statuses are session-transient; replaying a stale failure banner on tab switch would mislead the user. */
     setStatus(tab?.status?.error === true ? undefined : tab?.status)
     // Mark the path as reloading so the polling tick skips it until the pass settles; idempotent with the marks set by applyFileChanged / refreshFile / openWithEncoding.

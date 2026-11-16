@@ -855,8 +855,7 @@ export async function regenerateMindmapSummary(ctx, persistence, sessionId, seq,
   return { ok: true, summary }
 }
 
-/* Toolbar "重新生成全部摘要": force-enqueue EVERY turn of the doc (bypassing the has-summary and cooldown checks) so all cards regenerate with the current model/length. Old card summaries are KEPT until the new ones land; SESSION summaries are CLEARED and auto-regenerated once the card batch finishes. Returns the turn count for the client's confirm dialog. */
-/* Body of the regenerate-all mutation: clear every stored session summary, count the doc's turns, then enqueue the card batch and the pending session summaries. Runs under the root lock with a fresh read. */
+/* Toolbar "重新生成全部摘要": force-enqueue EVERY turn of the doc (bypassing the has-summary and cooldown checks) so all cards regenerate with the current model/length. Old card summaries are KEPT until the new ones land; SESSION summaries are CLEARED and auto-regenerated once the card batch finishes. The body of the mutation runs under the root lock with a fresh read and returns the turn count for the client's confirm dialog. */
 async function regenerateAllCardsBody(ctx, persistence, fresh, config) {
   let count = 0
   for (const session of fresh.sessions ?? []) {
@@ -1873,7 +1872,7 @@ async function mindmapSessionIndex(ctx, persistence) {
     try {
       const rows = await mindmapPersistenceList(persistence)
       for (const row of rows) {
-        /* Snapshot rows are { header, revision, sizeBytes } — a flat read made every persisted row invisible (adopt degraded to live-only). */
+        /* Snapshot rows are { header, ... } — see mindmapCwdOf. */
         const header = sessionRowHeader(row)
         if (header === undefined || header.id === undefined) continue
         merge(header.id, {
@@ -2325,7 +2324,7 @@ export async function writeMindmapDoc(ctx, persistence, sessionId, doc, prevSess
   })
 }
 
-/* Rename ONLY the map's own title (doc.rootTitle) in one Host step. The sidebar previously round-tripped the whole doc, which could clobber a turn a concurrent sync had just folded; a targeted title update leaves the doc untouched and invalidates the sync cache. */
+/* Rename ONLY the map's own title (doc.rootTitle) in one Host step: round-tripping the whole doc could clobber a turn a concurrent sync had just folded, while a targeted title update leaves the doc untouched and invalidates the sync cache. */
 export async function renameMindmapDoc(ctx, persistence, sessionId, title) {
   const apply = async (target) => {
     target.rootTitle = title

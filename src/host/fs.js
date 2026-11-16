@@ -253,7 +253,7 @@ async function searchFile(root, relativePath, query, caseSensitive, config) {
 /** Walk the workspace (skipping symlinks and configured dirs), search the same per-file preview window the browser displays; matches grouped by file with 1-based line numbers and match columns. */
 export async function searchWorkspace(workspace, query, caseSensitive, nameOnly, config) {
   const root = await realpath(workspace.path)
-  /* The walk must STOP collecting once the result caps are reached: the old implementation collected and sorted EVERY path before truncating, so a very large repo could spike host memory. The truncation is approximate (walk-order dependent), which is fine: the response flags `truncated` and the cap bounds the scan. */
+  /* The walk must STOP collecting once the result caps are reached: collecting and sorting EVERY path before truncating spikes host memory on a very large repo. The truncation is approximate (walk-order dependent), which is fine: the response flags `truncated` and the cap bounds the scan. */
   const files = []
   const directories = []
   const excluded = new Set(config.searchExcludeDirs.map(name => name.toLowerCase()))
@@ -426,7 +426,7 @@ export async function readPreview(workspace, relativePath, config, encodingId = 
 }
 /* Charset label for a raw response: the encoding id is already a valid charset name except for the BOM/ascii spellings. */
 const CHARSET_BY_ENCODING = Object.freeze({ 'utf-8-bom': 'utf-8', ascii: 'us-ascii' })
-/* Detect the encoding of a raw file the way the preview's default read does: BOM first (UTF-16 LE/BE, UTF-8), else UTF-8. */
+/* Detect a raw file's encoding: BOM first (UTF-16 LE/BE, UTF-8), else UTF-8 — the same default the preview read uses. */
 function detectRawEncoding(bytes) {
   if (hasBom(bytes, 'utf-16le')) return 'utf-16le'
   if (hasBom(bytes, 'utf-16be')) return 'utf-16be'

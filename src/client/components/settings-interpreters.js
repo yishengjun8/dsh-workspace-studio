@@ -1,7 +1,4 @@
-/* The interpreter card: one row per runnable extension, plus the dialog for editing one.
- *
- * Extracted from settings.js, which keeps the page shell (the row design system is in settings-rows.js).
- */
+/* The interpreter card: one row per runnable extension, plus the dialog for editing one. */
 import { createElement as h, Fragment } from 'react'
 import { translate } from '../locale/index.js'
 import { RUN_FILE_OVERRIDE_MAX } from '../constants.js'
