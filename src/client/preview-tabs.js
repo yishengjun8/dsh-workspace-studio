@@ -25,14 +25,18 @@ export function isReviewTab(tab) { return tab !== null && tab !== undefined && t
 /* Synthetic tab path of a music-workshop document: unique per open score and never a real workspace path. The id is minted client-side and stays stable for the tab's whole life (a save only changes savedPath/name). */
 export function musicTabPath(id) { return `music:${String(id)}` }
 export function isMusicTab(tab) { return tab !== null && tab !== undefined && tab.kind === 'music' }
-/* A tab rendering something other than a workspace file (docked mind map, opened plan, change review, music score): no file read, draft, editor state or tree selection; plan/review tabs are also dropped from every persisted snapshot, while a docked map and a music score DO persist. */
-export function isSyntheticTab(tab) { return isMindmapTab(tab) || isPlanTab(tab) || isReviewTab(tab) || isMusicTab(tab) }
+/* Synthetic tab path of the console file-permission page. The scope key is the session or mind-map
+   root it belongs to, so opening the same scope twice activates the existing tab. */
+export function permissionTabPath(scopeKey) { return `permissions:${String(scopeKey)}` }
+export function isPermissionTab(tab) { return tab !== null && tab !== undefined && tab.kind === 'permissions' }
+/* A tab rendering something other than a workspace file (docked mind map, opened plan, change review, music score, permission page): no file read, draft, editor state or tree selection; plan/review/permission tabs are also dropped from every persisted snapshot, while a docked map and a music score DO persist. */
+export function isSyntheticTab(tab) { return isMindmapTab(tab) || isPlanTab(tab) || isReviewTab(tab) || isMusicTab(tab) || isPermissionTab(tab) }
 /* Whether a tab is dropped from every persisted snapshot: an external (dropped-in or
    outside-workspace) tab whose content lives only in memory, an opened plan, or a turn's
    change review. A caller deciding "is there real content to persist" must ask here, or a
    session-only tab would write an empty snapshot over anchor keys holding another session's tabs. */
 export function isUnpersistedTab(tab) {
-  return tab === null || tab === undefined || tab.external === true || isPlanTab(tab) || isReviewTab(tab)
+  return tab === null || tab === undefined || tab.external === true || isPlanTab(tab) || isReviewTab(tab) || isPermissionTab(tab)
 }
 /* Family ROOT session id of a mind-map tab (the sessionId stamp, falling back to the synthetic path's root part). */
 export function mindmapRootIdOfTab(tab) {
@@ -68,7 +72,7 @@ export function clonePreviewTab(tab) {
     outside: Boolean(tab.outside),
     /* A mind-map tab carries the map's ROOT session id and renders a placeholder for the global map host's body container instead of a file. dockedAt records the persistence family key the tab was docked on, so restore can tell a map opened in this session from one leaked in from another. A plan tab carries its dsh-resource address in the synthetic path. */
     dockedAt: typeof tab.dockedAt === 'string' && tab.dockedAt !== '' ? tab.dockedAt : null,
-    kind: tab.kind === 'mindmap' ? 'mindmap' : tab.kind === 'plan' ? 'plan' : tab.kind === 'review' ? 'review' : tab.kind === 'music' ? 'music' : 'file',
+    kind: tab.kind === 'mindmap' ? 'mindmap' : tab.kind === 'plan' ? 'plan' : tab.kind === 'review' ? 'review' : tab.kind === 'music' ? 'music' : tab.kind === 'permissions' ? 'permissions' : 'file',
     /* A music tab keeps its score in the tab so a refresh restores the work; savedPath is the
        last file it was written to, and musicRev lets the snapshot fingerprint notice edits. */
     musicDoc: tab.kind === 'music' && tab.musicDoc !== null && typeof tab.musicDoc === 'object' ? tab.musicDoc : null,
@@ -105,6 +109,9 @@ function serializePreviewTab(tab) {
   /* A review tab renders one turn's changes read from the Host while that turn's Session lives:
      persisting the synthetic path would only restore a tab that must re-read (or has nothing left). */
   if (clone.kind === 'review') return null
+  /* The permission page is a session-scoped admin view: reopen it from the context menu instead of
+     restoring a tab whose scope may no longer match the current Session. */
+  if (clone.kind === 'permissions') return null
   // localStorage keeps only metadata, never file content: the runtime-only draftKnown marker tells a live tab apart from this content-free persisted copy.
   clone.baseText = ''
   clone.draft = ''
@@ -215,6 +222,7 @@ export function normalizePreviewSession(value, familyKey) {
         /* A music tab's synthetic path is the only address it has: anything else would be a
            file read with a fabricated path, so a malformed one is dropped on restore. */
         if (tab.kind === 'music' && (typeof tab.path !== 'string' || !tab.path.startsWith('music:'))) return false
+        if (tab.kind === 'permissions') return false
         if (family !== null && tab.kind === 'mindmap' && tab.dockedAt !== family) return false
         seen.add(tab.path)
         return true

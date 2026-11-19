@@ -5,7 +5,7 @@
  * exactly once; each endpoint is then a few lines naming its route, its query/body and the failure
  * locale keys, with no fetch boilerplate repeated.
  */
-import { API_PREFIX, ENCODING_FALLBACK, ENCODING_LABEL_FALLBACK, MINDMAP_LOAD_TIMEOUT_MS, MINDMAP_MODELS_CACHE_MS, MINDMAP_SYNC_TIMEOUT_MS, RUN_PROBE_REQUEST_TIMEOUT_MS, RUN_STATUS_TIMEOUT_MS, TOKEN_STATS_TIMEOUT_MS, UPDATE_CHECK_TIMEOUT_MS, UPDATE_DOWNLOAD_TIMEOUT_MS, VCS_STATUS_TIMEOUT_MS } from './constants.js'
+import { API_PREFIX, ENCODING_FALLBACK, ENCODING_LABEL_FALLBACK, MINDMAP_LOAD_TIMEOUT_MS, MINDMAP_MODELS_CACHE_MS, MINDMAP_SYNC_TIMEOUT_MS, PERMISSIONS_REQUEST_TIMEOUT_MS, RUN_PROBE_REQUEST_TIMEOUT_MS, RUN_STATUS_TIMEOUT_MS, TOKEN_STATS_TIMEOUT_MS, UPDATE_CHECK_TIMEOUT_MS, UPDATE_DOWNLOAD_TIMEOUT_MS, VCS_STATUS_TIMEOUT_MS } from './constants.js'
 import { localeIsZh, translate } from './locale/index.js'
 
 /* Bounded request timeouts: a hung Host must not leave the UI loading/saving forever; withTimeout merges the caller's signal, falling back to the signal alone when the timeout APIs are unavailable. */
@@ -44,6 +44,10 @@ const ROUTES = Object.freeze({
   runPolicy: { path: '/run/policy', invalid: 'error.run-failed' },
   runInterpreters: { path: '/run/interpreters', invalid: 'error.run-failed' },
   runProbe: { path: '/run/probe', invalid: 'error.run-failed' },
+  permissions: { path: '/permissions', failure: { code: 'permissions-failed', key: 'error.permissions-failed' }, invalid: 'error.invalid-response.permissions' },
+  permissionsPending: { path: '/permissions/pending', failure: { code: 'permissions-failed', key: 'error.permissions-failed' }, invalid: 'error.invalid-response.permissions' },
+  permissionsConfig: { path: '/permissions/config', failure: { code: 'permissions-failed', key: 'error.permissions-failed' }, invalid: 'error.invalid-response.permissions' },
+  permissionsAiCache: { path: '/permissions/ai-cache', failure: { code: 'permissions-failed', key: 'error.permissions-failed' }, invalid: 'error.invalid-response.permissions' },
   updateCheck: { path: '/update/check', failure: { code: 'update-failed', key: 'error.update-failed' }, invalid: 'error.invalid-response.update' },
   updateInstalled: { path: '/update/installed', failure: { code: 'update-failed', key: 'error.update-failed' }, invalid: 'error.invalid-response.update' },
   updateDownload: { path: '/update/download', failure: { code: 'update-download-failed', key: 'error.update-download-failed' }, invalid: 'error.invalid-response.update' },
@@ -720,5 +724,36 @@ export function fetchCollections(signal) {
 }
 export function patchCollections(patch, signal) {
   return runRequest(ROUTES.collections, { method: 'PUT', body: patch }, signal)
+}
+
+/* ---- Console-command file permissions -------------------------------------------------------
+   The Host owns grants, history, pending requests and the settings card's config. These helpers only
+   carry the wire shapes; the client store polls pending/snapshot and never persists permissions. */
+function permissionRequest(route, options, signal) {
+  const { method = 'GET', body } = options ?? {}
+  return request(route, { method, body, timeoutMs: PERMISSIONS_REQUEST_TIMEOUT_MS, signal })
+}
+export function fetchPermissionSnapshot(sessionId, signal) {
+  return permissionRequest(ROUTES.permissions, {
+    query: { sessionId: String(sessionId ?? '') },
+  }, signal).then(payload => (typeof payload?.scope?.key === 'string' ? payload : undefined))
+}
+export function fetchPendingPermissions(signal) {
+  return permissionRequest(ROUTES.permissionsPending, undefined, signal)
+    .then(payload => (Array.isArray(payload?.requests) ? payload : undefined))
+}
+export function fetchPermissionConfig(signal) {
+  return permissionRequest(ROUTES.permissionsConfig, undefined, signal)
+    .then(payload => (payload?.settings !== null && typeof payload?.settings === 'object' ? payload : undefined))
+}
+export function savePermissionConfig(payload, signal) {
+  return permissionRequest(ROUTES.permissionsConfig, { method: 'POST', body: payload }, signal)
+    .then(value => (value?.settings !== null && typeof value?.settings === 'object' ? value : undefined))
+}
+export function postPermissionAction(payload, signal) {
+  return permissionRequest(ROUTES.permissions, { method: 'POST', body: payload }, signal)
+}
+export function clearPermissionAiCache(signal) {
+  return permissionRequest(ROUTES.permissionsAiCache, { method: 'DELETE' }, signal)
 }
 

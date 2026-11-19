@@ -12,6 +12,7 @@ import { checkUpdate, downloadUpdate, fetchInstalledUpdateInfo } from '../api.js
 import { readVcsHostEnabled, subscribeVcsHostEnabled } from '../vcs.js'
 import { TokenStatsRow } from './token-stats.js'
 import { useMindmapSummaryModels } from '../hooks/mindmap-summary-models.js'
+import { CommandPermissionCard } from './settings-permissions.js'
 import { normalizeRelativeDir } from '../paths.js'
 import { MUSIC_DEFAULT_DIR } from '../../shared/music-score.js'
 /* =====================================================================================
@@ -969,6 +970,7 @@ export function ExplorerSettingsSection({ settingsStore }) {
     h(BrowseCard, { settings, settingsStore }),
     h(PaletteCard, { settings, settingsStore }),
     h(VcsCard, { settings, settingsStore, vcsHostEnabled }),
+    h(CommandPermissionCard, null),
     h(MindmapCard, { settings, settingsStore, summaryModels }),
     h(DialogCard, { settings, settingsStore }),
     h(InterpreterCard, {

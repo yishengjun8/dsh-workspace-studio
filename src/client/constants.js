@@ -353,6 +353,13 @@ export const RUN_FILE_OVERRIDE_MAX = 200
 export const RUN_PROBE_TIMEOUT_MS = 5000
 export const RUN_PROBE_OUTPUT_MAX = 4096
 export const RUN_PROBE_REQUEST_TIMEOUT_MS = 9000
+/* Console-command file permissions: the prompt's pending queue is polled while a command waits; the
+   page's scope snapshot is polled only while it is open. The Host's own wait is 120 s, so a 1.2 s
+   client poll surfaces a new request quickly without flooding the API. */
+export const PERMISSIONS_POLL_MS = 1200
+export const PERMISSIONS_SNAPSHOT_MS = 2000
+export const PERMISSIONS_REQUEST_TIMEOUT_MS = 15000
+export const PERMISSION_COUNTDOWN_TICK_MS = 500
 /* Byte cap on the read-only preview of a file OUTSIDE the workspace (read through
    the harness workspace-files Remote, page by page): past it the preview keeps
    what it read and reports itself truncated, like the Host's own preview cap. */

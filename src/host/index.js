@@ -14,6 +14,7 @@ import { deleteMusicCacheEntry, listMusicCache, readMusicCacheEntry, upsertMusic
 import { ackMusicCollabPatch, dropMusicCollab, readMusicCollabPatch, upsertMusicCollab } from './music-collab.js'
 import { MUSIC_REWRITE_BARS_MAX, MUSIC_REWRITE_NOTES_MAX } from '../shared/music-edit.js'
 import { installMusicTools } from './music-tools.js'
+import { createCommandPermissions } from './command-permissions.js'
 import { createEntry, fsOperation, renameEntry, saveFile } from './write.js'
 import { deleteDraftFile, draftTreeOperation, parseDraftGenerationQuery, readDraftFile, saveDraftFile, validateDraftOwner, validateDraftPayload } from './drafts.js'
 import { adoptMindmapOrphans, buildMindmapDoc, clearForkInheritedQueue, deleteMindmapDoc, findMindmapDocWithAncestors, indexMindmapDocs, isValidMindmapDoc, listMindmapModels, MINDMAP_DOC_MAX_BYTES, mindmapAnchorOf, mindmapDrainPendingSessionSummaries, mindmapInvalidatePersistenceList, mindmapLock, mindmapLockedReanchorOp, mindmapSessionSummarizingOf, mindmapSummarizingOf, parseMindmapSummaryConfig, purgeArchivedMindmapDocs, readMindmapDocFile, refreshMindmapDocCore, regenerateAllMindmapSummaries, regenerateAllSessionSummaries, regenerateMindmapSummary, renameMindmapDoc, seedMindmapSyncCacheAfterLoad, summarizeMindmapSession, syncMindmapDoc, validateMindmapSession, warmMindmapParsedCache, writeMindmapDoc, writeMindmapDocFile } from './mindmap.js'
@@ -77,6 +78,9 @@ export const Config = z.object({
      probes. A missing executable or a timeout degrades inside the payload (the UI says so);
      nothing here ever writes to the repository or reaches the network. */
   enableVcsStatus: z.boolean().default(true),
+  /* Deployment-level kill switch for the console file-permission gate. The user-level switch lives in
+     permissions/cache.json; both must be true for the gate to fire. */
+  enableCommandPermissions: z.boolean().default(true),
   gitExecutable: z.string().default('git'),
   svnExecutable: z.string().default('svn'),
   vcsTimeoutMs: z.natural().min(1000).max(120_000).default(10_000),
@@ -136,6 +140,12 @@ const ROUTES = Object.freeze({
      one-shot version probe behind the dialogs' 「测试」 button. */
   [`${API_PREFIX}/run/interpreters`]: { methods: 'GET, HEAD', group: 'run' },
   [`${API_PREFIX}/run/probe`]: { methods: 'POST', group: 'run' },
+  /* Console-command file permissions: durable grants/scope snapshots, the global pending queue, the
+     settings card's Host-side config, and the AI-analysis cache reset. */
+  [`${API_PREFIX}/permissions`]: { methods: 'GET, HEAD, POST', group: 'permissions' },
+  [`${API_PREFIX}/permissions/pending`]: { methods: 'GET, HEAD', group: 'permissions' },
+  [`${API_PREFIX}/permissions/config`]: { methods: 'GET, HEAD, POST', group: 'permissions' },
+  [`${API_PREFIX}/permissions/ai-cache`]: { methods: 'DELETE', group: 'permissions' },
   [`${API_PREFIX}/update/check`]: { methods: 'GET, HEAD' },
   [`${API_PREFIX}/update/installed`]: { methods: 'GET, HEAD' },
   [`${API_PREFIX}/update/download`]: { methods: 'POST' },
@@ -176,6 +186,8 @@ const MUSIC_SAMPLE_ROOT = new URL('../assets/vcsl/', import.meta.url)
 /* 50 collections x 40-char names x up to 2000 workspace ids: the honest bound is a few hundred KiB,
    and the envelope never carries file content. */
 const COLLECTIONS_BODY_MAX_BYTES = 512 * 1024
+/* Permission actions are a handful of paths plus a request id; 64 KiB is generous headroom. */
+const PERMISSIONS_BODY_MAX_BYTES = 64 * 1024
 
 /** Handle one collections request: GET/HEAD answer the store, PUT merges one patch into it. */
 async function handleCollectionsRoute(config, url, req, res, writeQueues) {
@@ -276,6 +288,41 @@ async function handleRunRoute(ctx, config, url, req, res, writeQueues) {
   const payload = await readJsonObject(req, config, RUN_BODY_MAX_BYTES)
   sendJson(req, res, 200, await startRun(workspace, relativePath, typeof payload?.args === 'string' ? payload.args : ''))
 }
+/** Handle one console file-permission request: scope snapshot, global pending queue, Host-side
+ *  settings and the AI-cache reset. Scope resolution lives in command-permissions.js. */
+async function handlePermissionsRoute(permissions, config, url, req, res) {
+  const endpoint = url.pathname
+  if (endpoint === `${API_PREFIX}/permissions/pending`) {
+    sendJson(req, res, 200, await permissions.pendingRequests())
+    return
+  }
+  if (endpoint === `${API_PREFIX}/permissions/config`) {
+    if (req.method === 'POST') {
+      const payload = await readJsonObject(req, config, PERMISSIONS_BODY_MAX_BYTES)
+      sendJson(req, res, 200, await permissions.saveConfig(payload))
+      return
+    }
+    sendJson(req, res, 200, await permissions.getConfig())
+    return
+  }
+  if (endpoint === `${API_PREFIX}/permissions/ai-cache`) {
+    sendJson(req, res, 200, await permissions.clearAiCache())
+    return
+  }
+  if (endpoint === `${API_PREFIX}/permissions`) {
+    if (req.method === 'POST') {
+      const payload = await readJsonObject(req, config, PERMISSIONS_BODY_MAX_BYTES)
+      sendJson(req, res, 200, await permissions.act(payload))
+      return
+    }
+    const sessionId = requiredQuery(url, 'sessionId')
+    if (sessionId.length > 200) throw new HttpError(400, 'invalid-session', '会话 id 无效')
+    sendJson(req, res, 200, await permissions.snapshot(sessionId))
+    return
+  }
+  throw new HttpError(404, 'endpoint-not-found', '接口不存在')
+}
+
 /* Shared GET-load refresh: reconcile + adopt under the caller's lock, write back when changed, invalidate the sync cache, and serve the last good disk doc when the refresh degraded (a partial in-memory mutation must never be served or written). */
 async function refreshMindmapDocLoad(ctx, persistence, doc) {
   /* An OPEN must start from a FRESH session index: the row revisions behind the
@@ -311,7 +358,7 @@ async function refreshMindmapDocLoad(ctx, persistence, doc) {
   /* `refresh` flags ride along so the GET route can seed the sync cache with the same policy the sync settle uses (clean + persisted doc only). `warnings` MUST ride along too: the seed guard requires the array (and rejects non-clean refreshes) — without it the seed silently no-ops on every reopen. */
   return { doc: result, warnings: refresh.warnings, refresh: { changed: refresh.changed, wrote, adoptIncomplete: refresh.adoptIncomplete, warnings: refresh.warnings } }
 }
-async function handleRequest(ctx, config, writeQueues, req, res) {
+async function handleRequest(ctx, config, writeQueues, req, res, permissions) {
   const url = new URL(req.url ?? '/', 'http://127.0.0.1')
   /* The HTML-preview "site" byte route is TOKEN-gated instead of fence-gated (see site.js): the
      preview frame is an opaque origin, so its subresource requests are legitimately `cross-site`
@@ -343,6 +390,10 @@ async function handleRequest(ctx, config, writeQueues, req, res) {
     }
     if (!route.methods.split(', ').includes(req.method ?? '')) {
       sendError(req, res, 405, 'method-not-allowed', `该接口只允许 ${route.methods} 请求`, { allow: route.methods })
+      return
+    }
+    if (route.group === 'permissions') {
+      await handlePermissionsRoute(permissions, config, url, req, res)
       return
     }
     if (route.group === 'run') {
@@ -883,11 +934,17 @@ async function handleRequest(ctx, config, writeQueues, req, res) {
 /** Register the workspace-confined browser API. */
 export function apply(ctx, config) {
   const writeQueues = new Map()
+  const permissions = createCommandPermissions(ctx, config, writeQueues)
+  void permissions.ensureLoaded()
+  ctx.effect(
+    () => () => permissions.dispose(),
+    'workspace-studio: permission gate teardown',
+  )
   ctx.effect(
     () => ctx.webServer.register({
       kind: 'prefix',
       path: API_PREFIX,
-      handler: (req, res) => handleRequest(ctx, config, writeQueues, req, res),
+      handler: (req, res) => handleRequest(ctx, config, writeQueues, req, res, permissions),
     }),
     'workspace-studio: workspace API',
   )
@@ -918,6 +975,10 @@ export function apply(ctx, config) {
   ctx.inject(['tools'], toolsCtx => {
     const dispose = installMusicTools(toolsCtx)
     toolsCtx.effect(() => dispose, 'workspace-studio: music collaboration tools')
+    /* Console file-permission gate: registered next to the tools service it observes. The listener is
+       a `tools/pre-execute` waterfall participant, so it must call next() when it allows. */
+    const disposeGate = permissions.install(toolsCtx)
+    toolsCtx.effect(() => disposeGate, 'workspace-studio: console file permission gate')
   })
 }
 

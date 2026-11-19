@@ -86,7 +86,7 @@ function useDialogEscape(onCancel, busy) {
  *   hooks. An empty list means the dialog has no footer at all (the × / backdrop / Escape are its only
  *   ways out).
  */
-export function Modal({ busy, onCancel, title, className, bodyClassName, style, foot, dismissOnBackdrop = true, actions = [], children }) {
+export function Modal({ busy, onCancel, title, className, bodyClassName, style, foot, dismissOnBackdrop = true, closable = true, actions = [], children }) {
   const dialogFocusRef = useDialogFocusTrap()
   return h('div', {
     className: 'dsh-ws-dialog-backdrop',
@@ -104,7 +104,7 @@ export function Modal({ busy, onCancel, title, className, bodyClassName, style, 
   },
   h('div', { className: 'dsh-ws-dialog-header' },
     h('div', { className: 'dsh-ws-dialog-title' }, title),
-    h('button', {
+    closable === false ? null : h('button', {
       'aria-label': translate('dialog.close'),
       className: 'dsh-ws-icon-button',
       disabled: busy,

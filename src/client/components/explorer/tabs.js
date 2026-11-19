@@ -1,7 +1,7 @@
 import { createElement as h } from 'react'
 import { translate } from '../../locale/index.js'
 import { DISK_STATE_CLEAN, DISK_STATE_CONFLICT, DISK_STATE_GONE, DISK_STATE_STALE } from '../../constants.js'
-import { isMusicTab, isPlanTab, isReviewTab, isSyntheticTab, isTemporaryTab } from '../../preview-tabs.js'
+import { isMusicTab, isPermissionTab, isPlanTab, isReviewTab, isSyntheticTab, isTemporaryTab } from '../../preview-tabs.js'
 import { getRunEntry, useRunVersion } from '../../run-store.js'
 import { IconCloseWin10, IconPinVscode } from '../../icons.js'
 
@@ -108,6 +108,12 @@ export function PreviewTabs({ tabs, activePath, draggingPath, dropIndex, contain
             h('rect', { fill: 'currentColor', height: 7.5, width: 1.5, x: 11.82, y: 3.7 }),
             h('ellipse', { cx: 4.5, cy: 12.05, fill: 'currentColor', rx: 2.05, ry: 1.55, transform: 'rotate(-16 4.5 12.05)' }),
             h('ellipse', { cx: 10.6, cy: 11.15, fill: 'currentColor', rx: 2.05, ry: 1.55, transform: 'rotate(-16 10.6 11.15)' })))
+        : null,
+      isPermissionTab(tab)
+        ? h('span', { 'aria-hidden': true, className: 'dsh-ws-preview-tab-permissions' },
+          h('svg', { viewBox: '0 0 16 16' },
+            h('path', { d: 'M8 1.8 13 3.8v3.6c0 3-2 5.2-5 6.6-3-1.4-5-3.6-5-6.6V3.8Z', fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, strokeLinejoin: 'round' }),
+            h('path', { d: 'm5.8 8 1.5 1.5 3-3.2', fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round' })))
         : null,
       h('button', {
         className: 'dsh-ws-preview-tab-button',

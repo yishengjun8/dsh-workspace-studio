@@ -4,7 +4,7 @@ import { clampFontPercent, CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MAX, C
 import { translate } from '../../locale/index.js'
 import { clamp, diffColorVars, fileLabel, formatBytes, readOnlyReason, vcsStatusColorVars } from '../../format.js'
 import { copyText, defaultEntryName, entryNameError, entryPath, joinAbsolutePath, parentPath, pathBaseName, rewriteDirectoryMap, rewritePathMap, rewritePathSet, rewriteRelativePath, selectedLevelPath } from '../../paths.js'
-import { ancestorDirectoryPaths, dropIndexFromEvent, entryFromPreviewTab, isMindmapTab, isMusicTab, isPlanTab, isReviewTab, isSyntheticTab, isTemporaryTab, hasTabPath, isUnpersistedTab, mindmapRootIdOfTab, mindmapTabPath, musicTabPath, normalizePreviewSession, openPermanentTab, openPreviewTab, orderPinnedFirst, patchTab, planAddressOfTab, planTabPath, promoteTemporaryTab, reviewAddressOfTab, reviewTabPath, rewritePreviewTabs, serializePreviewSession } from '../../preview-tabs.js'
+import { ancestorDirectoryPaths, dropIndexFromEvent, entryFromPreviewTab, isMindmapTab, isMusicTab, isPermissionTab, isPlanTab, isReviewTab, isSyntheticTab, isTemporaryTab, hasTabPath, isUnpersistedTab, mindmapRootIdOfTab, mindmapTabPath, musicTabPath, normalizePreviewSession, openPermanentTab, openPreviewTab, orderPinnedFirst, patchTab, permissionTabPath, planAddressOfTab, planTabPath, promoteTemporaryTab, reviewAddressOfTab, reviewTabPath, rewritePreviewTabs, serializePreviewSession } from '../../preview-tabs.js'
 import { registerPreviewFontReset } from '../../preview-font.js'
 import { IconNewFile, IconNewFolder, IconRefresh, IconSearch } from '../../icons.js'
 import { encodingLabel, fetchEncodings, hostAbsoluteHref, openFileExternal, rawFileUrl, requestFsOperation, revealInExplorer, uploadExternalFile, WorkspaceApiError } from '../../api.js'
@@ -41,6 +41,8 @@ import { MusicDock } from '../music/index.js'
 import { composeMusicScore } from '../../../shared/music-score.js'
 import { normalizeMusicPrefs } from '../../music-prefs.js'
 import { ReviewView } from '../../renderers/review-view.js'
+import { PermissionPage } from '../permissions.js'
+import { usePendingPermissions } from '../../permission-store.js'
 
 /* Whether a preview tab has no file-tree row: a docked mind map, an opened plan or change
    review, or a file OUTSIDE the workspace. It selects nothing and is never revealed —
@@ -260,6 +262,42 @@ export function WorkspaceExplorer({
     activatePath(path)
   }, [activatePath])
 
+  /* Open the console file-permission page: one synthetic tab per scope (the current Session, or its
+     mind-map root). Re-opening an already open scope activates that tab instead of duplicating it. */
+  const openPermissionsPage = useCallback(() => {
+    setTabContextMenu(undefined)
+    setStripMenu(undefined)
+    if (sessionId === null || sessionId === undefined || String(sessionId) === '') return
+    const scopeKey = previewSessionId ?? String(sessionId)
+    const path = permissionTabPath(scopeKey)
+    setTabs(current => (current.some(tab => tab.path === path) ? current : [...current, {
+      baseText: '',
+      baseRevision: null,
+      bom: false,
+      dirty: false,
+      draft: '',
+      draftKnown: false,
+      editing: false,
+      encoding: 'utf-8',
+      external: false,
+      kind: 'permissions',
+      lineEnding: 'none',
+      name: translate('permissions.tab'),
+      path,
+      pinned: false,
+      revision: null,
+      savedPath: null,
+      saving: false,
+      scrollTop: 0,
+      sessionId: null,
+      size: null,
+      status: undefined,
+      symlink: false,
+    }]))
+    setSelected(undefined)
+    activatePath(path)
+  }, [activatePath, previewSessionId, sessionId])
+
   useLayoutEffect(() => { tabsRef.current = tabs }, [tabs])
   useLayoutEffect(() => { activePathRef.current = activePath }, [activePath])
   useLayoutEffect(() => { expandedRef.current = expanded }, [expanded])
@@ -272,6 +310,17 @@ export function WorkspaceExplorer({
   const activeReview = activeTab !== undefined && isReviewTab(activeTab)
   /* A music tab renders its own transport, headers and status; the file chrome stays hidden. */
   const activeMusic = activeTab !== undefined && isMusicTab(activeTab)
+  /* The console file-permission page draws its own header/body/status; it is not a file either. */
+  const activePermission = activeTab !== undefined && isPermissionTab(activeTab)
+  const permissionPending = usePendingPermissions()
+  /* The context-menu badge is the CURRENT scope's queue, not every session's: a pending command in
+     another mind map must not decorate this menu. The global prompt still shows every request. */
+  const permissionScopeKey = previewSessionId !== undefined && previewSessionId !== null
+    ? `root:${String(previewSessionId)}`
+    : (sessionId !== undefined && sessionId !== null && String(sessionId) !== '' ? `session:${String(sessionId)}` : null)
+  const permissionPendingCount = permissionScopeKey === null
+    ? 0
+    : permissionPending.requests.filter(request => request?.scope?.key === permissionScopeKey).length
   /* A session switch inside the same mind map keeps this explorer mounted, so the editor context would stay bound to the previous session; clear it for the new session. */
   const lastSessionIdRef = useRef(sessionId)
   useEffect(() => {
@@ -1626,6 +1675,9 @@ export function WorkspaceExplorer({
   /* A music score renders inline and stays mounted (hidden when inactive): switching tabs keeps
      the transport position, the selected note and unsaved edits alive. */
   const musicTabs = tabs.filter(isMusicTab)
+  /* Permission pages stay mounted too: their 2 s scope poll and local history/revoke controls keep
+     their state while another preview tab is in front. */
+  const permissionTabs = tabs.filter(isPermissionTab)
   /* The active file's retained CodeMirror session; dropped when its name no longer matches the tab, so a rename builds the next view fresh. */
   const retainedForActive = (() => {
     if (activePath === null || activeTab === undefined || isSyntheticTab(activeTab)) return null
@@ -1637,7 +1689,7 @@ export function WorkspaceExplorer({
     }
     return session
   })()
-  const body = mindmapTabs.length > 0 || planTabs.length > 0 || reviewTabs.length > 0 || musicTabs.length > 0
+  const body = mindmapTabs.length > 0 || planTabs.length > 0 || reviewTabs.length > 0 || musicTabs.length > 0 || permissionTabs.length > 0
     ? h(Fragment, null,
         ...mindmapTabs.map(tab => h('div', {
           className: 'dsh-ws-preview-body dsh-ws-mindmap-dock',
@@ -1686,7 +1738,15 @@ export function WorkspaceExplorer({
           tab,
           workspace,
         }))),
-        activeMindmap || activePlan || activeReview || activeMusic ? null : h(PreviewPane, {
+        ...permissionTabs.map(tab => h('div', {
+          className: 'dsh-ws-preview-body dsh-ws-perm-dock',
+          key: tab.path,
+          style: tab.path === activePath ? undefined : { display: 'none' },
+        }, h(PermissionPage, {
+          sessionId,
+          sessionTitle,
+        }))),
+        activeMindmap || activePlan || activeReview || activeMusic || activePermission ? null : h(PreviewPane, {
     activePath,
     activeTab,
     browseKind,
@@ -2067,13 +2127,13 @@ export function WorkspaceExplorer({
          before the first file is opened. */
       h(PreviewTabs, { activePath, containerRef: previewTabsRef, draggingPath, dropIndex, onBlankContextMenu: (x, y) => setStripMenu({ x, y }), onChoose: activateTab, onClose: closeTab, onContextMenu: (path, x, y) => setTabContextMenu({ path, x, y }), onDragEnd: () => { setDraggingPath(null); setDropIndex(null) }, onDragLeave: handleTabsDragLeave, onDragOver: updateDropIndex, onDragStart: (path, event) => { setDraggingPath(path); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', path) }, onDrop: handleTabsDrop, onMouseEnter: handleTabsMouseEnter, onMouseLeave: handleTabsMouseLeave, onPromote: promoteTab, onReload: reloadTab, onScroll: handleTabsScroll, onUnpin: unpinTab, tabs }),
       tabs.length ? h('div', { className: 'dsh-ws-preview-scrollbar', onMouseEnter: handleScrollbarMouseEnter, onMouseLeave: handleScrollbarMouseLeave, onPointerCancel: handleScrollbarPointerEnd, onPointerDown: handleScrollbarPointerDown, onPointerMove: handleScrollbarPointerMove, onPointerUp: handleScrollbarPointerEnd, ref: previewScrollbarRef }, h('div', { className: 'dsh-ws-preview-scrollbar-thumb', ref: previewScrollThumbRef })) : null,
-      tabContextMenu ? h(TabContextMenu, { menuRef: tabMenuRef, onCloseOthers: () => { setTabContextMenu(undefined); closeOtherTabs(tabContextMenu.path) }, onOpenMusic: openMusicWorkshop, onTogglePin: () => { setTabContextMenu(undefined); if (tabMenuTarget?.pinned) unpinTab(tabContextMenu.path); else pinTab(tabContextMenu.path) }, onOpenExternally: openTabExternally, canOpenExternally, openLabel: openExternallyLabel, openTitle: openExternallyTitle, canReload: tabMenuTarget !== undefined && !isSyntheticTab(tabMenuTarget) && !tabMenuTarget.external && tabMenuTarget.dirty !== true && tabMenuTarget.saving !== true, onReload: () => { setTabContextMenu(undefined); reloadTab(tabContextMenu.path) }, pinned: Boolean(tabMenuTarget?.pinned), reloadTitle: tabMenuTarget?.dirty === true ? translate('tab.reloadBlocked') : translate('tab.reload.title'), x: tabContextMenu.x, y: tabContextMenu.y }) : null,
-      stripMenu ? h(TabStripContextMenu, { menuRef: stripMenuRef, onOpenMusic: openMusicWorkshop, x: stripMenu.x, y: stripMenu.y }) : null,
+      tabContextMenu ? h(TabContextMenu, { menuRef: tabMenuRef, onCloseOthers: () => { setTabContextMenu(undefined); closeOtherTabs(tabContextMenu.path) }, onOpenMusic: openMusicWorkshop, onOpenPermissions: openPermissionsPage, permissionCount: permissionPendingCount, canOpenPermissions: sessionId !== undefined && sessionId !== null && String(sessionId) !== '', onTogglePin: () => { setTabContextMenu(undefined); if (tabMenuTarget?.pinned) unpinTab(tabContextMenu.path); else pinTab(tabContextMenu.path) }, onOpenExternally: openTabExternally, canOpenExternally, openLabel: openExternallyLabel, openTitle: openExternallyTitle, canReload: tabMenuTarget !== undefined && !isSyntheticTab(tabMenuTarget) && !tabMenuTarget.external && tabMenuTarget.dirty !== true && tabMenuTarget.saving !== true, onReload: () => { setTabContextMenu(undefined); reloadTab(tabContextMenu.path) }, pinned: Boolean(tabMenuTarget?.pinned), reloadTitle: tabMenuTarget?.dirty === true ? translate('tab.reloadBlocked') : translate('tab.reload.title'), x: tabContextMenu.x, y: tabContextMenu.y }) : null,
+      stripMenu ? h(TabStripContextMenu, { menuRef: stripMenuRef, onOpenMusic: openMusicWorkshop, onOpenPermissions: openPermissionsPage, permissionCount: permissionPendingCount, canOpenPermissions: sessionId !== undefined && sessionId !== null && String(sessionId) !== '', x: stripMenu.x, y: stripMenu.y }) : null,
       /* A mind-map tab hides the file header: the map draws its own toolbar
          and title bar. A plan tab hides it too: the document carries its own
          heading and has no file chrome to offer. A review tab hides it as
          well: its own header names the turn and the selected file. */
-      activeMindmap || activePlan || activeReview || activeMusic ? null : h('header', { className: 'dsh-ws-panel-header dsh-ws-preview-file-header', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && preview.kind !== RENDERER_IMAGE && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) }, ref: previewHeaderRef },
+      activeMindmap || activePlan || activeReview || activeMusic || activePermission ? null : h('header', { className: 'dsh-ws-panel-header dsh-ws-preview-file-header', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && preview.kind !== RENDERER_IMAGE && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) }, ref: previewHeaderRef },
         h('span', { className: 'dsh-ws-preview-file-path', title: activeTab === undefined ? undefined : (activeTab.outside === true ? activeTab.path : activeTab.external ? translate('external.externalFile.title') : activeTab.path) },
           activeTab
             ? (activeTab.outside === true
@@ -2180,7 +2240,7 @@ export function WorkspaceExplorer({
       ),
       body,
       // Merged bottom status bar: action buttons + file meta (left) and the transient status notice (right); a mind-map, plan, or review tab hides it.
-      activeMindmap || activePlan || activeReview || activeMusic ? null : h('div', { className: 'dsh-ws-status', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && preview.kind !== RENDERER_IMAGE && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) } },
+      activeMindmap || activePlan || activeReview || activeMusic || activePermission ? null : h('div', { className: 'dsh-ws-status', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && preview.kind !== RENDERER_IMAGE && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) } },
         h('div', { className: 'dsh-ws-preview-status-actions' },
           preview.state === 'ready' && preview.kind !== RENDERER_IMAGE
             ? h(Fragment, null,

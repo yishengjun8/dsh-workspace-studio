@@ -1,4 +1,4 @@
-import { createElement as h, Fragment, useRef, useState, useEffect, useLayoutEffect, useMemo, useCallback, useSyncExternalStore } from 'react'
+﻿import { createElement as h, Fragment, useRef, useState, useEffect, useLayoutEffect, useMemo, useCallback, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { COLLECTION_ALL_ID, COLLECTION_UNOWNED_ID, CONTEXT_MENU_WIDTH, EDITOR_CONTEXT_PROVIDER, EXPLORER_MAX_RATIO, MINDMAP_END_COLOR_DEFAULT, MINDMAP_HEAD_COLOR_DEFAULT, MINDMAP_SPIN_BASE_DURATION_S, MINDMAP_SPIN_STOP_DURATION_S, MOBILE_HEADER_FALLBACK_H, MUSIC_CONTEXT_PROVIDER, PACKAGE_ID, PREVIEW_MAX, PREVIEW_MIN, SIDEBAR_COLLAPSED, SIDEBAR_MAX_FALLBACK, SIDEBAR_MAX_RATIO, SIDEBAR_MIN, TREE_MAX, TREE_MIN, WORKSPACE_GROUP_BY_DEFAULT } from './constants.js'
 import { installLocaleService, translate, useLocaleText } from './locale/index.js'
@@ -26,6 +26,7 @@ import { ResizeHandle, SessionInlineRename, SidebarTopActions } from './componen
 import { EmptyWorkspaceExplorer } from './components/explorer/empty.js'
 import { ExplorerSettingsSection } from './components/settings.js'
 import { MobileHeaderControls, MobileHeroControls, MobileModeToggle } from './components/mobile.js'
+import { PermissionPrompt } from './components/permissions.js'
 import { WorkspaceExplorer } from './components/explorer/index.js'
 import { MindMapHost } from './mindmap/host.js'
 import { buildMindmapActions } from './mindmap-actions.js'
@@ -43,7 +44,7 @@ import { resourceNoticeStore } from './ui-notice.js'
 import { installPlanResources } from './plan-open.js'
 import { installOfficeFaces, installRemoteFaces } from './renderers/remote.js'
 /* The shared icon set of the harness shell. ui-commands dresses its own built-in Host
-   commands (goal/plan/compact/…) from a table it owns; a client-registered command gets no
+   commands (goal/plan/compact/鈥? from a table it owns; a client-registered command gets no
    glyph unless it brings one, so /init takes its row face from the same set. */
 import { IconDeliverDocRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 
@@ -166,7 +167,7 @@ export function AppFrame(props) {
   const archivedSessionIds = props.useWorkspaces(state => state.archivedSessionIds)
   const collections = useSyncExternalStore(collectionsStore.subscribe, collectionsStore.getSnapshot)
   const collectionsDoc = collections.doc
-  /* No session selected → follow the workspace the harness itself would
+  /* No session selected 鈫?follow the workspace the harness itself would
      reconnect (the same recent-workspace policy it applies to New Session). */
   const recent = useMemo(
     () => recentWorkspaceIdOf(workspaces, sessionsById),
@@ -185,7 +186,7 @@ export function AppFrame(props) {
   useChatTailPin({ chatSectionRef, currentSession })
   /* Locale changes re-render the frame so the collection chips/copy follow the active language. */
   const localeRevision = useLocaleText()
-  /* Workspace collections own the section title only in the Harness's 按工作区 grouping mode; the
+  /* Workspace collections own the section title only in the Harness's 鎸夊伐浣滃尯 grouping mode; the
      mode lives in the Harness's own persisted view store (see collections.js). */
   const collectionGroupBy = useCollectionGroupBy()
   const collectionsActive = collectionGroupBy === WORKSPACE_GROUP_BY_DEFAULT
@@ -221,7 +222,7 @@ export function AppFrame(props) {
   const workspaceId = workspace?.workspaceId
   /* Workspace collections: read once per page load (the Host owns the durable copy), filtered in the
      sidebar by a generated stylesheet, and switched with an explicit jump to the collection's newest
-     session. `collectionsActive` is false in the Harness's own 按工作区树 / 单列表 modes, where the
+     session. `collectionsActive` is false in the Harness's own 鎸夊伐浣滃尯鏍?/ 鍗曞垪琛?modes, where the
      feature stays out of the way entirely (dropdown removed, no filtering). */
   useEffect(() => {
     const controller = new AbortController()
@@ -297,7 +298,7 @@ export function AppFrame(props) {
     }
     const collection = collectionById(result.doc, id)
     /* A built-in view is not a collection: say what actually happened, and do not jump (there is no
-       "newest member session" to open — under "all workspaces" every session qualifies). */
+       "newest member session" to open 鈥?under "all workspaces" every session qualifies). */
     if (id === COLLECTION_ALL_ID) {
       showSessionNotice(translate('collections.showAll'))
       return
@@ -418,14 +419,14 @@ export function AppFrame(props) {
   const preview = clamp(panes.preview, PREVIEW_MIN, previewMax)
   const previewBoundary = sidebar + preview
   const treePortalTarget = sidebarChrome?.files ?? null
-  return h('div',{ref:viewportRef,className:'dsh-ws-viewport'},h('main',{className:'dsh-ws-frame','data-sidebar-collapsed':collapsed||undefined,'data-sidebar-files':filesActive||undefined,'data-resizing':resizing||undefined,'data-preview-right':settings.previewRight===true||undefined,style:{'--dsh-ws-preview':`${preview}px`,'--dsh-ws-sidebar':`${sidebar}px`,'--dsh-ws-row-height':`${settings.rowHeight}px`,'--dsh-ws-mobile-header-h':`${mobileHeaderHeight}px`,'--dsh-ws-mindmap-spin-duration':mindmapSpinDuration,...fileColorVars}},h('aside',{className:'dsh-ws-sidebar',ref:asideRef},props.renderSlot('sidebar',{collapsed,width:sidebar}),sidebarChrome?.top?createPortal(h(SidebarTopActions,{collapsed,view,width:sidebar,onSelectSessions:()=>{props.actions.setView('sessions')},onSelectFiles:()=>{if(collapsed)props.toggleSidebar();props.actions.setView('files')}}),sidebarChrome.top):null,sidebarChrome&&(sidebarChrome.groups.length>0?sidebarChrome.groups.map(group=>createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:group.title,openSession:openMindmapSession,revealSession:revealSessionById}),group.container)):sidebarChrome.fallback?createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:undefined,openSession:openMindmapSession,revealSession:revealSessionById}),sidebarChrome.fallback):null)),workspace?h(WorkspaceExplorer,{key:`${workspace.workspaceId}:${previewSessionId ?? 'workspace'}`,createEntry:props.createEntry,listDirectory:props.listDirectory,mindmapActions:props.mindmapActions,persistPreviewSession,previewSessionId,publishEditorContext,readFile:props.readFile,renameEntry:props.renameEntry,saveFile:props.saveFile,loadDraft:props.loadDraft,persistDraftFile:props.persistDraftFile,removeDraftFile:props.removeDraftFile,draftTree:props.draftTree,checkFileChange:props.checkFileChange,settingsStore:props.settingsStore,sessionCwdOf,storedPreviewSession,sessionTitle,sessionId,renameSession:props.renameSession,treePortalTarget,useSessions:props.useSessions,workspace}):h(EmptyWorkspaceExplorer,{loading:!workspaceReady,sessionTitle,treePortalTarget}),h(MindMapHost,{currentSession,mindmapActions:props.mindmapActions,previewSessionsStore:props.previewSessionsStore,settingsStore:props.settingsStore,useSessions:props.useSessions}),h('section',{className:'dsh-ws-chat',ref:chatSectionRef},props.renderSlot('main',{}, {entryKey:panels.panelInfo.activePanelId ?? 'conversation'}),chatDropActive?h('div',{className:'dsh-ws-chat-drop-mask',role:'presentation'},h('button',{'aria-label':translate('drop.closeAria'),className:'dsh-ws-chat-drop-close',onClick:()=>{chatDropSuppressed.current=true;setChatDropActive(false)},title:translate('drop.closeTitle'),type:'button'},'×'),h('div',{className:'dsh-ws-chat-drop-card'},translate('drop.releaseImages'))):null),!collapsed?h(ResizeHandle,{label:translate('resize.sidebar'),left:sidebar,max:sidebarMax,min:SIDEBAR_MIN,onDragging:setResizing,onResize:width=>props.actions.setSidebar(width,sidebarMax),value:sidebar}):null,h(ResizeHandle,{label:translate('resize.preview'),left:settings.previewRight===true?Math.max(0,viewportWidth-preview):previewBoundary,max:previewMax,min:PREVIEW_MIN,onDragging:setResizing,onResize:width=>props.explorerPaneStore.actions.setPreview(width,previewMax),value:preview,invert:settings.previewRight===true||undefined}),h('aside',{className:'dsh-ws-details','data-closed':!panels.detailsOpen||!detailsCapable||undefined},h(props.SessionProvider,null,props.renderSlot('details',{}))),mobile.on&&mobile.drawerOpen?h('div',{className:'dsh-ws-mobile-scrim',onClick:()=>setDrawerOpen(false)}):null,h('div',{className:'dsh-ws-overlay','data-shell-overlay':true},props.renderSlot('shell.overlay',{})),sidebarChrome?.header&&collectionsActive?createPortal(h(CollectionsDropdown,{archivedSessionIds,doc:collectionsDoc,notice:showSessionNotice,onPatch:patchCollections,onSelect:switchCollection,unavailable:collections.phase==='error',useSessionStatus:props.useSessionStatus,useSessions:props.useSessions,workspaces}),sidebarChrome.header):null,workspaceCollectionMenu.menu?h(CollectionsWorkspaceMenu,{anchor:{x:workspaceCollectionMenu.menu.x,y:workspaceCollectionMenu.menu.y},doc:collectionsDoc,notice:showSessionNotice,onClose:workspaceCollectionMenu.closeMenu,onPatch:patchCollections,workspaceId:workspaceCollectionMenu.menu.workspaceId,workspaces}):null,sessionContextMenu?h('div',{className:'dsh-ws-context-menu',ref:sessionMenuRef,role:'menu',style:{left:Math.max(4,Math.min(sessionContextMenu.x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top:Math.max(4,Math.min(sessionContextMenu.y,window.innerHeight-SESSION_CONTEXT_MENU_HEIGHT-8))}},h('button',{className:'dsh-ws-context-item',onClick:beginSessionInlineRename,role:'menuitem',type:'button',title:sessionContextMenu.ambiguous?translate('context.ambiguousTitle',{id:String(sessionContextMenu.sessionId).slice(0,8)}):undefined},translate('context.renameSession')+(sessionContextMenu.ambiguous?` · ${String(sessionContextMenu.sessionId).slice(0,8)}`:'')),h('button',{className:'dsh-ws-context-item',onClick:archiveSessionFromMenu,role:'menuitem',type:'button',title:sessionContextMenu.ambiguous?translate('context.ambiguousTitle',{id:String(sessionContextMenu.sessionId).slice(0,8)}):undefined},translate('context.archiveSession')+(sessionContextMenu.ambiguous?` · ${String(sessionContextMenu.sessionId).slice(0,8)}`:'')),h('div',{className:'dsh-ws-context-separator',role:'separator'}),h('button',{className:'dsh-ws-context-item',onClick:revealSessionFromMenu,role:'menuitem',type:'button'},translate('context.reveal'))):null,sessionInlineRename?h(SessionInlineRename,{busy:sessionInlineRenameBusy,error:sessionInlineRenameError,key:sessionInlineRename.sessionId,onCancel:cancelSessionInlineRename,onConfirm:confirmSessionInlineRename,row:sessionInlineRename.row,title:sessionInlineRename.title}):null,sessionNotice?h('div',{className:'dsh-ws-copy-notice','data-error':sessionNotice.error||undefined,role:'status'},sessionNotice.text):null,resourceNotice?h('div',{className:'dsh-ws-copy-notice','data-error':resourceNotice.error||undefined,role:'status'},resourceNotice.text):null))}
+  return h('div',{ref:viewportRef,className:'dsh-ws-viewport'},h('main',{className:'dsh-ws-frame','data-sidebar-collapsed':collapsed||undefined,'data-sidebar-files':filesActive||undefined,'data-resizing':resizing||undefined,'data-preview-right':settings.previewRight===true||undefined,style:{'--dsh-ws-preview':`${preview}px`,'--dsh-ws-sidebar':`${sidebar}px`,'--dsh-ws-row-height':`${settings.rowHeight}px`,'--dsh-ws-mobile-header-h':`${mobileHeaderHeight}px`,'--dsh-ws-mindmap-spin-duration':mindmapSpinDuration,...fileColorVars}},h('aside',{className:'dsh-ws-sidebar',ref:asideRef},props.renderSlot('sidebar',{collapsed,width:sidebar}),sidebarChrome?.top?createPortal(h(SidebarTopActions,{collapsed,view,width:sidebar,onSelectSessions:()=>{props.actions.setView('sessions')},onSelectFiles:()=>{if(collapsed)props.toggleSidebar();props.actions.setView('files')}}),sidebarChrome.top):null,sidebarChrome&&(sidebarChrome.groups.length>0?sidebarChrome.groups.map(group=>createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:group.title,openSession:openMindmapSession,revealSession:revealSessionById}),group.container)):sidebarChrome.fallback?createPortal(h(MindmapSessionsPanel,{useSessions:props.useSessions,useWorkspaces:props.useWorkspaces,groupTitle:undefined,openSession:openMindmapSession,revealSession:revealSessionById}),sidebarChrome.fallback):null)),workspace?h(WorkspaceExplorer,{key:`${workspace.workspaceId}:${previewSessionId ?? 'workspace'}`,createEntry:props.createEntry,listDirectory:props.listDirectory,mindmapActions:props.mindmapActions,persistPreviewSession,previewSessionId,publishEditorContext,readFile:props.readFile,renameEntry:props.renameEntry,saveFile:props.saveFile,loadDraft:props.loadDraft,persistDraftFile:props.persistDraftFile,removeDraftFile:props.removeDraftFile,draftTree:props.draftTree,checkFileChange:props.checkFileChange,settingsStore:props.settingsStore,sessionCwdOf,storedPreviewSession,sessionTitle,sessionId,renameSession:props.renameSession,treePortalTarget,useSessions:props.useSessions,workspace}):h(EmptyWorkspaceExplorer,{loading:!workspaceReady,sessionTitle,treePortalTarget}),h(MindMapHost,{currentSession,mindmapActions:props.mindmapActions,previewSessionsStore:props.previewSessionsStore,settingsStore:props.settingsStore,useSessions:props.useSessions}),h('section',{className:'dsh-ws-chat',ref:chatSectionRef},props.renderSlot('main',{}, {entryKey:panels.panelInfo.activePanelId ?? 'conversation'}),chatDropActive?h('div',{className:'dsh-ws-chat-drop-mask',role:'presentation'},h('button',{'aria-label':translate('drop.closeAria'),className:'dsh-ws-chat-drop-close',onClick:()=>{chatDropSuppressed.current=true;setChatDropActive(false)},title:translate('drop.closeTitle'),type:'button'},'脳'),h('div',{className:'dsh-ws-chat-drop-card'},translate('drop.releaseImages'))):null),!collapsed?h(ResizeHandle,{label:translate('resize.sidebar'),left:sidebar,max:sidebarMax,min:SIDEBAR_MIN,onDragging:setResizing,onResize:width=>props.actions.setSidebar(width,sidebarMax),value:sidebar}):null,h(ResizeHandle,{label:translate('resize.preview'),left:settings.previewRight===true?Math.max(0,viewportWidth-preview):previewBoundary,max:previewMax,min:PREVIEW_MIN,onDragging:setResizing,onResize:width=>props.explorerPaneStore.actions.setPreview(width,previewMax),value:preview,invert:settings.previewRight===true||undefined}),h('aside',{className:'dsh-ws-details','data-closed':!panels.detailsOpen||!detailsCapable||undefined},h(props.SessionProvider,null,props.renderSlot('details',{}))),mobile.on&&mobile.drawerOpen?h('div',{className:'dsh-ws-mobile-scrim',onClick:()=>setDrawerOpen(false)}):null,h('div',{className:'dsh-ws-overlay','data-shell-overlay':true},props.renderSlot('shell.overlay',{})),sidebarChrome?.header&&collectionsActive?createPortal(h(CollectionsDropdown,{archivedSessionIds,doc:collectionsDoc,notice:showSessionNotice,onPatch:patchCollections,onSelect:switchCollection,unavailable:collections.phase==='error',useSessionStatus:props.useSessionStatus,useSessions:props.useSessions,workspaces}),sidebarChrome.header):null,workspaceCollectionMenu.menu?h(CollectionsWorkspaceMenu,{anchor:{x:workspaceCollectionMenu.menu.x,y:workspaceCollectionMenu.menu.y},doc:collectionsDoc,notice:showSessionNotice,onClose:workspaceCollectionMenu.closeMenu,onPatch:patchCollections,workspaceId:workspaceCollectionMenu.menu.workspaceId,workspaces}):null,sessionContextMenu?h('div',{className:'dsh-ws-context-menu',ref:sessionMenuRef,role:'menu',style:{left:Math.max(4,Math.min(sessionContextMenu.x,window.innerWidth-CONTEXT_MENU_WIDTH-4)),top:Math.max(4,Math.min(sessionContextMenu.y,window.innerHeight-SESSION_CONTEXT_MENU_HEIGHT-8))}},h('button',{className:'dsh-ws-context-item',onClick:beginSessionInlineRename,role:'menuitem',type:'button',title:sessionContextMenu.ambiguous?translate('context.ambiguousTitle',{id:String(sessionContextMenu.sessionId).slice(0,8)}):undefined},translate('context.renameSession')+(sessionContextMenu.ambiguous?` 路 ${String(sessionContextMenu.sessionId).slice(0,8)}`:'')),h('button',{className:'dsh-ws-context-item',onClick:archiveSessionFromMenu,role:'menuitem',type:'button',title:sessionContextMenu.ambiguous?translate('context.ambiguousTitle',{id:String(sessionContextMenu.sessionId).slice(0,8)}):undefined},translate('context.archiveSession')+(sessionContextMenu.ambiguous?` 路 ${String(sessionContextMenu.sessionId).slice(0,8)}`:'')),h('div',{className:'dsh-ws-context-separator',role:'separator'}),h('button',{className:'dsh-ws-context-item',onClick:revealSessionFromMenu,role:'menuitem',type:'button'},translate('context.reveal'))):null,sessionInlineRename?h(SessionInlineRename,{busy:sessionInlineRenameBusy,error:sessionInlineRenameError,key:sessionInlineRename.sessionId,onCancel:cancelSessionInlineRename,onConfirm:confirmSessionInlineRename,row:sessionInlineRename.row,title:sessionInlineRename.title}):null,sessionNotice?h('div',{className:'dsh-ws-copy-notice','data-error':sessionNotice.error||undefined,role:'status'},sessionNotice.text):null,resourceNotice?h('div',{className:'dsh-ws-copy-notice','data-error':resourceNotice.error||undefined,role:'status'},resourceNotice.text):null),h(PermissionPrompt))}
 
 export const inject = ['slots', 'theme', 'sessions', 'workspaces']
 export function mountStudio(ctx) {
   /* Before ANY store is created: drop the keys of every previous persisted format and make the
      current keys canonical on disk. The harness's persistence rehydrates a store by replacing its
      whole state with the raw JSON, so a value that does not match the current schema has to be
-     cleaned here — the readers trust the schema and carry no per-field fallbacks. */
+     cleaned here 鈥?the readers trust the schema and carry no per-field fallbacks. */
   sanitizePersistedClientState()
   const layoutStore = createLayoutStore()
   /* The root store instance is shared between the slot registration and the
@@ -471,8 +472,8 @@ export function mountStudio(ctx) {
     return settingsStore.subscribe(applyThinkLines)
   }, 'workspace-studio: think card lines')
   /* Publish the edit-row viewport height (in lines) as a document-wide CSS
-     custom property — the same mechanism as the Think-card count, but
-     independent (the 编辑显示行数 slider drives --dsh-ws-edit-lines). */
+     custom property 鈥?the same mechanism as the Think-card count, but
+     independent (the 缂栬緫鏄剧ず琛屾暟 slider drives --dsh-ws-edit-lines). */
   ctx.effect(() => {
     if (typeof document === 'undefined') return undefined
     const applyEditLines = () => {
@@ -499,9 +500,9 @@ export function mountStudio(ctx) {
      the workspace): installed when the harness Remote service is available; the views
      degrade to a failure line without it.
      The Remote's single `readBytes(scope, path, { baseFile, range })` answers with `data`,
-     native bytes, not base64 (migration table: dev-notes §26). Calling a method that is not there
+     native bytes, not base64 (migration table: dev-notes 搂26). Calling a method that is not there
      throws SYNCHRONOUSLY inside the renderer's effect, which the harness root error
-     boundary answers by replacing the whole layout — so install no face at all when the
+     boundary answers by replacing the whole layout 鈥?so install no face at all when the
      methods are absent (the views then report "unavailable"), and defer every call through
      a promise so any other throw becomes a displayable Remote failure instead. */
   ctx.inject(['remote', 'remote.workspaceFiles'], scope => {
@@ -511,8 +512,8 @@ export function mountStudio(ctx) {
       const files = remote.workspaceFiles
       if (files === undefined || files === null) return undefined
       if (typeof files.read !== 'function' || typeof files.readBytes !== 'function') return undefined
-      /* Aborts stay rejections (callers already ignore them); everything else — a renamed
-         method, a transport fault — becomes the failure line the renderer can already draw. */
+      /* Aborts stay rejections (callers already ignore them); everything else 鈥?a renamed
+         method, a transport fault 鈥?becomes the failure line the renderer can already draw. */
       const safe = call => (...args) => Promise.resolve().then(() => call(...args)).catch((error) => {
         if (error?.name === 'AbortError') throw error
         return {
@@ -532,10 +533,10 @@ export function mountStudio(ctx) {
       })
     }, 'workspace-studio: renderer remote faces')
   })
-  /* Office → PDF conversion face for the document preview: the harness Host provider owns
+  /* Office 鈫?PDF conversion face for the document preview: the harness Host provider owns
      LibreOffice, its bounded queue and its content cache; this bundle only asks for the
      bytes. Installed under its own service, so the face appears whenever `remote.officeToPdf`
-     does (and stays absent — the view then reports "unavailable" — when the Host does not
+     does (and stays absent 鈥?the view then reports "unavailable" 鈥?when the Host does not
      mount it). A missing or renamed method must resolve to no face at all: calling it throws
      SYNCHRONOUSLY inside the view's effect and the harness root error boundary replaces the layout. */
   ctx.inject(['remote', 'remote.officeToPdf'], scope => {
@@ -598,7 +599,7 @@ export function mountStudio(ctx) {
       children: {
         sidebar: { kind: 'single', scope: 'root' },
         /* The harness's conversation moved into the keyed `main` slot; the chat column
-           renders it through renderSlot('main', …, { entryKey }). */
+           renders it through renderSlot('main', 鈥? { entryKey }). */
         main: { kind: 'keyed', scope: 'root' },
         details: { kind: 'single', scope: 'session' },
         'shell.overlay': { kind: 'list', scope: 'root' },
@@ -804,7 +805,7 @@ export function mountStudio(ctx) {
   }, MobileHeroControls))
   // The Settings page owns every explorer preference as one stack of seven cards (maintenance
   // & statistics, browsing & preview, icon & highlight colours, version control, mind map,
-  // conversation, interpreters; dev-notes §46).
+  // conversation, interpreters; dev-notes 搂46).
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section', id: 'workspace-explorer', order: 5, label: () => translate('settings.section.title'),
     inject: () => ({ settingsStore }),
@@ -822,4 +823,5 @@ export function mountStudio(ctx) {
     }
   }, 'workspace-studio: theme presenter')
 }
+
 
