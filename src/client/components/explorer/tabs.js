@@ -103,10 +103,12 @@ export function PreviewTabs({ tabs, activePath, draggingPath, dropIndex, contain
       isMusicTab(tab)
         ? h('span', { 'aria-hidden': true, className: 'dsh-ws-preview-tab-music' },
           h('svg', { viewBox: '0 0 16 16' },
-            h('path', {
-              d: 'M6 3.4v7.1a2.1 2.1 0 1 1-1.3-1.95V5.1l5.4-1.15v5.75a2.1 2.1 0 1 1-1.3-1.95V2Z',
-              fill: 'currentColor',
-            })))
+            /* Two beamed eighth notes: one beam+stem silhouette, then two tilted oval heads. */
+            h('path', { d: 'M5.72 3.57 13.32 2.45 13.32 4.1 5.72 5.22Z', fill: 'currentColor' }),
+            h('rect', { fill: 'currentColor', height: 7.28, width: 1.5, x: 5.72, y: 4.82 }),
+            h('rect', { fill: 'currentColor', height: 7.5, width: 1.5, x: 11.82, y: 3.7 }),
+            h('ellipse', { cx: 4.5, cy: 12.05, fill: 'currentColor', rx: 2.05, ry: 1.55, transform: 'rotate(-16 4.5 12.05)' }),
+            h('ellipse', { cx: 10.6, cy: 11.15, fill: 'currentColor', rx: 2.05, ry: 1.55, transform: 'rotate(-16 10.6 11.15)' })))
         : null,
       h('button', {
         className: 'dsh-ws-preview-tab-button',
