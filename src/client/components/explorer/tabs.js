@@ -1,7 +1,7 @@
 import { createElement as h } from 'react'
 import { translate } from '../../locale/index.js'
 import { DISK_STATE_CLEAN, DISK_STATE_CONFLICT, DISK_STATE_GONE, DISK_STATE_STALE } from '../../constants.js'
-import { isPlanTab, isReviewTab, isSyntheticTab, isTemporaryTab } from '../../preview-tabs.js'
+import { isMusicTab, isPlanTab, isReviewTab, isSyntheticTab, isTemporaryTab } from '../../preview-tabs.js'
 import { getRunEntry, useRunVersion } from '../../run-store.js'
 import { IconCloseWin10, IconPinVscode } from '../../icons.js'
 
@@ -40,7 +40,7 @@ function tabMark(tab, onReload) {
 }
 
 /* Preview tab strip: one tab per open file with pin/close, drag reordering, and context-menu trigger; all interactions are callbacks. */
-export function PreviewTabs({ tabs, activePath, draggingPath, dropIndex, containerRef, onChoose, onClose, onContextMenu, onDragEnd, onDragStart, onDragLeave, onDragOver, onDrop, onMouseEnter, onMouseLeave, onPromote, onReload, onScroll, onUnpin }) {
+export function PreviewTabs({ tabs, activePath, draggingPath, dropIndex, containerRef, onBlankContextMenu, onChoose, onClose, onContextMenu, onDragEnd, onDragStart, onDragLeave, onDragOver, onDrop, onMouseEnter, onMouseLeave, onPromote, onReload, onScroll, onUnpin }) {
   /* Subscribe once to the run store: a process outlives the tab it was started in, so any open
      tab whose file is still running carries a badge — but per-tab hooks in a loop are not a thing. */
   useRunVersion()
@@ -100,6 +100,14 @@ export function PreviewTabs({ tabs, activePath, draggingPath, dropIndex, contain
               strokeWidth: 1.5,
             })))
         : null,
+      isMusicTab(tab)
+        ? h('span', { 'aria-hidden': true, className: 'dsh-ws-preview-tab-music' },
+          h('svg', { viewBox: '0 0 16 16' },
+            h('path', {
+              d: 'M6 3.4v7.1a2.1 2.1 0 1 1-1.3-1.95V5.1l5.4-1.15v5.75a2.1 2.1 0 1 1-1.3-1.95V2Z',
+              fill: 'currentColor',
+            })))
+        : null,
       h('button', {
         className: 'dsh-ws-preview-tab-button',
         onClick: () => onChoose(tab),
@@ -136,5 +144,36 @@ export function PreviewTabs({ tabs, activePath, draggingPath, dropIndex, contain
     ))
   }
   if (draggingPath !== null && dropIndex === tabs.length) nodes.push(h('div', { 'aria-hidden': true, className: 'dsh-ws-preview-drop-indicator', key: 'drop:end' }))
-  return h('div', { ref: containerRef, className: 'dsh-ws-preview-tabs', role: 'tablist', 'aria-label': translate('tab.list'), onDragLeave, onDragOver, onDrop, onMouseEnter, onMouseLeave, onScroll }, nodes)
+  /* The strip owns the blank space right of the last tab: a right-click there is a strip-level
+     menu (the workshop entry), while a right-click ON a tab keeps its own tab menu. */
+  return h('div', {
+    'aria-label': translate('tab.list'),
+    className: 'dsh-ws-preview-tabs',
+    onContextMenu: event => {
+      if (event.target.closest('.dsh-ws-preview-tab') !== null) return
+      event.preventDefault()
+      onBlankContextMenu?.(event.clientX, event.clientY)
+    },
+    onDragLeave,
+    onDragOver,
+    onDrop,
+    onMouseEnter,
+    onMouseLeave,
+    onScroll,
+    ref: containerRef,
+    role: 'tablist',
+  }, nodes,
+  h('span', { 'aria-hidden': true, className: 'dsh-ws-preview-tabs-fill' }),
+  h('button', {
+    'aria-label': translate('tab.music.open'),
+    className: 'dsh-ws-preview-tab-add',
+    onClick: event => {
+      const rect = event.currentTarget.getBoundingClientRect()
+      onBlankContextMenu?.(Math.round(rect.left), Math.round(rect.bottom + 4))
+    },
+    title: translate('tab.music.open.title'),
+    type: 'button',
+  }, '＋'))
 }
+
+

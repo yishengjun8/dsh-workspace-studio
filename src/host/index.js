@@ -2,6 +2,8 @@
 import z from '@deepseek-ai/schemastery'
 import { Buffer } from 'node:buffer'
 import { HttpError } from './errors.js'
+import { composeMusic, listMusicDocs, loadMusicDoc, saveMusicDoc } from './music.js'
+import { MUSIC_BARS_MAX, MUSIC_DOC_VERSION, MUSIC_STEPS_PER_BAR } from '../shared/music-score.js'
 import { applyCollectionsPatch, readCollectionsStore } from './collections.js'
 import { isTrustedRequest, normalizeFailure, readJsonObject, requiredQuery, sendError, sendJson, sendRaw } from './http.js'
 import { normalizeRelativePath } from './paths.js'
@@ -143,10 +145,18 @@ const ROUTES = Object.freeze({
   [`${API_PREFIX}/mindmap-doc/regenerate-session-summaries`]: { methods: 'POST' },
   [`${API_PREFIX}/mindmap-doc/summarize-session`]: { methods: 'POST' },
   [`${API_PREFIX}/mindmap-doc/fork-cleanup`]: { methods: 'POST' },
+  /* Music workshop: one AI compose call plus score files under the workspace music directory. */
+  [`${API_PREFIX}/music/compose`]: { methods: 'POST' },
+  [`${API_PREFIX}/music/save`]: { methods: 'POST' },
+  [`${API_PREFIX}/music/load`]: { methods: 'POST' },
+  [`${API_PREFIX}/music/list`]: { methods: 'GET, HEAD' },
+  [`${API_PREFIX}/music/schema`]: { methods: 'GET' },
 })
 /* The runner's request body bound: the argument text is capped at 4 KiB by run.js, so the JSON
    envelope only needs a little headroom over the shared mutation cap. */
 const RUN_BODY_MAX_BYTES = 16 * 1024
+/* Music requests: the compose arguments are small, but save carries one whole score document. */
+const MUSIC_BODY_MAX_BYTES = 2 * 1024 * 1024
 /* 50 collections x 40-char names x up to 2000 workspace ids: the honest bound is a few hundred KiB,
    and the envelope never carries file content. */
 const COLLECTIONS_BODY_MAX_BYTES = 512 * 1024
@@ -357,6 +367,11 @@ async function handleRequest(ctx, config, writeQueues, req, res) {
     const tokenStatsEndpoint = url.pathname === `${API_PREFIX}/token-stats`
     const vcsEndpoint = url.pathname === `${API_PREFIX}/vcs`
     const vcsBaseEndpoint = url.pathname === `${API_PREFIX}/vcs-base`
+    const musicComposeEndpoint = url.pathname === `${API_PREFIX}/music/compose`
+    const musicSaveEndpoint = url.pathname === `${API_PREFIX}/music/save`
+    const musicLoadEndpoint = url.pathname === `${API_PREFIX}/music/load`
+    const musicListEndpoint = url.pathname === `${API_PREFIX}/music/list`
+    const musicSchemaEndpoint = url.pathname === `${API_PREFIX}/music/schema`
     /* Handlers below, in order. Each compares the path it serves; the method whitelist and the 404
        answer were already settled by the ROUTES lookup above. */
     if (contextEndpoint) {
@@ -580,8 +595,31 @@ async function handleRequest(ctx, config, writeQueues, req, res) {
         : { exists: true, created: firstAccess.created, doc: firstAccess.doc, summarizing: mindmapSummarizingOf(firstAccess.doc), sessionSummarizing: mindmapSessionSummarizingOf(firstAccess.doc) })
       return
     }
+    if (musicSchemaEndpoint) {
+      sendJson(req, res, 200, { barsMax: MUSIC_BARS_MAX, version: MUSIC_DOC_VERSION, noteLenMax: MUSIC_BARS_MAX * MUSIC_STEPS_PER_BAR })
+      return
+    }
     const workspaceId = requiredQuery(url, 'workspaceId')
     const workspace = workspaceFor(ctx, workspaceId)
+    if (musicComposeEndpoint) {
+      const payload = await readJsonObject(req, config, MUSIC_BODY_MAX_BYTES)
+      sendJson(req, res, 200, await composeMusic(ctx, persistence, payload))
+      return
+    }
+    if (musicSaveEndpoint) {
+      const payload = await readJsonObject(req, config, MUSIC_BODY_MAX_BYTES)
+      sendJson(req, res, 200, await saveMusicDoc(workspace, config, writeQueues, payload))
+      return
+    }
+    if (musicLoadEndpoint) {
+      const payload = await readJsonObject(req, config, MUSIC_BODY_MAX_BYTES)
+      sendJson(req, res, 200, await loadMusicDoc(workspace, payload))
+      return
+    }
+    if (musicListEndpoint) {
+      sendJson(req, res, 200, await listMusicDocs(workspace, { dir: url.searchParams.get('dir') ?? '' }))
+      return
+    }
     if (vcsEndpoint) {
       /* Read-only working-copy status. Degradations (no CLI, timeout, unexpected failure) ride the
          payload's `error` field with a 200, so the client always gets the full shape and can keep
@@ -775,3 +813,5 @@ export function apply(ctx, config) {
     'workspace-studio: mindmap parse cache warm-up',
   )
 }
+
+

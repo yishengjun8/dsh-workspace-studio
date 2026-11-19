@@ -38,6 +38,12 @@ export function useSidebarChrome(options = {}) {
           if (files === null) {
             files = document.createElement('div')
             files.className = 'dsh-ws-sidebar-files'
+            /* The shell's wheel hand-off listens on the sidebar viewport (bubble) and moves only
+               the harness section scroller it knows about. Our tree is that scroller's sibling, so
+               the hand-off would cancel the wheel and scroll the hidden session list instead — the
+               files panel would not scroll at all. Keep the event from reaching that listener; not
+               calling preventDefault here leaves native wheel/trackpad scrolling untouched. */
+            files.addEventListener('wheel', event => { event.stopPropagation() }, { passive: true })
             regionArea.append(files)
           }
           /* Collection seat: the section-title row (label + search + view options + add). The seat

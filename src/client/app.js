@@ -9,6 +9,7 @@ import { previewSnapshotFingerprint, selectStoredPreviewSession } from './previe
 import { sanitizePersistedClientState } from './persisted-state.js'
 import { checkFileChange, createWorkspaceEntry, deleteDraft, deleteMindmapDoc, putFile, readDraft, renameWorkspaceEntry, requestDraftTree, requestJson, writeDraft } from './api.js'
 import { createExplorerPaneStore, createExplorerSettingsStore, createLayoutStore, createPreviewSessionStore, LayoutController } from './stores.js'
+import { installChatModelService } from './chat-model.js'
 import { currentSessionOf, EditorContextController, openHarnessSession, PromptContextBridge, recentWorkspaceIdOf, selectWorkspaceForSession, workspaceOfSession } from './controllers.js'
 import { EditorContextPrefix, installEditorContextMessageCompactor } from './context-bridge.js'
 /* The session-row context menu is a fixed 3 items + separator; clamp its top edge
@@ -614,6 +615,15 @@ export function mountStudio(ctx) {
     }
   }, 'workspace-studio: service and root registration')
   const promptContextBridge = new PromptContextBridge(ctx, editorContexts)
+  /* Chat model projection: the music workshop's "follow the right conversation" option reads
+     the same per-session ModelDirectory the composer's model seat writes. Optional: without
+     ui-model-selection the panel falls back to the Host-side session resolution. */
+  ctx.inject(['modelDirectories'], scope => {
+    scope.effect(
+      () => installChatModelService(scope.get('modelDirectories')),
+      'workspace-studio: chat model projection',
+    )
+  })
   ctx.inject(['conversation'], scope => {
     scope.effect(
       () => promptContextBridge.install(),
@@ -770,3 +780,4 @@ export function mountStudio(ctx) {
     }
   }, 'workspace-studio: theme presenter')
 }
+

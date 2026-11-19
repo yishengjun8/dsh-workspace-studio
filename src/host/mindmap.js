@@ -287,7 +287,7 @@ export function parseMindmapSummaryConfig(value) {
 }
 
 /* The model route of one session for "follow the session model" mode: the live request header first, then the latest request/header event in the full log. Null when the session has no usable route — generation is skipped and the card keeps the original text. */
-async function mindmapModelOf(ctx, persistence, sessionId) {
+export async function sessionModelOf(ctx, persistence, sessionId) {
   try {
     const live = ctx.sessions.get(sessionId)
     const config = live?.requestHeader?.()?.config
@@ -433,7 +433,7 @@ async function mindmapRunSummaryJob(job) {
   /* Prefer the config snapshot captured when the job was enqueued: it belongs to the doc that enqueued it, while the global last-config may belong to a DIFFERENT doc's sync. The global is only a defensive fallback for jobs without a snapshot. */
   const config = job.config ?? mindmapSummaryLastConfig
   const model = config.mode === 'session'
-    ? await mindmapModelOf(job.ctx, job.persistence, job.sessionId)
+    ? await sessionModelOf(job.ctx, job.persistence, job.sessionId)
     : { provider: config.provider, model: config.model }
   if (model === null) {
     mindmapSummaryFailedAt.set(key, Date.now())
@@ -712,7 +712,7 @@ async function mindmapRunSessionSummary(ctx, persistence, rootId, sessionId, con
     return
   }
   const model = config.mode === 'session'
-    ? await mindmapModelOf(ctx, persistence, sessionId)
+    ? await sessionModelOf(ctx, persistence, sessionId)
     : { provider: config.provider, model: config.model }
   if (model === null) {
     mindmapSessionSummaryFailedAt.set(key, Date.now())
@@ -806,7 +806,7 @@ export async function summarizeMindmapSession(ctx, persistence, sessionId, confi
   if (turns.length === 0) return { ok: true, status: 'empty' }
   if (mindmapSessionSummaryReady(doc, sessionId)) {
     const model = config.mode === 'session'
-      ? await mindmapModelOf(ctx, persistence, sessionId)
+      ? await sessionModelOf(ctx, persistence, sessionId)
       : { provider: config.provider, model: config.model }
     if (model === null) return { ok: false, code: 'no-model' }
     const summaries = turns
@@ -845,7 +845,7 @@ export async function regenerateMindmapSummary(ctx, persistence, sessionId, seq,
   const turn = mindmapTurnOf(doc, sessionId, seq)
   if (turn === null) throw new HttpError(404, 'turn-not-found', '卡片不存在')
   const model = config.mode === 'session'
-    ? await mindmapModelOf(ctx, persistence, sessionId)
+    ? await sessionModelOf(ctx, persistence, sessionId)
     : { provider: config.provider, model: config.model }
   if (model === null) return { ok: false, code: 'no-model' }
   const summary = await mindmapGenerateSummary(ctx, model, String(turn.user ?? ''), length)
@@ -2491,3 +2491,4 @@ export async function clearForkInheritedQueue(ctx, sessionId) {
   inbox.clear()
   return { cleared: pending }
 }
+

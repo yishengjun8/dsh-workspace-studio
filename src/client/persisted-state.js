@@ -34,6 +34,7 @@ import {
   TREE_DEFAULT, TREE_MAX, TREE_MIN, VCS_HIDE_METADATA_DEFAULT, WATCH_FILES_DEFAULT, cssColorToHex,
 } from './constants.js'
 import { normalizePreviewSession, serializePreviewSession } from './preview-tabs.js'
+import { hasMusicPrefs } from './music-prefs.js'
 /* Store keys of every format before the current one: deleted on load and never interpreted, so nothing here knows those shapes. */
 const LEGACY_STORE_KEYS = Object.freeze([
   'dsh.workspace.studio.preview-sessions.v1',
@@ -232,8 +233,11 @@ function normalizePreviewSessions(value) {
   for (const [key, snapshot] of Object.entries(value.previewSessions)) {
     if (!isUsableKey(key) || !isPlainObject(snapshot)) continue
     const restored = normalizePreviewSession(snapshot)
-    if (restored.tabs.length === 0 && restored.expanded.length === 0) continue
-    const serialized = serializePreviewSession(restored.activePath, restored.tabs, restored.expanded)
+    /* A page whose last tab was closed still owns its model/height choice: keep the snapshot
+       when it carries non-default music prefs, so reopening the workshop in that session
+       starts from the recorded settings. */
+    if (restored.tabs.length === 0 && restored.expanded.length === 0 && !hasMusicPrefs(restored.musicPrefs)) continue
+    const serialized = serializePreviewSession(restored.activePath, restored.tabs, restored.expanded, restored.musicPrefs)
     sessions[key] = {
       ...serialized,
       ...(typeof snapshot.updatedAt === 'number' && Number.isFinite(snapshot.updatedAt)
@@ -356,3 +360,4 @@ export function sanitizePersistedClientState(storage) {
     } catch { /* quota / private mode: the raw value stays, the defaults still apply */ }
   }
 }
+

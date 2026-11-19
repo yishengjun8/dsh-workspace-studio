@@ -1,5 +1,6 @@
 import { clampFontPercent, PREVIEW_SESSION_MAX } from './constants.js'
 import { isAbsoluteWorkspacePath, rewriteRelativePath } from './paths.js'
+import { normalizeMusicPrefs } from './music-prefs.js'
 
 export function entryFromPreviewTab(tab) { return { kind: 'file', name: tab.name, path: tab.path, symlink: Boolean(tab.symlink) } }
 /* Synthetic tab path of a docked mind map (root session id): unique per map and never collides with a real workspace path. */
@@ -21,8 +22,11 @@ export function reviewAddressOfTab(tab) {
   return path.startsWith('review:') ? path.slice('review:'.length) : ''
 }
 export function isReviewTab(tab) { return tab !== null && tab !== undefined && tab.kind === 'review' }
-/* A tab rendering something other than a workspace file (a docked mind map, an opened plan, a turn's change review): it has no file read, draft, editor state, or tree selection; plan/review tabs are also dropped from every persisted snapshot, while a docked mind map DOES persist under its dockedAt family key. */
-export function isSyntheticTab(tab) { return isMindmapTab(tab) || isPlanTab(tab) || isReviewTab(tab) }
+/* Synthetic tab path of a music-workshop document: unique per open score and never a real workspace path. The id is minted client-side and stays stable for the tab's whole life (a save only changes savedPath/name). */
+export function musicTabPath(id) { return `music:${String(id)}` }
+export function isMusicTab(tab) { return tab !== null && tab !== undefined && tab.kind === 'music' }
+/* A tab rendering something other than a workspace file (a docked mind map, an opened plan, a turn's change review, a music score): it has no file read, draft, editor state, or tree selection; plan/review tabs are also dropped from every persisted snapshot, while a docked mind map and a music score DO persist. */
+export function isSyntheticTab(tab) { return isMindmapTab(tab) || isPlanTab(tab) || isReviewTab(tab) || isMusicTab(tab) }
 /* Whether a tab is dropped from every persisted snapshot: an external (dropped-in or
    outside-workspace) tab whose content lives only in memory, an opened plan, or a turn's
    change review. A caller deciding "is there real content to persist" must ask here, or a
@@ -36,6 +40,11 @@ export function mindmapRootIdOfTab(tab) {
   const path = tab === null || tab === undefined || typeof tab.path !== 'string' ? '' : tab.path
   return path.startsWith('mindmap:') ? path.slice('mindmap:'.length) : path
 }
+/* Largest score snapshot a persisted tab may carry. A score is small JSON; the cap only
+   exists so a pathological document cannot bloat localStorage past its quota (the file on
+   disk is the durable copy, the snapshot is a refresh convenience). */
+const MUSIC_DOC_PERSIST_MAX = 200_000
+
 export function clonePreviewTab(tab) {
   if (tab === undefined || tab === null || typeof tab.path !== 'string') return null
   return {
@@ -59,7 +68,12 @@ export function clonePreviewTab(tab) {
     outside: Boolean(tab.outside),
     /* A mind-map tab carries the map's ROOT session id and renders a placeholder for the global map host's body container instead of a file. dockedAt records the persistence family key the tab was docked on, so restore can tell a map opened in this session from one leaked in from another. A plan tab carries its dsh-resource address in the synthetic path. */
     dockedAt: typeof tab.dockedAt === 'string' && tab.dockedAt !== '' ? tab.dockedAt : null,
-    kind: tab.kind === 'mindmap' ? 'mindmap' : tab.kind === 'plan' ? 'plan' : tab.kind === 'review' ? 'review' : 'file',
+    kind: tab.kind === 'mindmap' ? 'mindmap' : tab.kind === 'plan' ? 'plan' : tab.kind === 'review' ? 'review' : tab.kind === 'music' ? 'music' : 'file',
+    /* A music tab keeps its score in the tab so a refresh restores the work; savedPath is the
+       last file it was written to, and musicRev lets the snapshot fingerprint notice edits. */
+    musicDoc: tab.kind === 'music' && tab.musicDoc !== null && typeof tab.musicDoc === 'object' ? tab.musicDoc : null,
+    musicRev: Number.isFinite(tab.musicRev) ? Math.max(0, Math.floor(tab.musicRev)) : 0,
+    savedPath: typeof tab.savedPath === 'string' && tab.savedPath !== '' ? tab.savedPath : null,
     lineEnding: typeof tab.lineEnding === 'string' ? tab.lineEnding : 'none',
     name: typeof tab.name === 'string' && tab.name !== '' ? tab.name : tab.path.slice(tab.path.lastIndexOf('/') + 1),
     path: tab.path,
@@ -95,6 +109,17 @@ function serializePreviewTab(tab) {
   clone.baseText = ''
   clone.draft = ''
   clone.draftKnown = false
+  /* A score snapshot rides the tab; an oversized document is dropped rather than
+     blowing the localStorage quota — the saved file stays the durable copy. */
+  if (clone.kind === 'music' && clone.musicDoc !== null) {
+    let text = ''
+    try {
+      text = JSON.stringify(clone.musicDoc)
+    } catch {
+      text = ''
+    }
+    if (text === '' || text.length > MUSIC_DOC_PERSIST_MAX) clone.musicDoc = null
+  }
   return clone
 }
 /* Cap stored sessions: keep the PREVIEW_SESSION_MAX most recently updated. */
@@ -187,6 +212,9 @@ export function normalizePreviewSession(value, familyKey) {
            (the Host refuses it with 400 invalid-path), so restoring one would only fire a doomed read on every load. */
         if (tab.kind === 'file' && isAbsoluteWorkspacePath(tab.path)) return false
         if (tab.kind === 'mindmap' && (tab.dockedAt === null || tab.sessionId === null)) return false
+        /* A music tab's synthetic path is the only address it has: anything else would be a
+           file read with a fabricated path, so a malformed one is dropped on restore. */
+        if (tab.kind === 'music' && (typeof tab.path !== 'string' || !tab.path.startsWith('music:'))) return false
         if (family !== null && tab.kind === 'mindmap' && tab.dockedAt !== family) return false
         seen.add(tab.path)
         return true
@@ -200,7 +228,7 @@ export function normalizePreviewSession(value, familyKey) {
        entry can never become valid and is dropped here rather than re-firing a refused read on every load. */
     ? [...new Set(value.expanded.filter(path => typeof path === 'string' && path !== '' && !isAbsoluteWorkspacePath(path)))]
     : []
-  return { activePath, tabs, expanded }
+  return { activePath, tabs, expanded, musicPrefs: normalizeMusicPrefs(value?.musicPrefs) }
 }
 export function selectStoredPreviewSession(previewSessions, workspace, currentSession, workspaceId) {
   /* Own-key lookup only: a bare `previewSessions[key]` would match prototype-chain keys. */
@@ -246,7 +274,7 @@ export function selectStoredPreviewSession(previewSessions, workspace, currentSe
   }
   return { key: undefined, value: undefined }
 }
-export function serializePreviewSession(activePath, tabs, expanded) {
+export function serializePreviewSession(activePath, tabs, expanded, musicPrefs) {
   const seen = new Set()
   const normalized = []
   for (const tab of tabs) {
@@ -264,6 +292,9 @@ export function serializePreviewSession(activePath, tabs, expanded) {
     activePath: activePath !== null && normalized.some(tab => tab.path === activePath) ? activePath : (normalized[0]?.path ?? null),
     tabs: normalized,
     expanded: expandedList,
+    /* Per-session page settings ride the same snapshot: the preview page (not a global key)
+       owns the model choice and the roll height, so each session keeps its own. */
+    musicPrefs: normalizeMusicPrefs(musicPrefs),
   }
 }
 /* Structural identity for persistence dedup: what restore actually depends on (active path, tab paths + dirty flags, expanded dirs). Volatile fields must not participate, or the store would rewrite every render. */
@@ -272,9 +303,10 @@ export function previewSnapshotFingerprint(value) {
   // Restored state (encoding, per-tab text size) participates, or the decode / size would revert after a refresh and changing only it would never reach localStorage.
   // JSON.stringify (not ','/':' joins): file names may contain commas and colons, which could otherwise collide into the same fingerprint.
   const tabPart = JSON.stringify(tabs.map(tab =>
-    [tab.path, tab.kind === 'mindmap' ? 'm' : 'f', tab.kind === 'mindmap' ? (tab.sessionId ?? '') : '', tab.kind === 'mindmap' ? (tab.dockedAt ?? '') : '', tab.name, tab.dirty ? 1 : 0, tab.pinned ? 1 : 0, tab.encoding ?? '', tab.editing ? 1 : 0, tab.lineEnding ?? '', tab.bom ? 1 : 0, tab.baseRevision ?? '', tab.fontPercent ?? '']))
+    [tab.path, tab.kind === 'mindmap' ? 'm' : tab.kind === 'music' ? 'u' : 'f', tab.kind === 'mindmap' ? (tab.sessionId ?? '') : '', tab.kind === 'mindmap' ? (tab.dockedAt ?? '') : '', tab.name, tab.dirty ? 1 : 0, tab.pinned ? 1 : 0, tab.encoding ?? '', tab.editing ? 1 : 0, tab.lineEnding ?? '', tab.bom ? 1 : 0, tab.baseRevision ?? '', tab.fontPercent ?? '', tab.kind === 'music' ? (tab.savedPath ?? '') : '', tab.kind === 'music' ? (tab.musicRev ?? 0) : '']))
   const expandedPart = JSON.stringify(Array.isArray(value?.expanded) ? [...value.expanded].sort() : [])
-  return `${value?.activePath ?? ''}|${tabPart}|${expandedPart}`
+  const prefsPart = JSON.stringify(normalizeMusicPrefs(value?.musicPrefs))
+  return `${value?.activePath ?? ''}|${tabPart}|${expandedPart}|${prefsPart}`
 }
 export function dropIndexFromEvent(event) {
   const tabNodes = event.currentTarget.querySelectorAll('.dsh-ws-preview-tab')
@@ -308,3 +340,5 @@ export function ancestorDirectoryPaths(path) {
   }
   return ancestors
 }
+
+

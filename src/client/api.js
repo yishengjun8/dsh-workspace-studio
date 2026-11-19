@@ -14,6 +14,8 @@ import { localeIsZh, translate } from './locale/index.js'
 /* Bounded request timeouts: a hung Host must not leave the UI in a permanent loading/saving state; withTimeout merges in the caller's signal, or falls back to the signal alone when the timeout APIs are unavailable. */
 const REQUEST_TIMEOUT_MS = 30_000
 const MINDMAP_LLM_TIMEOUT_MS = 60_000
+/* AI composition runs one model call on the Host; it is bounded like the mind-map summaries. */
+const MUSIC_LLM_TIMEOUT_MS = 90_000
 
 /** The client's mirror of the Host route table: one entry per endpoint this bundle calls.
  *  `failure` is the code/locale-key pair a non-2xx answer is reported with; `invalid` is the
@@ -57,6 +59,11 @@ const ROUTES = Object.freeze({
   mindmapRegenerateSessions: { path: '/mindmap-doc/regenerate-session-summaries', invalid: 'error.invalid-response.mindmap' },
   mindmapSummarize: { path: '/mindmap-doc/summarize-session', invalid: 'error.invalid-response.mindmap' },
   mindmapForkCleanup: { path: '/mindmap-doc/fork-cleanup', invalid: 'error.invalid-response.mindmap' },
+  musicCompose: { path: '/music/compose', failure: { code: 'music-compose-failed', key: 'error.music.compose-failed' }, invalid: 'error.invalid-response.music' },
+  musicSave: { path: '/music/save', failure: { code: 'music-save-failed', key: 'error.music.save-failed' }, invalid: 'error.invalid-response.music' },
+  musicLoad: { path: '/music/load', failure: { code: 'music-load-failed', key: 'error.music.load-failed' }, invalid: 'error.invalid-response.music' },
+  musicList: { path: '/music/list', failure: { code: 'music-list-failed', key: 'error.music.list-failed' }, invalid: 'error.invalid-response.music' },
+  musicSchema: { path: '/music/schema', failure: { code: 'music-schema-failed', key: 'error.music.schema-failed' }, invalid: 'error.invalid-response.music' },
 })
 
 const DEFAULT_FAILURE = Object.freeze({ code: 'request-failed', key: 'error.request-failed' })
@@ -359,6 +366,42 @@ export const fetchMindmapModels = () => {
   })
   return mindmapModelsRequest
 }
+/* Music workshop: one AI compose call plus the score files the panel saves under the
+   workspace music directory. The compose request is long (a model call), the file
+   requests are ordinary JSON round trips. */
+export const composeMusicRequest = (workspaceId, payload, signal) => request(ROUTES.musicCompose, {
+  method: 'POST',
+  query: { workspaceId },
+  body: payload,
+  signal,
+  timeoutMs: MUSIC_LLM_TIMEOUT_MS,
+  decode: (value) => (value !== null && typeof value === 'object' && value.doc !== null && typeof value.doc === 'object' ? value : undefined),
+})
+export const saveMusicRequest = (workspaceId, payload, signal) => request(ROUTES.musicSave, {
+  method: 'POST',
+  query: { workspaceId },
+  body: payload,
+  signal,
+  decode: (value) => (value !== null && typeof value === 'object' && typeof value.path === 'string' && value.doc !== null && typeof value.doc === 'object' ? value : undefined),
+})
+export const loadMusicRequest = (workspaceId, path, signal) => request(ROUTES.musicLoad, {
+  method: 'POST',
+  query: { workspaceId },
+  body: { path },
+  signal,
+  decode: (value) => (value !== null && typeof value === 'object' && value.doc !== null && typeof value.doc === 'object' ? value : undefined),
+})
+export const musicSchemaRequest = (signal) => request(ROUTES.musicSchema, {
+  method: 'GET',
+  signal,
+  decode: (value) => (value !== null && typeof value === 'object' && Number.isSafeInteger(value.version) ? value : undefined),
+})
+export const listMusicRequest = (workspaceId, dir, signal) => request(ROUTES.musicList, {
+  method: 'GET',
+  query: { workspaceId, dir: dir === undefined || dir === null || dir === '' ? undefined : dir },
+  signal,
+  decode: (value) => (value !== null && typeof value === 'object' && typeof value.dir === 'string' && Array.isArray(value.files) ? value : undefined),
+})
 /* Right-click → 重新生成摘要: the Host runs the LLM call synchronously and persists the new summary; the client applies it optimistically. */
 export const regenerateMindmapSummary = (sessionId, seq, config, signal) => mindmapRequest(ROUTES.mindmapRegenerate, {
   method: 'POST',
@@ -600,3 +643,4 @@ export function fetchCollections(signal) {
 export function patchCollections(patch, signal) {
   return runRequest(ROUTES.collections, { method: 'PUT', body: patch }, signal)
 }
+
