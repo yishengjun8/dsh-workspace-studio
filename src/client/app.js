@@ -1,12 +1,13 @@
 ﻿import { createElement as h, Fragment, useRef, useState, useEffect, useLayoutEffect, useMemo, useCallback, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
-import { COLLECTION_ALL_ID, COLLECTION_UNOWNED_ID, CONTEXT_MENU_WIDTH, EDITOR_CONTEXT_PROVIDER, EXPLORER_MAX_RATIO, MINDMAP_END_COLOR_DEFAULT, MINDMAP_HEAD_COLOR_DEFAULT, MINDMAP_SPIN_BASE_DURATION_S, MINDMAP_SPIN_STOP_DURATION_S, MOBILE_HEADER_FALLBACK_H, MUSIC_CONTEXT_PROVIDER, PACKAGE_ID, PREVIEW_MAX, PREVIEW_MIN, SIDEBAR_COLLAPSED, SIDEBAR_MAX_FALLBACK, SIDEBAR_MAX_RATIO, SIDEBAR_MIN, TREE_MAX, TREE_MIN, WORKSPACE_GROUP_BY_DEFAULT } from './constants.js'
+import { COLLECTION_ALL_ID, COLLECTION_UNOWNED_ID, CONTEXT_MENU_WIDTH, CONTEXT_SWITCH_STORE_KEY, EDITOR_CONTEXT_PROVIDER, EXPLORER_MAX_RATIO, MINDMAP_END_COLOR_DEFAULT, MINDMAP_HEAD_COLOR_DEFAULT, MINDMAP_SPIN_BASE_DURATION_S, MINDMAP_SPIN_STOP_DURATION_S, MOBILE_HEADER_FALLBACK_H, MUSIC_CONTEXT_PROVIDER, PACKAGE_ID, PREVIEW_MAX, PREVIEW_MIN, SIDEBAR_COLLAPSED, SIDEBAR_MAX_FALLBACK, SIDEBAR_MAX_RATIO, SIDEBAR_MIN, TREE_MAX, TREE_MIN, WORKSPACE_GROUP_BY_DEFAULT } from './constants.js'
 import { installLocaleService, translate, useLocaleText } from './locale/index.js'
 import { setDrawerOpen, setMobile, useMobile } from './mobile.js'
 import { styles } from './styles.js'
 import { clamp, FILE_COLOR_GROUPS, fileColorOf } from './format.js'
 import { previewSnapshotFingerprint, selectStoredPreviewSession } from './preview-tabs.js'
-import { sanitizePersistedClientState } from './persisted-state.js'
+import { readPersistedState, sanitizePersistedClientState } from './persisted-state.js'
+import { hydrateContextSwitches, pruneContextSwitches } from './context-switches.js'
 import { checkFileChange, createWorkspaceEntry, deleteDraft, deleteMindmapDoc, putFile, readDraft, renameWorkspaceEntry, requestDraftTree, requestJson, writeDraft } from './api.js'
 import { createExplorerPaneStore, createExplorerSettingsStore, createLayoutStore, createPreviewSessionStore, LayoutController } from './stores.js'
 import { installChatModelService } from './chat-model.js'
@@ -365,10 +366,13 @@ export function AppFrame(props) {
   useEffect(() => {
     const liveSessionIds = sessionIds.map(String)
     props.retainEditorSessions(liveSessionIds)
-    /* The workshop pill's off choice outlives its envelope: a session switch remounts the whole
-       preview area, so the choice must be pruned by liveness, never by remount. */
+    /* The pills' choices are durable, and the harness list is empty/partial until its first pull:
+       pruning on that pass would erase the whole page's restored choices. Memory-only prune after
+       that (the list is filtered, so an absent id is not proof the session is gone). */
+    if (!sessionsReady) return
+    pruneContextSwitches('editor', liveSessionIds)
     retainMusicChatContext(liveSessionIds)
-  }, [props.retainEditorSessions, sessionIds])
+  }, [props.retainEditorSessions, sessionIds, sessionsReady])
   useLayoutEffect(() => {
     if (!detailsCapable) props.actions.closeDetails()
     else if (last.current !== undefined && last.current !== currentSession) props.actions.closeDetails()
@@ -428,6 +432,9 @@ export function mountStudio(ctx) {
      whole state with the raw JSON, so a value that does not match the current schema has to be
      cleaned here 鈥?the readers trust the schema and carry no per-field fallbacks. */
   sanitizePersistedClientState()
+  /* After the gate (so the value is canonical) and before any UI mounts: the dock pills read the
+     per-session choice from this module, which only keeps it in memory after hydration. */
+  hydrateContextSwitches(readPersistedState(CONTEXT_SWITCH_STORE_KEY))
   const layoutStore = createLayoutStore()
   /* The root store instance is shared between the slot registration and the
      panelInfo root contribution: this plugin's patch disables ui-layout, so

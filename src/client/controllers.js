@@ -5,6 +5,7 @@ import { formatBytes } from './format.js'
 import { renderContext } from './api.js'
 import { wrapPromptClaim, wrapPromptClaimOutcome } from './command-context.js'
 import { clearEditorContextDisplays, describeEditorContext, describeMusicContext, rememberEditorContextDisplay } from './context-bridge.js'
+import { isContextSwitchOff, setContextSwitchOff } from './context-switches.js'
 import { musicChatEnvelope } from './music-context.js'
 import { cleanedSessionTitle, installTitleGuard } from './title-guard.js'
 
@@ -24,13 +25,14 @@ function editorContextViewEqual(left, right) {
 export class EditorContextController {
   constructor() {
     this.records = new Map()
-    this.disabledSessions = new Set()
     this.stores = new Map()
     // Last published context per session id: activation restores a session's
     // own value only, never a foreign one.
     this.latest = new Map()
   }
-  active(sessionId) { return this.records.has(sessionId) && !this.disabledSessions.has(sessionId) }
+  /* The on/off choice is per session and outlives the page: it lives in context-switches.js
+     (persisted), so a reload keeps the pill where the user left it. */
+  active(sessionId) { return this.records.has(sessionId) && !isContextSwitchOff('editor', sessionId) }
   storeFor(sessionId) {
     let store = this.stores.get(sessionId)
     if (store !== undefined) return store
@@ -43,7 +45,7 @@ export class EditorContextController {
     if (record === undefined) return EMPTY_EDITOR_CONTEXT_VIEW
     return Object.freeze({
       present: true,
-      active: !this.disabledSessions.has(sessionId),
+      active: !isContextSwitchOff('editor', sessionId),
       path: record.path,
       selection: record.selection === undefined ? undefined : Object.freeze({
         startLine: record.selection.startLine,
@@ -67,8 +69,7 @@ export class EditorContextController {
     this.publish(sessionId)
   }
   toggle(sessionId) {
-    if (this.disabledSessions.has(sessionId)) this.disabledSessions.delete(sessionId)
-    else this.disabledSessions.add(sessionId)
+    setContextSwitchOff('editor', sessionId, !isContextSwitchOff('editor', sessionId))
     this.publish(sessionId)
   }
   activate(sessionId) {
@@ -87,7 +88,6 @@ export class EditorContextController {
   retain(sessionIds) {
     const live = new Set(sessionIds)
     for (const sessionId of this.records.keys()) if (!live.has(sessionId)) this.records.delete(sessionId)
-    for (const sessionId of this.disabledSessions) if (!live.has(sessionId)) this.disabledSessions.delete(sessionId)
     for (const sessionId of this.latest.keys()) if (!live.has(sessionId)) this.latest.delete(sessionId)
     for (const [sessionId, store] of this.stores) {
       if (live.has(sessionId)) continue
@@ -97,7 +97,7 @@ export class EditorContextController {
   }
   snapshot(sessionId) {
     const record = this.records.get(sessionId)
-    if (record === undefined || this.disabledSessions.has(sessionId)) return undefined
+    if (record === undefined || isContextSwitchOff('editor', sessionId)) return undefined
     if (record.symlink) throw new Error(translate('context.symlinkError'))
     const common = {
       kind: 'workspace-editor',
@@ -130,7 +130,6 @@ export class EditorContextController {
   dispose() {
     this.latest.clear()
     this.records.clear()
-    this.disabledSessions.clear()
     for (const store of this.stores.values()) store.set(EMPTY_EDITOR_CONTEXT_VIEW)
     this.stores.clear()
   }

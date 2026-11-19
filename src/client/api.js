@@ -730,8 +730,10 @@ export function patchCollections(patch, signal) {
    The Host owns grants, history, pending requests and the settings card's config. These helpers only
    carry the wire shapes; the client store polls pending/snapshot and never persists permissions. */
 function permissionRequest(route, options, signal) {
-  const { method = 'GET', body } = options ?? {}
-  return request(route, { method, body, timeoutMs: PERMISSIONS_REQUEST_TIMEOUT_MS, signal })
+  /* `query` must ride through: the snapshot endpoint is keyed by sessionId, and dropping it makes
+     the Host answer 400 "缺少查询参数 sessionId". */
+  const { method = 'GET', body, query } = options ?? {}
+  return request(route, { method, body, query, timeoutMs: PERMISSIONS_REQUEST_TIMEOUT_MS, signal })
 }
 export function fetchPermissionSnapshot(sessionId, signal) {
   return permissionRequest(ROUTES.permissions, {

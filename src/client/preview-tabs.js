@@ -29,14 +29,16 @@ export function isMusicTab(tab) { return tab !== null && tab !== undefined && ta
    root it belongs to, so opening the same scope twice activates the existing tab. */
 export function permissionTabPath(scopeKey) { return `permissions:${String(scopeKey)}` }
 export function isPermissionTab(tab) { return tab !== null && tab !== undefined && tab.kind === 'permissions' }
-/* A tab rendering something other than a workspace file (docked mind map, opened plan, change review, music score, permission page): no file read, draft, editor state or tree selection; plan/review/permission tabs are also dropped from every persisted snapshot, while a docked map and a music score DO persist. */
+/* A tab rendering something other than a workspace file (docked mind map, opened plan, change review, music score, permission page): no file read, draft, editor state or tree selection. Plan/review tabs are dropped from every persisted snapshot; a docked map, a music score and the workspace-level permission page DO persist. */
 export function isSyntheticTab(tab) { return isMindmapTab(tab) || isPlanTab(tab) || isReviewTab(tab) || isMusicTab(tab) || isPermissionTab(tab) }
 /* Whether a tab is dropped from every persisted snapshot: an external (dropped-in or
    outside-workspace) tab whose content lives only in memory, an opened plan, or a turn's
-   change review. A caller deciding "is there real content to persist" must ask here, or a
-   session-only tab would write an empty snapshot over anchor keys holding another session's tabs. */
+   change review. The permission page is NOT here: it is a workspace-level tab (the workspace
+   anchor snapshot owns it, and selectStoredPreviewSession merges it into every session page).
+   A caller deciding "is there real content to persist" must ask here, or a session-only tab
+   would write an empty snapshot over anchor keys holding another session's tabs. */
 export function isUnpersistedTab(tab) {
-  return tab === null || tab === undefined || tab.external === true || isPlanTab(tab) || isReviewTab(tab) || isPermissionTab(tab)
+  return tab === null || tab === undefined || tab.external === true || isPlanTab(tab) || isReviewTab(tab)
 }
 /* Family ROOT session id of a mind-map tab (the sessionId stamp, falling back to the synthetic path's root part). */
 export function mindmapRootIdOfTab(tab) {
@@ -109,9 +111,6 @@ function serializePreviewTab(tab) {
   /* A review tab renders one turn's changes read from the Host while that turn's Session lives:
      persisting the synthetic path would only restore a tab that must re-read (or has nothing left). */
   if (clone.kind === 'review') return null
-  /* The permission page is a session-scoped admin view: reopen it from the context menu instead of
-     restoring a tab whose scope may no longer match the current Session. */
-  if (clone.kind === 'permissions') return null
   // localStorage keeps only metadata, never file content: the runtime-only draftKnown marker tells a live tab apart from this content-free persisted copy.
   clone.baseText = ''
   clone.draft = ''
@@ -222,7 +221,9 @@ export function normalizePreviewSession(value, familyKey) {
         /* A music tab's synthetic path is the only address it has: anything else would be a
            file read with a fabricated path, so a malformed one is dropped on restore. */
         if (tab.kind === 'music' && (typeof tab.path !== 'string' || !tab.path.startsWith('music:'))) return false
-        if (tab.kind === 'permissions') return false
+        /* A permission tab's synthetic path is its only address; a malformed one would mount the
+           page without a scope. Its path is rewritten to the current family when selected. */
+        if (tab.kind === 'permissions' && (typeof tab.path !== 'string' || !tab.path.startsWith('permissions:'))) return false
         if (family !== null && tab.kind === 'mindmap' && tab.dockedAt !== family) return false
         seen.add(tab.path)
         return true
@@ -238,6 +239,42 @@ export function normalizePreviewSession(value, familyKey) {
     : []
   return { activePath, tabs, expanded, musicPrefs: normalizeMusicPrefs(value?.musicPrefs) }
 }
+/* The permission page is a WORKSPACE-LEVEL tab: it is written into the workspace anchor snapshot and
+   merged into whichever session page is currently mounted. Session snapshots may contain a copy (the
+   explorer persists one value under every anchor), but that copy is stripped here so closing the tab
+   in one session cannot resurrect it from another session's old snapshot. */
+function mergeWorkspacePermission(selection, workspaceValue, workspaceKey, familyKey) {
+  const value = selection.value
+  const family = familyKey === undefined || familyKey === null ? null : String(familyKey)
+  const sourceTabs = Array.isArray(value?.tabs) ? value.tabs : []
+  const workspacePermission = (workspaceValue?.tabs ?? []).find(isPermissionTab)
+  const isWorkspaceSelection = workspaceKey !== null && String(selection.key) === workspaceKey
+  const permission = isWorkspaceSelection ? ((sourceTabs.find(isPermissionTab)) ?? workspacePermission) : workspacePermission
+  const hadPermission = sourceTabs.some(isPermissionTab)
+  if (permission === undefined && !hadPermission) return selection
+  const baseTabs = sourceTabs.filter(tab => !isPermissionTab(tab))
+  if (family === null) {
+    /* No session page is mounted: a permission tab would render its no-session state, so keep it out.
+       Do not manufacture a value when none existed (an empty workspace selection must stay empty). */
+    if (value === undefined || value === null) return selection
+    const activePath = typeof value.activePath === 'string' && baseTabs.some(tab => tab.path === value.activePath)
+      ? value.activePath
+      : null
+    return { key: selection.key, value: { ...value, tabs: baseTabs, activePath } }
+  }
+  const permissionPath = permission === undefined ? null : permissionTabPath(family)
+  const tabs = permission === undefined ? baseTabs : [...baseTabs, { ...permission, path: permissionPath }]
+  const originalActive = typeof value?.activePath === 'string' ? value.activePath : null
+  const activeWasPermission = sourceTabs.some(tab => tab.path === originalActive && isPermissionTab(tab))
+  let activePath = activeWasPermission ? permissionPath : originalActive
+  if (activePath !== null && !tabs.some(tab => tab.path === activePath)) activePath = null
+  if (value === undefined || value === null) {
+    /* No snapshot at all for this session: a workspace-level permission tab is still restorable. */
+    return permission === undefined ? selection : { key: selection.key, value: { tabs, activePath: permissionPath } }
+  }
+  return { key: selection.key, value: { ...value, tabs, activePath } }
+}
+
 export function selectStoredPreviewSession(previewSessions, workspace, currentSession, workspaceId) {
   /* Own-key lookup only: a bare `previewSessions[key]` would match prototype-chain keys. */
   const has = key => (previewSessions !== null && previewSessions !== undefined)
@@ -253,34 +290,35 @@ export function selectStoredPreviewSession(previewSessions, workspace, currentSe
     && tab.sessionId !== String(currentSession))
   /* A malformed workspace object (missing sessionIds) must degrade like every other bad input here. */
   const sessionIdsOf = workspace => Array.isArray(workspace?.sessionIds) ? workspace.sessionIds : []
+  const workspaceKey = workspaceId === undefined || workspaceId === null ? null : String(workspaceId)
+  const workspaceValue = workspaceKey !== null && has(workspaceKey) ? previewSessions[workspaceKey] : undefined
+  const finish = selection => mergeWorkspacePermission(selection, workspaceValue, workspaceKey, currentSession)
   if (currentSession !== undefined) {
     const currentKey = String(currentSession)
-    if (has(currentKey)) return { key: currentKey, value: previewSessions[currentKey] }
+    if (has(currentKey)) return finish({ key: currentKey, value: previewSessions[currentKey] })
     // Restore priority ② (development-notes §2): first snapshot of any session in this workspace.
     if (workspace !== undefined) {
       for (const sessionId of sessionIdsOf(workspace)) {
         const key = String(sessionId)
-        if (has(key) && restorable(key) && !foreignMapTab(previewSessions[key])) return { key, value: previewSessions[key] }
+        if (has(key) && restorable(key) && !foreignMapTab(previewSessions[key])) return finish({ key, value: previewSessions[key] })
       }
     }
-    if (workspaceId !== undefined) {
-      const workspaceKey = String(workspaceId)
-      if (has(workspaceKey) && restorable(workspaceKey) && !foreignMapTab(previewSessions[workspaceKey])) return { key: workspaceKey, value: previewSessions[workspaceKey] }
+    if (workspaceKey !== null && has(workspaceKey) && restorable(workspaceKey) && !foreignMapTab(workspaceValue)) {
+      return finish({ key: workspaceKey, value: workspaceValue })
     }
-    return { key: currentKey, value: undefined }
+    return finish({ key: currentKey, value: undefined })
   }
   if (workspace !== undefined) {
     for (const sessionId of sessionIdsOf(workspace)) {
       const key = String(sessionId)
-      if (has(key) && restorable(key) && !foreignMapTab(previewSessions[key])) return { key, value: previewSessions[key] }
+      if (has(key) && restorable(key) && !foreignMapTab(previewSessions[key])) return finish({ key, value: previewSessions[key] })
     }
   }
-  if (workspaceId !== undefined) {
-    const workspaceKey = String(workspaceId)
-    if (has(workspaceKey) && restorable(workspaceKey) && !foreignMapTab(previewSessions[workspaceKey])) return { key: workspaceKey, value: previewSessions[workspaceKey] }
-    return { key: workspaceKey, value: undefined }
+  if (workspaceKey !== null) {
+    if (has(workspaceKey) && restorable(workspaceKey) && !foreignMapTab(workspaceValue)) return finish({ key: workspaceKey, value: workspaceValue })
+    return finish({ key: workspaceKey, value: undefined })
   }
-  return { key: undefined, value: undefined }
+  return finish({ key: undefined, value: undefined })
 }
 export function serializePreviewSession(activePath, tabs, expanded, musicPrefs) {
   const seen = new Set()

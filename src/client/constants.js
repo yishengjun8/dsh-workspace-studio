@@ -20,6 +20,11 @@ export const ENSURE_RETRY_MAX = 20
    ever has to interpret an older shape. */
 export const PREVIEW_SESSION_STORE_KEY = 'dsh.workspace.studio.preview-sessions.v2'
 export const PREVIEW_SESSION_MAX = 25
+/* The input dock's two context pills (editor file context / music workshop): only the per-session
+   "switched off" choice is persisted — the envelope describes a live page and never is. */
+export const CONTEXT_SWITCH_STORE_KEY = 'dsh.workspace.studio.context-switches.v1'
+/* Per-kind bound on the stored off list; writes append, so trimming drops the oldest toggles. */
+export const CONTEXT_SWITCH_SESSION_MAX = 256
 /* Quick-calculator unit prices in the token-stats panel (shared defaults, per-model overrides and the currency symbol); tiny, local-only and never sent anywhere. */
 export const TOKEN_PRICES_STORE_KEY = 'dsh.workspace.studio.token-prices.v2'
 /* Currency symbols are one or two glyphs; the input is capped so a paste cannot bloat the persisted value. */

@@ -20,6 +20,7 @@
 import {
   AUTO_SYNC_MODE_AUTO, AUTO_SYNC_MODE_WATCH_ONLY, CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MAX, CONFLICT_FONT_SIZE_MIN,
   DIFF_RULER_DEFAULT, DIFF_RULER_SPAN_DEFAULT, DIFF_RULER_THUMB_DEFAULT, DIFF_RULER_WIDTH_DEFAULT, DIFF_RULER_WIDTH_MAX, DIFF_RULER_WIDTH_MIN,
+  CONTEXT_SWITCH_STORE_KEY,
   DIFF_TINT_DEFAULT, EDIT_LINES_DEFAULT, EDIT_LINES_MAX, EDIT_LINES_MIN, EXPLORER_LAYOUT_STORE_KEY, EXPLORER_SETTINGS_STORE_KEY,
   FONT_SCALE_DEFAULT, FONT_SCALE_MAX, FONT_SCALE_MIN, FONT_SCALE_STEP,
   MUSIC_ARRANGE_BAR_WIDTH_DEFAULT, MUSIC_ARRANGE_BAR_WIDTH_MAX, MUSIC_ARRANGE_BAR_WIDTH_MIN, MUSIC_ARRANGE_BAR_WIDTH_STEP,
@@ -37,6 +38,9 @@ import {
   TREE_DEFAULT, TREE_MAX, TREE_MIN, VCS_HIDE_METADATA_DEFAULT, WATCH_FILES_DEFAULT, cssColorToHex,
 } from './constants.js'
 import { normalizePreviewSession, serializePreviewSession } from './preview-tabs.js'
+/* The context-pill choice's shape is implemented by the module that owns its live state (same
+   split as preview-tabs' snapshot normalizers); this file registers it and stays the read gate. */
+import { normalizeContextSwitches } from './context-switches.js'
 import { hasMusicPrefs } from './music-prefs.js'
 import { normalizeRelativeDir } from './paths.js'
 import { MUSIC_DEFAULT_DIR } from '../shared/music-score.js'
@@ -299,6 +303,7 @@ const PERSISTED_SCHEMAS = Object.freeze({
   [TOKEN_LAYOUT_STORE_KEY]: { normalize: value => normalizeBySchema(TOKEN_LAYOUT_SCHEMA, value) },
   [TOKEN_PRICES_STORE_KEY]: { normalize: normalizePrices },
   [PREVIEW_SESSION_STORE_KEY]: { normalize: normalizePreviewSessions },
+  [CONTEXT_SWITCH_STORE_KEY]: { normalize: normalizeContextSwitches },
   [MINDMAP_ORDER_STORE_KEY]: { normalize: normalizeMindmapOrder },
   [MINDMAP_LAST_SESSION_STORE_KEY]: { normalize: normalizeMindmapLastSession },
 })
