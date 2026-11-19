@@ -333,7 +333,10 @@ body[data-ds-dark-theme] .dsh-ws-editor-host[data-highlight-preset='vs2022']{--s
 /* Preprocessor directive color (C# #if/#region, ...): purple, lighter in dark for contrast. */
 .dsh-ws-editor-host{--dsh-ws-token-directive:#8e44ad}
 body[data-ds-dark-theme] .dsh-ws-editor-host{--dsh-ws-token-directive:#c586c0}
-/* Sidebar top actions: hide the harness New Session button; the plugin draws its own two-button row in the same flow position. */
+/* Sidebar top actions: the harness brand used to be a bare button in this flow (a duplicate New
+   Session entry beside the plugin's two-button row). Since 0.2.2 the brand lives in the shell's
+   logoRow and New Session is its own row, so this rule matches nothing today; it stays as the
+   guard for a shell that restores a direct-child button here. */
 .dsh-ws-frame [data-slot="sidebar"] > div > button{display:none}
 /* The harness right-sidebar expand button is dead under this root layout (no rightbar track), and its document-preview purpose is served by the plugin's own preview column; hide it. */
 .dsh-ws-frame [data-sidebar-right-expand]{display:none}
@@ -375,15 +378,15 @@ body[data-ds-dark-theme] .dsh-ws-editor-host{--dsh-ws-token-directive:#c586c0}
    the node never leaves that scroller: relocating it would make React's uninstall
    path call removeChild on a parent it no longer has (NotFoundError). scrollRegion
    is a positioned size container, so the list is absolutely positioned against it
-   and hangs below it. The plugin measures the list and the footer seat
-   (hooks/sidebar-chrome.js) and publishes --dsh-ws-panel-nav-h plus
-   --dsh-ws-panel-footer-h; the Settings seat takes a top margin of the list's
-   height, and THAT margin is the dock's slot. The list therefore ends above
-   Mobile-mode and nothing overlaps. */
+   and hangs below it. The plugin measures the list and the distance from the
+   scroller's bottom edge to the Settings seat (hooks/sidebar-chrome.js) and publishes
+   --dsh-ws-panel-nav-h plus --dsh-ws-panel-dock-h; the Settings seat takes a top
+   margin of the list's height, and THAT margin is the dock's slot. The list therefore
+   ends above Mobile-mode and nothing overlaps. */
 .dsh-ws-frame [data-slot="sidebar"] > div > div[class*="footArea"]{display:contents}
 .dsh-ws-frame [data-slot="sidebar"] > div > div[class*="footArea"] > div[class*="footerActions"]{order:10}
 .dsh-ws-frame [data-slot="sidebar"] > div > div[class*="footArea"] > div[class*="settingsArea"]{order:30;margin-top:var(--dsh-ws-panel-nav-h,0px)}
-.dsh-ws-frame [data-slot="sidebar"] > div > div[class*="scrollRegion"] > div[class*="scrollArea"] > nav{position:absolute;left:-4px;right:-4px;bottom:calc(-1 * (var(--dsh-ws-panel-footer-h,0px) + var(--dsh-ws-panel-nav-h,0px)));z-index:6;display:flex;flex-direction:column;gap:0;margin:0;max-height:45vh;overflow-y:auto;overscroll-behavior:contain}
+.dsh-ws-frame [data-slot="sidebar"] > div > div[class*="scrollRegion"] > div[class*="scrollArea"] > nav{position:absolute;left:-4px;right:-4px;bottom:calc(-1 * var(--dsh-ws-panel-dock-h,0px));z-index:6;display:flex;flex-direction:column;gap:0;margin:0;max-height:45vh;overflow-y:auto;overscroll-behavior:contain}
 /* Wide sidebar: each panel row takes the Mobile-mode row's box (34px, 12px
    radius, the same 10px left inset and 4px vertical margins, no list gap), so the dock
    reads as one stack at an 8px rhythm; the Settings row keeps its own box and
@@ -476,8 +479,8 @@ html.dsh-ws-mobile-on.dsh-ws-mobile-files-on .dsh-ws-chat{position:fixed;top:0;l
    Desktop shell it starts below the caption band instead. */
 html[data-windows-titlebar].dsh-ws-mobile-on.dsh-ws-mobile-files-on .dsh-ws-chat{top:var(--dsh-ws-caption-h)}
 html.dsh-ws-mobile-on.dsh-ws-mobile-files-on .dsh-ws-chat [data-slot="main"] [data-conversation-scroll]{display:none}
-/* In file-fullscreen the conversation's view tabs are pinned with the title row; hiding them lets the file content start flush under the title row. */
-html.dsh-ws-mobile-on.dsh-ws-mobile-files-on [data-slot="conversation.session.header"] > header > div[role="tablist"]{display:none}
+/* In file-fullscreen the conversation's view tabs are pinned with the title row; hiding them lets the file content start flush under the title row. Anchors on the harness's own data-conversation-tabs marker and hides the row that owns it: the slot's children are the title row and the tab row directly since the 0.2.2 header lost its <header> wrapper, and a leftover tab row (padding only) would still take height. */
+html.dsh-ws-mobile-on.dsh-ws-mobile-files-on [data-slot="conversation.session.header"] div:has(> [data-conversation-tabs]){display:none}
 /* Session-header controls: hidden outside mobile, inline at the phone column's top-left in mobile. */
 .dsh-ws-mobile-controls{display:none;align-items:center;gap:2px}
 html.dsh-ws-mobile-on .dsh-ws-mobile-controls{display:flex;order:-1}
@@ -485,8 +488,11 @@ html.dsh-ws-mobile-on .dsh-ws-mobile-controls{display:flex;order:-1}
 .dsh-ws-mobile-whale:hover,.dsh-ws-mobile-files:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .dsh-ws-mobile-active{color:var(--dsw-alias-brand-primary)}
 .dsh-ws-mobile-files-icon{width:16px;height:16px}
-html.dsh-ws-mobile-on [data-slot="conversation.session.header"] > header > div:first-child > div:first-child,html.dsh-ws-mobile-on [data-slot="conversation.session.header"] > header > div:first-child > div:first-child > div:nth-child(2){display:contents}
-html.dsh-ws-mobile-on [data-slot="conversation.session.header"] > header > div:first-child > nav{flex:1}
+/* Mobile title row: flatten the title cluster (and its action group) so the plugin's own controls
+   sit on the title's line. The header's first child is the title row itself since 0.2.2 (the
+   <header> wrapper is gone), so the child path starts one level higher than before. */
+html.dsh-ws-mobile-on [data-slot="conversation.session.header"] > div:first-child > div:first-child,html.dsh-ws-mobile-on [data-slot="conversation.session.header"] > div:first-child > div:first-child > div:nth-child(2){display:contents}
+html.dsh-ws-mobile-on [data-slot="conversation.session.header"] > div:first-child > nav{flex:1}
 html.dsh-ws-mobile-on [data-slot="conversation.session.header.utilities"]{display:none!important}
 /* Hero whale + file button: a frame-level overlay visible only on the blank-session hero. */
 .dsh-ws-mobile-hero{display:none;position:absolute;top:10px;left:calc(max(0px,50% - 215px) + 8px)}

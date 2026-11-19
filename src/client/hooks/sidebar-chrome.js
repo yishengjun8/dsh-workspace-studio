@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react'
-import { PANEL_FOOT_HEIGHT_VAR, PANEL_NAV_HEIGHT_VAR } from '../constants.js'
+import { PANEL_DOCK_HEIGHT_VAR, PANEL_NAV_HEIGHT_VAR } from '../constants.js'
 
 /**
  * @param options.collections - whether the workspace-collection dropdown is active (it owns the
@@ -20,11 +20,26 @@ export function useSidebarChrome(options = {}) {
     const ensure = () => {
       const rootDiv = aside.querySelector('[data-slot="sidebar"] > div')
       if (rootDiv === null) return null
+      /* The two-region switch belongs above the scroller, right under New Session:
+         anchor it on the shell's scroll region rather than on a direct-child button.
+         The shell used to carry its brand as a bare `button` here, so "before the
+         first direct button" doubled as "before the scroller"; since the brand moved
+         into its logoRow the query returns null and the row was APPENDED after the
+         scroller, where it (a) rendered below the session list and (b) stole the
+         panel dock's slot (dev-notes §55). Re-anchor every pass: a collapsed rail
+         unmounts and remounts wide content, so the row can come back misplaced. */
+      const scrollRegion = rootDiv.querySelector(':scope > div[class*="scrollRegion"]')
       let top = rootDiv.querySelector(':scope > .dsh-ws-sidebar-top-actions')
       if (top === null) {
         top = document.createElement('div')
         top.className = 'dsh-ws-sidebar-top-actions'
-        rootDiv.insertBefore(top, rootDiv.querySelector(':scope > button'))
+      }
+      if (scrollRegion !== null && scrollRegion.parentElement === rootDiv) {
+        if (top.parentElement !== rootDiv || top.nextElementSibling !== scrollRegion) {
+          rootDiv.insertBefore(top, scrollRegion)
+        }
+      } else if (top.parentElement !== rootDiv || rootDiv.firstElementChild !== top) {
+        rootDiv.insertBefore(top, rootDiv.firstElementChild)
       }
       const workspacesOutlet = rootDiv.querySelector(':scope [data-slot="sidebar.workspaces"]')
       let files = null
@@ -101,30 +116,47 @@ export function useSidebarChrome(options = {}) {
       && a.every((group, index) => group.container === b[index]?.container && group.title === b[index]?.title)
     /* The global panel list docks into the foot (styles.js): the shell keeps it
        inside its shared scroller, so CSS pins it below that scroller and needs two
-       measured heights — the list's own height (the slot reserved above Settings)
-       and the footer action seat's height (how far below the scroller the list
-       hangs). Both change with the pinned panels, the collapsed rail and the
-       locale; observe the two nodes rather than measuring once. */
+       measured numbers — the list's own height (the slot reserved above Settings)
+       and the distance from the scroller's bottom edge to that slot (how far the
+       list hangs below the scroller). Both change with the pinned panels, the
+       collapsed rail, the locale and whatever seats the shell adds or removes
+       between the two, so measure the geometry rather than deriving it from the
+       footer row's height (1.0.127 exposed that assumption: a row inserted below
+       the scroller shifted the slot by 46px and the list covered Mobile mode). */
     let dockNav = null
     let dockFoot = null
+    let dockRegion = null
+    let dockSettings = null
+    const dockOffset = () => {
+      if (dockRegion === null || dockSettings === null) return 0
+      const region = dockRegion.getBoundingClientRect()
+      const settings = dockSettings.getBoundingClientRect()
+      /* A hidden Settings seat (Windows collapsed rail) owns no slot: dock at the
+         scroller's bottom edge, as the CSS rule for that state does. */
+      if (settings.width === 0 && settings.height === 0) return 0
+      const bottom = region.top + dockRegion.clientTop + dockRegion.clientHeight
+      return Math.max(0, Math.round(settings.top - bottom))
+    }
     const measureDock = () => {
       aside.style.setProperty(PANEL_NAV_HEIGHT_VAR, `${dockNav === null ? 0 : dockNav.offsetHeight}px`)
-      aside.style.setProperty(PANEL_FOOT_HEIGHT_VAR, `${dockFoot === null ? 0 : dockFoot.offsetHeight}px`)
+      aside.style.setProperty(PANEL_DOCK_HEIGHT_VAR, `${dockOffset()}px`)
     }
     const dockObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measureDock)
     const syncDock = () => {
       const nav = aside.querySelector('[data-slot="sidebar"] > div > div[class*="scrollRegion"] > div[class*="scrollArea"] > nav')
       const foot = aside.querySelector('[data-slot="sidebar"] > div > div[class*="footArea"] > div[class*="footerActions"]')
-      if (nav !== dockNav) {
-        if (dockNav !== null) dockObserver?.unobserve(dockNav)
-        dockNav = nav
-        if (dockNav !== null) dockObserver?.observe(dockNav)
+      const region = aside.querySelector('[data-slot="sidebar"] > div > div[class*="scrollRegion"]')
+      const settings = aside.querySelector('[data-slot="sidebar"] > div > div[class*="footArea"] > div[class*="settingsArea"]')
+      const bind = (node, previous) => {
+        if (node === previous) return previous
+        if (previous !== null) dockObserver?.unobserve(previous)
+        if (node !== null) dockObserver?.observe(node)
+        return node
       }
-      if (foot !== dockFoot) {
-        if (dockFoot !== null) dockObserver?.unobserve(dockFoot)
-        dockFoot = foot
-        if (dockFoot !== null) dockObserver?.observe(dockFoot)
-      }
+      dockNav = bind(nav, dockNav)
+      dockFoot = bind(foot, dockFoot)
+      dockRegion = bind(region, dockRegion)
+      dockSettings = bind(settings, dockSettings)
       measureDock()
     }
     let current = ensure()
@@ -151,7 +183,7 @@ export function useSidebarChrome(options = {}) {
       observer.disconnect()
       dockObserver?.disconnect()
       aside.style.removeProperty(PANEL_NAV_HEIGHT_VAR)
-      aside.style.removeProperty(PANEL_FOOT_HEIGHT_VAR)
+      aside.style.removeProperty(PANEL_DOCK_HEIGHT_VAR)
       if (scheduled) {
         scheduled = false
         if (rafId !== 0) cancelAnimationFrame(rafId)
