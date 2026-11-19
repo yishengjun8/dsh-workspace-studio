@@ -6,16 +6,33 @@
  * time. The piano roll supports a paint stroke (pointer-down + drag lights consecutive
  * cells), which is the fast path for writing a run of sixteenths.
  */
-import { createElement as h, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createElement as h, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { translate, useLocaleText } from '../../locale/index.js'
-import { composeMusicRequest, listMusicRequest, loadMusicRequest, musicSchemaRequest, saveMusicRequest } from '../../api.js'
+import {
+  composeMusicRequest,
+  deleteMusicCacheRequest,
+  listMusicCacheRequest,
+  listMusicRequest,
+  loadMusicRequest,
+  musicSampleFileRequest,
+  musicSampleManifestRequest,
+  musicSchemaRequest,
+  readMusicCacheRequest,
+  saveMusicCacheRequest,
+  saveMusicRequest,
+} from '../../api.js'
 import {
   MUSIC_BARS_MAX,
+  MUSIC_DEFAULT_DIR,
+  MUSIC_DOC_VERSION,
   MUSIC_DURATION_MAX_SECONDS,
   MUSIC_DURATION_MIN_SECONDS,
+  MUSIC_FILE_SUFFIX,
   MUSIC_MOOD_IDS,
+  MUSIC_MOODS,
   MUSIC_STEPS_PER_BAR,
   MUSIC_STYLE_IDS,
+  MUSIC_STYLES,
   barsForSeconds,
   buildMusicPlan,
   composeMusicScore,
@@ -24,17 +41,21 @@ import {
   normalizeMusicInstruments,
   scoreSeconds,
 } from '../../../shared/music-score.js'
+import { MUSIC_ARRANGE_BAR_WIDTH_DEFAULT, MUSIC_ROLL_GRID_WIDTH_DEFAULT, MUSIC_ROLL_ROW_HEIGHT_DEFAULT } from '../../constants.js'
 import { useMindmapSummaryModels } from '../../hooks/mindmap-summary-models.js'
 import { useChatModel } from '../../chat-model.js'
 import { isFollowChatModel, musicModelKey } from '../../music-prefs.js'
 import { MusicDiscardDialog, MusicDurationDialog, MusicOpenDialog, MusicSaveDialog } from './dialogs.js'
+import { MusicCachePopover } from './cache-popover.js'
+import { notifyMusicCacheChanged, subscribeMusicCacheChanged } from './cache-events.js'
+import { ComposeChoicePopover } from './compose-choice.js'
 import { ComposeInstrumentsPopover } from './compose-instruments.js'
 import { composeRanges, mergeComposedSegments } from './compose-run.js'
 import { Arrangement } from './arrangement.js'
 import { DrumMachine } from './drums.js'
 import { InstrumentPicker } from './picker.js'
 import { PianoRoll } from './roll.js'
-import { createMusicEngine } from './synth.js'
+import { createMusicEngine } from './sampler.js'
 import { instrumentInfo, trackDisplayName } from './instruments.js'
 import {
   addNoteTo,
@@ -58,6 +79,49 @@ import {
 } from './helpers.js'
 
 const DURATION_PRESETS = [20, 30, 45, 60]
+/* The accent colour of one style/mood choice. The palettes live in the shared score model so a
+   cached piece's dot (cache-popover.js) and the choice bubble cannot drift apart. */
+const styleColor = id => MUSIC_STYLES[id]?.color ?? '#6aa8ff'
+const moodColor = id => MUSIC_MOODS[id]?.color ?? '#6aa8ff'
+
+const TRACK_HISTORY_LIMIT = 50
+const TRACK_HISTORY_COALESCE_MS = 800
+
+function cloneValue(value) {
+  return JSON.parse(JSON.stringify(value))
+}
+
+/* A history step only carries the editable part of one track: note edits must not revert a
+   title, mixer move or instrument change that happened between two note gestures. */
+function trackEditSnapshot(track) {
+  if (track === undefined || track === null) return null
+  return track.kind === 'drums'
+    ? { kind: 'drums', value: cloneValue(track.drums) }
+    : { kind: 'notes', value: cloneValue(track.notes) }
+}
+
+function withTrackEdit(doc, trackId, snapshot) {
+  let found = false
+  const tracks = doc.tracks.map(track => {
+    if (track.id !== trackId) return track
+    found = true
+    return snapshot.kind === 'drums'
+      ? { ...track, drums: cloneValue(snapshot.value) }
+      : { ...track, notes: cloneValue(snapshot.value) }
+  })
+  return found ? { ...doc, tracks } : null
+}
+
+function findTrack(doc, trackId) {
+  return doc.tracks.find(track => track.id === trackId) ?? null
+}
+
+/* Composed docs reuse deterministic track ids (`piano`, `drums`) across pieces, so a history
+   stack keyed by track id alone would bleed into the next piece. Every live piece gets a
+   client key; the cache stores it so switching back to a piece restores its stacks. */
+function makePieceKey() {
+  return `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
 
 function useModels() {
   const payload = useMindmapSummaryModels()
@@ -79,8 +143,26 @@ function firstNoteSelection(track) {
     : null
 }
 
-export function MusicDock({ active = true, chatSessionId, musicPrefs, onMusicPrefs, onSaved, onUpdate, tab, workspace }) {
+export function MusicDock({
+  active = true,
+  arrangeBarWidth = MUSIC_ARRANGE_BAR_WIDTH_DEFAULT,
+  cacheScopeId,
+  chatSessionId,
+  musicPrefs,
+  onMusicPrefs,
+  onSaved,
+  onUpdate,
+  rollBaseHeight = MUSIC_ROLL_ROW_HEIGHT_DEFAULT,
+  rollBaseWidth = MUSIC_ROLL_GRID_WIDTH_DEFAULT,
+  saveDir = MUSIC_DEFAULT_DIR,
+  tab,
+  workspace,
+}) {
   useLocaleText()
+  const cacheScope = typeof cacheScopeId === 'string' && cacheScopeId !== '' ? cacheScopeId : null
+  /* The configured default save folder (settings → 工作区设置 → 音乐工坊). It only decides where a
+     piece that has no remembered path goes; a saved piece always writes back to its own path. */
+  const defaultSaveDir = typeof saveDir === 'string' && saveDir.trim() !== '' ? saveDir : MUSIC_DEFAULT_DIR
   const models = useModels()
   /* The page's model choice: "follow the chat" (default) reads the same per-session model
      directory the composer seat writes, so a switch in the right column shows up here live. */
@@ -96,15 +178,33 @@ export function MusicDock({ active = true, chatSessionId, musicPrefs, onMusicPre
     || models.some(model => model.provider === fixedModel.provider && model.model === fixedModel.model)
   const selectedModelValue = followChat ? 'session' : musicModelKey(fixedModel)
 
-  const [doc, setDoc] = useState(() => normalizeMusicDoc(tab.musicDoc) ?? composeMusicScore({ bars: 8 }))
+  const restoredDoc = useMemo(() => normalizeMusicDoc(tab.musicDoc), [tab.musicDoc])
+  const legacyDropped = tab.musicDoc !== null && tab.musicDoc !== undefined && restoredDoc === null
+  const [doc, setDoc] = useState(() => restoredDoc ?? composeMusicScore({ bars: 8 }))
   const docRef = useRef(doc)
   docRef.current = doc
+  const pieceKeyRef = useRef(null)
+  if (pieceKeyRef.current === null) pieceKeyRef.current = makePieceKey()
+  const titleMeasureRef = useRef(null)
+  /* The dock's own subtree: the window-level save shortcut only acts when the focus is either
+     inside it or somewhere that does not own the key (dev-notes §5 host.contains). */
+  const rootRef = useRef(null)
+  const [titleWidth, setTitleWidth] = useState(0)
+
+  /* Measure the title text with a hidden mirror so the edit box is exactly as wide as the
+     name and the unsaved dot can sit immediately after it instead of floating at the far
+     right of the whole header. */
+  useLayoutEffect(() => {
+    const node = titleMeasureRef.current
+    if (node === null) return
+    setTitleWidth(Math.max(64, Math.ceil(node.getBoundingClientRect().width) + 1))
+  }, [doc.title])
 
   const [durationText, setDurationText] = useState(() => String(Math.round(scoreSeconds(doc))))
   const [durationConfirm, setDurationConfirm] = useState(null)
   const [composeStage, setComposeStage] = useState(null)
 
-  const [savedPath, setSavedPath] = useState(typeof tab.savedPath === 'string' ? tab.savedPath : '')
+  const [savedPath, setSavedPath] = useState(legacyDropped ? '' : (typeof tab.savedPath === 'string' ? tab.savedPath : ''))
   const savedPathRef = useRef(savedPath)
   savedPathRef.current = savedPath
   const [dirty, setDirty] = useState(tab.dirty === true)
@@ -115,7 +215,16 @@ export function MusicDock({ active = true, chatSessionId, musicPrefs, onMusicPre
   const [selectedNote, setSelectedNote] = useState(() => firstNoteSelection(doc.tracks[0]))
   const [activeBar, setActiveBar] = useState(1)
   const [pickerOpen, setPickerOpen] = useState(false)
-  const [editorOpen, setEditorOpen] = useState(true)
+  const [styleOpen, setStyleOpen] = useState(false)
+  const [moodOpen, setMoodOpen] = useState(false)
+  const [cacheOpen, setCacheOpen] = useState(false)
+  const styleButtonRef = useRef(null)
+  const moodButtonRef = useRef(null)
+  const cacheButtonRef = useRef(null)
+  const [cacheEntries, setCacheEntries] = useState([])
+  const [cacheLoading, setCacheLoading] = useState(false)
+  const [cacheError, setCacheError] = useState('')
+  const cacheAbortRef = useRef(null)
   const [playing, setPlaying] = useState(false)
   const playingRef = useRef(false)
   playingRef.current = playing
@@ -123,7 +232,7 @@ export function MusicDock({ active = true, chatSessionId, musicPrefs, onMusicPre
   const [loop, setLoop] = useState(true)
   const [volume, setVolume] = useState(0.8)
   const [composing, setComposing] = useState(false)
-  const [status, setStatus] = useState(null)
+  const [status, setStatus] = useState(() => legacyDropped ? { text: translate('music.legacyDropped') } : null)
   const [saving, setSaving] = useState(false)
   const [saveOpen, setSaveOpen] = useState(false)
   const [saveError, setSaveError] = useState(null)
@@ -134,16 +243,35 @@ export function MusicDock({ active = true, chatSessionId, musicPrefs, onMusicPre
   const [openError, setOpenError] = useState(null)
   const [discardPath, setDiscardPath] = useState(null)
   const [history, setHistory] = useState([])
+  const trackHistoryRef = useRef(new Map())
+  const [historyVersion, setHistoryVersion] = useState(0)
 
   const [style, setStyle] = useState(doc.prompt.style)
   const [mood, setMood] = useState(doc.prompt.mood)
   const [promptText, setPromptText] = useState(doc.prompt.text)
   const [density, setDensity] = useState(doc.prompt.density)
   const [complexity, setComplexity] = useState(doc.prompt.complexity)
+  const styleOptions = MUSIC_STYLE_IDS.map(id => ({
+    color: styleColor(id),
+    desc: translate(`music.style.${id}.desc`),
+    id,
+    label: translate(`music.style.${id}`),
+  }))
+  const moodOptions = MUSIC_MOOD_IDS.map(id => ({
+    color: moodColor(id),
+    desc: translate(`music.mood.${id}.desc`),
+    id,
+    label: translate(`music.mood.${id}`),
+  }))
+  const styleLabel = translate(`music.style.${style}`)
+  const moodLabel = translate(`music.mood.${mood}`)
   const [composeOpen, setComposeOpen] = useState(true)
   const [composeInstruments, setComposeInstruments] = useState(() => normalizeMusicInstruments(doc.prompt.instruments))
   const [instrumentsOpen, setInstrumentsOpen] = useState(false)
   const [hostReady, setHostReady] = useState(null)
+  const [samplesReady, setSamplesReady] = useState(false)
+  const [samplesLoading, setSamplesLoading] = useState(true)
+  const [samplesError, setSamplesError] = useState('')
 
   const instrumentsButtonRef = useRef(null)
   const engineRef = useRef(null)
@@ -160,23 +288,28 @@ export function MusicDock({ active = true, chatSessionId, musicPrefs, onMusicPre
   const duration = scoreSeconds(doc)
   const playhead = duration <= 0 ? 0 : Math.min(1, position / duration)
   const notesTotal = useMemo(() => countNotes(doc), [doc])
+  const instrumentKey = useMemo(() => [...new Set(doc.tracks.map(track => track.instrument))].sort().join('|'), [doc.tracks])
   const activeTrack = doc.tracks.find(track => track.id === selectedTrackId) ?? doc.tracks[0] ?? null
   const activeInfo = activeTrack === null ? null : instrumentInfo(activeTrack.instrument)
+  const activeTrackHistory = useMemo(() => (activeTrack === null
+    ? null
+    : trackHistoryRef.current.get(`${pieceKeyRef.current}|${activeTrack.id}`) ?? null), [activeTrack, historyVersion])
+  const canUndo = (activeTrackHistory?.undo.length ?? 0) > 0
+  const canRedo = (activeTrackHistory?.redo.length ?? 0) > 0
   const selectedNoteFound = findNote(doc, selectedNote)
 
   useEffect(() => {
     setDurationText(String(Math.round(scoreSeconds(docRef.current))))
   }, [doc.bars, doc.bpm])
 
-  /* The running Host may still be the pre-multi-track build: old save/load flatten instrument
-     tracks into the fixed melody/chords/bass shape. Refuse to save or compose until the Host
-     reports the current score schema, so a client refresh alone can never destroy a score. */
+  /* The running Host may still be the pre-sample build. Refuse to save, open or compose until
+     it reports the v3 score schema, so an old Host cannot reinterpret the VCSL palette. */
   useEffect(() => {
     let alive = true
     musicSchemaRequest()
       .then((payload) => {
         if (alive) {
-          setHostReady(payload.version === 2
+          setHostReady(payload.version === MUSIC_DOC_VERSION
             && payload.barsMax >= MUSIC_BARS_MAX
             && payload.noteLenMax >= MUSIC_BARS_MAX * MUSIC_STEPS_PER_BAR)
         }
@@ -188,7 +321,10 @@ export function MusicDock({ active = true, chatSessionId, musicPrefs, onMusicPre
   /* One engine per mounted dock; its ended callback resets the transport. */
   useEffect(() => {
     mountedRef.current = true
-    const engine = createMusicEngine()
+    const engine = createMusicEngine({
+      loadManifest: musicSampleManifestRequest,
+      loadSample: musicSampleFileRequest,
+    })
     engine.setVolume(volume)
     engine.onEnded(() => {
       if (!mountedRef.current) return
@@ -211,6 +347,26 @@ export function MusicDock({ active = true, chatSessionId, musicPrefs, onMusicPre
       }
     }
   }, [])
+
+  /* Load only the instruments this score uses; every score edit that changes the palette
+     starts another bounded pass, and a failed pack leaves playback disabled with a reason. */
+  useEffect(() => {
+    let alive = true
+    const engine = engineRef.current
+    if (engine === null || hostReady !== true) return undefined
+    setSamplesLoading(true)
+    setSamplesReady(false)
+    setSamplesError('')
+    engine.prepare(docRef.current)
+      .then(() => { if (alive) { setSamplesReady(true); setSamplesLoading(false) } })
+      .catch((error) => {
+        if (!alive) return
+        setSamplesReady(false)
+        setSamplesLoading(false)
+        setSamplesError(error instanceof Error ? error.message : String(error))
+      })
+    return () => { alive = false }
+  }, [hostReady, instrumentKey])
 
   const stopRaf = () => {
     cancelAnimationFrame(rafRef.current)
@@ -247,6 +403,10 @@ export function MusicDock({ active = true, chatSessionId, musicPrefs, onMusicPre
     if (engine === null) return
     engine.setVolume(volume)
     const playbackDoc = targetDoc ?? docRef.current
+    if (!engine.isReady(playbackDoc)) {
+      setStatus({ error: samplesError !== '', text: samplesError !== '' ? translate('music.samples.failed') : translate('music.samples.loading') })
+      return
+    }
     const started = engine.play(playbackDoc, { from, loop, seamless: playbackDoc.prompt.seamless !== false })
     if (!started) {
       setStatus({ error: true, text: translate('music.play.unavailable') })
@@ -256,7 +416,7 @@ export function MusicDock({ active = true, chatSessionId, musicPrefs, onMusicPre
     playingRef.current = true
     cancelAnimationFrame(rafRef.current)
     rafRef.current = requestAnimationFrame(tick)
-  }, [loop, tick, volume])
+  }, [loop, samplesError, tick, volume])
 
   const togglePlay = useCallback(() => {
     if (playingRef.current) {
@@ -312,9 +472,84 @@ export function MusicDock({ active = true, chatSessionId, musicPrefs, onMusicPre
       setDoc(next)
       setDirty(true)
       scheduleSync(next)
+      /* Mixer edits (mute / solo / volume, and their undo) reach the running transport at
+         once: the engine ramps per-track gains instead of waiting for a playback restart. */
+      engineRef.current?.setMix(next.tracks)
     }
     if (options.restart === true && changed) restartPlayback(next)
   }, [restartPlayback, scheduleSync])
+
+  const recordTrackHistory = useCallback((trackId, before, after, key) => {
+    if (before === null || after === null) return
+    if (JSON.stringify(before.value) === JSON.stringify(after.value)) return
+    const record = trackHistoryRef.current.get(trackId) ?? { redo: [], undo: [] }
+    const last = record.undo[record.undo.length - 1]
+    const now = Date.now()
+    /* A draw stroke arrives as add + many length patches; a velocity slider as many patches.
+       Merge consecutive patches of the same key so one undo reverses the whole gesture. */
+    if (key !== null && last !== undefined && last.key === key && now - last.at < TRACK_HISTORY_COALESCE_MS) {
+      last.after = after
+      last.at = now
+      record.redo = []
+    } else {
+      record.undo.push({ after, at: now, before, key })
+      if (record.undo.length > TRACK_HISTORY_LIMIT) record.undo.shift()
+      record.redo = []
+    }
+    trackHistoryRef.current.set(trackId, record)
+    setHistoryVersion(version => version + 1)
+  }, [])
+
+  const commitTrackEdit = useCallback((next, trackId, key = null) => {
+    if (next === null) return false
+    const before = trackEditSnapshot(findTrack(docRef.current, trackId))
+    const after = trackEditSnapshot(findTrack(next, trackId))
+    if (before === null || after === null) return false
+    recordTrackHistory(`${pieceKeyRef.current}|${trackId}`, before, after, key)
+    commit(next)
+    return true
+  }, [commit, recordTrackHistory])
+
+  const applyTrackHistory = (direction) => {
+    if (activeTrack === null) return
+    const record = trackHistoryRef.current.get(`${pieceKeyRef.current}|${activeTrack.id}`)
+    if (record === undefined) return
+    const from = direction === 'undo' ? record.undo : record.redo
+    const to = direction === 'undo' ? record.redo : record.undo
+    const step = from[from.length - 1]
+    if (step === undefined) return
+    const snapshot = direction === 'undo' ? step.before : step.after
+    const next = withTrackEdit(docRef.current, activeTrack.id, snapshot)
+    if (next === null) return
+    from.pop()
+    to.push(step)
+    if (to.length > TRACK_HISTORY_LIMIT) to.shift()
+    setHistoryVersion(version => version + 1)
+    setSelectedNote(firstNoteSelection(findTrack(next, activeTrack.id)))
+    commit(next)
+  }
+
+  const undoTrackEdit = () => applyTrackHistory('undo')
+  const redoTrackEdit = () => applyTrackHistory('redo')
+
+  const auditionNote = useCallback(async (midi) => {
+    if (activeTrack === null || activeTrack.kind === 'drums') return
+    const engine = engineRef.current
+    if (engine === null) return
+    try {
+      const ok = await engine.audition(activeTrack.instrument, midi, 104)
+      if (ok === false) {
+        setStatus({
+          error: true,
+          text: samplesReady
+            ? translate('music.samples.auditionFailed')
+            : translate(samplesError === '' ? 'music.samples.loading' : 'music.samples.failed'),
+        })
+      }
+    } catch {
+      setStatus({ error: true, text: translate('music.samples.auditionFailed') })
+    }
+  }, [activeTrack, samplesError, samplesReady])
 
   const selectTrack = useCallback((trackId) => {
     const track = docRef.current.tracks.find(item => item.id === trackId)
@@ -323,6 +558,50 @@ export function MusicDock({ active = true, chatSessionId, musicPrefs, onMusicPre
     setSelectedNote(firstNoteSelection(track))
     setActiveBar(1)
   }, [])
+
+  const refreshCache = useCallback(async () => {
+    if (cacheScope === null) {
+      setCacheEntries([])
+      setCacheLoading(false)
+      return
+    }
+    if (cacheAbortRef.current !== null) cacheAbortRef.current.abort()
+    const controller = new AbortController()
+    cacheAbortRef.current = controller
+    setCacheLoading(true)
+    setCacheError('')
+    try {
+      const result = await listMusicCacheRequest(cacheScope, controller.signal)
+      if (!mountedRef.current) return
+      setCacheEntries(Array.isArray(result.entries) ? result.entries : [])
+    } catch (error) {
+      if (error?.name === 'AbortError') return
+      if (mountedRef.current) setCacheError(error instanceof Error ? error.message : String(error))
+    } finally {
+      if (mountedRef.current) setCacheLoading(false)
+      if (cacheAbortRef.current === controller) cacheAbortRef.current = null
+    }
+  }, [cacheScope])
+
+  /* Snapshot the live doc before it is replaced. A blank score is not history, and a failed
+     snapshot is reported in the dropdown without blocking the user's compose/switch. */
+  const cacheCurrent = useCallback(async () => {
+    if (cacheScope === null) return null
+    const snapshot = docRef.current
+    if (countNotes(snapshot) === 0) return null
+    try {
+      const result = await saveMusicCacheRequest(cacheScope, {
+        doc: snapshot,
+        pieceKey: pieceKeyRef.current,
+        savedPath: savedPathRef.current === '' ? undefined : savedPathRef.current,
+      })
+      notifyMusicCacheChanged(cacheScope)
+      return result.entry
+    } catch (error) {
+      setCacheError(error instanceof Error ? error.message : String(error))
+      return null
+    }
+  }, [cacheScope])
 
   const applyComposeInstruments = useCallback((next) => {
     const ordered = normalizeMusicInstruments(next)
@@ -336,8 +615,31 @@ export function MusicDock({ active = true, chatSessionId, musicPrefs, onMusicPre
     if (nextDoc !== null) commit(nextDoc)
   }, [commit])
 
-  const applyLoadedDoc = useCallback((next, path) => {
+  const toggleStyleChoice = () => {
+    setStyleOpen(open => !open)
+    setMoodOpen(false)
+    setInstrumentsOpen(false)
+    setCacheOpen(false)
+  }
+  const toggleMoodChoice = () => {
+    setMoodOpen(open => !open)
+    setStyleOpen(false)
+    setInstrumentsOpen(false)
+    setCacheOpen(false)
+  }
+  const chooseStyle = (id) => {
+    setStyle(id)
+    setStyleOpen(false)
+  }
+  const chooseMood = (id) => {
+    setMood(id)
+    setMoodOpen(false)
+  }
+
+  const applyLoadedDoc = useCallback((next, path, pieceKey = null) => {
     stopPlayback(true)
+    setHistory([])
+    pieceKeyRef.current = typeof pieceKey === 'string' && pieceKey !== '' ? pieceKey : makePieceKey()
     docRef.current = next
     setDoc(next)
     const first = next.tracks[0] ?? null
@@ -363,10 +665,71 @@ export function MusicDock({ active = true, chatSessionId, musicPrefs, onMusicPre
     })
   }, [stopPlayback])
 
+  const deleteCacheEntry = useCallback(async (entry) => {
+    if (cacheScope === null) return
+    const result = await deleteMusicCacheRequest(cacheScope, entry.id)
+    if (result.deleted !== true) throw new Error(translate('music.cache.notFound'))
+    setCacheEntries(current => current.filter(item => item.id !== entry.id))
+    notifyMusicCacheChanged(cacheScope)
+  }, [cacheScope])
+
+  const loadCachedEntry = useCallback(async (entry) => {
+    if (cacheScope === null || entry === null || composing) return
+    setCacheError('')
+    const hadNotes = countNotes(docRef.current) > 0
+    const snapshot = await cacheCurrent()
+    /* Never replace an unsaved piece when its snapshot could not be written; the dropdown
+       stays open with the failure instead of turning the switch into data loss. */
+    if (hadNotes && snapshot === null) return
+    try {
+      const result = await readMusicCacheRequest(cacheScope, entry.id)
+      const next = normalizeMusicDoc(result.entry.doc)
+      if (next === null) throw new Error(translate('error.invalid-response.music-cache'))
+      applyLoadedDoc(
+        next,
+        typeof result.entry.savedPath === 'string' ? result.entry.savedPath : '',
+        typeof result.entry.pieceKey === 'string' ? result.entry.pieceKey : null,
+      )
+      setCacheOpen(false)
+      setStatus({ text: translate('music.cache.restored', { title: next.title }) })
+      /* The selected row is now the live document; dropping it keeps "current + history"
+         unambiguous. A failure here leaves a harmless duplicate that the fingerprint updates. */
+      try {
+        await deleteMusicCacheRequest(cacheScope, entry.id)
+        setCacheEntries(current => current.filter(item => item.id !== entry.id))
+        notifyMusicCacheChanged(cacheScope)
+      } catch {
+        /* best effort */
+      }
+    } catch (error) {
+      setCacheError(error instanceof Error ? error.message : String(error))
+    }
+  }, [applyLoadedDoc, cacheCurrent, cacheScope, composing])
+
+  useEffect(() => {
+    void refreshCache()
+    return () => {
+      if (cacheAbortRef.current !== null) {
+        cacheAbortRef.current.abort()
+        cacheAbortRef.current = null
+      }
+    }
+  }, [refreshCache])
+
+  useEffect(() => subscribeMusicCacheChanged(cacheScope, () => { void refreshCache() }), [cacheScope, refreshCache])
+
+  useEffect(() => {
+    if (cacheOpen) void refreshCache()
+  }, [cacheOpen, refreshCache])
+
   /* ── compose ─────────────────────────────────────────────────────────────── */
   const runCompose = async () => {
     if (composing) return
     if (hostReady !== true) { setStatus({ error: true, text: translate('music.hostRestart') }); return }
+    if (!samplesReady) {
+      setStatus({ error: samplesError !== '', text: samplesError !== '' ? translate('music.samples.failed') : translate('music.samples.loading') })
+      return
+    }
     const controller = new AbortController()
     composeAbortRef.current = controller
     setComposing(true)
@@ -465,15 +828,20 @@ export function MusicDock({ active = true, chatSessionId, musicPrefs, onMusicPre
       }
 
       if (playingRef.current) stopPlayback(true)
+      await cacheCurrent()
       setHistory(history => [{ at: Date.now(), doc: cloneDoc(current), label: translate('music.history.generated') }, ...history].slice(0, 6))
+      pieceKeyRef.current = makePieceKey()
       docRef.current = next
       setDoc(next)
       setDirty(true)
+      /* A new composition is a new piece: it must not inherit the previous piece's remembered
+         file, or the first save would overwrite that other score. */
+      setSavedPath('')
       setSelectedTrackId(next.tracks[0]?.id ?? null)
       setSelectedNote(firstNoteSelection(next.tracks[0]))
       setActiveBar(1)
       setComposeInstruments(next.prompt.instruments)
-      flushToTab(next)
+      flushToTab(next, { savedPath: null })
       setStatus({
         text: engine === 'llm'
           ? translate('music.compose.done')
@@ -537,16 +905,69 @@ export function MusicDock({ active = true, chatSessionId, musicPrefs, onMusicPre
     }
   }
 
+  /* 「保存」 always opens the dialog: the remembered path is only a prefill, so the user keeps
+     full control over where this piece lands. */
   const saveNow = () => {
     if (hostReady !== true) { setStatus({ error: true, text: translate('music.hostRestart') }); return }
-    if (savedPathRef.current !== '') {
-      const parsed = parseSavedPath(savedPathRef.current)
-      void doSave(parsed.dir, stripMusicSuffix(parsed.name))
-      return
-    }
     setSaveError(null)
     setSaveOpen(true)
   }
+
+  /* Ctrl/Cmd+S (see the shortcut effect below): write straight to where this piece belongs —
+     its remembered file, else <default folder>/<title>. No dialog, no dirty gate. A brand-new
+     piece never silently clobbers another score that already owns its name in the default
+     folder: that case falls back to the dialog (the user picks the location). */
+  const quickSave = async () => {
+    if (hostReady !== true) { setStatus({ error: true, text: translate('music.hostRestart') }); return }
+    if (saving) return
+    const current = savedPathRef.current
+    if (current !== '') {
+      const parsed = parseSavedPath(current)
+      await doSave(parsed.dir, stripMusicSuffix(parsed.name))
+      return
+    }
+    const dir = defaultSaveDir
+    const name = safeFileName(docRef.current.title)
+    const target = name.toLowerCase().endsWith(MUSIC_FILE_SUFFIX) ? name : `${name}${MUSIC_FILE_SUFFIX}`
+    try {
+      const listed = await listMusicRequest(workspace.workspaceId, dir)
+      const taken = Array.isArray(listed.files)
+        && listed.files.some(file => String(file.name).toLowerCase() === target.toLowerCase())
+      if (taken) {
+        setSaveError(null)
+        setSaveOpen(true)
+        setStatus({ text: translate('music.save.nameTaken', { name: target }) })
+        return
+      }
+    } catch {
+      /* A failed listing must not block the save itself: the Host reports a real write error. */
+    }
+    await doSave(dir, name)
+  }
+  const quickSaveRef = useRef(quickSave)
+  quickSaveRef.current = quickSave
+  useEffect(() => {
+    if (!active) return undefined
+    const onKeyDown = (event) => {
+      /* IME composition, an open modal (it owns its own Enter/save) and every modified key but
+         plain Ctrl/Cmd+S pass through. */
+      if (event.isComposing) return
+      if (document.querySelector('.dsh-ws-dialog-backdrop') !== null) return
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return
+      if (String(event.key).toLowerCase() !== 's') return
+      const target = event.target
+      const root = rootRef.current
+      const inside = root !== null && target instanceof Node && root.contains(target)
+      /* A text control outside the workshop (the chat box, a dialog) keeps the key. */
+      if (!inside && target instanceof Element
+        && (target.isContentEditable || target.closest('input, textarea, select') !== null)) return
+      event.preventDefault()
+      event.stopPropagation()
+      void quickSaveRef.current()
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [active])
 
   const refreshOpen = async (dir) => {
     if (openAbortRef.current !== null) openAbortRef.current.abort()
@@ -569,8 +990,9 @@ export function MusicDock({ active = true, chatSessionId, musicPrefs, onMusicPre
   }
 
   const showOpen = () => {
+    /* Start where this piece lives, or in the configured default folder for a new piece. */
     const parsed = parseSavedPath(savedPathRef.current)
-    const dir = parsed.dir === '' ? 'music' : parsed.dir
+    const dir = savedPathRef.current === '' ? defaultSaveDir : parsed.dir
     setOpenOpen(true)
     setOpenFiles([])
     setOpenError(null)
@@ -581,6 +1003,7 @@ export function MusicDock({ active = true, chatSessionId, musicPrefs, onMusicPre
     try {
       setOpenError(null)
       const result = await loadMusicRequest(workspace.workspaceId, path)
+      await cacheCurrent()
       applyLoadedDoc(normalizeMusicDoc(result.doc) ?? docRef.current, result.path)
       setOpenOpen(false)
       setDiscardPath(null)
@@ -686,6 +1109,17 @@ export function MusicDock({ active = true, chatSessionId, musicPrefs, onMusicPre
     })
   }
 
+  /* Bulk mute keeps solo untouched: muting every track silences the arrangement without
+     destroying which tracks were soloed, so unmute-all restores the previous state. */
+  const setAllMuted = (muted) => {
+    const tracks = docRef.current.tracks
+    if (tracks.every(track => (track.muted === true) === muted)) return
+    commit({
+      ...docRef.current,
+      tracks: tracks.map(track => ((track.muted === true) === muted ? track : { ...track, muted })),
+    })
+  }
+
   const setTrackVolume = (value) => {
     if (activeTrack === null) return
     replaceTrack({ ...activeTrack, volume: value })
@@ -699,18 +1133,24 @@ export function MusicDock({ active = true, chatSessionId, musicPrefs, onMusicPre
   const addNote = (note) => {
     if (activeTrack === null || activeTrack.kind === 'drums') return -1
     const next = addNoteTo(docRef.current, activeTrack.id, note)
-    commit(next)
-    return noteIndexIn(next, activeTrack.id, note)
+    if (next === null) return -1
+    const index = noteIndexIn(next, activeTrack.id, note)
+    commitTrackEdit(next, activeTrack.id, `note:${activeTrack.id}:${index}`)
+    return index
   }
 
   const changeNote = (index, patch) => {
     if (activeTrack === null) return
-    commit(patchNote(docRef.current, activeTrack.id, index, patch))
+    const next = patchNote(docRef.current, activeTrack.id, index, patch)
+    if (next === null) return
+    commitTrackEdit(next, activeTrack.id, `note:${activeTrack.id}:${index}`)
   }
 
   const removeNote = (index) => {
     if (activeTrack === null) return
-    commit(deleteNoteAt(docRef.current, activeTrack.id, index))
+    const next = deleteNoteAt(docRef.current, activeTrack.id, index)
+    if (next === null) return
+    commitTrackEdit(next, activeTrack.id)
     setSelectedNote(null)
   }
 
@@ -721,23 +1161,39 @@ export function MusicDock({ active = true, chatSessionId, musicPrefs, onMusicPre
       step: Math.min(15, selectedNoteFound.note.step + Math.max(1, selectedNoteFound.note.len)),
     }
     const next = addNoteTo(docRef.current, selectedNoteFound.track.id, copy)
-    commit(next)
-    setSelectedNote({ trackId: selectedNoteFound.track.id, index: noteIndexIn(next, selectedNoteFound.track.id, copy) })
+    if (next === null) return
+    const index = noteIndexIn(next, selectedNoteFound.track.id, copy)
+    commitTrackEdit(next, selectedNoteFound.track.id, `note:${selectedNoteFound.track.id}:${index}`)
+    setSelectedNote({ trackId: selectedNoteFound.track.id, index })
   }
 
   const setVelocity = (value) => {
     if (selectedNote === null) return
-    commit(patchNote(docRef.current, selectedNote.trackId, selectedNote.index, { vel: value }))
+    const next = patchNote(docRef.current, selectedNote.trackId, selectedNote.index, { vel: value })
+    if (next === null) return
+    commitTrackEdit(next, selectedNote.trackId, `note:${selectedNote.trackId}:${selectedNote.index}`)
   }
 
   const toggleDrum = (lane, barIndex, step) => {
     if (activeTrack === null || activeTrack.kind !== 'drums') return
-    replaceTrack({ ...activeTrack, drums: toggleDrumStep(activeTrack.drums, lane, barIndex, step, 104) })
+    const next = {
+      ...docRef.current,
+      tracks: docRef.current.tracks.map(track => (track.id === activeTrack.id
+        ? { ...track, drums: toggleDrumStep(track.drums, lane, barIndex, step, 104) }
+        : track)),
+    }
+    commitTrackEdit(next, activeTrack.id)
   }
 
   const varyDrumBar = () => {
     if (activeTrack === null || activeTrack.kind !== 'drums') return
-    replaceTrack({ ...activeTrack, drums: varyDrums(activeTrack.drums, docRef.current.bars, activeBar - 1, docRef.current.prompt.density) })
+    const next = {
+      ...docRef.current,
+      tracks: docRef.current.tracks.map(track => (track.id === activeTrack.id
+        ? { ...track, drums: varyDrums(track.drums, docRef.current.bars, activeBar - 1, docRef.current.prompt.density) }
+        : track)),
+    }
+    commitTrackEdit(next, activeTrack.id)
   }
 
   const changeBpm = (delta) => {
@@ -802,8 +1258,29 @@ export function MusicDock({ active = true, chatSessionId, musicPrefs, onMusicPre
 
   return h('div', {
     className: 'dsh-ws-music',
+    ref: rootRef,
     onKeyDown: (event) => {
+      if (!active) return
       const tag = event.target?.tagName
+      if (event.target?.isContentEditable === true) return
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+      /* Undo/redo only when the active workshop has focus and the target is not a text
+         control: the title and prompt must keep their native text undo. */
+      if ((event.ctrlKey || event.metaKey) && !event.altKey) {
+        const key = String(event.key).toLowerCase()
+        if (key === 'z' || key === 'y') {
+          if (key === 'y' || event.shiftKey) {
+            if (canRedo) {
+              event.preventDefault()
+              redoTrackEdit()
+            }
+          } else if (canUndo) {
+            event.preventDefault()
+            undoTrackEdit()
+          }
+          return
+        }
+      }
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON') return
       if (event.code === 'Space') {
         event.preventDefault()
@@ -814,27 +1291,53 @@ export function MusicDock({ active = true, chatSessionId, musicPrefs, onMusicPre
   h('header', { className: 'dsh-ws-music-head' },
     h('span', { 'aria-hidden': true, className: 'dsh-ws-music-mark' }, '♪'),
     h('div', { className: 'dsh-ws-music-head-text' },
-      h('input', {
-        'aria-label': translate('music.title.aria'),
-        className: 'dsh-ws-music-title',
-        onChange: (event) => {
-          const title = event.target.value.slice(0, 120)
-          const next = { ...docRef.current, title }
-          docRef.current = next
-          setDoc(next)
-          setDirty(true)
-          scheduleSync(next)
-        },
-        spellCheck: false,
-        type: 'text',
-        value: doc.title,
-      }),
-      h('span', { className: 'dsh-ws-music-subtitle' },
-        dirty || savedPath === '' ? translate('music.unsaved') : translate('music.savedState'),
-        savedPath === '' ? null : h('span', { className: 'dsh-ws-music-savedpath', title: savedPath }, savedPath))),
+      h('div', { className: 'dsh-ws-music-title-row' },
+        h('span', { 'aria-hidden': true, className: 'dsh-ws-music-title-measure', ref: titleMeasureRef }, doc.title),
+        h('input', {
+          'aria-label': translate('music.title.aria'),
+          className: 'dsh-ws-music-title',
+          onChange: (event) => {
+            const title = event.target.value.slice(0, 120)
+            const next = { ...docRef.current, title }
+            docRef.current = next
+            setDoc(next)
+            setDirty(true)
+            scheduleSync(next)
+          },
+          spellCheck: false,
+          style: titleWidth > 0 ? { width: `${titleWidth}px` } : undefined,
+          type: 'text',
+          value: doc.title,
+        }),
+        dirty || savedPath === '' ? h('span', {
+          className: 'dsh-ws-music-dirty-dot',
+          title: translate('music.unsaved'),
+        }) : null),
+      savedPath === ''
+        ? null
+        : h('span', { className: 'dsh-ws-music-subtitle' },
+          h('span', { className: 'dsh-ws-music-savedpath', title: savedPath }, savedPath))),
     h('span', { className: 'dsh-ws-music-spacer' }),
-    h('button', { className: 'dsh-ws-text-button', disabled: hostReady !== true, onClick: saveNow, type: 'button' }, translate('music.save')),
-    h('button', { className: 'dsh-ws-text-button dsh-ws-music-head-secondary', disabled: hostReady !== true, onClick: () => { setSaveError(null); setSaveOpen(true) }, type: 'button' }, translate('music.saveAs')),
+    h('button', {
+      'aria-expanded': cacheOpen,
+      'aria-haspopup': 'dialog',
+      className: 'dsh-ws-music-cache-trigger',
+      disabled: cacheScope === null,
+      onClick: () => {
+        setCacheOpen(open => !open)
+        setStyleOpen(false)
+        setMoodOpen(false)
+        setInstrumentsOpen(false)
+      },
+      ref: cacheButtonRef,
+      title: translate('music.cache.triggerTitle'),
+      type: 'button',
+    },
+    h('span', { 'aria-hidden': true, className: 'dsh-ws-music-cache-stack' }, h('i', { key: 'back' }), h('i', { key: 'front' })),
+    h('span', { className: 'dsh-ws-music-cache-label' }, translate('music.cache.trigger')),
+    h('b', null, String(cacheEntries.length + 1)),
+    h('span', { 'aria-hidden': true, className: 'dsh-ws-music-cache-caret' }, '▾')),
+    h('button', { className: 'dsh-ws-text-button', disabled: hostReady !== true, onClick: saveNow, title: translate('music.save.shortcutTitle'), type: 'button' }, translate('music.save')),
     h('button', { className: 'dsh-ws-text-button', disabled: hostReady !== true, onClick: showOpen, type: 'button' }, translate('music.open'))),
 
   h('div', { className: 'dsh-ws-music-transport' },
@@ -881,6 +1384,8 @@ export function MusicDock({ active = true, chatSessionId, musicPrefs, onMusicPre
     h('span', { className: 'dsh-ws-music-time' }, `${formatClock(position)} / ${formatClock(duration)}`)),
 
   hostReady === false ? h('div', { className: 'dsh-ws-music-banner' }, translate('music.hostRestart')) : null,
+  hostReady !== false && samplesLoading ? h('div', { className: 'dsh-ws-music-banner', role: 'status' }, translate('music.samples.loading')) : null,
+  hostReady !== false && !samplesLoading && samplesError !== '' ? h('div', { className: 'dsh-ws-music-banner', role: 'alert' }, `${translate('music.samples.failed')} ${samplesError}`) : null,
 
   h('div', { className: 'dsh-ws-music-scroll' },
     h('div', { className: 'dsh-ws-music-work' },
@@ -897,38 +1402,54 @@ export function MusicDock({ active = true, chatSessionId, musicPrefs, onMusicPre
           h('span', { className: 'dsh-ws-music-card-title' }, translate('music.compose.title')),
           h('span', { className: 'dsh-ws-music-chevron', 'data-open': composeOpen || undefined }, '▾')),
           composeOpen ? h('div', { className: 'dsh-ws-music-compose-body' },
-            h('textarea', {
-              'aria-label': translate('music.compose.prompt'),
-              className: 'dsh-ws-music-prompt',
-              onChange: event => setPromptText(event.target.value.slice(0, 2000)),
-              placeholder: translate('music.compose.promptPlaceholder'),
-              rows: 3,
-              value: promptText,
-            }),
-            h('div', { className: 'dsh-ws-music-chip-label' }, translate('music.compose.style')),
-            h('div', { className: 'dsh-ws-music-chips' }, MUSIC_STYLE_IDS.map(id => h('button', {
-              'aria-pressed': style === id,
-              className: 'dsh-ws-music-chip',
-              key: id,
-              onClick: () => setStyle(id),
-              type: 'button',
-            }, translate(`music.style.${id}`)))),
-            h('div', { className: 'dsh-ws-music-chip-label' }, translate('music.compose.mood')),
-            h('div', { className: 'dsh-ws-music-chips' }, MUSIC_MOOD_IDS.map(id => h('button', {
-              'aria-pressed': mood === id,
-              className: 'dsh-ws-music-chip',
-              key: id,
-              onClick: () => setMood(id),
-              type: 'button',
-            }, translate(`music.mood.${id}`)))),
-            h('label', { className: 'dsh-ws-music-slider' },
-              h('span', null, translate('music.compose.density')),
-              h('input', { max: 100, min: 0, onChange: event => setDensity(Number(event.target.value) / 100), type: 'range', value: Math.round(density * 100) }),
-              h('b', null, `${Math.round(density * 100)}%`)),
-            h('label', { className: 'dsh-ws-music-slider' },
-              h('span', null, translate('music.compose.complexity')),
-              h('input', { max: 100, min: 0, onChange: event => setComplexity(Number(event.target.value) / 100), type: 'range', value: Math.round(complexity * 100) }),
-              h('b', null, `${Math.round(complexity * 100)}%`)),
+            h('div', { className: 'dsh-ws-music-prompt-wrap' },
+              h('textarea', {
+                'aria-label': translate('music.compose.prompt'),
+                className: 'dsh-ws-music-prompt',
+                onChange: event => setPromptText(event.target.value.slice(0, 2000)),
+                placeholder: translate('music.compose.promptPlaceholder'),
+                rows: 3,
+                value: promptText,
+              }),
+              h('span', { className: 'dsh-ws-music-prompt-count' }, `${promptText.length} / 2000`)),
+            h('div', { className: 'dsh-ws-music-choice-row' },
+              h('button', {
+                'aria-expanded': styleOpen,
+                'aria-haspopup': 'dialog',
+                className: 'dsh-ws-music-choice',
+                onClick: toggleStyleChoice,
+                ref: styleButtonRef,
+                style: { '--choice-c': styleColor(style) },
+                type: 'button',
+              },
+              h('span', { className: 'dsh-ws-music-choice-cap' }, translate('music.compose.style')),
+              h('span', { className: 'dsh-ws-music-choice-value' },
+                h('i', { 'aria-hidden': true }),
+                h('span', null, styleLabel),
+                h('b', { 'aria-hidden': true }, '▾'))),
+              h('button', {
+                'aria-expanded': moodOpen,
+                'aria-haspopup': 'dialog',
+                className: 'dsh-ws-music-choice',
+                onClick: toggleMoodChoice,
+                ref: moodButtonRef,
+                style: { '--choice-c': moodColor(mood) },
+                type: 'button',
+              },
+              h('span', { className: 'dsh-ws-music-choice-cap' }, translate('music.compose.mood')),
+              h('span', { className: 'dsh-ws-music-choice-value' },
+                h('i', { 'aria-hidden': true }),
+                h('span', null, moodLabel),
+                h('b', { 'aria-hidden': true }, '▾')))),
+            h('div', { className: 'dsh-ws-music-param-box' },
+              h('label', { className: 'dsh-ws-music-slider' },
+                h('span', null, translate('music.compose.density')),
+                h('input', { max: 100, min: 0, onChange: event => setDensity(Number(event.target.value) / 100), type: 'range', value: Math.round(density * 100) }),
+                h('b', null, `${Math.round(density * 100)}%`)),
+              h('label', { className: 'dsh-ws-music-slider' },
+                h('span', null, translate('music.compose.complexity')),
+                h('input', { max: 100, min: 0, onChange: event => setComplexity(Number(event.target.value) / 100), type: 'range', value: Math.round(complexity * 100) }),
+                h('b', null, `${Math.round(complexity * 100)}%`))),
             h('div', { className: 'dsh-ws-music-duration' },
               h('span', { className: 'dsh-ws-music-chip-label' }, translate('music.compose.duration')),
               h('div', { className: 'dsh-ws-music-duration-row' },
@@ -968,69 +1489,82 @@ export function MusicDock({ active = true, chatSessionId, musicPrefs, onMusicPre
                 bars: String(doc.bars),
                 bpm: String(doc.bpm),
                 seconds: formatSeconds(duration),
-              }))),
-            h('div', { className: 'dsh-ws-music-switch-row' },
-              h('span', { className: 'dsh-ws-music-switch-copy' },
-                h('b', null, translate('music.compose.seamless')),
-                h('em', null, translate('music.compose.seamlessHint'))),
-              h('button', {
-                'aria-checked': doc.prompt.seamless !== false,
-                'aria-label': translate('music.compose.seamless'),
-                className: 'dsh-ws-music-switch',
-                onClick: toggleSeamless,
-                role: 'switch',
-                type: 'button',
-              }, h('span', { 'aria-hidden': true }))),
-            h('div', { className: 'dsh-ws-music-instrument-row' },
+              })),
+              h('div', { className: 'dsh-ws-music-switch-row' },
+                h('span', { className: 'dsh-ws-music-switch-copy' },
+                  h('b', null, translate('music.compose.seamless'))),
+                h('button', {
+                  'aria-checked': doc.prompt.seamless !== false,
+                  'aria-label': translate('music.compose.seamless'),
+                  className: 'dsh-ws-music-switch',
+                  onClick: toggleSeamless,
+                  role: 'switch',
+                  type: 'button',
+                }, h('span', { 'aria-hidden': true })))),
+            /* Both fields share one inline grid: a max-content label column and a full-width
+               control column, so 乐器 / 生成模型 line up on the same two axes. */
+            h('div', { className: 'dsh-ws-music-field-grid' },
               h('span', { className: 'dsh-ws-music-chip-label' }, translate('music.compose.instruments')),
               h('button', {
                 'aria-expanded': instrumentsOpen,
                 'aria-haspopup': 'dialog',
                 className: 'dsh-ws-music-instrument-button',
-                onClick: () => setInstrumentsOpen(open => !open),
+                onClick: () => {
+                  setInstrumentsOpen(open => !open)
+                  setStyleOpen(false)
+                  setMoodOpen(false)
+                  setCacheOpen(false)
+                },
                 ref: instrumentsButtonRef,
                 title: translate('music.compose.instrumentTitle'),
                 type: 'button',
               }, translate('music.compose.instrumentChoose', { count: composeInstruments.length }),
-              h('span', { 'aria-hidden': true, className: 'dsh-ws-music-instrument-caret' }, '▾'))),
-            h('div', { className: 'dsh-ws-music-compose-row' },
-              h('select', {
-                'aria-label': translate('music.compose.model'),
-                className: 'dsh-ws-music-select',
-                onChange: (event) => {
-                  const value = event.target.value
-                  if (value === 'session') {
-                    onMusicPrefs?.({ model: null })
-                    return
-                  }
-                  const found = models.find(model => musicModelKey(model) === value)
-                  if (found !== undefined) onMusicPrefs?.({ model: { provider: found.provider, model: found.model } })
+              h('span', { 'aria-hidden': true, className: 'dsh-ws-music-instrument-caret' }, '▾')),
+              h('span', { className: 'dsh-ws-music-chip-label' }, translate('music.compose.model')),
+              h('div', { className: 'dsh-ws-music-select-wrap' },
+                h('select', {
+                  'aria-label': translate('music.compose.model'),
+                  className: 'dsh-ws-music-select',
+                  onChange: (event) => {
+                    const value = event.target.value
+                    if (value === 'session') {
+                      onMusicPrefs?.({ model: null })
+                      return
+                    }
+                    const found = models.find(model => musicModelKey(model) === value)
+                    if (found !== undefined) onMusicPrefs?.({ model: { provider: found.provider, model: found.model } })
+                  },
+                  title: translate('music.compose.model'),
+                  value: selectedModelValue,
                 },
-                title: translate('music.compose.model'),
-                value: selectedModelValue,
-              },
-              h('option', { key: 'session', value: 'session' }, chatModel === null
-                ? translate('music.compose.followChatUnavailable')
-                : translate('music.compose.followChat', { model: chatModelLabel })),
-              fixedModel !== null && !fixedModelAvailable
-                ? h('option', { key: selectedModelValue, value: selectedModelValue }, `${fixedModel.model} · ${translate('music.compose.modelUnavailable')}`)
-                : null,
-              models.map(model => h('option', { key: musicModelKey(model), value: musicModelKey(model) }, model.name ?? model.model)))),
+                h('option', { key: 'session', value: 'session' }, chatModel === null
+                  ? translate('music.compose.followChatUnavailable')
+                  : translate('music.compose.followChat', { model: chatModelLabel })),
+                fixedModel !== null && !fixedModelAvailable
+                  ? h('option', { key: selectedModelValue, value: selectedModelValue }, `${fixedModel.model} · ${translate('music.compose.modelUnavailable')}`)
+                  : null,
+                models.map(model => h('option', { key: musicModelKey(model), value: musicModelKey(model) }, model.name ?? model.model))),
+                h('span', { 'aria-hidden': true, className: 'dsh-ws-music-select-caret' }, '▾'))),
             h('div', { className: 'dsh-ws-music-compose-actions' },
               h('button', {
                 className: 'dsh-ws-music-primary',
-                disabled: composing || hostReady !== true,
+                disabled: composing || hostReady !== true || !samplesReady,
                 onClick: () => void runCompose(),
                 type: 'button',
               }, composing ? translate('music.compose.running') : translate('music.compose.action')),
               composing
-                ? h('button', { className: 'dsh-ws-music-mini-button', onClick: cancelCompose, type: 'button' }, translate('music.compose.cancel'))
-                : h('button', { className: 'dsh-ws-music-mini-button', onClick: () => void runCompose(), title: translate('music.compose.again'), type: 'button' }, '↻')),
+                ? h('button', {
+                  className: 'dsh-ws-music-cancel',
+                  onClick: cancelCompose,
+                  title: translate('music.compose.cancel'),
+                  type: 'button',
+                }, h('span', { 'aria-hidden': true, className: 'dsh-ws-music-stop' }, '■'), translate('music.compose.cancel'))
+                : null),
             composing
               ? h('div', { className: 'dsh-ws-music-progress', role: 'status' }, h('i', null), h('span', null, composeStage !== null && composeStage.total > 1
                 ? translate('music.compose.progressSegment', { index: String(composeStage.index), total: String(composeStage.total) })
                 : translate('music.compose.progress')))
-              : h('p', { className: 'dsh-ws-music-hint' }, translate('music.compose.hint')))
+              : null)
           : null),
       /* Selected-track / selected-note inspector, directly under the AI card. */
         h('aside', { className: 'dsh-ws-music-inspector' },
@@ -1124,14 +1658,19 @@ export function MusicDock({ active = true, chatSessionId, musicPrefs, onMusicPre
       /* center: arrangement + context editor */
       h('div', { className: 'dsh-ws-music-main' },
         h(Arrangement, {
+          barWidth: arrangeBarWidth,
           doc,
           onAddTrack: () => setPickerOpen(true),
+          onMuteAll: () => setAllMuted(true),
           onReorderTrack: reorderTrack,
           onSelectTrack: selectTrack,
           onToggleMute: toggleMute,
           onToggleSolo: toggleSolo,
+          onUnmuteAll: () => setAllMuted(false),
+          onZoom: value => onMusicPrefs?.({ arrangeZoom: value }),
           playhead,
           selectedTrackId: activeTrack?.id ?? null,
+          zoom: musicPrefs?.arrangeZoom ?? 1,
         }),
         h('section', { className: 'dsh-ws-music-editor' },
           h('div', { className: 'dsh-ws-music-editor-head' },
@@ -1140,17 +1679,41 @@ export function MusicDock({ active = true, chatSessionId, musicPrefs, onMusicPre
               ? translate('music.editor.title')
               : trackDisplayName(activeTrack)),
             activeTrack === null ? null : h('span', { className: 'dsh-ws-music-editor-inst' }, translate(activeInfo.nameKey)),
-            h('span', { className: 'dsh-ws-music-editor-hint' }, activeTrack === null
-              ? ''
-              : activeTrack.kind === 'drums' ? translate('music.editor.drumsHint') : translate('music.editor.notesHint')),
             h('span', { className: 'dsh-ws-music-spacer' }),
             activeTrack === null || activeTrack.kind === 'drums' ? null : h('span', { className: 'dsh-ws-music-editor-count' }, translate('music.editor.noteCount', { count: String(activeTrack.notes.length) })),
             h('button', {
-              className: 'dsh-ws-music-mini-button',
-              onClick: () => setEditorOpen(!editorOpen),
+              'aria-label': translate('music.editor.undo'),
+              className: 'dsh-ws-music-editor-action',
+              disabled: !canUndo,
+              onClick: undoTrackEdit,
+              title: translate('music.editor.undoTitle'),
               type: 'button',
-            }, editorOpen ? translate('music.editor.collapse') : translate('music.editor.expand'))),
-          editorOpen ? h('div', { className: 'dsh-ws-music-editor-body' },
+            }, h('svg', { 'aria-hidden': true, viewBox: '0 0 16 16' },
+              h('path', {
+                d: 'M6.3 5.2 3.5 8l2.8 2.8M3.7 8h5.1c2.3 0 4.1 1.5 4.1 3.5',
+                fill: 'none',
+                stroke: 'currentColor',
+                'stroke-linecap': 'round',
+                'stroke-linejoin': 'round',
+                'stroke-width': 1.2,
+              }))),
+            h('button', {
+              'aria-label': translate('music.editor.redo'),
+              className: 'dsh-ws-music-editor-action',
+              disabled: !canRedo,
+              onClick: redoTrackEdit,
+              title: translate('music.editor.redoTitle'),
+              type: 'button',
+            }, h('svg', { 'aria-hidden': true, viewBox: '0 0 16 16' },
+              h('path', {
+                d: 'M9.7 5.2 12.5 8l-2.8 2.8M12.3 8H7.2c-2.3 0-4.1 1.5-4.1 3.5',
+                fill: 'none',
+                stroke: 'currentColor',
+                'stroke-linecap': 'round',
+                'stroke-linejoin': 'round',
+                'stroke-width': 1.2,
+              })))),
+          h('div', { className: 'dsh-ws-music-editor-body' },
             activeTrack === null
               ? h('div', { className: 'dsh-ws-music-editor-empty' },
                 h('b', null, translate('music.editor.empty')),
@@ -1170,9 +1733,12 @@ export function MusicDock({ active = true, chatSessionId, musicPrefs, onMusicPre
                 })
                 : h(PianoRoll, {
                   bars: doc.bars,
+                  baseGridWidth: rollBaseWidth,
+                  baseRowHeight: rollBaseHeight,
                   color: activeInfo.color,
                   height: musicPrefs?.rollHeight ?? null,
                   onAdd: addNote,
+                  onAudition: auditionNote,
                   onChange: changeNote,
                   onDelete: removeNote,
                   onHeight: value => onMusicPrefs?.({ rollHeight: value }),
@@ -1184,8 +1750,8 @@ export function MusicDock({ active = true, chatSessionId, musicPrefs, onMusicPre
                   track: activeTrack,
                   zoomX: musicPrefs?.rollZoomX ?? 1,
                   zoomY: musicPrefs?.rollZoomY ?? 1,
-                }))
-            : null)))),
+                }))),
+        ))),
 
 
   h('div', { className: 'dsh-ws-music-status' },
@@ -1195,6 +1761,48 @@ export function MusicDock({ active = true, chatSessionId, musicPrefs, onMusicPre
     h('span', null, translate('music.status.notes', { count: notesTotal })),
     h('span', { className: 'dsh-ws-music-spacer' }),
     status === null ? null : h('span', { className: 'dsh-ws-music-status-text', 'data-error': status.error || undefined }, status.text)),
+
+  cacheOpen ? h(MusicCachePopover, {
+    anchorRef: cacheButtonRef,
+    current: {
+      bars: doc.bars,
+      mood: doc.prompt.mood,
+      seconds: scoreSeconds(doc),
+      style: doc.prompt.style,
+      title: doc.title,
+      updatedAt: doc.updatedAt,
+    },
+    entries: cacheEntries,
+    error: cacheError,
+    loading: cacheLoading,
+    onClose: () => setCacheOpen(false),
+    onDelete: deleteCacheEntry,
+    onSelect: loadCachedEntry,
+  }) : null,
+
+  styleOpen ? h(ComposeChoicePopover, {
+    anchorRef: styleButtonRef,
+    hint: translate('music.compose.styleHint'),
+    kind: 'style',
+    onCancel: () => setStyleOpen(false),
+    onSelect: chooseStyle,
+    options: styleOptions,
+    selected: style,
+    title: translate('music.compose.styleTitle'),
+    width: 300,
+  }) : null,
+
+  moodOpen ? h(ComposeChoicePopover, {
+    anchorRef: moodButtonRef,
+    hint: translate('music.compose.moodHint'),
+    kind: 'mood',
+    onCancel: () => setMoodOpen(false),
+    onSelect: chooseMood,
+    options: moodOptions,
+    selected: mood,
+    title: translate('music.compose.moodTitle'),
+    width: 300,
+  }) : null,
 
   instrumentsOpen ? h(ComposeInstrumentsPopover, {
     anchorRef: instrumentsButtonRef,
@@ -1210,11 +1818,12 @@ export function MusicDock({ active = true, chatSessionId, musicPrefs, onMusicPre
 
   saveOpen ? h(MusicSaveDialog, {
     busy: saving,
-    defaultDir: (() => {
-      const parsed = parseSavedPath(savedPathRef.current)
-      return parsed.dir === '' ? 'music' : parsed.dir
-    })(),
-    defaultName: safeFileName(doc.title),
+    /* Prefill this piece's remembered path (dir + file name), else the configured default folder
+       and the score title. Confirming here is what re-points the piece at a new path. */
+    defaultDir: savedPathRef.current === '' ? defaultSaveDir : parseSavedPath(savedPathRef.current).dir,
+    defaultName: savedPathRef.current === ''
+      ? safeFileName(doc.title)
+      : stripMusicSuffix(parseSavedPath(savedPathRef.current).name),
     error: saveError,
     onCancel: () => { if (!saving) { setSaveOpen(false); setSaveError(null) } },
     onConfirm: (dir, name) => void doSave(dir, name),
@@ -1226,8 +1835,11 @@ export function MusicDock({ active = true, chatSessionId, musicPrefs, onMusicPre
     files: openFiles,
     loading: openLoading,
     onCancel: () => setOpenOpen(false),
-    onOpen: pickOpen,
-    onRefresh: dir => void refreshOpen(dir),
+    onDir: (dir, refresh) => {
+      setOpenDir(dir)
+      if (refresh === true) void refreshOpen(dir)
+    },
+    onPick: pickOpen,
   }) : null,
 
   discardPath === null ? null : h(MusicDiscardDialog, {

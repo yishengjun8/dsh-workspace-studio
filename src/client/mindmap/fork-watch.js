@@ -87,12 +87,17 @@ export function installForeignForkWatch(ctx) {
        no try/catch around the original call. */
     const childId = await original.call(sessions, opts)
     if (ownForkDepth === 0) {
+      const parentSessionId = opts === null || opts === undefined ? undefined : opts.sessionId
+      /* Membership FIRST, before any await: the chat navigates to the child as soon as this
+         resolves, and the sidebar hider must already judge its fresh row as family in that same
+         commit (the harness no longer records a parent id for ordinary forks, so the registry is
+         the only source the hider has). */
+      handOffForeignFork(parentSessionId, childId)
       try {
         await clearMindmapForkQueue(String(childId))
       } catch {
         /* advisory: a failed cleanup degrades to the leaked-queue behavior */
       }
-      handOffForeignFork(opts === null || opts === undefined ? undefined : opts.sessionId, childId)
     }
     return childId
   }

@@ -1,0 +1,1865 @@
+{
+  "instruments": {
+    "piano": {
+      "oneShot": true,
+      "zones": [
+        {
+          "file": "ogg/piano/000.ogg",
+          "gain": 0.037,
+          "high": 23,
+          "low": 21,
+          "root": 22,
+          "sha256": "eab77e33ff8ac641f425263ad955fa229e0d80ba51ee0ffa85ae7abb11869e45"
+        },
+        {
+          "file": "ogg/piano/001.ogg",
+          "gain": 0.123,
+          "high": 25,
+          "low": 24,
+          "root": 24,
+          "sha256": "29d37b4f9d847d5feab23561f26067172dd95ab819e435b28e98b2b9272a72b9"
+        },
+        {
+          "file": "ogg/piano/002.ogg",
+          "gain": 0.162,
+          "high": 28,
+          "low": 26,
+          "root": 27,
+          "sha256": "f7fe5f2494f5880240ea633a261031bd02e45e3e9c3c33b4b4199f80aab2e67a"
+        },
+        {
+          "file": "ogg/piano/003.ogg",
+          "gain": 0.095,
+          "high": 31,
+          "low": 29,
+          "root": 30,
+          "sha256": "981823d80f97adfaafc01e3fc3df8d49f0d68671e640cadd4e7f60560d52b29c"
+        },
+        {
+          "file": "ogg/piano/004.ogg",
+          "gain": 0.081,
+          "high": 34,
+          "low": 32,
+          "root": 33,
+          "sha256": "c22ffff40556ff433cc5109af3a9ffca8edb3d55818bd65b121377581de51c59"
+        },
+        {
+          "file": "ogg/piano/005.ogg",
+          "gain": 0.166,
+          "high": 37,
+          "low": 35,
+          "root": 36,
+          "sha256": "9ca24a4015ea7af2afbf6e791b3231704ec9aab2ba20f6e1e3fbbf285c0698f0"
+        },
+        {
+          "file": "ogg/piano/006.ogg",
+          "gain": 0.171,
+          "high": 40,
+          "low": 38,
+          "root": 39,
+          "sha256": "935e34c5ea7466ffbff5e112a4af7b28a8f0a779d9b6f7d7816169a15dfc0041"
+        },
+        {
+          "file": "ogg/piano/007.ogg",
+          "gain": 0.087,
+          "high": 43,
+          "low": 41,
+          "root": 42,
+          "sha256": "4cd9c54a42364412d7f4966f406fb9d7f0e7f36fdc16eb3230fa2a9ccec90841"
+        },
+        {
+          "file": "ogg/piano/008.ogg",
+          "gain": 0.08,
+          "high": 46,
+          "low": 44,
+          "root": 45,
+          "sha256": "ca21fa3e6305ec9561375968a3622fbfa929854ba6f9eea5fb3107b1b76726a1"
+        },
+        {
+          "file": "ogg/piano/009.ogg",
+          "gain": 0.101,
+          "high": 49,
+          "low": 47,
+          "root": 48,
+          "sha256": "8c261247ded60e220ea505358d0d6178ddf6ed7cf8c516ed78d213602231f041"
+        },
+        {
+          "file": "ogg/piano/010.ogg",
+          "gain": 0.109,
+          "high": 51,
+          "low": 50,
+          "root": 50,
+          "sha256": "3006884580002c088ebcc7bad54c325865bb1ed4b4ecdaf1639484e3cb0afb6f"
+        },
+        {
+          "file": "ogg/piano/011.ogg",
+          "gain": 0.098,
+          "high": 53,
+          "low": 52,
+          "root": 52,
+          "sha256": "3e3e7116188230729f0e65e176f184e7513ed301fd3c885736f109c52faf910e"
+        },
+        {
+          "file": "ogg/piano/012.ogg",
+          "gain": 0.262,
+          "high": 55,
+          "low": 54,
+          "root": 54,
+          "sha256": "7f243571787f307d020f33d4df0595a286e708b99c27812000bc781d1bb5a165"
+        },
+        {
+          "file": "ogg/piano/013.ogg",
+          "gain": 0.325,
+          "high": 57,
+          "low": 56,
+          "root": 56,
+          "sha256": "2072052cc5c9526637a77b1dd24285ba24fa56044298f9476cf57479c7e006db"
+        },
+        {
+          "file": "ogg/piano/014.ogg",
+          "gain": 0.104,
+          "high": 59,
+          "low": 58,
+          "root": 58,
+          "sha256": "4adeb228a65830393d3b6f09fbcbf148d1d9fe53c883ea1d72830eff5447713e"
+        },
+        {
+          "file": "ogg/piano/015.ogg",
+          "gain": 0.1,
+          "high": 61,
+          "low": 60,
+          "root": 60,
+          "sha256": "f9440eccf3581b369382f9250b75deed08c56bc806f4640d313da017d02db95a"
+        },
+        {
+          "file": "ogg/piano/016.ogg",
+          "gain": 0.257,
+          "high": 63,
+          "low": 62,
+          "root": 62,
+          "sha256": "ccfc6bf53cdef8abdb4dafbb0ccbbb7dc16e10761414f5b5f7dfec1703d73482"
+        },
+        {
+          "file": "ogg/piano/017.ogg",
+          "gain": 0.121,
+          "high": 65,
+          "low": 64,
+          "root": 64,
+          "sha256": "8ec9bcb313262bfdead134a51e17ada480bd40ab28e2b37d7f931abdc3a42a76"
+        },
+        {
+          "file": "ogg/piano/018.ogg",
+          "gain": 0.123,
+          "high": 67,
+          "low": 66,
+          "root": 66,
+          "sha256": "1a16d3cb6d0b40252035a6dd6b8722d3c7ac5c1465071520b68bfb0c99b9f180"
+        },
+        {
+          "file": "ogg/piano/019.ogg",
+          "gain": 0.164,
+          "high": 69,
+          "low": 68,
+          "root": 68,
+          "sha256": "71b2c30cf8e8cd7b974035054b24917dec79f3bde1535c3251f33dc029ab1b91"
+        },
+        {
+          "file": "ogg/piano/020.ogg",
+          "gain": 0.356,
+          "high": 71,
+          "low": 70,
+          "root": 70,
+          "sha256": "57745cd23955b52a0369180cc1527748a250975b54c5b7d828538e1d5ef88665"
+        },
+        {
+          "file": "ogg/piano/021.ogg",
+          "gain": 0.109,
+          "high": 73,
+          "low": 72,
+          "root": 72,
+          "sha256": "29d4655334eb207c0c91135c62581700dd031e4229201a7b9d11927fd6dc2b59"
+        },
+        {
+          "file": "ogg/piano/022.ogg",
+          "gain": 0.075,
+          "high": 75,
+          "low": 74,
+          "root": 74,
+          "sha256": "24fea28c7b8492f0244a7adc27e6704a931c3c800a71efd29439153a64ae7c04"
+        },
+        {
+          "file": "ogg/piano/023.ogg",
+          "gain": 0.207,
+          "high": 77,
+          "low": 76,
+          "root": 76,
+          "sha256": "837b8ceca0280df0795b87b1d368356aa387de15f43243ef7af5b70bde1fb547"
+        },
+        {
+          "file": "ogg/piano/024.ogg",
+          "gain": 0.383,
+          "high": 79,
+          "low": 78,
+          "root": 78,
+          "sha256": "186d7f0ac7cc253ed04d82e95b33b07edeac80d4008b10b5d50ef4f632528893"
+        },
+        {
+          "file": "ogg/piano/025.ogg",
+          "gain": 0.82,
+          "high": 81,
+          "low": 80,
+          "root": 80,
+          "sha256": "995a3e6e5d8cebb77ebe0ae1977b474505ed94b83881467ca0d53a2a25d5dcd5"
+        },
+        {
+          "file": "ogg/piano/026.ogg",
+          "gain": 0.234,
+          "high": 82,
+          "low": 82,
+          "root": 82,
+          "sha256": "9081788391ba17a7bc211cbdb5b2ee87383a761d5c115ecf729134dc8bc08d6e"
+        },
+        {
+          "file": "ogg/piano/027.ogg",
+          "gain": 0.041,
+          "high": 83,
+          "low": 83,
+          "root": 83,
+          "sha256": "dde994cfaa5653661060d8913cfec40555a2609cc04291bb4b3f4fc6e9aaaeb1"
+        },
+        {
+          "file": "ogg/piano/028.ogg",
+          "gain": 0.068,
+          "high": 85,
+          "low": 84,
+          "root": 84,
+          "sha256": "8931502b6c97bca42ec1c9970f168a98435a4551ea60ffd22c3d3a4e50de55d3"
+        },
+        {
+          "file": "ogg/piano/029.ogg",
+          "gain": 0.045,
+          "high": 88,
+          "low": 86,
+          "root": 87,
+          "sha256": "2eeeab3e851ae486410669d35bd74a9aa17b24fff466fe95513bd0a6bf9b4a86"
+        },
+        {
+          "file": "ogg/piano/030.ogg",
+          "gain": 0.025,
+          "high": 91,
+          "low": 89,
+          "root": 90,
+          "sha256": "983b68ff1aeed84e65468410e969925aa205ad828c29f33ef72208c2a6591ae8"
+        },
+        {
+          "file": "ogg/piano/031.ogg",
+          "gain": 0.032,
+          "high": 94,
+          "low": 92,
+          "root": 93,
+          "sha256": "7e64e26427713ea3f3ad5164b519cf8cb9857184711be18fa7edf577961dfdd9"
+        },
+        {
+          "file": "ogg/piano/032.ogg",
+          "gain": 0.058,
+          "high": 97,
+          "low": 95,
+          "root": 96,
+          "sha256": "b112cfcb899e4b1bb056f5e09d5a2c036cae544ae1bd28a48453f205ce78e885"
+        },
+        {
+          "file": "ogg/piano/033.ogg",
+          "gain": 0.032,
+          "high": 100,
+          "low": 98,
+          "root": 99,
+          "sha256": "a970cc45f13a234709b201918affcd22f4592fe6db684b3f9a6395154a56627a"
+        },
+        {
+          "file": "ogg/piano/034.ogg",
+          "gain": 0.023,
+          "high": 102,
+          "low": 101,
+          "root": 102,
+          "sha256": "618b4623fc30338d5f4a2f17170c14b24c6763af7edb8de5ac9cfe0260989470"
+        },
+        {
+          "file": "ogg/piano/035.ogg",
+          "gain": 0.094,
+          "high": 104,
+          "low": 103,
+          "root": 103,
+          "sha256": "0dedcc9749657d3f325f09de80c9ec4d52af88a7ee9c0eb7e22f26e731006273"
+        },
+        {
+          "file": "ogg/piano/036.ogg",
+          "gain": 0.081,
+          "high": 106,
+          "low": 105,
+          "root": 105,
+          "sha256": "6cca79675d69214f7f06e62e752a7a5dc3fce2ba422be929641f70c56d097962"
+        },
+        {
+          "file": "ogg/piano/037.ogg",
+          "gain": 0.13,
+          "high": 109,
+          "low": 107,
+          "root": 108,
+          "sha256": "5b88bb71b28f8e3e7b90b5eef44a9650881d1afe054a3a26cce445164f357199"
+        }
+      ]
+    },
+    "organ": {
+      "oneShot": true,
+      "zones": [
+        {
+          "file": "ogg/organ/000.ogg",
+          "gain": 0.537,
+          "high": 37,
+          "low": 36,
+          "root": 36,
+          "sha256": "3f9885d23f45cfa7cd46283bc50f2043ab1ad798db49406996c5329ed4e71c08"
+        },
+        {
+          "file": "ogg/organ/001.ogg",
+          "gain": 0.535,
+          "high": 39,
+          "low": 38,
+          "root": 38,
+          "sha256": "b84eb88654d30a19beac645936522d68f00cd92575907281656e6ad77530d95c"
+        },
+        {
+          "file": "ogg/organ/002.ogg",
+          "gain": 0.466,
+          "high": 41,
+          "low": 40,
+          "root": 40,
+          "sha256": "18057349e62e33a9dbc013a67cd02ffc83fa33f18eed585958f73b0c1619a484"
+        },
+        {
+          "file": "ogg/organ/003.ogg",
+          "gain": 0.629,
+          "high": 43,
+          "low": 42,
+          "root": 42,
+          "sha256": "40d28104bc34f2ffc5c947c6df58318cf85f50cdef826c4a2dd134d3349070c4"
+        },
+        {
+          "file": "ogg/organ/004.ogg",
+          "gain": 0.522,
+          "high": 45,
+          "low": 44,
+          "root": 44,
+          "sha256": "0a6e41a8b7578889a43ae609dc969d1e5fcf913c7796f3f2233c887a3525aed7"
+        },
+        {
+          "file": "ogg/organ/005.ogg",
+          "gain": 0.326,
+          "high": 47,
+          "low": 46,
+          "root": 46,
+          "sha256": "cfe15229d9737bec1dde6aad5bc97b3688e3232e4f94faa01b2b26854f310218"
+        },
+        {
+          "file": "ogg/organ/006.ogg",
+          "gain": 0.582,
+          "high": 49,
+          "low": 48,
+          "root": 48,
+          "sha256": "f54f96085c3d57e00254db341fb75f5fc5acb36cf88186c244c49550e2d15356"
+        },
+        {
+          "file": "ogg/organ/007.ogg",
+          "gain": 0.667,
+          "high": 51,
+          "low": 50,
+          "root": 50,
+          "sha256": "28d7fe011fcd99a6db6a746224ac70ec9ed07891daddeadcd8f303273bf697f9"
+        },
+        {
+          "file": "ogg/organ/008.ogg",
+          "gain": 0.43,
+          "high": 53,
+          "low": 52,
+          "root": 52,
+          "sha256": "d352f491cb7297755e764e2dbe876cd0b38d725831b3448d031917325134d576"
+        },
+        {
+          "file": "ogg/organ/009.ogg",
+          "gain": 0.459,
+          "high": 55,
+          "low": 54,
+          "root": 54,
+          "sha256": "aea6aa08fc044a0cedd96f7ef766827943d36f494bc70ffc2ae83b5d855f7db9"
+        },
+        {
+          "file": "ogg/organ/010.ogg",
+          "gain": 0.786,
+          "high": 57,
+          "low": 56,
+          "root": 56,
+          "sha256": "65eeb584c5161a1424a4777b350da7c79e93cea9c6c441c6269f6fa27d352809"
+        },
+        {
+          "file": "ogg/organ/011.ogg",
+          "gain": 0.681,
+          "high": 59,
+          "low": 58,
+          "root": 58,
+          "sha256": "491115f2059a1ee22b9bb44de31e7b1daf29a501b9bbe432ebd3ae760f7d1316"
+        },
+        {
+          "file": "ogg/organ/012.ogg",
+          "gain": 0.325,
+          "high": 61,
+          "low": 60,
+          "root": 60,
+          "sha256": "05058ad85aaa91d211dbc9f06aee86f95293e9e2ca555ae4522ced4d81f84e9a"
+        },
+        {
+          "file": "ogg/organ/013.ogg",
+          "gain": 0.462,
+          "high": 63,
+          "low": 62,
+          "root": 62,
+          "sha256": "ecafce41ec1f1e8e7282cc4b95b1084040a901c29e968c30be3001246bd08a29"
+        },
+        {
+          "file": "ogg/organ/014.ogg",
+          "gain": 0.609,
+          "high": 65,
+          "low": 64,
+          "root": 64,
+          "sha256": "854ead7c75fdb1db4f2e258a89db42f018e298e578a8f1976adb9a5f99af5391"
+        },
+        {
+          "file": "ogg/organ/015.ogg",
+          "gain": 0.494,
+          "high": 67,
+          "low": 66,
+          "root": 66,
+          "sha256": "37313f6a9ea736b89a10343e2daf825b697658fb0686961f4dbda44b663499a0"
+        },
+        {
+          "file": "ogg/organ/016.ogg",
+          "gain": 0.62,
+          "high": 69,
+          "low": 68,
+          "root": 68,
+          "sha256": "8284a48524788a69ef1376a080d57aebc6ba5537d3904ee230ec1aca8b78a270"
+        },
+        {
+          "file": "ogg/organ/017.ogg",
+          "gain": 0.655,
+          "high": 71,
+          "low": 70,
+          "root": 70,
+          "sha256": "e38d2104b8bc4694f95e6dc9d6a561645cf05f21b521ac19414338ec9c4e0399"
+        },
+        {
+          "file": "ogg/organ/018.ogg",
+          "gain": 0.574,
+          "high": 73,
+          "low": 72,
+          "root": 72,
+          "sha256": "2e1f738eb79b102198a5c1474e4b84f931fc72bf3354e4fb9d96658d86ee3850"
+        },
+        {
+          "file": "ogg/organ/019.ogg",
+          "gain": 0.314,
+          "high": 75,
+          "low": 74,
+          "root": 74,
+          "sha256": "7b63cec391f28d4298537b1ad86de796c1253abdacc20b5ee97d1cf0a6f6df58"
+        },
+        {
+          "file": "ogg/organ/020.ogg",
+          "gain": 0.479,
+          "high": 77,
+          "low": 76,
+          "root": 76,
+          "sha256": "a8ee72f6802949088e94515a36477d8d4885c42786785b84defee2d03e0eadb7"
+        },
+        {
+          "file": "ogg/organ/021.ogg",
+          "gain": 0.673,
+          "high": 79,
+          "low": 78,
+          "root": 78,
+          "sha256": "ca7add837cc27dc055e71b76a686d6be1a7458cafca076d211904f938e3e56d6"
+        },
+        {
+          "file": "ogg/organ/022.ogg",
+          "gain": 0.518,
+          "high": 81,
+          "low": 80,
+          "root": 80,
+          "sha256": "a893ef097cd349ae5fa36435b4ee488ab65bb7bcf2803a2b1b0be85b7195707f"
+        },
+        {
+          "file": "ogg/organ/023.ogg",
+          "gain": 0.465,
+          "high": 83,
+          "low": 82,
+          "root": 82,
+          "sha256": "4dc87a44f2f93829ab509753bcb7e61feed6a6b2c2c3af31863c0f7cb9862d0e"
+        },
+        {
+          "file": "ogg/organ/024.ogg",
+          "gain": 0.516,
+          "high": 85,
+          "low": 84,
+          "root": 84,
+          "sha256": "c588b16fc086159b6e0ed65fc06587aaf0aa515d76e8cbb41797790b8437e8ba"
+        },
+        {
+          "file": "ogg/organ/025.ogg",
+          "gain": 0.82,
+          "high": 87,
+          "low": 86,
+          "root": 86,
+          "sha256": "73ab04d1408733a47d633d48622ecd3d556d9869d5fe5f7db0ed87fe19be6fe3"
+        },
+        {
+          "file": "ogg/organ/026.ogg",
+          "gain": 0.417,
+          "high": 89,
+          "low": 88,
+          "root": 88,
+          "sha256": "d2c18253bbd7c1b9f966fad03c2efc9c6d3b5e64494d3c55d08da79932b7654c"
+        }
+      ]
+    },
+    "harpsichord": {
+      "oneShot": true,
+      "zones": [
+        {
+          "file": "ogg/harpsichord/000.ogg",
+          "gain": 0.719,
+          "high": 29,
+          "low": 24,
+          "root": 26,
+          "sha256": "d0a56b4fa87a1de6325531d7c62f04dc21b28c1503d825d1fa3c71398007bfa9"
+        },
+        {
+          "file": "ogg/harpsichord/001.ogg",
+          "gain": 0.444,
+          "high": 33,
+          "low": 30,
+          "root": 32,
+          "sha256": "27f0c9231f174d2c17a73c43683930d11bb6b8f627879b0c77be0c7694c082df"
+        },
+        {
+          "file": "ogg/harpsichord/002.ogg",
+          "gain": 0.396,
+          "high": 35,
+          "low": 34,
+          "root": 34,
+          "sha256": "72213d5025a27f249d7005bb4c3158f88c859b9c3a77a532dfe63dbc8835cb08"
+        },
+        {
+          "file": "ogg/harpsichord/003.ogg",
+          "gain": 0.559,
+          "high": 37,
+          "low": 36,
+          "root": 36,
+          "sha256": "26453c1a7e81ded721427fd42010287363efba30a5b70868412d35547327e3ef"
+        },
+        {
+          "file": "ogg/harpsichord/004.ogg",
+          "gain": 0.629,
+          "high": 39,
+          "low": 38,
+          "root": 38,
+          "sha256": "45d850b7ef71b7edd87f0d0204efeb4b5770a25bebc5fdbd4283c1c3847bdc6e"
+        },
+        {
+          "file": "ogg/harpsichord/005.ogg",
+          "gain": 0.444,
+          "high": 41,
+          "low": 40,
+          "root": 40,
+          "sha256": "282161a1e6785e3069386a614b26eed33619208499584ef9985f73c131421e31"
+        },
+        {
+          "file": "ogg/harpsichord/006.ogg",
+          "gain": 0.581,
+          "high": 43,
+          "low": 42,
+          "root": 42,
+          "sha256": "cc1d8a86e48b97be1fb23d2e5d1be06c88729169d7527173be02ec58f120c489"
+        },
+        {
+          "file": "ogg/harpsichord/007.ogg",
+          "gain": 0.504,
+          "high": 45,
+          "low": 44,
+          "root": 44,
+          "sha256": "801b4feafead039ca0309a3bb33b62b10644131739685df84128e8c7585b3118"
+        },
+        {
+          "file": "ogg/harpsichord/008.ogg",
+          "gain": 0.444,
+          "high": 47,
+          "low": 46,
+          "root": 46,
+          "sha256": "19f7a80cf510cac2bd84bb3f7b7387ab161f3f335410cab8e8ec3cbd35057338"
+        },
+        {
+          "file": "ogg/harpsichord/009.ogg",
+          "gain": 0.518,
+          "high": 49,
+          "low": 48,
+          "root": 48,
+          "sha256": "a7752c54b5f6e4324a4a250ba76bccbf2a53b0ca2a14b357e84b06768c93f8c3"
+        },
+        {
+          "file": "ogg/harpsichord/010.ogg",
+          "gain": 0.52,
+          "high": 51,
+          "low": 50,
+          "root": 50,
+          "sha256": "10eb2c3669d46769b7284b89396a0bbd497c49055d5b531b650457609dd1e322"
+        },
+        {
+          "file": "ogg/harpsichord/011.ogg",
+          "gain": 0.343,
+          "high": 53,
+          "low": 52,
+          "root": 52,
+          "sha256": "b9494eab85a5c5bcfa242f02887354602c7c69891ca38d9b31a4aa479f1cc43b"
+        },
+        {
+          "file": "ogg/harpsichord/012.ogg",
+          "gain": 0.368,
+          "high": 55,
+          "low": 54,
+          "root": 54,
+          "sha256": "baa641c867a38b05e6857a18d55498fa5cf67f6ddb048e1bb2ee558bca761b89"
+        },
+        {
+          "file": "ogg/harpsichord/013.ogg",
+          "gain": 0.353,
+          "high": 57,
+          "low": 56,
+          "root": 56,
+          "sha256": "b25f075278d3519203730a9d65642e594497f43d9273807df361d9e7c434af90"
+        },
+        {
+          "file": "ogg/harpsichord/014.ogg",
+          "gain": 0.353,
+          "high": 59,
+          "low": 58,
+          "root": 58,
+          "sha256": "fa7fb898d3af69fda8b24ae590cf5c421580625a98ee9d66eccb15cda93a1d9d"
+        },
+        {
+          "file": "ogg/harpsichord/015.ogg",
+          "gain": 0.524,
+          "high": 61,
+          "low": 60,
+          "root": 60,
+          "sha256": "f3392d9b0642dfac794dc10684cf2121e1a240a6acd504aad8a97adeea529cb5"
+        },
+        {
+          "file": "ogg/harpsichord/016.ogg",
+          "gain": 0.374,
+          "high": 63,
+          "low": 62,
+          "root": 62,
+          "sha256": "19acc7987c3f745a3d9ff070ce6039ff6fcf315de2b2094846969c20c171d6d1"
+        },
+        {
+          "file": "ogg/harpsichord/017.ogg",
+          "gain": 0.424,
+          "high": 65,
+          "low": 64,
+          "root": 64,
+          "sha256": "0cdbec3c21918db4eae91d245fbe386adedb1af60ffabceba6d13e9e1ab3f4eb"
+        },
+        {
+          "file": "ogg/harpsichord/018.ogg",
+          "gain": 0.39,
+          "high": 67,
+          "low": 66,
+          "root": 66,
+          "sha256": "0e847e494b4904aeed1e3a820896a1fd3010a52bca3510429700a46616a76f8f"
+        },
+        {
+          "file": "ogg/harpsichord/019.ogg",
+          "gain": 0.391,
+          "high": 69,
+          "low": 68,
+          "root": 68,
+          "sha256": "ef739871c2c43e545dbe2c6b3b9e7b7cf563318e6b8b1f60600ad82eb9aef8ed"
+        },
+        {
+          "file": "ogg/harpsichord/020.ogg",
+          "gain": 0.48,
+          "high": 71,
+          "low": 70,
+          "root": 70,
+          "sha256": "e3d7a655bbd11cc37ecf801226a75b0470e67ae67e49ecc065a5e7bd0ab649bf"
+        },
+        {
+          "file": "ogg/harpsichord/021.ogg",
+          "gain": 0.721,
+          "high": 73,
+          "low": 72,
+          "root": 72,
+          "sha256": "425b93b04fb225a8428b4244be89c6ecb8f4a2270193ef4888e30677c3c5178d"
+        },
+        {
+          "file": "ogg/harpsichord/022.ogg",
+          "gain": 0.553,
+          "high": 75,
+          "low": 74,
+          "root": 74,
+          "sha256": "2f9bd56828fc293672b84de94c58760c7f2e80d57065a597ba34ec4517b37573"
+        },
+        {
+          "file": "ogg/harpsichord/023.ogg",
+          "gain": 0.396,
+          "high": 77,
+          "low": 76,
+          "root": 76,
+          "sha256": "554d57afa8ef0c68822237e1e16fd08f711f420b02ca95f7a1fcb46ea067f206"
+        },
+        {
+          "file": "ogg/harpsichord/024.ogg",
+          "gain": 0.405,
+          "high": 79,
+          "low": 78,
+          "root": 78,
+          "sha256": "0ebf55363be1340458249c9d8b918b64826b728826e0fa1fc18a6b5ce34c2be5"
+        },
+        {
+          "file": "ogg/harpsichord/025.ogg",
+          "gain": 0.301,
+          "high": 81,
+          "low": 80,
+          "root": 80,
+          "sha256": "e720ebfb9c4dbc3d5bbd77200236e70078bc8e6ab5c3982c0097954dac8fbcf8"
+        },
+        {
+          "file": "ogg/harpsichord/026.ogg",
+          "gain": 0.466,
+          "high": 83,
+          "low": 82,
+          "root": 82,
+          "sha256": "3645265a480e0211c72fc8fa15096886d5cabe64520a4f0dd9a26fef2ec6e1dd"
+        },
+        {
+          "file": "ogg/harpsichord/027.ogg",
+          "gain": 0.82,
+          "high": 84,
+          "low": 84,
+          "root": 84,
+          "sha256": "da63c01adf67099373718227cefc09171cd3999744f9c60bf9d99d0f1e045101"
+        }
+      ]
+    },
+    "harp": {
+      "oneShot": true,
+      "zones": [
+        {
+          "file": "ogg/harp/000.ogg",
+          "gain": 0.061,
+          "high": 29,
+          "low": 28,
+          "root": 28,
+          "sha256": "8a9c70f1282b2c1304bb9634b1e9756a9fb163c8c76f0a84a5f8989b72a1cfbc"
+        },
+        {
+          "file": "ogg/harp/001.ogg",
+          "gain": 0.82,
+          "high": 33,
+          "low": 30,
+          "root": 31,
+          "sha256": "31d16b5c613b8dd603618fc7463ad5615d242f5331dd8597c7cedbddc7bc76be"
+        },
+        {
+          "file": "ogg/harp/002.ogg",
+          "gain": 0.192,
+          "high": 36,
+          "low": 34,
+          "root": 35,
+          "sha256": "744ff8f3d882f832db9dec6cc23f2af9f89ec8670d452ff33ebd01edebf0666c"
+        },
+        {
+          "file": "ogg/harp/003.ogg",
+          "gain": 0.145,
+          "high": 39,
+          "low": 37,
+          "root": 38,
+          "sha256": "cf02fc25280dc2df57afc48ec64c97047b341a64d40de234e2101f5551ad6fb6"
+        },
+        {
+          "file": "ogg/harp/004.ogg",
+          "gain": 0.293,
+          "high": 43,
+          "low": 40,
+          "root": 41,
+          "sha256": "4f62eaba43d938a4eeccb45ee806a6dd6e7e3e67328eb8a4ae044ed2e7260b17"
+        },
+        {
+          "file": "ogg/harp/005.ogg",
+          "gain": 0.112,
+          "high": 46,
+          "low": 44,
+          "root": 45,
+          "sha256": "cfb560b0196055705af87e258a92c391c6f5997871ab76073d7d0555ff1adf46"
+        },
+        {
+          "file": "ogg/harp/006.ogg",
+          "gain": 0.161,
+          "high": 50,
+          "low": 47,
+          "root": 48,
+          "sha256": "378bc4f1b00750395eed05b0426ffa0d593fb7e4ea77259b065facf91bf7e604"
+        },
+        {
+          "file": "ogg/harp/007.ogg",
+          "gain": 0.163,
+          "high": 53,
+          "low": 51,
+          "root": 52,
+          "sha256": "34bd570b9dc41f29e5757e55ae44be8d2a96be223baa2b8d7be2b2601fd4974a"
+        },
+        {
+          "file": "ogg/harp/008.ogg",
+          "gain": 0.085,
+          "high": 57,
+          "low": 54,
+          "root": 55,
+          "sha256": "e4bfac6221cb4577495fe20d7999c6c5fb6616094b18eec7d744d8691c265e0a"
+        },
+        {
+          "file": "ogg/harp/009.ogg",
+          "gain": 0.083,
+          "high": 60,
+          "low": 58,
+          "root": 59,
+          "sha256": "cdd73e3f62e722f610a2cc433dfd7280c6612949ddbd1a1306427512dc8638d2"
+        },
+        {
+          "file": "ogg/harp/010.ogg",
+          "gain": 0.094,
+          "high": 63,
+          "low": 61,
+          "root": 62,
+          "sha256": "3a88fb62e7c77266ab038baa7e53c08f28bced63791a6b3c726cfc053332c952"
+        },
+        {
+          "file": "ogg/harp/011.ogg",
+          "gain": 0.089,
+          "high": 67,
+          "low": 64,
+          "root": 65,
+          "sha256": "48d99e71f84bc574dbd752ea2a1499d77c73cc28858b65a16c6276b1175d7318"
+        },
+        {
+          "file": "ogg/harp/012.ogg",
+          "gain": 0.105,
+          "high": 70,
+          "low": 68,
+          "root": 69,
+          "sha256": "5328bf960f5bdeeaf878ff886b1d42cf998e0884e668c9f80c47152cf00d0517"
+        },
+        {
+          "file": "ogg/harp/013.ogg",
+          "gain": 0.077,
+          "high": 74,
+          "low": 71,
+          "root": 72,
+          "sha256": "80e6438212948a8a5b02676862fc60c7b71299887ccc6c105fee28c614330806"
+        },
+        {
+          "file": "ogg/harp/014.ogg",
+          "gain": 0.05,
+          "high": 77,
+          "low": 75,
+          "root": 76,
+          "sha256": "73b9bcde4c19d14d37a13e503851cfc37a316b2c97fede33d41fcd6e32c9df3e"
+        },
+        {
+          "file": "ogg/harp/015.ogg",
+          "gain": 0.082,
+          "high": 81,
+          "low": 78,
+          "root": 79,
+          "sha256": "358b8cea60b535f706cab4ca94abd419ba38e207b913823b7adc1071ce57dca5"
+        },
+        {
+          "file": "ogg/harp/016.ogg",
+          "gain": 0.058,
+          "high": 84,
+          "low": 82,
+          "root": 83,
+          "sha256": "23559a7390d02a620f09fb748a427dfb367d31cd940b984fb452c84140249197"
+        },
+        {
+          "file": "ogg/harp/017.ogg",
+          "gain": 0.092,
+          "high": 87,
+          "low": 85,
+          "root": 86,
+          "sha256": "5232ee7872985660df24022cc0c0a77bfdde1a8384397e693c615d9ce24e4438"
+        },
+        {
+          "file": "ogg/harp/018.ogg",
+          "gain": 0.111,
+          "high": 91,
+          "low": 88,
+          "root": 89,
+          "sha256": "0edbd858530c1c0abe145e92c77fbf13a56a7190ec95de04b239631b2b9ff1ba"
+        },
+        {
+          "file": "ogg/harp/019.ogg",
+          "gain": 0.115,
+          "high": 94,
+          "low": 92,
+          "root": 93,
+          "sha256": "862cfe38b84a828274f898900e5d7fba1d387432d73527d19778b2f98e1b55fc"
+        },
+        {
+          "file": "ogg/harp/020.ogg",
+          "gain": 0.133,
+          "high": 96,
+          "low": 95,
+          "root": 95,
+          "sha256": "0021a1c5c18c1eb9b07fdb7bb31484cf0aa7ee2dba81a8241255bdba661a6f79"
+        },
+        {
+          "file": "ogg/harp/021.ogg",
+          "gain": 0.771,
+          "high": 99,
+          "low": 97,
+          "root": 98,
+          "sha256": "ca8e2d5f1148dc68a67370309963212cc4cc2db7eaf03fb5c671737507b59287"
+        },
+        {
+          "file": "ogg/harp/022.ogg",
+          "gain": 0.495,
+          "high": 102,
+          "low": 100,
+          "root": 101,
+          "sha256": "833412b0458af8119c427c15cf939cc14f453361907adb3c0021014845c7baf7"
+        }
+      ]
+    },
+    "strumstick": {
+      "oneShot": true,
+      "zones": [
+        {
+          "file": "ogg/strumstick/000.ogg",
+          "gain": 0.605,
+          "high": 51,
+          "low": 48,
+          "root": 50,
+          "sha256": "913d936eb1a7a261c56be67a589ee3dac2b97ed0026b008ff41d4e5e746b7c87"
+        },
+        {
+          "file": "ogg/strumstick/001.ogg",
+          "gain": 0.82,
+          "high": 53,
+          "low": 52,
+          "root": 52,
+          "sha256": "79dd96557e536d1bf724d7231170ae661859b3ea621bd5881b3629a8fcef4873"
+        },
+        {
+          "file": "ogg/strumstick/002.ogg",
+          "gain": 0.118,
+          "high": 54,
+          "low": 54,
+          "root": 54,
+          "sha256": "860a2c44ec2f814880d035b6b35606bb4e849f66a6b5062f48ab6cc61e92668e"
+        },
+        {
+          "file": "ogg/strumstick/003.ogg",
+          "gain": 0.339,
+          "high": 56,
+          "low": 55,
+          "root": 55,
+          "sha256": "c671100200ba6f828913f352e9feda0d2802df9bdf000df0b52ae19656fe82e2"
+        },
+        {
+          "file": "ogg/strumstick/004.ogg",
+          "gain": 0.377,
+          "high": 58,
+          "low": 57,
+          "root": 57,
+          "sha256": "a2b2ce729c5e99e9165b7903fd0abc25d38cb5fadb22cbc3c41194404ae8b522"
+        },
+        {
+          "file": "ogg/strumstick/005.ogg",
+          "gain": 0.602,
+          "high": 60,
+          "low": 59,
+          "root": 59,
+          "sha256": "3dfe7b8a520d33ed28fdfd47ea4f120e0114169a5d7c43f793aee338f7c82652"
+        },
+        {
+          "file": "ogg/strumstick/006.ogg",
+          "gain": 0.589,
+          "high": 61,
+          "low": 61,
+          "root": 61,
+          "sha256": "64ed3a9b0855a84ab958e9c762dbcb783ef603467c0e7465ae63ec7f5dff3b6e"
+        },
+        {
+          "file": "ogg/strumstick/007.ogg",
+          "gain": 0.812,
+          "high": 63,
+          "low": 62,
+          "root": 62,
+          "sha256": "cc5b597bce06295a932fdff57b4c526ec730c3993f64f922a59bf9116416a6af"
+        },
+        {
+          "file": "ogg/strumstick/008.ogg",
+          "gain": 0.453,
+          "high": 65,
+          "low": 64,
+          "root": 64,
+          "sha256": "efb67b0afe3635fcb7f10a522dada2d21a9c0fd4124e9d31702e5c29b4112cb9"
+        },
+        {
+          "file": "ogg/strumstick/009.ogg",
+          "gain": 0.106,
+          "high": 66,
+          "low": 66,
+          "root": 66,
+          "sha256": "09058ed83fdb1a50da4872983ab4d005759c471778eaa43bba8c52e22282f1bb"
+        },
+        {
+          "file": "ogg/strumstick/010.ogg",
+          "gain": 0.336,
+          "high": 68,
+          "low": 67,
+          "root": 67,
+          "sha256": "9ff2261a53ad22b6be2cbe51f6a5c2e5978b6c79981829d958a2163ffee5d8d1"
+        },
+        {
+          "file": "ogg/strumstick/011.ogg",
+          "gain": 0.526,
+          "high": 70,
+          "low": 69,
+          "root": 69,
+          "sha256": "51c5bb4349cdc37da3971805bc60daed3be405a795da2932140e667cfc6e7484"
+        },
+        {
+          "file": "ogg/strumstick/012.ogg",
+          "gain": 0.386,
+          "high": 72,
+          "low": 71,
+          "root": 71,
+          "sha256": "a4d1aa9934f90ed65360e3753e7892029e41bedec804bdc0e7f3d061c06ac34e"
+        },
+        {
+          "file": "ogg/strumstick/013.ogg",
+          "gain": 0.333,
+          "high": 73,
+          "low": 73,
+          "root": 73,
+          "sha256": "37d74683d04a6d87301b5bcd582bfb170b87ce3ac5b291c3cc590275e4074ee6"
+        },
+        {
+          "file": "ogg/strumstick/014.ogg",
+          "gain": 0.311,
+          "high": 75,
+          "low": 74,
+          "root": 74,
+          "sha256": "10b4862ba79828aa89e1f547e17d24b7ca657b9bfaa160a84a8d1126b5b65c69"
+        },
+        {
+          "file": "ogg/strumstick/015.ogg",
+          "gain": 0.234,
+          "high": 77,
+          "low": 76,
+          "root": 76,
+          "sha256": "4098178d535d026babbb2561f4165bac6fc6900ad55bd52b56326c1a67c43bc6"
+        },
+        {
+          "file": "ogg/strumstick/016.ogg",
+          "gain": 0.218,
+          "high": 78,
+          "low": 78,
+          "root": 78,
+          "sha256": "c8ebb39d20ba825d9ba4a7e5616bbe37d183e1828b393aed27575f5480f9b08e"
+        },
+        {
+          "file": "ogg/strumstick/017.ogg",
+          "gain": 0.253,
+          "high": 80,
+          "low": 79,
+          "root": 79,
+          "sha256": "0edcc4ec3a91cb8cd674055ac83628894332dc367ed85172bd1d289fd8a4cf3e"
+        },
+        {
+          "file": "ogg/strumstick/018.ogg",
+          "gain": 0.418,
+          "high": 84,
+          "low": 81,
+          "root": 81,
+          "sha256": "4bec2d18bf8e2fae5a999f5d8056eda602ec569a90b8cf459e95fac2da772857"
+        }
+      ]
+    },
+    "psaltery": {
+      "oneShot": true,
+      "zones": [
+        {
+          "file": "ogg/psaltery/000.ogg",
+          "gain": 0.82,
+          "high": 71,
+          "low": 67,
+          "root": 70,
+          "sha256": "5dc90de17d2c8d112889555a333d31ff027e4071a55382d76c8142808b0d355c"
+        },
+        {
+          "file": "ogg/psaltery/001.ogg",
+          "gain": 0.432,
+          "high": 73,
+          "low": 72,
+          "root": 72,
+          "sha256": "c892e841798f174c52a29edb19bcd3a718632eaf32761d3a99909bb99e13beb8"
+        },
+        {
+          "file": "ogg/psaltery/002.ogg",
+          "gain": 0.212,
+          "high": 75,
+          "low": 74,
+          "root": 74,
+          "sha256": "a6c9587cf79dfe86115262e6e557aa013f2c75e9050b143f38752aed79a0d77c"
+        },
+        {
+          "file": "ogg/psaltery/003.ogg",
+          "gain": 0.559,
+          "high": 77,
+          "low": 76,
+          "root": 76,
+          "sha256": "3ca53c997481022fd120960ecd9325538b9c3afbbff914352bbe9fbf5eab0b20"
+        },
+        {
+          "file": "ogg/psaltery/004.ogg",
+          "gain": 0.456,
+          "high": 79,
+          "low": 78,
+          "root": 78,
+          "sha256": "836309d7ec7cba776610ec9c6bde590dc04da41f8394464569f51d79b2305230"
+        },
+        {
+          "file": "ogg/psaltery/005.ogg",
+          "gain": 0.453,
+          "high": 81,
+          "low": 80,
+          "root": 80,
+          "sha256": "44d0991d23418e97e2cc6bfa4ac8594d7e3d4f30edf2937ac6f63e227b1a899b"
+        },
+        {
+          "file": "ogg/psaltery/006.ogg",
+          "gain": 0.463,
+          "high": 83,
+          "low": 82,
+          "root": 82,
+          "sha256": "6e45cd26b885c16b4c9921a8a6247513d30082555fa0e9a7386780d084df0a2c"
+        },
+        {
+          "file": "ogg/psaltery/007.ogg",
+          "gain": 0.305,
+          "high": 85,
+          "low": 84,
+          "root": 84,
+          "sha256": "2fcaa8cd33873af32193bf8d1c60a480ec340473b0c79e662124f8bc37a2fd85"
+        },
+        {
+          "file": "ogg/psaltery/008.ogg",
+          "gain": 0.391,
+          "high": 87,
+          "low": 86,
+          "root": 86,
+          "sha256": "c706c42154b55d1ca69e1cea1a9070bb2a20d43b7551c61ed99234214855b8a2"
+        },
+        {
+          "file": "ogg/psaltery/009.ogg",
+          "gain": 0.346,
+          "high": 89,
+          "low": 88,
+          "root": 88,
+          "sha256": "6eb74531a8364e2b36cd33471597badbf04087fe8593f664390efbebd0087c3f"
+        },
+        {
+          "file": "ogg/psaltery/010.ogg",
+          "gain": 0.472,
+          "high": 91,
+          "low": 90,
+          "root": 90,
+          "sha256": "907d9d717810553cd857ccd3f55edff38abf3db9542302c1295297b7d2b05e1a"
+        }
+      ]
+    },
+    "sax": {
+      "oneShot": true,
+      "zones": [
+        {
+          "file": "ogg/sax/000.ogg",
+          "gain": 0.455,
+          "high": 45,
+          "low": 44,
+          "root": 44,
+          "sha256": "eed21b5ed6de1b88faf282ce8286c0b4be232479a46b1221767ab216d2848542"
+        },
+        {
+          "file": "ogg/sax/001.ogg",
+          "gain": 0.613,
+          "high": 47,
+          "low": 46,
+          "root": 46,
+          "sha256": "e17329ef58919c2d261d18b6ac815e7e8a712f7dad97c908d2988b4878496f1f"
+        },
+        {
+          "file": "ogg/sax/002.ogg",
+          "gain": 0.727,
+          "high": 49,
+          "low": 48,
+          "root": 48,
+          "sha256": "b007e2601cebf56138742a3ee9109b6cbb31e1af6ec703d4d6e0f63bad6b61d3"
+        },
+        {
+          "file": "ogg/sax/003.ogg",
+          "gain": 0.609,
+          "high": 51,
+          "low": 50,
+          "root": 50,
+          "sha256": "cea08be4838a4348b8b9670d32962a2c9daa8107d2ec43d8a14c53b4be1d15bf"
+        },
+        {
+          "file": "ogg/sax/004.ogg",
+          "gain": 0.555,
+          "high": 53,
+          "low": 52,
+          "root": 52,
+          "sha256": "4b85f6faa7914a87502d862cbb8c0c087995e5f60d17ddaf0518c99c6608b377"
+        },
+        {
+          "file": "ogg/sax/005.ogg",
+          "gain": 0.518,
+          "high": 55,
+          "low": 54,
+          "root": 54,
+          "sha256": "429ea6786ce78f0a4dd363358885f1d960bba93c31fd8dbfbb0eb9ba8f200ebd"
+        },
+        {
+          "file": "ogg/sax/006.ogg",
+          "gain": 0.498,
+          "high": 57,
+          "low": 56,
+          "root": 56,
+          "sha256": "c2c46a674350915deffa21104307ca43ef43b5aab84158f691763c870506aa2c"
+        },
+        {
+          "file": "ogg/sax/007.ogg",
+          "gain": 0.418,
+          "high": 59,
+          "low": 58,
+          "root": 58,
+          "sha256": "645d17be62435df74e6de8b896c83f8d844858c2624ffb9c778288a29b6dbbd5"
+        },
+        {
+          "file": "ogg/sax/008.ogg",
+          "gain": 0.545,
+          "high": 61,
+          "low": 60,
+          "root": 60,
+          "sha256": "375f42a861b15bfaeece42e54b2423bca46f876cb6c17e5619bfb1f91d34d46a"
+        },
+        {
+          "file": "ogg/sax/009.ogg",
+          "gain": 0.44,
+          "high": 63,
+          "low": 62,
+          "root": 62,
+          "sha256": "2d198fa0208e371e52e685342e40bed4ec29a8f18e07041135746b6953451af3"
+        },
+        {
+          "file": "ogg/sax/010.ogg",
+          "gain": 0.386,
+          "high": 65,
+          "low": 64,
+          "root": 64,
+          "sha256": "0dd90e8cc6cf63e12dd52bd824d1d008aff26f8b6e47b28999c9a7aadc96f080"
+        },
+        {
+          "file": "ogg/sax/011.ogg",
+          "gain": 0.652,
+          "high": 67,
+          "low": 66,
+          "root": 66,
+          "sha256": "6a9c8a759035e3b0f5575344ecbb23edd239bfc2ed2f5a5a9306f660ac3012fc"
+        },
+        {
+          "file": "ogg/sax/012.ogg",
+          "gain": 0.615,
+          "high": 69,
+          "low": 68,
+          "root": 68,
+          "sha256": "34dc7ad4f82bed3c682da622e9b7fb431fd5f09cbe4b8d3b3a07a2a8277be52d"
+        },
+        {
+          "file": "ogg/sax/013.ogg",
+          "gain": 0.653,
+          "high": 71,
+          "low": 70,
+          "root": 70,
+          "sha256": "4d43fb3cf493199b5046436ccf2ec4e747927880a673d0e83c13ee54fd3046d3"
+        },
+        {
+          "file": "ogg/sax/014.ogg",
+          "gain": 0.82,
+          "high": 73,
+          "low": 72,
+          "root": 72,
+          "sha256": "455a78d84f5762c50b3f9a1dbad6a6c9b92b4e94cfdb86dde22b6e4080ccd75b"
+        },
+        {
+          "file": "ogg/sax/015.ogg",
+          "gain": 0.628,
+          "high": 75,
+          "low": 74,
+          "root": 74,
+          "sha256": "d910d193367fd3c6964f7de9ffb739ea84e0cd6f06810eff16ea760d0c1c3fc0"
+        },
+        {
+          "file": "ogg/sax/016.ogg",
+          "gain": 0.618,
+          "high": 77,
+          "low": 76,
+          "root": 76,
+          "sha256": "862a0ba4ee1edd3e66648b4f6e2e37cd93f9cf145bd0ed22db81ef504911c3da"
+        },
+        {
+          "file": "ogg/sax/017.ogg",
+          "gain": 0.755,
+          "high": 79,
+          "low": 78,
+          "root": 78,
+          "sha256": "140e72181a09b30c6b287f4ed2a52623f5e017c8e5b9eb7ab519805b8b54c4d9"
+        },
+        {
+          "file": "ogg/sax/018.ogg",
+          "gain": 0.693,
+          "high": 81,
+          "low": 80,
+          "root": 80,
+          "sha256": "8b892afa8e1d9555f78f85a5b5bf73fcc66ef144790f6a789ab91d4e616e408a"
+        },
+        {
+          "file": "ogg/sax/019.ogg",
+          "gain": 0.638,
+          "high": 83,
+          "low": 82,
+          "root": 82,
+          "sha256": "7ab1c6116c5d8686af11922e6bd8cabec1bff1d6880478e89b867fdcd46d8d20"
+        },
+        {
+          "file": "ogg/sax/020.ogg",
+          "gain": 0.66,
+          "high": 85,
+          "low": 84,
+          "root": 84,
+          "sha256": "e30ef2f0c2ed2c7711c382925d2e7f2b2c2bf0b2ce63950c0d476662ddcf6bb3"
+        },
+        {
+          "file": "ogg/sax/021.ogg",
+          "gain": 0.619,
+          "high": 87,
+          "low": 86,
+          "root": 86,
+          "sha256": "cd0c5c02b98eaa6d43ab69424034f7b1c411a673686ec3adc8d19fa81cce54ca"
+        },
+        {
+          "file": "ogg/sax/022.ogg",
+          "gain": 0.443,
+          "high": 89,
+          "low": 88,
+          "root": 88,
+          "sha256": "af290fed2d33009f57cdf9328ec4276f88d3e08a2773792788fe65a1d459d6b5"
+        }
+      ]
+    },
+    "recorder": {
+      "oneShot": true,
+      "zones": [
+        {
+          "file": "ogg/recorder/000.ogg",
+          "gain": 0.82,
+          "high": 66,
+          "low": 65,
+          "root": 65,
+          "sha256": "d1a062b3c6f8e93194e4bf852f4d5b991d5325836102972f80447700dd7c9847"
+        },
+        {
+          "file": "ogg/recorder/001.ogg",
+          "gain": 0.808,
+          "high": 69,
+          "low": 67,
+          "root": 68,
+          "sha256": "6de738862f067e4e283b5b9bb38870e71da96930e5490968a8729afc9e4a2b63"
+        },
+        {
+          "file": "ogg/recorder/002.ogg",
+          "gain": 0.319,
+          "high": 71,
+          "low": 70,
+          "root": 70,
+          "sha256": "1f023d929cfa8ad0c7181ba535c5a18dfbce8d380098f657ce081a5819f7021d"
+        },
+        {
+          "file": "ogg/recorder/003.ogg",
+          "gain": 0.419,
+          "high": 73,
+          "low": 72,
+          "root": 72,
+          "sha256": "50ffabc9cadca45a610e2271564da64e03aecfc78166898c3678c32753e55a36"
+        },
+        {
+          "file": "ogg/recorder/004.ogg",
+          "gain": 0.796,
+          "high": 75,
+          "low": 74,
+          "root": 74,
+          "sha256": "fcc7c7d2ababa8a6dc94e8efba3c0391fe90e417b4c1be8b3d724926c4715d83"
+        },
+        {
+          "file": "ogg/recorder/005.ogg",
+          "gain": 0.337,
+          "high": 77,
+          "low": 76,
+          "root": 76,
+          "sha256": "30907570a427682b8df60a60b2c35f29d22dce75f716beada5edc95d2423a1c3"
+        },
+        {
+          "file": "ogg/recorder/006.ogg",
+          "gain": 0.31,
+          "high": 79,
+          "low": 78,
+          "root": 78,
+          "sha256": "aa37843c5cdaee04efc3b9fff5a674f7f13ec4cabd0f5a9cb00bdc365698e5a2"
+        },
+        {
+          "file": "ogg/recorder/007.ogg",
+          "gain": 0.6,
+          "high": 81,
+          "low": 80,
+          "root": 80,
+          "sha256": "4291626bfcca4b90d7896bf40213628c0cbf389cddfabd99af8b5716af356db4"
+        },
+        {
+          "file": "ogg/recorder/008.ogg",
+          "gain": 0.572,
+          "high": 83,
+          "low": 82,
+          "root": 82,
+          "sha256": "74c934130496d44cd8f632f9d556485ac3af83c754be400f04bed2dafdcb1665"
+        },
+        {
+          "file": "ogg/recorder/009.ogg",
+          "gain": 0.429,
+          "high": 85,
+          "low": 84,
+          "root": 84,
+          "sha256": "e4395cdfc44ee1e1c8a9623933118ceb2abf7f6d328aa54f36ad01573261a54e"
+        },
+        {
+          "file": "ogg/recorder/010.ogg",
+          "gain": 0.587,
+          "high": 87,
+          "low": 86,
+          "root": 86,
+          "sha256": "bb08eefe59ac67ccccaf3cc5d893e80ffc6cce34079abbebc9250effd17938e4"
+        },
+        {
+          "file": "ogg/recorder/011.ogg",
+          "gain": 0.295,
+          "high": 91,
+          "low": 88,
+          "root": 88,
+          "sha256": "1a374514d0eda69ea1513f3df651cae412539560a1cdb8a35c455cf88c4508b6"
+        }
+      ]
+    },
+    "glockenspiel": {
+      "oneShot": true,
+      "zones": [
+        {
+          "file": "ogg/glockenspiel/000.ogg",
+          "gain": 0.623,
+          "high": 69,
+          "low": 67,
+          "root": 67,
+          "sha256": "a109754256db3a199e835e8ad1e874fff395bfc573f7d3947fd2cdf7672e7bd2"
+        },
+        {
+          "file": "ogg/glockenspiel/001.ogg",
+          "gain": 0.357,
+          "high": 75,
+          "low": 70,
+          "root": 72,
+          "sha256": "813a7afd1a2b99088d13ec35ddbd0ad6c9a15116bdb071964a908a917fb95c7e"
+        },
+        {
+          "file": "ogg/glockenspiel/002.ogg",
+          "gain": 0.439,
+          "high": 81,
+          "low": 76,
+          "root": 79,
+          "sha256": "240ab10fbabbb13aa84c69395ba866d53123c43446b3a53d4e2e665bc04c1fe6"
+        },
+        {
+          "file": "ogg/glockenspiel/003.ogg",
+          "gain": 0.82,
+          "high": 87,
+          "low": 82,
+          "root": 84,
+          "sha256": "ec4dfa793082b3d84880ac7d53ec275bf45da8704d9405a2336232e1cff7dd5d"
+        },
+        {
+          "file": "ogg/glockenspiel/004.ogg",
+          "gain": 0.577,
+          "high": 91,
+          "low": 88,
+          "root": 91,
+          "sha256": "dbe859300262b979f4881573f5539a31d687815c11b74b665c55a63d2e8cfdcf"
+        },
+        {
+          "file": "ogg/glockenspiel/005.ogg",
+          "gain": 0.144,
+          "high": 94,
+          "low": 92,
+          "root": 92,
+          "sha256": "52f6b40584bfbca06181bb207e025d07dfa04111a0bd72320a432e9e033554dc"
+        },
+        {
+          "file": "ogg/glockenspiel/006.ogg",
+          "gain": 0.72,
+          "high": 97,
+          "low": 95,
+          "root": 96,
+          "sha256": "fd733681b7eb7428a5fc734fb402717e0cd58a6968cd1e7e5eca51af82941a85"
+        }
+      ]
+    },
+    "timpani": {
+      "oneShot": true,
+      "zones": [
+        {
+          "file": "ogg/timpani/000.ogg",
+          "gain": 0.767,
+          "high": 44,
+          "low": 41,
+          "root": 42,
+          "sha256": "774dd5c180dc55b25bc8cbbaa62dfb0643bb182e431e2dcd918b6a953b944246"
+        },
+        {
+          "file": "ogg/timpani/001.ogg",
+          "gain": 0.733,
+          "high": 47,
+          "low": 45,
+          "root": 46,
+          "sha256": "5e9d9e7f63fc06b139ca1db31adebde4b5f64aa94653db738c3b3583b891a60c"
+        },
+        {
+          "file": "ogg/timpani/002.ogg",
+          "gain": 0.67,
+          "high": 50,
+          "low": 48,
+          "root": 49,
+          "sha256": "cce83ff9b9e7636f7e26119625d8a3cd4cb55a0f03588876da4442a01e3affa7"
+        },
+        {
+          "file": "ogg/timpani/003.ogg",
+          "gain": 0.655,
+          "high": 53,
+          "low": 51,
+          "root": 52,
+          "sha256": "4a2d1d3003b9ba0442f3309f6c85daab02bcb2eee29e7d17cadad546d7a48884"
+        },
+        {
+          "file": "ogg/timpani/004.ogg",
+          "gain": 0.82,
+          "high": 55,
+          "low": 54,
+          "root": 54,
+          "sha256": "a633e04ed379ab66df0a0e81f8fc7cf558c8703c04c72fe1add62b64ffa4c27c"
+        }
+      ]
+    },
+    "epiano": {
+      "oneShot": true,
+      "zones": [
+        {
+          "file": "ogg/epiano/000.ogg",
+          "gain": 0.75,
+          "high": 24,
+          "low": 24,
+          "root": 24,
+          "sha256": "134772dee4daf989346f45748044cbea1bfcc10d6e595480b4cbfcb8f51e5d21"
+        },
+        {
+          "file": "ogg/epiano/001.ogg",
+          "gain": 0.75,
+          "high": 28,
+          "low": 28,
+          "root": 28,
+          "sha256": "7970b044b0c0e52598e7334b0f09ed13294ce113f46c47edf22952b162138b42"
+        },
+        {
+          "file": "ogg/epiano/002.ogg",
+          "gain": 0.75,
+          "high": 32,
+          "low": 32,
+          "root": 32,
+          "sha256": "79b7da9bde5aaaadc2ad9c9d259ac66c16784c1186bd412d6d9883c16f031fdd"
+        },
+        {
+          "file": "ogg/epiano/003.ogg",
+          "gain": 0.75,
+          "high": 36,
+          "low": 36,
+          "root": 36,
+          "sha256": "d8ee0aa9d3e8b3861dc55f0f398123650ec00e5d4a1af9fc7438074d4eea952f"
+        },
+        {
+          "file": "ogg/epiano/004.ogg",
+          "gain": 0.75,
+          "high": 40,
+          "low": 40,
+          "root": 40,
+          "sha256": "bbe52fcad26def267028401ab828453587c8c7de398e7730ab2dad00f02ba402"
+        },
+        {
+          "file": "ogg/epiano/005.ogg",
+          "gain": 0.75,
+          "high": 44,
+          "low": 44,
+          "root": 44,
+          "sha256": "3deb14f2da4da8d651cf9672dee61c23581110f4f074b3b230f24f68fc9ef56d"
+        },
+        {
+          "file": "ogg/epiano/006.ogg",
+          "gain": 0.75,
+          "high": 48,
+          "low": 48,
+          "root": 48,
+          "sha256": "02eff40939e8dc6afca5283829f046711bd267aa3bc5a1b5c36bfdf3d57ab162"
+        },
+        {
+          "file": "ogg/epiano/007.ogg",
+          "gain": 0.75,
+          "high": 52,
+          "low": 52,
+          "root": 52,
+          "sha256": "b5ad12c6ee8c903ea1ff318b56cf64a86979ccd606e092a68cce7df9af92148d"
+        },
+        {
+          "file": "ogg/epiano/008.ogg",
+          "gain": 0.75,
+          "high": 56,
+          "low": 56,
+          "root": 56,
+          "sha256": "1535a4bdd496fb6e0db405dd05e99f863618ee94421faf0e5a11a74638191abd"
+        },
+        {
+          "file": "ogg/epiano/009.ogg",
+          "gain": 0.75,
+          "high": 60,
+          "low": 60,
+          "root": 60,
+          "sha256": "ad193658ef58c2d1217ae35c9601eac377993370e3960695dfcf84d137e786b8"
+        },
+        {
+          "file": "ogg/epiano/010.ogg",
+          "gain": 0.75,
+          "high": 64,
+          "low": 64,
+          "root": 64,
+          "sha256": "3b0a63ccee661ac7db38639132ac9ef793256206d9c322069fc4575741a62bf8"
+        },
+        {
+          "file": "ogg/epiano/011.ogg",
+          "gain": 0.75,
+          "high": 68,
+          "low": 68,
+          "root": 68,
+          "sha256": "3d53ba71948861c1acb02b143e54465ff2d9c1fba478b2b6d986c450fcb3cc57"
+        },
+        {
+          "file": "ogg/epiano/012.ogg",
+          "gain": 0.75,
+          "high": 72,
+          "low": 72,
+          "root": 72,
+          "sha256": "f8609147efd2242db5e14bc3a6e21d8c25fc14193223d7ccfe1e28b5cd8f5313"
+        },
+        {
+          "file": "ogg/epiano/013.ogg",
+          "gain": 0.75,
+          "high": 76,
+          "low": 76,
+          "root": 76,
+          "sha256": "f139bdafa4057c8d0b1e86aac12028a3dc77fe9d901bafa5f6d4cc9d836e7c4b"
+        },
+        {
+          "file": "ogg/epiano/014.ogg",
+          "gain": 0.75,
+          "high": 80,
+          "low": 80,
+          "root": 80,
+          "sha256": "9c0c3199f674de8991e01339095446130df650a07de8a8650a8a79f7457f0f57"
+        },
+        {
+          "file": "ogg/epiano/015.ogg",
+          "gain": 0.75,
+          "high": 84,
+          "low": 84,
+          "root": 84,
+          "sha256": "f08e0e2c37bff2c52e3288f31f5ce9fe61ec78c28ff7e0b79a0182813a6bd010"
+        },
+        {
+          "file": "ogg/epiano/016.ogg",
+          "gain": 0.75,
+          "high": 88,
+          "low": 88,
+          "root": 88,
+          "sha256": "a486f9d7f0a4bf9df84c0d31ef0a3281b6951e22d46c2a2cecad6c099bee62f0"
+        },
+        {
+          "file": "ogg/epiano/017.ogg",
+          "gain": 0.75,
+          "high": 92,
+          "low": 92,
+          "root": 92,
+          "sha256": "2c7197540e9c968ce5269d996dd69d7fa9755d9c37dcc15f5deb9dc4912d32d6"
+        },
+        {
+          "file": "ogg/epiano/018.ogg",
+          "gain": 0.75,
+          "high": 96,
+          "low": 96,
+          "root": 96,
+          "sha256": "de75ed3bf2167a2f4582b1c48e179e37501a772a9929b8a29b20064973467e2f"
+        },
+        {
+          "file": "ogg/epiano/019.ogg",
+          "gain": 0.75,
+          "high": 100,
+          "low": 100,
+          "root": 100,
+          "sha256": "bc78452791b1f4277d579990ac8674ea898cae952f5fcff44d20f4605f35a5e6"
+        },
+        {
+          "file": "ogg/epiano/020.ogg",
+          "gain": 0.75,
+          "high": 104,
+          "low": 104,
+          "root": 104,
+          "sha256": "2fb8db5ea1dff8c06b99c7f026012967b274a433c89ac3edc0725c5c4be1d2cf"
+        },
+        {
+          "file": "ogg/epiano/021.ogg",
+          "gain": 0.75,
+          "high": 108,
+          "low": 108,
+          "root": 108,
+          "sha256": "8994b7324abc39419c7bc71b46808dce3468267ec4448f67217b578f6b754510"
+        }
+      ]
+    },
+    "drums": {
+      "lanes": {
+        "clap": [
+          {
+            "file": "ogg/drums/clap-0.ogg",
+            "gain": 0.8,
+            "sha256": "32213daf476458b8f250ff7e20487b22f4cd1430c2e4f5daf033cb6c35c26012"
+          },
+          {
+            "file": "ogg/drums/clap-1.ogg",
+            "gain": 0.8,
+            "sha256": "e50c8f96dec8a9a25e994c6aa662ca870be93443208d7ad925429eb727bdeff4"
+          },
+          {
+            "file": "ogg/drums/clap-2.ogg",
+            "gain": 0.8,
+            "sha256": "9989a525ae72e4c4be3bdc125171915684939d35d18a8a0aa36dae4df3cd73eb"
+          }
+        ],
+        "hat": [
+          {
+            "file": "ogg/drums/hat-0.ogg",
+            "gain": 0.8,
+            "sha256": "31e20d13aa208d40c3b4ceda243478f7763bca5be17eda413e76461feeae55bc"
+          },
+          {
+            "file": "ogg/drums/hat-1.ogg",
+            "gain": 0.8,
+            "sha256": "3ccfd2158c73fe258c0f64c3be2959df5b28ab54e77e87f70122a52806e6383b"
+          }
+        ],
+        "kick": [
+          {
+            "file": "ogg/drums/kick-0.ogg",
+            "gain": 0.8,
+            "sha256": "b1bdd0ed094f0dbad204974e86c03e02f4dfea574aeec75db8dba1dd5358ac56"
+          },
+          {
+            "file": "ogg/drums/kick-1.ogg",
+            "gain": 0.8,
+            "sha256": "9b3728716a4155b020256fd37f3380e8f70dfa8c26953f2d77dd94a52219f827"
+          }
+        ],
+        "open": [
+          {
+            "file": "ogg/drums/open-0.ogg",
+            "gain": 0.8,
+            "sha256": "5d000c07d09121e8dbb3033cb297e648b373a79fec8ceeb5949499e24dd743b7"
+          },
+          {
+            "file": "ogg/drums/open-1.ogg",
+            "gain": 0.8,
+            "sha256": "72f981b21bc0ca74c6107a609b66d9c9eddcf66c3da611348966a2a8b3c95f26"
+          }
+        ],
+        "perc": [
+          {
+            "file": "ogg/drums/perc-0.ogg",
+            "gain": 0.8,
+            "sha256": "965024de695e027fbb17af1275b935cd31bfeeed2e5dca0d6423e27de18cd780"
+          },
+          {
+            "file": "ogg/drums/perc-1.ogg",
+            "gain": 0.8,
+            "sha256": "416b3a9e1820eb1138c412780b7f44656dc8716c41dd873e769fefd8ad542c91"
+          }
+        ],
+        "snare": [
+          {
+            "file": "ogg/drums/snare-0.ogg",
+            "gain": 0.8,
+            "sha256": "31a28a6235f20a820696cbbc57996e3f6f0811ecd94038266e5f248a1a163d87"
+          },
+          {
+            "file": "ogg/drums/snare-1.ogg",
+            "gain": 0.8,
+            "sha256": "80435d76318bd64e8ad3248cf33dc16d57cacbf60b5181a574ab0d6f067831e3"
+          }
+        ]
+      },
+      "oneShot": true
+    }
+  },
+  "license": "CC0-1.0",
+  "pack": "vcsl-1.2.2-rc-curated",
+  "source": "VCSL 1.2.2-RC (commit b6e6ac82d22248edee98a0bde185eb9ef6d439ad)",
+  "version": 1
+}

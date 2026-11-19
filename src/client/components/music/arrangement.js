@@ -8,8 +8,14 @@
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import { translate } from '../../locale/index.js'
 import { MUSIC_STEPS_PER_BAR, scoreSeconds } from '../../../shared/music-score.js'
+import { MUSIC_ARRANGE_BAR_WIDTH_DEFAULT } from '../../constants.js'
+import { MUSIC_ARRANGE_ZOOM_MAX, MUSIC_ARRANGE_ZOOM_MIN } from '../../music-prefs.js'
 import { formatClock } from './helpers.js'
 import { instrumentGlyph, instrumentInfo, trackDisplayName } from './instruments.js'
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value))
+}
 
 
 function noteRange(track) {
@@ -58,8 +64,40 @@ function miniDrums(track, bars) {
   return hits
 }
 
-export function Arrangement({ doc, onAddTrack, onReorderTrack, onSelectTrack, onToggleMute, onToggleSolo, playhead, selectedTrackId }) {
+/* Bulk mute icons: a speaker with an X (mute every track) or sound waves (unmute every
+   track). Both are icon-only in the header; the label lives in the native title tooltip. */
+function bulkMuteGlyph(muted) {
+  return h('svg', { 'aria-hidden': true, viewBox: '0 0 16 16' },
+    h('path', {
+      d: 'M2.8 6.3h2.1l2.6-2.5v8.4L4.9 9.7H2.8z',
+      fill: 'none',
+      stroke: 'currentColor',
+      strokeLinejoin: 'round',
+      strokeWidth: 1.2,
+    }),
+    muted
+      ? h('path', {
+        d: 'M10.1 6.1l3.3 3.3M13.4 6.1l-3.3 3.3',
+        fill: 'none',
+        stroke: 'currentColor',
+        strokeLinecap: 'round',
+        strokeWidth: 1.2,
+      })
+      : h('path', {
+        d: 'M9.9 6a3.1 3.1 0 0 1 0 4M11.9 4.2a6 6 0 0 1 0 7.6',
+        fill: 'none',
+        stroke: 'currentColor',
+        strokeLinecap: 'round',
+        strokeWidth: 1.2,
+      }))
+}
+
+export function Arrangement({ barWidth = MUSIC_ARRANGE_BAR_WIDTH_DEFAULT, doc, onAddTrack, onMuteAll, onReorderTrack, onSelectTrack, onToggleMute, onToggleSolo, onUnmuteAll, onZoom, playhead, selectedTrackId, zoom = 1 }) {
   const bars = doc.bars
+  const scale = clamp(Number(zoom) || 1, MUSIC_ARRANGE_ZOOM_MIN, MUSIC_ARRANGE_ZOOM_MAX)
+  const zoomPercent = Math.round(scale * 100)
+  const zoomFraction = clamp((scale - MUSIC_ARRANGE_ZOOM_MIN) / (MUSIC_ARRANGE_ZOOM_MAX - MUSIC_ARRANGE_ZOOM_MIN), 0, 1)
+  const thumbLeft = `calc(${(zoomFraction * 100).toFixed(3)}% + ${(7 - 14 * zoomFraction).toFixed(2)}px)`
   const scrollRef = useRef(null)
   const dragRef = useRef(null)
   const manualUntilRef = useRef(0)
@@ -231,7 +269,7 @@ export function Arrangement({ doc, onAddTrack, onReorderTrack, onSelectTrack, on
       ref: scrollRef,
       title: translate('music.arrange.panHint'),
     },
-      h('div', { className: 'dsh-ws-music-timeline', style: { '--music-bars': String(bars) } },
+      h('div', { className: 'dsh-ws-music-timeline', style: { '--music-bars': String(bars), '--music-bar-width': `${barWidth}px`, '--music-zoom': String(scale) } },
         h('div', { className: 'dsh-ws-music-ruler' }, ruler),
         h('div', { className: 'dsh-ws-music-lanes' }, lanes),
         h('div', { className: 'dsh-ws-music-playhead', style: { left: `${Math.max(0, Math.min(1, playhead)) * 100}%` } }))))
@@ -244,15 +282,45 @@ export function Arrangement({ doc, onAddTrack, onReorderTrack, onSelectTrack, on
   return h('section', { className: 'dsh-ws-music-arrange' },
     h('div', { className: 'dsh-ws-music-arrange-head' },
       h('span', { className: 'dsh-ws-music-section-title' }, translate('music.arrange.title')),
+      h('div', { className: 'dsh-ws-music-arrange-actions' },
+        h('button', {
+          'aria-label': translate('music.arrange.muteAll'),
+          className: 'dsh-ws-music-arrange-action',
+          onClick: onMuteAll,
+          title: translate('music.arrange.muteAll'),
+          type: 'button',
+        }, bulkMuteGlyph(true)),
+        h('button', {
+          'aria-label': translate('music.arrange.unmuteAll'),
+          className: 'dsh-ws-music-arrange-action',
+          onClick: onUnmuteAll,
+          title: translate('music.arrange.unmuteAll'),
+          type: 'button',
+        }, bulkMuteGlyph(false))),
+      h('span', { className: 'dsh-ws-music-spacer' }),
       h('span', { className: 'dsh-ws-music-arrange-count' }, translate('music.arrange.tracks', { count: String(doc.tracks.length) })),
       h('span', { className: 'dsh-ws-music-arrange-total' }, translate('music.arrange.total', {
         bars: String(bars),
         time: formatClock(scoreSeconds(doc)),
-      })),
-      h('span', { className: 'dsh-ws-music-spacer' }),
-      h('button', { className: 'dsh-ws-music-mini-button', onClick: onAddTrack, type: 'button' }, `＋ ${translate('music.arrange.add')}`)),
+      }))),
     doc.tracks.length === 0 ? empty : body,
-    doc.tracks.length === 0 ? null : h('div', { className: 'dsh-ws-music-arrange-foot' }, translate('music.arrange.hint')))
+    doc.tracks.length === 0 ? null : h('div', { className: 'dsh-ws-music-arrange-zoom' },
+      h('div', { className: 'dsh-ws-music-roll-bottom' },
+        h('label', { className: 'dsh-ws-music-roll-zoom-x', title: translate('music.arrange.zoom') },
+          h('div', { className: 'dsh-ws-music-roll-zoom-x-track' },
+            h('span', { 'aria-hidden': true, className: 'dsh-ws-music-roll-zoom-x-line' }),
+            h('span', { 'aria-hidden': true, className: 'dsh-ws-music-roll-zoom-x-thumb', style: { left: thumbLeft } }),
+            h('input', {
+              'aria-label': translate('music.arrange.zoom'),
+              className: 'dsh-ws-music-roll-zoom-x-slider',
+              max: Math.round(MUSIC_ARRANGE_ZOOM_MAX * 100),
+              min: Math.round(MUSIC_ARRANGE_ZOOM_MIN * 100),
+              onChange: event => onZoom?.(Number(event.target.value) / 100),
+              step: 5,
+              type: 'range',
+              value: zoomPercent,
+            })),
+          h('b', null, `${zoomPercent}%`)))))
 }
 
 

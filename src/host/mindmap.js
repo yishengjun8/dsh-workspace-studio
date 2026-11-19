@@ -1835,7 +1835,9 @@ async function reconcileMindmapDoc(ctx, persistence, doc) {
   return doc
 }
 
-/* Merged lineage facts (parent id, seed length, subagent marker) from the live store and the persistence index; live entries win, persisted fill the gaps. */
+/* Merged lineage facts (parent id, seed length, subagent marker) plus the two cheap candidate flags
+   the adoption pass needs (live / seeded) from the live store and the persistence index; live entries
+   win, persisted fill the gaps. */
 async function mindmapSessionIndex(ctx, persistence) {
   const byId = new Map()
   const merge = (sessionId, fields) => {
@@ -1847,12 +1849,16 @@ async function mindmapSessionIndex(ctx, persistence) {
         parent: fields.parent,
         seedLength: fields.seedLength,
         subagent: Boolean(fields.subagent),
+        live: fields.live === true,
+        seeded: fields.seeded === true,
       })
       return
     }
     if (existing.parent === undefined && fields.parent !== undefined) existing.parent = fields.parent
     if (existing.seedLength === undefined && fields.seedLength !== undefined) existing.seedLength = fields.seedLength
     if (fields.subagent === true) existing.subagent = true
+    if (fields.live === true) existing.live = true
+    if (fields.seeded === true) existing.seeded = true
   }
   try {
     for (const session of ctx.sessions.list()) {
@@ -1863,6 +1869,10 @@ async function mindmapSessionIndex(ctx, persistence) {
         /* The fork cut lives on the session/handle as inheritedEventCount. */
         seedLength: session.inheritedEventCount,
         subagent: header?.origin === 'subagent',
+        /* A session THIS process holds: the only population a lineage-less fork read may be
+           spent on (see adoptMindmapOrphanPass). */
+        live: true,
+        seeded: header?.isSeeded === true,
       })
     }
   } catch {
@@ -1880,6 +1890,7 @@ async function mindmapSessionIndex(ctx, persistence) {
           /* Absent on the handle-based seam (kept for older backends); the adopt pass fills the cut from the child's read handle instead. */
           seedLength: header.seedLength,
           subagent: header.origin === 'subagent',
+          seeded: header.isSeeded === true,
         })
       }
     } catch {
@@ -1911,9 +1922,56 @@ function mindmapBoundaryOwner(doc, parentSessionId, t) {
   return undefined
 }
 
+/* The fork cut of a seeded child, derived from its inherited event count: the last COMPLETED turn
+   inside the copied prefix (a cut inside an open turn lands on the previous completed turn, the same
+   rule the lineage path uses). Pure; exported for the offline checks. */
+export function mindmapSeedBoundaryOf(parsed, seedLength) {
+  if (!Array.isArray(parsed) || !Number.isSafeInteger(seedLength) || seedLength <= 0) return undefined
+  for (let index = parsed.length - 1; index >= 0; index -= 1) {
+    const turn = parsed[index]
+    if (turn !== null && turn !== undefined && Number(turn.seq) < seedLength) return turn
+  }
+  return undefined
+}
+
+/* Parentless ordinary fork (harness >= 0.2.1-rc.3 stopped writing `header.parentSession`, and the
+   client list dropped `parentSessionId`): identify the card the child was cut at INSIDE the document
+   itself. The inherited turn/end is a copy of the source event, so (turn/end seq, turn number,
+   question text) name exactly one recorded card — and when the fork cut an INHERITED turn, that
+   card's owner IS the ancestor chain the branch has to hang off. More than one match is ambiguous:
+   never guess (a wrong parent card is worse than a branch that waits for the next fork). Pure;
+   exported for the offline checks. */
+export function mindmapSeedAnchorOf(doc, boundary) {
+  if (doc === null || doc === undefined || boundary === null || boundary === undefined) return undefined
+  const seq = Number(boundary.seq)
+  const t = Number(boundary.t)
+  const user = String(boundary.user ?? '')
+  if (!Number.isSafeInteger(seq) || !Number.isSafeInteger(t)) return undefined
+  let match
+  for (const session of doc.sessions ?? []) {
+    if (session === null || session === undefined || typeof session.sessionId !== 'string') continue
+    for (const turn of session.turns ?? []) {
+      if (turn === null || turn === undefined) continue
+      if (Number(turn.seq) !== seq || Number(turn.t) !== t) continue
+      if (String(turn.user ?? '') !== user) continue
+      if (match !== undefined) return undefined
+      match = { sessionId: String(session.sessionId), card: turn }
+    }
+  }
+  return match
+}
+
 /* Monotonic suffix for adopted-session ids: `Date.now()` alone is millisecond-precision, and two adoption passes in the same millisecond would mint the same id. */
 let mindmapAdoptSeq = 0
-/* One adoption pass: adopt fork children whose IMMEDIATE parent is already documented. The harness records the fork cut as the child's inheritedEventCount, so the boundary turn is exact even for mid-log forks and already-chatted children; without the cut, the last completed turn is used. Subagent and archived sessions are never adopted. */
+/* One adoption pass. A fork child can identify its branch two ways:
+   - LEGACY LINEAGE: the harness used to record the source as `header.parentSession`; that path is
+     kept unchanged for logs written before the field was removed.
+   - SEED ONLY: current harness forks carry no lineage at all, so the cut is located against the
+     DOCUMENT (mindmapSeedAnchorOf). Only `live && seeded` candidates enter this path — parsing every
+     seeded log in the profile per pass is exactly the performance red line (docs/development-notes §27).
+   The child's inheritedEventCount makes the boundary exact even for mid-log forks and already-chatted
+   children; without a cut the last completed turn is used. Subagent and archived sessions are never
+   adopted. */
 async function adoptMindmapOrphanPass(ctx, persistence, doc) {
   const known = new Set()
   for (const session of doc.sessions ?? []) {
@@ -1932,8 +1990,14 @@ async function adoptMindmapOrphanPass(ctx, persistence, doc) {
   for (const [sessionId, info] of index) {
     if (known.has(sessionId) || info.subagent) continue
     if (archived.has(sessionId)) continue
-    const parent = info.parent
-    if (parent === undefined || !known.has(String(parent))) continue
+    const lineage = info.parent === undefined || info.parent === null ? undefined : String(info.parent)
+    if (lineage !== undefined) {
+      if (!known.has(lineage)) continue
+    } else if (info.live !== true || info.seeded !== true) {
+      /* No lineage and not a fork this process just created: nothing identifies it without reading
+         its log, and a cold leftover is not worth a profile-wide scan. */
+      continue
+    }
     /* The revision-guarded read reports the exact fork-inherited event count beside the parsed turns (never a second open), so already-chatted children still get their exact boundary instead of being skipped by the un-chatted-only heuristic. */
     const read = await mindmapParsedTurnsOf(ctx, persistence, sessionId)
     if (read.status !== 'ok') continue
@@ -1943,39 +2007,49 @@ async function adoptMindmapOrphanPass(ctx, persistence, doc) {
     const seedLength = Number.isSafeInteger(Number(inheritedCount)) && Number(inheritedCount) > 0
       ? Number(inheritedCount)
       : info.seedLength
-    let boundary = undefined
-    if (Number.isSafeInteger(seedLength) && seedLength > 0) {
-      for (let i = parsed.length - 1; i >= 0; i -= 1) {
-        if (Number(parsed[i].seq) < seedLength) { boundary = parsed[i]; break }
-      }
+    let boundary
+    let anchorSessionId
+    let card
+    if (lineage === undefined) {
+      boundary = mindmapSeedBoundaryOf(parsed, Number(seedLength))
+      if (boundary === undefined) continue
+      const anchor = mindmapSeedAnchorOf(doc, boundary)
+      if (anchor === undefined) continue
+      anchorSessionId = anchor.sessionId
+      card = anchor.card
     } else {
-      /* No seed cut recorded (a child created outside the fork API): the last completed turn is the boundary only while the child's log is exactly the inherited seed — verified against the parent's turns, so an already-chatted child is skipped instead of mis-attached. */
-      const parentRead = await mindmapParsedTurnsOf(ctx, persistence, String(parent))
-      if (parentRead.status === 'ok') {
-        const parentParsed = parentRead.parsed
-        if (parsed.length <= parentParsed.length
-          && parsed.every((turn, index) => {
-            const other = parentParsed[index]
-            return other !== undefined
-              && Number(other.t) === Number(turn.t)
-              && Number(other.seq) === Number(turn.seq)
-              && String(other.user ?? '') === String(turn.user ?? '')
-          })) {
-          boundary = parsed[parsed.length - 1]
+      if (Number.isSafeInteger(seedLength) && seedLength > 0) {
+        boundary = mindmapSeedBoundaryOf(parsed, Number(seedLength))
+      } else {
+        /* No seed cut recorded (a child created outside the fork API): the last completed turn is the boundary only while the child's log is exactly the inherited seed — verified against the parent's turns, so an already-chatted child is skipped instead of mis-attached. */
+        const parentRead = await mindmapParsedTurnsOf(ctx, persistence, lineage)
+        if (parentRead.status === 'ok') {
+          const parentParsed = parentRead.parsed
+          if (parsed.length <= parentParsed.length
+            && parsed.every((turn, index) => {
+              const other = parentParsed[index]
+              return other !== undefined
+                && Number(other.t) === Number(turn.t)
+                && Number(other.seq) === Number(turn.seq)
+                && String(other.user ?? '') === String(turn.user ?? '')
+            })) {
+            boundary = parsed[parsed.length - 1]
+          }
         }
       }
+      if (boundary === undefined) continue
+      const owned = mindmapBoundaryOwner(doc, lineage, Number(boundary.t))
+      if (owned === undefined) continue
+      const chain = (doc.sessions ?? []).find(s => String(s?.sessionId) === String(owned.owner))?.turns ?? null
+      if (chain === null) continue
+      card = chain.find(turn => Number(turn?.t) === Number(boundary.t))
+      if (card === undefined) continue
+      anchorSessionId = String(owned.owner)
     }
-    if (boundary === undefined) continue
-    const owned = mindmapBoundaryOwner(doc, String(parent), Number(boundary.t))
-    if (owned === undefined) continue
-    const chain = (doc.sessions ?? []).find(s => String(s?.sessionId) === String(owned.owner))?.turns ?? null
-    if (chain === null) continue
-    const card = chain.find(turn => Number(turn?.t) === Number(boundary.t))
-    if (card === undefined) continue
     const session = {
       id: `s${Date.now()}${mindmapAdoptSeq++}`,
       sessionId: String(sessionId),
-      parentSessionId: String(owned.owner),
+      parentSessionId: anchorSessionId,
       parentTurn: Number(card.n),
       forkTurn: Number(boundary.t),
       forkSeq: Number(boundary.seq),
@@ -2456,8 +2530,9 @@ export function validateMindmapSession(value) {
    BEFORE that turn/start while its claim lands AFTER it — so the child starts with the parent's
    following message still pending and would claim it ahead of the user's own first send. The fork
    resolves with the child agent idle and unopened, so dropping its pending inbox here is race-free.
-   Guarded to seeded fork children (header.parentSession set) whose agent is NOT running: never a live
-   user's queued work on an arbitrary session. */
+   Guarded to a host-created SEEDED fork (`isSeeded`, which ordinary forks still carry after harness
+   0.2.1-rc.3 removed `header.parentSession`) that is not a forked subagent, whose agent is NOT
+   running: never a live user's queued work on an arbitrary session. */
 export async function clearForkInheritedQueue(ctx, sessionId) {
   const id = validateMindmapSession(sessionId)
   let live = undefined
@@ -2467,7 +2542,8 @@ export async function clearForkInheritedQueue(ctx, sessionId) {
     live = undefined
   }
   if (live === null || live === undefined || live.header === undefined
-    || live.header === null || live.header.parentSession === undefined) {
+    || live.header === null || live.header.isSeeded !== true
+    || live.header.origin === 'subagent') {
     return { cleared: 0, reason: 'not-a-fork-child' }
   }
   /* Optional service (same guard as ctx.get('llm'): cordis proxies throw on a

@@ -14,17 +14,14 @@
 import { createElement as h, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { translate } from '../../locale/index.js'
 import { midiName } from '../../../shared/music-score.js'
+import { MUSIC_ROLL_GRID_WIDTH_DEFAULT, MUSIC_ROLL_ROW_HEIGHT_DEFAULT, MUSIC_ZOOM_MAX, MUSIC_ZOOM_MIN } from '../../constants.js'
 import { noteTitle, noteValueLabel } from './helpers.js'
 
-const BASE_ROW_HEIGHT = 12
 const RULER_HEIGHT = 17
 const MIN_ROLL_HEIGHT = 180
 const MAX_ROLL_HEIGHT = 720
-const BASE_GRID_WIDTH = 520
 const BASE_VIEWPORT_HEIGHT = 360
 const RESIZE_STEP = 16
-const ZOOM_MIN = 0.75
-const ZOOM_MAX = 3
 const PAINT_VELOCITY = 96
 
 function clamp(value, min, max) {
@@ -53,9 +50,12 @@ function rowRange(notes, minRows = 0) {
 
 export function PianoRoll({
   bars,
+  baseGridWidth = MUSIC_ROLL_GRID_WIDTH_DEFAULT,
+  baseRowHeight = MUSIC_ROLL_ROW_HEIGHT_DEFAULT,
   color,
   height = null,
   onAdd,
+  onAudition,
   onChange,
   onDelete,
   onHeight,
@@ -77,15 +77,16 @@ export function PianoRoll({
   const [drag, setDrag] = useState(null)
   const [liveHeight, setLiveHeight] = useState(null)
   const [zoomTrackHeight, setZoomTrackHeight] = useState(104)
-  const scaleX = clamp(Number(zoomX) || 1, ZOOM_MIN, ZOOM_MAX)
-  const scaleY = clamp(Number(zoomY) || 1, ZOOM_MIN, ZOOM_MAX)
-  const rowHeight = Math.max(8, Math.round(BASE_ROW_HEIGHT * scaleY))
+  const scaleX = clamp(Number(zoomX) || 1, MUSIC_ZOOM_MIN, MUSIC_ZOOM_MAX)
+  const scaleY = clamp(Number(zoomY) || 1, MUSIC_ZOOM_MIN, MUSIC_ZOOM_MAX)
+  const rowHeight = Math.max(2, Math.round(baseRowHeight * scaleY))
+  const keyLabelsVisible = rowHeight >= 6
   const viewHeight = liveHeight ?? height
   const minRows = viewHeight === null ? 0 : Math.max(1, Math.ceil((viewHeight - RULER_HEIGHT) / rowHeight))
   const { low, high, rows } = rowRange(track.notes, minRows)
   const totalSteps = bars * 16
   const canvasHeight = rows * rowHeight
-  const gridMinWidth = Math.round(BASE_GRID_WIDTH * scaleX)
+  const gridMinWidth = Math.round(baseGridWidth * scaleX)
   const autoViewportHeight = Math.round(BASE_VIEWPORT_HEIGHT * scaleY)
 
   useEffect(() => () => {
@@ -284,15 +285,15 @@ export function PianoRoll({
   }
 
   const setZoomX = (value) => {
-    if (typeof onZoomX === 'function') onZoomX(clamp(value, ZOOM_MIN, ZOOM_MAX))
+    if (typeof onZoomX === 'function') onZoomX(clamp(value, MUSIC_ZOOM_MIN, MUSIC_ZOOM_MAX))
   }
   const setZoomY = (value) => {
-    if (typeof onZoomY === 'function') onZoomY(clamp(value, ZOOM_MIN, ZOOM_MAX))
+    if (typeof onZoomY === 'function') onZoomY(clamp(value, MUSIC_ZOOM_MIN, MUSIC_ZOOM_MAX))
   }
 
-  const zoomFraction = clamp((scaleY - ZOOM_MIN) / (ZOOM_MAX - ZOOM_MIN), 0, 1)
+  const zoomFraction = clamp((scaleY - MUSIC_ZOOM_MIN) / (MUSIC_ZOOM_MAX - MUSIC_ZOOM_MIN), 0, 1)
   const thumbTop = 7 + (1 - zoomFraction) * Math.max(0, zoomTrackHeight - 14)
-  const zoomXFraction = clamp((scaleX - ZOOM_MIN) / (ZOOM_MAX - ZOOM_MIN), 0, 1)
+  const zoomXFraction = clamp((scaleX - MUSIC_ZOOM_MIN) / (MUSIC_ZOOM_MAX - MUSIC_ZOOM_MIN), 0, 1)
   const thumbLeft = `calc(${(zoomXFraction * 100).toFixed(3)}% + ${(7 - 14 * zoomXFraction).toFixed(2)}px)`
 
   const barLabels = []
@@ -307,19 +308,25 @@ export function PianoRoll({
       },
         h('div', {
           className: 'dsh-ws-music-roll-grid',
-          style: { '--dsh-ws-music-rows': String(rows), minWidth: `${gridMinWidth}px` },
+          style: { '--dsh-ws-music-rows': String(rows), minWidth: 0, width: `${gridMinWidth}px` },
         },
           h('div', { className: 'dsh-ws-music-roll-ruler' }, barLabels.map(bar => h('span', { key: bar }, String(bar)))),
           h('div', { className: 'dsh-ws-music-roll-body' },
-            h('div', { className: 'dsh-ws-music-roll-keys', 'aria-hidden': true }, Array.from({ length: rows }, (_, index) => {
+            h('div', { className: 'dsh-ws-music-roll-keys' }, Array.from({ length: rows }, (_, index) => {
               const midi = high - index
               const name = midiName(midi)
-              return h('span', {
-                'data-c': name.startsWith('C') || undefined,
+              return h('button', {
+                'aria-label': translate('music.roll.audition', { note: name }),
+                className: 'dsh-ws-music-roll-key',
                 'data-black': name.includes('#') || undefined,
+                'data-c': name.startsWith('C') || undefined,
+                'data-compact': keyLabelsVisible ? undefined : '',
                 key: midi,
+                onClick: () => onAudition?.(midi),
                 style: { fontSize: `${Math.min(10, Math.max(6, rowHeight * 0.55))}px`, height: `${rowHeight}px`, lineHeight: `${rowHeight}px` },
-              }, name)
+                title: translate('music.roll.audition', { note: name }),
+                type: 'button',
+              }, keyLabelsVisible ? name : '')
             })),
             h('div', {
               className: 'dsh-ws-music-roll-canvas',
@@ -377,8 +384,8 @@ export function PianoRoll({
             'aria-label': translate('music.roll.zoomY'),
             'aria-orientation': 'vertical',
             className: 'dsh-ws-music-roll-zoom-slider',
-            max: Math.round(ZOOM_MAX * 100),
-            min: Math.round(ZOOM_MIN * 100),
+            max: Math.round(MUSIC_ZOOM_MAX * 100),
+            min: Math.round(MUSIC_ZOOM_MIN * 100),
             onChange: event => setZoomY(Number(event.target.value) / 100),
             step: 5,
             style: { width: `${zoomTrackHeight}px` },
@@ -408,8 +415,8 @@ export function PianoRoll({
           h('input', {
             'aria-label': translate('music.roll.zoomX'),
             className: 'dsh-ws-music-roll-zoom-x-slider',
-            max: Math.round(ZOOM_MAX * 100),
-            min: Math.round(ZOOM_MIN * 100),
+            max: Math.round(MUSIC_ZOOM_MAX * 100),
+            min: Math.round(MUSIC_ZOOM_MIN * 100),
             onChange: event => setZoomX(Number(event.target.value) / 100),
             step: 5,
             type: 'range',
@@ -418,3 +425,4 @@ export function PianoRoll({
         h('b', null, `${Math.round(scaleX * 100)}%`))),
   )
 }
+

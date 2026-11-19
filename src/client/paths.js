@@ -41,6 +41,31 @@ export function normalizeAbsolutePath(path) {
   if (drive !== '') return `${drive}/${joined}`
   return absolute ? `/${joined}` : joined
 }
+/* A user-typed workspace-relative DIRECTORY: '/' separators, no leading/trailing slash, no
+   empty or '.' segment. '' comes back as '' (the caller decides that means "unset") and null
+   means "not usable": the Host refuses '..' segments, backslashes, control characters and the
+   Windows-illegal spellings, so a stored value has to be repaired or rejected here instead of
+   failing every later save. A leading slash or a doubled separator is repaired (dropped). */
+export function normalizeRelativeDir(value, maxLength = 200) {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  if (trimmed === '') return ''
+  if (trimmed.length > maxLength) return null
+  const kept = []
+  for (const segment of trimmed.replace(/\\/g, '/').split('/')) {
+    if (segment === '' || segment === '.') continue
+    if (segment === '..') return null
+    if (/[\u0000-\u001f\u007f\u2028\u2029]/u.test(segment)) return null
+    if (/[. ]$/u.test(segment)) return null
+    /* A colon is illegal in Windows names and makes a segment read as drive-relative. */
+    if (segment.includes(':')) return null
+    const base = segment.split('.')[0].toUpperCase()
+    if (/^(CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|COM[1-9]|LPT[1-9])$/u.test(base)) return null
+    kept.push(segment)
+  }
+  const joined = kept.join('/')
+  return joined.length > maxLength ? null : joined
+}
 export function defaultEntryName(kind) { return kind === 'directory' ? translate('dialog.newFolder') : translate('dialog.newFileDefault') }
 export function entryNameError(value) {
   const name = value.trim()

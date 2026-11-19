@@ -13,7 +13,11 @@ export function isMindmapFamilySession(list, id) {
   const seen = new Set()
   while (cursor !== undefined && !seen.has(cursor)) {
     seen.add(cursor)
-    if (mindmapRegistry.isRoot(cursor) || mindmapRegistry.isBranch(cursor)) return true
+    /* The registry knows every map member — doc roots, documented branches, and the optimistic
+       members the write paths note before the index catches up — so family membership no longer
+       depends on the harness's `parentId`, which ordinary forks stopped carrying in 0.2.1-rc.3. */
+    if (mindmapRegistry.isRoot(cursor) || mindmapRegistry.isBranch(cursor)
+      || mindmapRegistry.rootOf(cursor) !== null) return true
     const summary = list.byId[cursor]
     if (summary === undefined) break
     if (summary.origin === 'subagent') { cursor = summary.parentId; continue }

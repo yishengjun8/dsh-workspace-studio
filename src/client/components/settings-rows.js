@@ -9,7 +9,7 @@
  * `data-unit` / `data-block` / `data-label` attributes set here — those three are the contract between this
  * file and that filter, so they stay in one place.
  */
-import { createElement as h, useState } from 'react'
+import { createElement as h, useEffect, useState } from 'react'
 import { translate } from '../locale/index.js'
 import { IconRefresh } from '../icons.js'
 import { HIGHLIGHT_PRESETS, highlightPresetLabel } from '../format.js'
@@ -82,6 +82,51 @@ export function SwitchRow({ label, hint, checked, disabled, onChange, resetTitle
       onChange: event => onChange(event.target.checked),
       title: disabled === true ? translate('settings.disabledByParent') : hint,
       type: 'checkbox',
+    }),
+  })
+}
+
+/* Free-text row: label | input | ↺. The input keeps a local draft so a half-typed value never
+   reaches the store: Enter / blur commits, Escape restores the stored value (no blur, so the
+   cancel cannot commit the cancelled text). `validate` runs on the DRAFT, which lets the row
+   explain an unusable value while the store still holds the last one that worked. */
+export function TextRow({ label, hint, invalidHint, value, maxLength, placeholder, validate, onCommit, resetTitle, onReset, custom }) {
+  const [draft, setDraft] = useState(value)
+  useEffect(() => { setDraft(value) }, [value])
+  const invalid = typeof validate === 'function' && validate(draft) !== true
+  const commit = () => {
+    if (draft === value) return
+    /* An unusable draft is never stored: the row snaps back to the value that is in effect. */
+    if (invalid) { setDraft(value); return }
+    onCommit(draft)
+  }
+  return h(Row, {
+    dataLabel: label,
+    label,
+    note: invalid && invalidHint !== undefined ? invalidHint : hint,
+    reset: h(Reset, { title: resetTitle, custom, onClick: onReset }),
+    control: h('input', {
+      'aria-label': label,
+      className: 'dsh-ws-dialog-input dsh-ws-settings-text',
+      'data-invalid': invalid ? '' : undefined,
+      maxLength,
+      onBlur: commit,
+      onChange: event => setDraft(event.target.value),
+      onKeyDown: (event) => {
+        if (event.nativeEvent?.isComposing === true) return
+        if (event.key === 'Enter') {
+          event.preventDefault()
+          /* Blur is the single commit path, so Enter cannot write the value twice. */
+          event.currentTarget.blur()
+        } else if (event.key === 'Escape') {
+          event.preventDefault()
+          setDraft(value)
+        }
+      },
+      placeholder,
+      spellCheck: false,
+      type: 'text',
+      value: draft,
     }),
   })
 }

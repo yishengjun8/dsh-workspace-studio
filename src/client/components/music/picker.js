@@ -6,13 +6,15 @@ import { INSTRUMENT_CATEGORIES, INSTRUMENT_LIST, instrumentGlyph } from './instr
 
 export function InstrumentPicker({ onAdd, onCancel }) {
   const [category, setCategory] = useState('all')
-  const [selected, setSelected] = useState('lead')
+  const [selected, setSelected] = useState('piano')
   const list = INSTRUMENT_LIST.filter(item => category === 'all' || item.cat === category)
   return h(Modal, {
     actions: [
       { key: 'cancel', label: translate('dialog.cancel'), onClick: onCancel },
       { key: 'add', label: translate('music.picker.add'), onClick: () => onAdd(selected) },
     ],
+    bodyClassName: 'dsh-ws-music-picker-body',
+    className: 'dsh-ws-music-picker-dialog',
     onCancel,
     title: translate('music.picker.title'),
   },

@@ -64,6 +64,10 @@ const ROUTES = Object.freeze({
   musicLoad: { path: '/music/load', failure: { code: 'music-load-failed', key: 'error.music.load-failed' }, invalid: 'error.invalid-response.music' },
   musicList: { path: '/music/list', failure: { code: 'music-list-failed', key: 'error.music.list-failed' }, invalid: 'error.invalid-response.music' },
   musicSchema: { path: '/music/schema', failure: { code: 'music-schema-failed', key: 'error.music.schema-failed' }, invalid: 'error.invalid-response.music' },
+  musicSampleManifest: { path: '/music/samples/manifest', failure: { code: 'music-samples-failed', key: 'error.music.samples-failed' }, invalid: 'error.invalid-response.music' },
+  musicSampleFile: { path: '/music/samples/file', failure: { code: 'music-sample-failed', key: 'error.music.samples-failed' } },
+  musicCache: { path: '/music/cache', failure: { code: 'music-cache-failed', key: 'error.music.cache-failed' }, invalid: 'error.invalid-response.music-cache' },
+  musicCacheItem: { path: '/music/cache/item', failure: { code: 'music-cache-failed', key: 'error.music.cache-failed' }, invalid: 'error.invalid-response.music-cache' },
 })
 
 const DEFAULT_FAILURE = Object.freeze({ code: 'request-failed', key: 'error.request-failed' })
@@ -106,8 +110,8 @@ function queryString(query) {
  *   rejects the response as malformed. Receives the HTTP status so the error can name it.
  */
 async function request(route, options = {}) {
-  const { method = 'GET', query, body, contentType, headers: extraHeaders, keepalive = false, timeoutMs = REQUEST_TIMEOUT_MS, signal, decode } = options
-  const headers = { accept: 'application/json', ...extraHeaders }
+  const { binary = false, method = 'GET', query, body, contentType, headers: extraHeaders, keepalive = false, timeoutMs = REQUEST_TIMEOUT_MS, signal, decode } = options
+  const headers = { accept: binary ? 'audio/ogg' : 'application/json', ...extraHeaders }
   let payloadBody
   if (body !== undefined) {
     if (typeof body === 'string') {
@@ -135,6 +139,7 @@ async function request(route, options = {}) {
     const failure = route.failure ?? DEFAULT_FAILURE
     throw await responseFailure(response, failure.code, failure.key)
   }
+  if (binary) return response.arrayBuffer()
   let payload
   try {
     payload = await response.json()
@@ -396,11 +401,49 @@ export const musicSchemaRequest = (signal) => request(ROUTES.musicSchema, {
   signal,
   decode: (value) => (value !== null && typeof value === 'object' && Number.isSafeInteger(value.version) ? value : undefined),
 })
+export const musicSampleManifestRequest = (signal) => request(ROUTES.musicSampleManifest, {
+  method: 'GET',
+  signal,
+  decode: (value) => (value !== null && typeof value === 'object' && value.instruments !== null && typeof value.instruments === 'object' ? value : undefined),
+})
+export const musicSampleFileRequest = (name, signal) => request(ROUTES.musicSampleFile, {
+  binary: true,
+  method: 'GET',
+  query: { name },
+  signal,
+  timeoutMs: 30_000,
+})
 export const listMusicRequest = (workspaceId, dir, signal) => request(ROUTES.musicList, {
   method: 'GET',
   query: { workspaceId, dir: dir === undefined || dir === null || dir === '' ? undefined : dir },
   signal,
   decode: (value) => (value !== null && typeof value === 'object' && typeof value.dir === 'string' && Array.isArray(value.files) ? value : undefined),
+})
+/* Session-scoped piece history: only metadata comes back in the list; the selected doc is read
+   from the item route so a 20-entry history never ships every score to the client at once. */
+export const listMusicCacheRequest = (session, signal) => request(ROUTES.musicCache, {
+  method: 'GET',
+  query: { session },
+  signal,
+  decode: (value) => (value !== null && typeof value === 'object' && Array.isArray(value.entries) ? value : undefined),
+})
+export const readMusicCacheRequest = (session, id, signal) => request(ROUTES.musicCacheItem, {
+  method: 'GET',
+  query: { id, session },
+  signal,
+  decode: (value) => (value !== null && typeof value === 'object' && value.entry !== null && typeof value.entry === 'object' && value.entry.doc !== null && typeof value.entry.doc === 'object' ? value : undefined),
+})
+export const saveMusicCacheRequest = (session, entry, signal) => request(ROUTES.musicCache, {
+  method: 'PUT',
+  body: { entry, session },
+  signal,
+  decode: (value) => (value !== null && typeof value === 'object' && value.entry !== null && typeof value.entry === 'object' ? value : undefined),
+})
+export const deleteMusicCacheRequest = (session, id, signal) => request(ROUTES.musicCacheItem, {
+  method: 'DELETE',
+  query: { id, session },
+  signal,
+  decode: (value) => (value !== null && typeof value === 'object' && typeof value.deleted === 'boolean' ? value : undefined),
 })
 /* Right-click → 重新生成摘要: the Host runs the LLM call synchronously and persists the new summary; the client applies it optimistically. */
 export const regenerateMindmapSummary = (sessionId, seq, config, signal) => mindmapRequest(ROUTES.mindmapRegenerate, {

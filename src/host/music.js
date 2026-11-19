@@ -19,6 +19,7 @@ import {
   MUSIC_BARS_MIN,
   MUSIC_DEFAULT_DIR,
   MUSIC_DOC_MAX_BYTES,
+  MUSIC_DOC_VERSION,
   MUSIC_FILE_SUFFIX,
   MUSIC_KEY_ROOTS,
   MUSIC_MOOD_IDS,
@@ -91,10 +92,10 @@ function systemPrompt(instruments, seamless, segment) {
     'You are a music composer that returns ONLY a JSON score. No prose, no markdown fences.',
     'Schema: {"bpm":number,"keyRoot":"C".."B","keyMode":"major"|"minor","bars":number,',
     '"chordProgression":[string per bar],',
-    '"tracks":[{"instrument":"lead","name":"optional","volume":0.8,"notes":[note]},',
+    '"tracks":[{"instrument":"piano","name":"optional","volume":0.8,"notes":[note]},',
     '{"instrument":"drums","drums":{"kick":[{step:velocity} per bar],"snare":[],"hat":[],"open":[],"clap":[],"perc":[]}}]}',
     'A note is {"bar":1-based,"step":0..15,"midi":number,"len":1..16,"vel":1..127}.',
-    'Allowed instruments: lead, epiano, piano, pad, bass, guitar, strings, organ, pluck, brass, drums.',
+    'Allowed instruments: piano, epiano, organ, harpsichord, harp, strumstick, psaltery, sax, recorder, glockenspiel, timpani, drums.',
     `Use EXACTLY these instruments, one track each: ${instruments.join(', ')}. Do not add, omit, or duplicate an instrument.`,
     hasDrums ? 'Include exactly one drums track. A drums track holds a step object per bar.' : 'Do not include a drums track.',
     instruments.length === 1 && hasDrums ? 'This request is a drums-only score.' : 'Write only the requested instrument tracks.',
@@ -103,8 +104,8 @@ function systemPrompt(instruments, seamless, segment) {
     seamless
       ? 'This piece loops seamlessly: the last bar is a turnaround into bar 1, with no final cadence, no terminal crash and no ending fill.'
       : 'This segment ends normally; a final fill or cadence is allowed.',
-    'Rules: chords are sustained block notes (len 16) on the chord tones; bass is the chord root;',
-    'melody is a singable line inside the key; keep 1-4 notes sounding at once.',
+    'Rules: piano/organ/harpsichord carry sustained chord tones; use the piano low register or timpani for roots;',
+    'sax/recorder carry a singable melody inside the key; keep 1-4 notes sounding at once.',
     'Respect the requested style, mood, density and complexity. Output valid JSON only.',
   ].join(' ')
 }
@@ -225,6 +226,7 @@ export async function composeMusic(ctx, persistence, payload) {
   if (parsed === null) return template('llm-invalid')
   const doc = normalizeMusicDoc({
     ...parsed,
+    version: MUSIC_DOC_VERSION,
     title: undefined,
     keyRoot: request.keyRoot,
     keyMode: request.keyMode,

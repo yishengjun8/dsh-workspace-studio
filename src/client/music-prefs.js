@@ -1,3 +1,5 @@
+import { MUSIC_ZOOM_MAX, MUSIC_ZOOM_MIN } from './constants.js'
+
 /* Per-session music-page preferences.
  *
  * These live in the same preview-session snapshot as the tabs, so they are keyed by the
@@ -9,11 +11,13 @@ export const MUSIC_ROLL_HEIGHT_MIN = 180
 export const MUSIC_ROLL_HEIGHT_MAX = 720
 export const MUSIC_ROLL_HEIGHT_STEP = 16
 export const MUSIC_MODEL_STRING_MAX = 200
-export const MUSIC_ROLL_ZOOM_MIN = 0.75
-export const MUSIC_ROLL_ZOOM_MAX = 3
+export const MUSIC_ROLL_ZOOM_MIN = MUSIC_ZOOM_MIN
+export const MUSIC_ROLL_ZOOM_MAX = MUSIC_ZOOM_MAX
+export const MUSIC_ARRANGE_ZOOM_MIN = MUSIC_ZOOM_MIN
+export const MUSIC_ARRANGE_ZOOM_MAX = MUSIC_ZOOM_MAX
 
 export function defaultMusicPrefs() {
-  return { model: null, rollHeight: null, rollZoomX: 1, rollZoomY: 1 }
+  return { arrangeZoom: 1, model: null, rollHeight: null, rollZoomX: 1, rollZoomY: 1 }
 }
 
 /**
@@ -49,9 +53,17 @@ export function normalizeRollZoom(value) {
   return Math.min(MUSIC_ROLL_ZOOM_MAX, Math.max(MUSIC_ROLL_ZOOM_MIN, Math.round(number * 20) / 20))
 }
 
+export function normalizeArrangeZoom(value) {
+  if (value === null || value === undefined) return 1
+  const number = Number(value)
+  if (!Number.isFinite(number)) return 1
+  return Math.min(MUSIC_ARRANGE_ZOOM_MAX, Math.max(MUSIC_ARRANGE_ZOOM_MIN, Math.round(number * 20) / 20))
+}
+
 export function normalizeMusicPrefs(value) {
   if (value === null || value === undefined || typeof value !== 'object') return defaultMusicPrefs()
   return {
+    arrangeZoom: normalizeArrangeZoom(value.arrangeZoom),
     model: normalizeMusicModel(value.model),
     rollHeight: normalizeRollHeight(value.rollHeight),
     rollZoomX: normalizeRollZoom(value.rollZoomX),
@@ -61,7 +73,7 @@ export function normalizeMusicPrefs(value) {
 
 /** Whether a page carries any non-default preference (worth keeping even with no open tabs). */
 export function hasMusicPrefs(prefs) {
-  return prefs.model !== null || prefs.rollHeight !== null || prefs.rollZoomX !== 1 || prefs.rollZoomY !== 1
+  return prefs.arrangeZoom !== 1 || prefs.model !== null || prefs.rollHeight !== null || prefs.rollZoomX !== 1 || prefs.rollZoomY !== 1
 }
 
 export function isFollowChatModel(model) {

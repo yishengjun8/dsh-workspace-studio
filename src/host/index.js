@@ -9,6 +9,8 @@ import { isTrustedRequest, normalizeFailure, readJsonObject, requiredQuery, send
 import { normalizeRelativePath } from './paths.js'
 import { ENCODINGS } from './encodings.js'
 import { listTree, openInDefaultApp, readExternalPreview, readPreview, readPreviewHead, readRawFile, revealInExplorer, searchWorkspace } from './fs.js'
+import { readMusicSample, readMusicSampleManifest } from './music-samples.js'
+import { deleteMusicCacheEntry, listMusicCache, readMusicCacheEntry, upsertMusicCache } from './music-cache.js'
 import { createEntry, fsOperation, renameEntry, saveFile } from './write.js'
 import { deleteDraftFile, draftTreeOperation, parseDraftGenerationQuery, readDraftFile, saveDraftFile, validateDraftOwner, validateDraftPayload } from './drafts.js'
 import { adoptMindmapOrphans, buildMindmapDoc, clearForkInheritedQueue, deleteMindmapDoc, findMindmapDocWithAncestors, indexMindmapDocs, isValidMindmapDoc, listMindmapModels, MINDMAP_DOC_MAX_BYTES, mindmapAnchorOf, mindmapDrainPendingSessionSummaries, mindmapInvalidatePersistenceList, mindmapLock, mindmapLockedReanchorOp, mindmapSessionSummarizingOf, mindmapSummarizingOf, parseMindmapSummaryConfig, purgeArchivedMindmapDocs, readMindmapDocFile, refreshMindmapDocCore, regenerateAllMindmapSummaries, regenerateAllSessionSummaries, regenerateMindmapSummary, renameMindmapDoc, seedMindmapSyncCacheAfterLoad, summarizeMindmapSession, syncMindmapDoc, validateMindmapSession, warmMindmapParsedCache, writeMindmapDoc, writeMindmapDocFile } from './mindmap.js'
@@ -151,12 +153,17 @@ const ROUTES = Object.freeze({
   [`${API_PREFIX}/music/load`]: { methods: 'POST' },
   [`${API_PREFIX}/music/list`]: { methods: 'GET, HEAD' },
   [`${API_PREFIX}/music/schema`]: { methods: 'GET' },
+  [`${API_PREFIX}/music/samples/manifest`]: { methods: 'GET, HEAD' },
+  [`${API_PREFIX}/music/samples/file`]: { methods: 'GET, HEAD' },
+  [`${API_PREFIX}/music/cache`]: { methods: 'GET, HEAD, PUT' },
+  [`${API_PREFIX}/music/cache/item`]: { methods: 'GET, HEAD, DELETE' },
 })
 /* The runner's request body bound: the argument text is capped at 4 KiB by run.js, so the JSON
    envelope only needs a little headroom over the shared mutation cap. */
 const RUN_BODY_MAX_BYTES = 16 * 1024
 /* Music requests: the compose arguments are small, but save carries one whole score document. */
 const MUSIC_BODY_MAX_BYTES = 2 * 1024 * 1024
+const MUSIC_SAMPLE_ROOT = new URL('../assets/vcsl/', import.meta.url)
 /* 50 collections x 40-char names x up to 2000 workspace ids: the honest bound is a few hundred KiB,
    and the envelope never carries file content. */
 const COLLECTIONS_BODY_MAX_BYTES = 512 * 1024
@@ -372,6 +379,10 @@ async function handleRequest(ctx, config, writeQueues, req, res) {
     const musicLoadEndpoint = url.pathname === `${API_PREFIX}/music/load`
     const musicListEndpoint = url.pathname === `${API_PREFIX}/music/list`
     const musicSchemaEndpoint = url.pathname === `${API_PREFIX}/music/schema`
+    const musicSamplesManifestEndpoint = url.pathname === `${API_PREFIX}/music/samples/manifest`
+    const musicSamplesFileEndpoint = url.pathname === `${API_PREFIX}/music/samples/file`
+    const musicCacheEndpoint = url.pathname === `${API_PREFIX}/music/cache`
+    const musicCacheItemEndpoint = url.pathname === `${API_PREFIX}/music/cache/item`
     /* Handlers below, in order. Each compares the path it serves; the method whitelist and the 404
        answer were already settled by the ROUTES lookup above. */
     if (contextEndpoint) {
@@ -599,8 +610,48 @@ async function handleRequest(ctx, config, writeQueues, req, res) {
       sendJson(req, res, 200, { barsMax: MUSIC_BARS_MAX, version: MUSIC_DOC_VERSION, noteLenMax: MUSIC_BARS_MAX * MUSIC_STEPS_PER_BAR })
       return
     }
+    if (musicSamplesManifestEndpoint) {
+      const { manifest } = await readMusicSampleManifest(MUSIC_SAMPLE_ROOT)
+      sendJson(req, res, 200, manifest)
+      return
+    }
+    if (musicSamplesFileEndpoint) {
+      const bytes = await readMusicSample(MUSIC_SAMPLE_ROOT, url.searchParams.get('name') ?? '')
+      sendRaw(req, res, 200, bytes, 'audio/ogg', {
+        'cache-control': 'public, max-age=31536000, immutable',
+      })
+      return
+    }
     const workspaceId = requiredQuery(url, 'workspaceId')
     const workspace = workspaceFor(ctx, workspaceId)
+    if (musicCacheEndpoint) {
+      if (req.method === 'PUT') {
+        const payload = await readJsonObject(req, config, MUSIC_BODY_MAX_BYTES)
+        sendJson(req, res, 200, await upsertMusicCache(writeQueues, {
+          entry: payload?.entry,
+          session: payload?.session,
+        }))
+        return
+      }
+      sendJson(req, res, 200, await listMusicCache(writeQueues, {
+        session: url.searchParams.get('session'),
+      }))
+      return
+    }
+    if (musicCacheItemEndpoint) {
+      if (req.method === 'DELETE') {
+        sendJson(req, res, 200, await deleteMusicCacheEntry(writeQueues, {
+          id: url.searchParams.get('id'),
+          session: url.searchParams.get('session'),
+        }))
+        return
+      }
+      sendJson(req, res, 200, await readMusicCacheEntry(writeQueues, {
+        id: url.searchParams.get('id'),
+        session: url.searchParams.get('session'),
+      }))
+      return
+    }
     if (musicComposeEndpoint) {
       const payload = await readJsonObject(req, config, MUSIC_BODY_MAX_BYTES)
       sendJson(req, res, 200, await composeMusic(ctx, persistence, payload))

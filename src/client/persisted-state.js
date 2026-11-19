@@ -23,6 +23,10 @@ import {
   DIFF_RULER_DEFAULT, DIFF_RULER_SPAN_DEFAULT, DIFF_RULER_THUMB_DEFAULT, DIFF_RULER_WIDTH_DEFAULT, DIFF_RULER_WIDTH_MAX, DIFF_RULER_WIDTH_MIN,
   DIFF_TINT_DEFAULT, EDIT_LINES_DEFAULT, EDIT_LINES_MAX, EDIT_LINES_MIN, EXPLORER_LAYOUT_STORE_KEY, EXPLORER_SETTINGS_STORE_KEY,
   FONT_SCALE_DEFAULT, FONT_SCALE_MAX, FONT_SCALE_MIN, FONT_SCALE_STEP,
+  MUSIC_ARRANGE_BAR_WIDTH_DEFAULT, MUSIC_ARRANGE_BAR_WIDTH_MAX, MUSIC_ARRANGE_BAR_WIDTH_MIN, MUSIC_ARRANGE_BAR_WIDTH_STEP,
+  MUSIC_ROLL_GRID_WIDTH_DEFAULT, MUSIC_ROLL_GRID_WIDTH_MAX, MUSIC_ROLL_GRID_WIDTH_MIN, MUSIC_ROLL_GRID_WIDTH_STEP,
+  MUSIC_ROLL_ROW_HEIGHT_DEFAULT, MUSIC_ROLL_ROW_HEIGHT_MAX, MUSIC_ROLL_ROW_HEIGHT_MIN, MUSIC_ROLL_ROW_HEIGHT_STEP,
+  MUSIC_SAVE_DIR_MAX_LENGTH,
   MINDMAP_LAST_SESSION_STORE_KEY, MINDMAP_MOUNT_BULGE_DEFAULT_X, MINDMAP_MOUNT_BULGE_MAX_X, MINDMAP_MOUNT_BULGE_MIN_X, MINDMAP_ORDER_STORE_KEY,
   MINDMAP_SPIN_SPEED_DEFAULT_X, MINDMAP_SPIN_SPEED_MAX_X, MINDMAP_SPIN_SPEED_MIN_X, MINDMAP_SUMMARY_DEFAULT_LENGTH, MINDMAP_SUMMARY_LENGTH_STEP,
   MINDMAP_SUMMARY_MAX_LENGTH, MINDMAP_SUMMARY_MIN_LENGTH, MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH, MINDMAP_SUMMARY_SESSION_LENGTH_STEP,
@@ -35,6 +39,8 @@ import {
 } from './constants.js'
 import { normalizePreviewSession, serializePreviewSession } from './preview-tabs.js'
 import { hasMusicPrefs } from './music-prefs.js'
+import { normalizeRelativeDir } from './paths.js'
+import { MUSIC_DEFAULT_DIR } from '../shared/music-score.js'
 /* Store keys of every format before the current one: deleted on load and never interpreted, so nothing here knows those shapes. */
 const LEGACY_STORE_KEYS = Object.freeze([
   'dsh.workspace.studio.preview-sessions.v1',
@@ -90,6 +96,11 @@ function canonicalField(field, value) {
     }
     case 'string':
       return typeof value === 'string' ? value.slice(0, field.max ?? STRING_VALUE_MAX_LENGTH) : field.default
+    /* A workspace-relative directory (music workshop default save folder). Repaired by
+       normalizeRelativeDir; empty or unusable falls back to the default, because an empty
+       persisted value must never turn into "save at the workspace root". */
+    case 'dir':
+      return normalizeRelativeDir(value, MUSIC_SAVE_DIR_MAX_LENGTH) || field.default
     case 'model': {
       const provider = value?.provider
       const model = value?.model
@@ -158,6 +169,11 @@ const SETTINGS_SCHEMA = Object.freeze({
   /* Preview content text size (percent): the BASE size a tab without its own value follows. The
      slider's 10% grid is snapped here too, so a hand-edited value cannot sit off-grid. */
   previewFontScale: { kind: 'number', min: FONT_SCALE_MIN, max: FONT_SCALE_MAX, step: FONT_SCALE_STEP, decimals: 0, default: FONT_SCALE_DEFAULT },
+  musicArrangeBarWidth: { kind: 'number', min: MUSIC_ARRANGE_BAR_WIDTH_MIN, max: MUSIC_ARRANGE_BAR_WIDTH_MAX, step: MUSIC_ARRANGE_BAR_WIDTH_STEP, decimals: 0, default: MUSIC_ARRANGE_BAR_WIDTH_DEFAULT },
+  musicRollGridWidth: { kind: 'number', min: MUSIC_ROLL_GRID_WIDTH_MIN, max: MUSIC_ROLL_GRID_WIDTH_MAX, step: MUSIC_ROLL_GRID_WIDTH_STEP, decimals: 0, default: MUSIC_ROLL_GRID_WIDTH_DEFAULT },
+  musicRollRowHeight: { kind: 'number', min: MUSIC_ROLL_ROW_HEIGHT_MIN, max: MUSIC_ROLL_ROW_HEIGHT_MAX, step: MUSIC_ROLL_ROW_HEIGHT_STEP, decimals: 0, default: MUSIC_ROLL_ROW_HEIGHT_DEFAULT },
+  /* Default save folder for NEW music pieces (a piece that was already saved keeps its own path). */
+  musicSaveDir: { kind: 'dir', default: MUSIC_DEFAULT_DIR },
   wrap: { kind: 'bool', default: false },
   expandSearchMatches: { kind: 'bool', default: SEARCH_MATCH_EXPAND_DEFAULT },
   thinkLines: { kind: 'number', min: THINK_LINES_MIN, max: THINK_LINES_MAX, default: THINK_LINES_DEFAULT },

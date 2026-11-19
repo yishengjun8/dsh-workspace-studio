@@ -55,6 +55,15 @@ export const CONFLICT_FONT_SIZE_DEFAULT = 12, CONFLICT_FONT_SIZE_MIN = 6, CONFLI
    base" are the same state. Published on the preview column as --dsh-ws-content-scale
    (1 = 100% = the harness's own body size, so 100% is pixel-identical to having no feature). */
 export const FONT_SCALE_DEFAULT = 100, FONT_SCALE_MIN = 60, FONT_SCALE_MAX = 200, FONT_SCALE_STEP = 10
+/* Music workshop zoom sliders and their configurable 100% baselines. The three baselines
+   are different units (arrangement px/bar, roll px, roll px/row), so they stay separate. */
+export const MUSIC_ZOOM_MIN = 0.25, MUSIC_ZOOM_MAX = 4
+export const MUSIC_ARRANGE_BAR_WIDTH_DEFAULT = 64, MUSIC_ARRANGE_BAR_WIDTH_MIN = 12, MUSIC_ARRANGE_BAR_WIDTH_MAX = 128, MUSIC_ARRANGE_BAR_WIDTH_STEP = 4
+export const MUSIC_ROLL_GRID_WIDTH_DEFAULT = 520, MUSIC_ROLL_GRID_WIDTH_MIN = 320, MUSIC_ROLL_GRID_WIDTH_MAX = 960, MUSIC_ROLL_GRID_WIDTH_STEP = 20
+export const MUSIC_ROLL_ROW_HEIGHT_DEFAULT = 12, MUSIC_ROLL_ROW_HEIGHT_MIN = 8, MUSIC_ROLL_ROW_HEIGHT_MAX = 24, MUSIC_ROLL_ROW_HEIGHT_STEP = 1
+/* Length cap for the music workshop's configurable default save directory (a workspace-relative
+   path, so it stays well under any filesystem limit while still allowing deep folders). */
+export const MUSIC_SAVE_DIR_MAX_LENGTH = 200
 /* A typed value keeps its exact integer (137% stays 137%); only the stepper walks the 10% grid. */
 export const clampFontPercent = (value, fallback = FONT_SCALE_DEFAULT) => {
   const percent = Number(value)

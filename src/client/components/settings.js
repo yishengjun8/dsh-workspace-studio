@@ -1,8 +1,8 @@
 import { createElement as h, Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
-import { Card, ColorCell, ColorRow, PresetCell, Row, Section, SliderRow, Sub, SwitchRow } from './settings-rows.js'
+import { Card, ColorCell, ColorRow, PresetCell, Row, Section, SliderRow, Sub, SwitchRow, TextRow } from './settings-rows.js'
 import { InterpreterCard } from './settings-interpreters.js'
-import { AUTO_SYNC_MODE_AUTO, AUTO_SYNC_MODE_WATCH_ONLY, CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MAX, CONFLICT_FONT_SIZE_MIN, DIFF_RULER_WIDTH_DEFAULT, DIFF_RULER_WIDTH_MAX, DIFF_RULER_WIDTH_MIN, EDIT_LINES_DEFAULT, EDIT_LINES_MAX, EDIT_LINES_MIN, EDIT_LINES_STEP, FONT_SCALE_DEFAULT, FONT_SCALE_MAX, FONT_SCALE_MIN, FONT_SCALE_STEP, MINDMAP_END_COLOR_DEFAULT, MINDMAP_HEAD_COLOR_DEFAULT, MINDMAP_HOVER_COLOR_FALLBACK, MINDMAP_HOVER_THEME_VAR, MINDMAP_MOUNT_BULGE_DEFAULT_X, MINDMAP_MOUNT_BULGE_MAX_X, MINDMAP_MOUNT_BULGE_MIN_X, MINDMAP_SELECTED_COLOR_FALLBACK, MINDMAP_SELECTED_THEME_VAR, MINDMAP_SPIN_SPEED_DEFAULT_X, MINDMAP_SPIN_SPEED_MAX_X, MINDMAP_SPIN_SPEED_MIN_X, MINDMAP_SUMMARY_DEFAULT_LENGTH, MINDMAP_SUMMARY_LENGTH_STEP, MINDMAP_SUMMARY_MAX_LENGTH, MINDMAP_SUMMARY_MIN_LENGTH, MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH, MINDMAP_SUMMARY_SESSION_LENGTH_STEP, MINDMAP_SUMMARY_SESSION_MAX_LENGTH, MINDMAP_SUMMARY_SESSION_MIN_LENGTH, mindmapEffectiveColor, PREVIEW_RIGHT_DEFAULT, ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MAX, ROW_HEIGHT_MIN, SEARCH_MATCH_EXPAND_DEFAULT, THINK_LINES_DEFAULT, THINK_LINES_MAX, THINK_LINES_MIN, THINK_LINES_STEP, WATCH_FILES_DEFAULT } from '../constants.js'
+import { AUTO_SYNC_MODE_AUTO, AUTO_SYNC_MODE_WATCH_ONLY, CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MAX, CONFLICT_FONT_SIZE_MIN, DIFF_RULER_WIDTH_DEFAULT, DIFF_RULER_WIDTH_MAX, DIFF_RULER_WIDTH_MIN, EDIT_LINES_DEFAULT, EDIT_LINES_MAX, EDIT_LINES_MIN, EDIT_LINES_STEP, FONT_SCALE_DEFAULT, FONT_SCALE_MAX, FONT_SCALE_MIN, FONT_SCALE_STEP, MINDMAP_END_COLOR_DEFAULT, MINDMAP_HEAD_COLOR_DEFAULT, MINDMAP_HOVER_COLOR_FALLBACK, MINDMAP_HOVER_THEME_VAR, MINDMAP_MOUNT_BULGE_DEFAULT_X, MINDMAP_MOUNT_BULGE_MAX_X, MINDMAP_MOUNT_BULGE_MIN_X, MINDMAP_SELECTED_COLOR_FALLBACK, MINDMAP_SELECTED_THEME_VAR, MINDMAP_SPIN_SPEED_DEFAULT_X, MINDMAP_SPIN_SPEED_MAX_X, MINDMAP_SPIN_SPEED_MIN_X, MINDMAP_SUMMARY_DEFAULT_LENGTH, MINDMAP_SUMMARY_LENGTH_STEP, MINDMAP_SUMMARY_MAX_LENGTH, MINDMAP_SUMMARY_MIN_LENGTH, MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH, MINDMAP_SUMMARY_SESSION_LENGTH_STEP, MINDMAP_SUMMARY_SESSION_MAX_LENGTH, MINDMAP_SUMMARY_SESSION_MIN_LENGTH, mindmapEffectiveColor, MUSIC_ARRANGE_BAR_WIDTH_DEFAULT, MUSIC_ARRANGE_BAR_WIDTH_MAX, MUSIC_ARRANGE_BAR_WIDTH_MIN, MUSIC_ARRANGE_BAR_WIDTH_STEP, MUSIC_ROLL_GRID_WIDTH_DEFAULT, MUSIC_ROLL_GRID_WIDTH_MAX, MUSIC_ROLL_GRID_WIDTH_MIN, MUSIC_ROLL_GRID_WIDTH_STEP, MUSIC_ROLL_ROW_HEIGHT_DEFAULT, MUSIC_ROLL_ROW_HEIGHT_MAX, MUSIC_ROLL_ROW_HEIGHT_MIN, MUSIC_ROLL_ROW_HEIGHT_STEP, MUSIC_SAVE_DIR_MAX_LENGTH, PREVIEW_RIGHT_DEFAULT, ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MAX, ROW_HEIGHT_MIN, SEARCH_MATCH_EXPAND_DEFAULT, THINK_LINES_DEFAULT, THINK_LINES_MAX, THINK_LINES_MIN, THINK_LINES_STEP, WATCH_FILES_DEFAULT } from '../constants.js'
 import { translate } from '../locale/index.js'
 import { IconSearch } from '../icons.js'
 import { clearPreviewFontOverrides } from '../preview-font.js'
@@ -12,6 +12,8 @@ import { checkUpdate, downloadUpdate, fetchInstalledUpdateInfo } from '../api.js
 import { readVcsHostEnabled, subscribeVcsHostEnabled } from '../vcs.js'
 import { TokenStatsRow } from './token-stats.js'
 import { useMindmapSummaryModels } from '../hooks/mindmap-summary-models.js'
+import { normalizeRelativeDir } from '../paths.js'
+import { MUSIC_DEFAULT_DIR } from '../../shared/music-score.js'
 /* =====================================================================================
    Settings page skeleton: seven cards (维护与统计 / 浏览与预览 / 图标与高亮配色 /
    版本控制 / 导图 / 对话 / 解释器). Every row is the same three-column grid —
@@ -28,6 +30,7 @@ const CARDS = Object.freeze([
   { id: 'mindmap', chip: 'settings.chip.mindmap' },
   { id: 'dialog', chip: 'settings.chip.dialog' },
   { id: 'interp', chip: 'settings.chip.interp' },
+  { id: 'music', chip: 'settings.chip.music' },
 ])
 const CARD_IDS = Object.freeze(CARDS.map(card => card.id))
 /* Version of the running bundle, inlined by tsdown's define — the LAST fallback for 「当前版本」:
@@ -782,6 +785,99 @@ function MindmapCard({ settings, settingsStore, summaryModels }) {
 /* =====================================================================================
    6. 对话
    ===================================================================================== */
+/* Music workshop: the default save folder plus the three 100% baselines that the arrangement
+   and piano-roll zoom sliders multiply. Kept as separate physical units because px/bar, px
+   and px/row do not share a meaningful single multiplier. */
+function MusicCard({ settings, settingsStore }) {
+  const barWidth = settings.musicArrangeBarWidth ?? MUSIC_ARRANGE_BAR_WIDTH_DEFAULT
+  const gridWidth = settings.musicRollGridWidth ?? MUSIC_ROLL_GRID_WIDTH_DEFAULT
+  const rowHeight = settings.musicRollRowHeight ?? MUSIC_ROLL_ROW_HEIGHT_DEFAULT
+  const saveDir = settings.musicSaveDir ?? MUSIC_DEFAULT_DIR
+  const changed = [
+    barWidth !== MUSIC_ARRANGE_BAR_WIDTH_DEFAULT,
+    gridWidth !== MUSIC_ROLL_GRID_WIDTH_DEFAULT,
+    rowHeight !== MUSIC_ROLL_ROW_HEIGHT_DEFAULT,
+    saveDir !== MUSIC_DEFAULT_DIR,
+  ].filter(Boolean).length
+  const resetAll = () => {
+    settingsStore.actions.setMusicArrangeBarWidth(MUSIC_ARRANGE_BAR_WIDTH_DEFAULT)
+    settingsStore.actions.setMusicRollGridWidth(MUSIC_ROLL_GRID_WIDTH_DEFAULT)
+    settingsStore.actions.setMusicRollRowHeight(MUSIC_ROLL_ROW_HEIGHT_DEFAULT)
+    settingsStore.actions.setMusicSaveDir(MUSIC_DEFAULT_DIR)
+  }
+  return h(Card, {
+    id: 'music',
+    title: translate('settings.group.music'),
+    meta: changed === 0 ? translate('settings.music.range') : translate('settings.changed', { count: String(changed) }),
+    notes: ['settings.notes.music.1', 'settings.notes.music.2', 'settings.notes.music.3'],
+  },
+    h(Section, { label: translate('settings.music.saveSection') },
+      h(TextRow, {
+        label: translate('settings.music.saveDir'),
+        hint: translate('settings.music.saveDirHint'),
+        invalidHint: translate('settings.music.saveDirInvalid'),
+        value: saveDir,
+        maxLength: MUSIC_SAVE_DIR_MAX_LENGTH,
+        placeholder: MUSIC_DEFAULT_DIR,
+        /* An empty field means "use the default folder" (never the workspace root). */
+        validate: value => value.trim() === '' || normalizeRelativeDir(value, MUSIC_SAVE_DIR_MAX_LENGTH) !== null,
+        onCommit: value => settingsStore.actions.setMusicSaveDir(value.trim() === '' ? MUSIC_DEFAULT_DIR : value),
+        resetTitle: translate('settings.music.saveDirReset'),
+        onReset: () => settingsStore.actions.setMusicSaveDir(MUSIC_DEFAULT_DIR),
+        custom: saveDir !== MUSIC_DEFAULT_DIR,
+      })),
+    h(Section, { label: translate('settings.music.baseline') },
+      h(SliderRow, {
+        label: translate('settings.music.arrangeLabel'),
+        labelTitle: translate('settings.music.arrangeHint'),
+        hint: translate('settings.music.arrangeHint'),
+        min: MUSIC_ARRANGE_BAR_WIDTH_MIN,
+        max: MUSIC_ARRANGE_BAR_WIDTH_MAX,
+        step: MUSIC_ARRANGE_BAR_WIDTH_STEP,
+        value: barWidth,
+        unit: `${barWidth} ${translate('settings.music.unit.bar')}`,
+        onChange: value => settingsStore.actions.setMusicArrangeBarWidth(value),
+        resetTitle: translate('settings.music.arrangeReset'),
+        onReset: () => settingsStore.actions.setMusicArrangeBarWidth(MUSIC_ARRANGE_BAR_WIDTH_DEFAULT),
+        custom: barWidth !== MUSIC_ARRANGE_BAR_WIDTH_DEFAULT,
+      }),
+      h(SliderRow, {
+        label: translate('settings.music.gridLabel'),
+        labelTitle: translate('settings.music.gridHint'),
+        hint: translate('settings.music.gridHint'),
+        min: MUSIC_ROLL_GRID_WIDTH_MIN,
+        max: MUSIC_ROLL_GRID_WIDTH_MAX,
+        step: MUSIC_ROLL_GRID_WIDTH_STEP,
+        value: gridWidth,
+        unit: `${gridWidth} ${translate('settings.music.unit.px')}`,
+        onChange: value => settingsStore.actions.setMusicRollGridWidth(value),
+        resetTitle: translate('settings.music.gridReset'),
+        onReset: () => settingsStore.actions.setMusicRollGridWidth(MUSIC_ROLL_GRID_WIDTH_DEFAULT),
+        custom: gridWidth !== MUSIC_ROLL_GRID_WIDTH_DEFAULT,
+      }),
+      h(SliderRow, {
+        label: translate('settings.music.rowLabel'),
+        labelTitle: translate('settings.music.rowHint'),
+        hint: translate('settings.music.rowHint'),
+        min: MUSIC_ROLL_ROW_HEIGHT_MIN,
+        max: MUSIC_ROLL_ROW_HEIGHT_MAX,
+        step: MUSIC_ROLL_ROW_HEIGHT_STEP,
+        value: rowHeight,
+        unit: `${rowHeight} ${translate('settings.music.unit.row')}`,
+        onChange: value => settingsStore.actions.setMusicRollRowHeight(value),
+        resetTitle: translate('settings.music.rowReset'),
+        onReset: () => settingsStore.actions.setMusicRollRowHeight(MUSIC_ROLL_ROW_HEIGHT_DEFAULT),
+        custom: rowHeight !== MUSIC_ROLL_ROW_HEIGHT_DEFAULT,
+      })),
+    h('div', { className: 'dsh-ws-row-action' },
+      h('button', {
+        className: 'dsh-ws-text-button',
+        onClick: resetAll,
+        title: translate('settings.music.resetAll'),
+        type: 'button',
+      }, translate('settings.music.resetAll'))))
+}
+
 function DialogCard({ settings, settingsStore }) {
   const thinkLines = settings.thinkLines
   const editLines = settings.editLines
@@ -884,5 +980,6 @@ export function ExplorerSettingsSection({ settingsStore }) {
       runConfig,
       setInterpreterExt,
     }),
+    h(MusicCard, { settings, settingsStore }),
     h('div', { className: 'dsh-ws-settings-empty', hidden: query.trim() === '' || matches !== 0 }, translate('settings.search.empty')))
 }
