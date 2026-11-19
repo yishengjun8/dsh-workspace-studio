@@ -8,7 +8,7 @@ export function normalizeRelativePath(value) {
   if (value === '') return ''
   if (/\u0000|[\u0001-\u001f\u007f\u2028\u2029]/u.test(value)
     || value.includes('\\') || value.startsWith('/') || isAbsolute(value)
-    /* Colons are illegal in Windows file names and drive-relative forms (`C:` -> the workspace root itself, `a:b` -> another drive) resolve surprisingly under path.win32.resolve: reject them on Windows so no request can alias the root or probe other drives; POSIX hosts keep colons (legal there). */
+    /* Colons are illegal in Windows names and drive-relative forms (`C:` -> the workspace root, `a:b` -> another drive) resolve surprisingly under path.win32.resolve: reject them on Windows so no request can alias the root or probe other drives; POSIX keeps them. */
     || (process.platform === 'win32' && value.includes(':'))) {
     throw new HttpError(400, 'invalid-path', '文件路径必须是工作区内的相对路径')
   }
@@ -16,7 +16,7 @@ export function normalizeRelativePath(value) {
   if (parts.some(part => part === '' || part === '.' || part === '..')) {
     throw new HttpError(400, 'invalid-path', '文件路径包含无效段')
   }
-  /* Every segment must also satisfy the Windows name rules (trailing dot/space, reserved device names): a MIDDLE segment like `foo.` aliases `foo` on NTFS, and `CON` fails with a raw EINVAL that normalizeFailure does not classify. normalizeEntryName only guards the final name, so the rules apply per segment here. */
+  /* Windows name rules apply per segment (normalizeEntryName guards only the final name): a MIDDLE `foo.` aliases `foo` on NTFS, and `CON` fails with a raw EINVAL normalizeFailure does not classify. */
   for (const part of parts) {
     if (/[. ]$/.test(part)) throw new HttpError(400, 'invalid-path', '路径段不能以点或空格结尾')
     const base = part.split('.')[0].toUpperCase()
@@ -53,16 +53,16 @@ export function parentPath(path) {
 }
 export function normalizeEntryName(value, maxEntryNameBytes) {
   if (typeof value !== 'string') throw new HttpError(400, 'invalid-path', '文件名必须是工作区内的单个名称')
-  /* Trailing dot/space must be checked on the RAW value: trim() below would strip a trailing space first and silently turn "a " into "a" instead of refusing it. */
+  /* Check trailing dot/space on the RAW value: trim() would strip the space and silently turn "a " into "a" instead of refusing it. */
   if (/[. ]$/.test(value)) throw new HttpError(400, 'invalid-path', '文件名不能以点或空格结尾')
   const name = value.trim()
   if (name === '' || name === '.' || name === '..' || name.includes('/') || name.includes('\\')
     || /\u0000|[\u0001-\u001f\u007f\u2028\u2029]/u.test(name)
-    /* Same Windows colon rule as normalizeRelativePath: `C:foo` silently resolves to `foo` and `a:b` becomes drive-relative — without this check a create/rename would land at a DIFFERENT name than the response claims. */
+    /* Same Windows colon rule as normalizeRelativePath: `C:foo` resolves to `foo` and `a:b` becomes drive-relative, so without it a create/rename would land at a DIFFERENT name than the response claims. */
     || (process.platform === 'win32' && name.includes(':'))) {
     throw new HttpError(400, 'invalid-path', '文件名必须是工作区内的单个名称')
   }
-  /* Windows refuses names ending in a dot/space or matching its reserved device names (CON, PRN, AUX, NUL, CONIN$/CONOUT$, COM1-9, LPT1-9) even with an extension: reject up front so a create/rename returns a clean 400 instead of a raw 500 on Windows. Non-Windows hosts keep the rule for consistency. */
+  /* Windows refuses names ending in a dot/space or matching its reserved device names (CON, PRN, AUX, NUL, CONIN$/CONOUT$, COM1-9, LPT1-9) even with an extension: reject up front so a create/rename returns a clean 400 instead of a raw 500. Non-Windows hosts keep the rule for consistency. */
   const base = name.split('.')[0].toUpperCase()
   if (/^(CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|COM[1-9]|LPT[1-9])$/.test(base)) {
     throw new HttpError(400, 'invalid-path', '文件名不能使用 Windows 保留名称')

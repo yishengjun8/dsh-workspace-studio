@@ -4,22 +4,20 @@
  * accept/content-type headers, failure normalization and the invalid-response contract exist
  * exactly once; each endpoint is then a few lines naming its route, its query/body and the failure
  * locale keys, with no fetch boilerplate repeated.
- *
- * `ROUTES` mirrors the Host's route table (src/host/index.js); scripts/check-api-surface.mjs
- * asserts the two agree, so a route renamed on one side cannot survive as a runtime 404.
  */
 import { API_PREFIX, ENCODING_FALLBACK, ENCODING_LABEL_FALLBACK, MINDMAP_LOAD_TIMEOUT_MS, MINDMAP_MODELS_CACHE_MS, MINDMAP_SYNC_TIMEOUT_MS, RUN_PROBE_REQUEST_TIMEOUT_MS, RUN_STATUS_TIMEOUT_MS, TOKEN_STATS_TIMEOUT_MS, UPDATE_CHECK_TIMEOUT_MS, UPDATE_DOWNLOAD_TIMEOUT_MS, VCS_STATUS_TIMEOUT_MS } from './constants.js'
 import { localeIsZh, translate } from './locale/index.js'
 
-/* Bounded request timeouts: a hung Host must not leave the UI in a permanent loading/saving state; withTimeout merges in the caller's signal, or falls back to the signal alone when the timeout APIs are unavailable. */
+/* Bounded request timeouts: a hung Host must not leave the UI loading/saving forever; withTimeout merges the caller's signal, falling back to the signal alone when the timeout APIs are unavailable. */
 const REQUEST_TIMEOUT_MS = 30_000
 const MINDMAP_LLM_TIMEOUT_MS = 60_000
 /* AI composition runs one model call on the Host; it is bounded like the mind-map summaries. */
 const MUSIC_LLM_TIMEOUT_MS = 90_000
 
-/** The client's mirror of the Host route table: one entry per endpoint this bundle calls.
- *  `failure` is the code/locale-key pair a non-2xx answer is reported with; `invalid` is the
- *  locale key used when a 2xx body does not match the documented shape. */
+/** The client's mirror of the Host route table (src/host/index.js), one entry per endpoint this
+ *  bundle calls; scripts/check-api-surface.mjs asserts the two agree, so a rename cannot survive as
+ *  a runtime 404. `failure` is the code/locale-key pair a non-2xx answer reports; `invalid` the
+ *  locale key for a 2xx body that does not match the documented shape. */
 const ROUTES = Object.freeze({
   encodings: { path: '/encodings' },
   file: { path: '/file', invalid: 'error.invalid-response.file' },
@@ -237,11 +235,11 @@ export function requestJson(endpoint, workspaceId, path, signal, encoding) {
     },
   })
 }
-/* Read one JSON route that is NOT part of this plugin's API — the harness's own `api/changes.*` reads
-   behind the change-review tab. The URL is taken verbatim (document-relative, so it stays inside the
-   connection's own authentication fence) while every transport rule of `request` still applies; a
-   failure rejects with a normalized WorkspaceApiError whose `status` lets the caller tell a 404 from a
-   real error instead of inventing a second fetch path. */
+/* Read one JSON route that is NOT this plugin's API — the harness's own `api/changes.*` behind the
+   change-review tab. The URL is verbatim (document-relative, inside the connection's own
+   authentication fence) while every `request` transport rule still applies; a failure rejects with
+   a normalized WorkspaceApiError whose `status` tells a 404 from a real error, so no second fetch
+   path exists. */
 export function readHarnessJson(relativeUrl, signal) {
   return request({ path: relativeUrl, absolute: true, invalid: 'error.invalid-response.file' }, { signal })
 }
@@ -273,7 +271,11 @@ export function hostAbsoluteHref(relative) {
   if (typeof origin !== 'string' || origin === '') return relative
   try { return new URL(relative, origin).href } catch { return relative }
 }
-/* Cheap file-change check for open preview tabs: the Host stats the file and compares mtime/size/hash against the previous snapshot, returning `changed` plus the new baseline snapshot (null = the file is gone). A null previousSnapshot is sent as an explicit { gone: true } marker so a re-created file reports `changed`, and the baseline rides in the BODY (POST) rather than the query string so a long-running session with many tabs never builds a giant URL. NOTE: a MISSING file is NOT an error here — the Host answers 200 with { exists: false, snapshot: null }. */
+/* Cheap file-change check for open preview tabs: the Host stats the file, compares mtime/size/hash
+   with the previous snapshot and answers `changed` plus the new baseline snapshot (null = gone). A
+   null previousSnapshot goes as an explicit { gone: true } marker so a re-created file reports
+   `changed`; the baseline rides in the POST body (not the query) so many tabs never build a giant
+   URL. NOTE: a MISSING file is NOT an error — the Host answers 200 with { exists: false, snapshot: null }. */
 export function checkFileChange(workspaceId, path, previousSnapshot, signal) {
   let previous
   if (previousSnapshot === null) previous = { gone: true }
@@ -371,9 +373,8 @@ export const fetchMindmapModels = () => {
   })
   return mindmapModelsRequest
 }
-/* Music workshop: one AI compose call plus the score files the panel saves under the
-   workspace music directory. The compose request is long (a model call), the file
-   requests are ordinary JSON round trips. */
+/* Music workshop: one AI compose call plus the score files the panel saves under the workspace
+   music directory. The compose request is long (a model call), the file requests are ordinary JSON. */
 export const composeMusicRequest = (workspaceId, payload, signal) => request(ROUTES.musicCompose, {
   method: 'POST',
   query: { workspaceId },

@@ -1,17 +1,14 @@
-/* PDF and Office document preview: complete bytes rendered as a PDF inside the pane.
+/* PDF and Office preview: complete bytes rendered as a PDF inside the pane.
  *
- * Two sources, one presentation:
- *   - `kind === 'pdf'` reads the file's own bytes through the workspace-files
- *     Remote (`readBytes`, which never rejects binary content);
- *   - `kind === 'office'` asks the harness Host provider to convert a
- *     doc/docx/ppt/pptx/xls/xlsx source through the `officeToPdf` Remote
- *     (LibreOffice, bounded queue, content-addressed cache), returning PDF bytes.
+ * Two sources, one presentation: `kind === 'pdf'` reads the file's own bytes through the
+ * workspace-files Remote (`readBytes`, which never rejects binary content); `kind === 'office'`
+ * asks the harness Host provider to convert a doc/docx/ppt/pptx/xls/xlsx source through the
+ * `officeToPdf` Remote (LibreOffice, bounded queue, content-addressed cache) into PDF bytes.
  *
- * The bytes become one blob URL handed to the browser's own PDF viewer, which
- * keeps zoom, paging, text selection and printing without pulling a PDF engine
- * into this bundle. Nothing here touches the plugin's text preview: the Host
- * refuses binary content by design, so these tabs never read text, hold no
- * draft, and publish no editor context.
+ * The bytes become one blob URL handed to the browser's own PDF viewer, which keeps zoom, paging,
+ * text selection and printing without pulling a PDF engine into this bundle. Nothing here touches
+ * the plugin's text preview: the Host refuses binary content by design, so these tabs never read
+ * text, hold no draft, and publish no editor context.
  *
  * Failure handling mirrors the image view: a missing Remote face is reported as
  * "unavailable" rather than thrown inside an effect (a synchronous throw there

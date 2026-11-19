@@ -97,7 +97,12 @@ export function byteKindOf(name) {
   return undefined
 }
 
-/* The viewer-menu items for the active file: 'edit' is always present for text files; 'preview' is the rendered view. Read-only text files offer a paged browse of the full file; a tab the workspace-files Remote cannot read at all (a dropped-in file, whose content lives only in memory) never offers it — a file OUTSIDE the workspace is not such a tab (the Remote reads its absolute path), so its caller passes external=false. Byte-rendered files (image, PDF, Office) have a single auto-selected view. */
+/* Viewer-menu items for the active file: 'edit' is always present for text files; 'preview' is the
+   rendered view — a paged browse of the full file when the text is read-only. A tab the
+   workspace-files Remote cannot read at all (a dropped-in file, whose content lives only in memory)
+   never offers it — a file OUTSIDE the workspace is not such a tab (the Remote reads its absolute
+   path), so its caller passes external=false. Byte renderers (image, PDF, Office) have a single
+   auto-selected view. */
 export function viewerCandidates(preview, name, external) {
   if (isImageName(name)) return [{ id: RENDERER_IMAGE, label: translate('renderer.image') }]
   if (isPdfName(name)) return [{ id: RENDERER_PDF, label: translate('renderer.pdf') }]
@@ -123,7 +128,9 @@ export function viewerCandidates(preview, name, external) {
   return [{ id: VIEW_EDIT, label: translate('editor.edit') }]
 }
 
-/* Localized chrome for the shared MarkdownText primitive: the harness component requires a reference-stable MarkdownLabels object (it memoizes on its identity), so the memo keys on the three translated strings and rebuilds only when the active locale changes them. */
+/* Localized chrome for the shared MarkdownText primitive: it memoizes on the identity of a
+   reference-stable MarkdownLabels object, so this memo keys on the three translated strings and
+   rebuilds only when the locale changes them. */
 export function useMarkdownLabels() {
   const copyLabel = translate('renderer.copy')
   const copiedLabel = translate('renderer.copied')

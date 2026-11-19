@@ -1,6 +1,6 @@
 /* Drum machine for one drum-instrument track: 16 steps × 6 lanes for the selected bar,
- * plus the groove controls that shape playback (swing / humanize are read by the synth on
- * every pass). Pressing and dragging paints steps on/off, mirroring the piano roll's stroke. */
+ * plus the groove controls that shape playback. Pressing and dragging paints steps on/off,
+ * mirroring the piano roll's stroke. */
 import { createElement as h, useRef } from 'react'
 import { translate } from '../../locale/index.js'
 import { MUSIC_DRUM_IDS, MUSIC_STEPS_PER_BAR } from '../../../shared/music-score.js'

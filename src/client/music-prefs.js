@@ -2,10 +2,10 @@ import { MUSIC_ZOOM_MAX, MUSIC_ZOOM_MIN } from './constants.js'
 
 /* Per-session music-page preferences.
  *
- * These live in the same preview-session snapshot as the tabs, so they are keyed by the
- * session (or mind-map family) the page belongs to: session A and session B keep separate
- * model/height choices, and closing the music tab does not forget them. The values are
- * UI state, so they stay client-side exactly like the preview snapshot itself.
+ * They live in the same preview-session snapshot as the tabs, keyed by the session (or
+ * mind-map family) the page belongs to, so sessions keep separate model/height choices
+ * and closing the music tab does not forget them. UI state, so client-side exactly like
+ * the snapshot itself.
  */
 export const MUSIC_ROLL_HEIGHT_MIN = 180
 export const MUSIC_ROLL_HEIGHT_MAX = 720

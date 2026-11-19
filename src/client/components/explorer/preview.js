@@ -97,7 +97,7 @@ export function PreviewPane({ preview, settings, editing, activeTab, draft, view
           : null,
         scrollTop: scrollTopRef.current.get(activePath) ?? activeTab?.scrollTop ?? 0,
       }),
-      // Rendered-Markdown overlay sits above the kept-mounted editor so switching back keeps caret/undo state and the draft. The preview text size is not applied here: it sizes the source editor, which is why the header hides its control in this view.
+      // Rendered-Markdown overlay sits above the kept-mounted editor so switching back keeps caret/undo state and the draft. The preview text size does not apply here: it sizes the source editor.
       isMarkdown && viewMode === 'preview'
         ? h('div', { className: 'dsh-ws-md-preview' }, h(MarkdownText, { text: draft, labels: markdownLabels }))
         : null,

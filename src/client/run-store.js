@@ -1,18 +1,17 @@
 /* Executable-file run console store.
  *
  * One module-level entry per workspace path, so three things stay true at once:
- *   - the console keeps its output when the user switches preview tabs (and comes back);
+ *   - the console keeps its output across preview-tab switches;
  *   - the tab badge can say "this other file is still running" without a second poll loop;
  *   - a page refresh re-attaches to whatever the Host is still running, because the entry is
- *     rebuilt from the Host's own record instead of from client state.
+ *     rebuilt from the Host's own record, not from client state.
  *
  * The Host owns the process and a bounded output ring buffer; this store owns the *rendered* tail
  * (line list) plus the poll cursor. Nothing here is persisted: a refresh is a re-attach, not a
- * restore, and the Host is the single source of truth for every run.
+ * restore.
  *
- * Components subscribe per PATH (useRunEntry) or globally (useRunVersion, the tab strip). The
- * per-path subscription keeps the 400 ms poll cheap: only the changed path's console re-renders,
- * not every consumer in the layout on every tick.
+ * Components subscribe per PATH (useRunEntry) or globally (useRunVersion, the tab strip), so the
+ * 400 ms poll re-renders only the changed path's console, not every consumer on every tick.
  */
 import { useCallback, useSyncExternalStore } from 'react'
 import { RUN_FOLLOW_DEFAULT, RUN_POLL_MS } from './constants.js'

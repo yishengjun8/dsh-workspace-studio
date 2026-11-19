@@ -1,22 +1,19 @@
 /** Quarantine for persisted Host content this code can no longer use.
  *
- * The plugin reads every persisted file of its own in exactly ONE format: whatever does not
- * satisfy the current schema is unusable in every version of this code, so it is moved aside
- * instead of being migrated. "Moved aside" rather than deleted because two of these stores hold
- * user content that has no other copy — a staged draft is the user's unsaved edit and a mind-map
- * document is the user's map structure — while a rename has exactly the same effect on behaviour
- * (the reader falls back to its defaults / rebuilds) and leaves a recovery path. Swap the rename
- * for an unlink in quarantineFile() if irrecoverable deletion is ever wanted.
+ * Every persisted file is read in exactly ONE format: whatever fails the current schema is
+ * unusable in every version of this code, so it is moved aside instead of migrated. Renamed, not
+ * deleted, because two stores hold user content with no other copy (a staged draft, a mind-map
+ * document) and a rename has the same behavioural effect (the reader falls back to defaults /
+ * rebuilds) while leaving a recovery path. Swap the rename for an unlink in quarantineFile() if
+ * irrecoverable deletion is ever wanted.
  *
- * Discipline (see the per-store call sites):
- *   - only a file that was READ SUCCESSFULLY and then failed its schema is quarantined; a missing
- *     file and an IO/permission failure are never treated as corruption;
- *   - callers that share a store with a concurrent writer re-read under the store's lock before
- *     quarantining, so a document written between the failed read and the rename is not lost;
- *   - the quarantine directory lives INSIDE the store's own directory (drafts/<ws>/<owner>/.corrupt,
- *     mindmap/.corrupt, …), so a directory scan that looks for `*.json` files never picks it up;
- *   - entries older than the retention window are swept on every quarantine write, which bounds
- *     the disk cost without a background task.
+ * Discipline (see the per-store call sites): only a file READ SUCCESSFULLY and then failing its
+ * schema is quarantined — a missing file and an IO/permission failure are never corruption;
+ * callers sharing a store with a concurrent writer re-read under the store's lock before
+ * quarantining, so a document written between the failed read and the rename is not lost; the
+ * quarantine directory lives INSIDE the store's own directory (drafts/<ws>/<owner>/.corrupt,
+ * mindmap/.corrupt, …), so a `*.json` scan never picks it up; entries older than the retention
+ * window are swept on every quarantine write, bounding disk cost without a background task.
  */
 import { randomBytes } from 'node:crypto'
 import { mkdir, readdir, rename, stat, unlink } from 'node:fs/promises'
@@ -57,8 +54,8 @@ async function sweepQuarantine(directory) {
 
 /**
  * Move one unusable persisted file into its store's quarantine directory.
- * Never throws: a failure to quarantine only means the file stays where it is (the caller still
- * degrades to its defaults), which is strictly better than failing the request.
+ * Never throws: a failed quarantine only leaves the file in place (the caller still degrades to
+ * its defaults), strictly better than failing the request.
  * @returns whether the file was moved.
  */
 export async function quarantineFile(target, reason, logger) {

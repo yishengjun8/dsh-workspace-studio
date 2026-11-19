@@ -5,12 +5,11 @@
 
     Transport note: MANY machines redirect github.com / api.github.com /
     raw.githubusercontent.com to a local TLS proxy via hosts entries (GitHub
-    accelerators); Node's own CA store rejects that proxy's certificate while
-    codeload.github.com is never redirected. The whole check + install path
-    therefore uses ONLY codeload.github.com. The check downloads the main-branch
-    tarball and CACHES the extracted payload; the install consumes exactly those
-    cached bytes (verified again), so no check→install race exists and no commit
-    pin is needed.
+    accelerators); Node's CA store rejects that proxy's certificate while
+    codeload.github.com is never redirected, so the whole check + install path uses
+    ONLY codeload.github.com. The check downloads the main-branch tarball and CACHES
+    the extracted payload; the install consumes exactly those cached bytes (verified
+    again), so no check→install race exists and no commit pin is needed.
 
     The running process keeps executing the OLD code until dsh is restarted, so the
     check reports restartPending (on-disk version vs the version this loaded module

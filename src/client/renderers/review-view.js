@@ -1,12 +1,10 @@
 /* Change-review viewer: the body of a `review` preview tab.
  *
- * One turn's changed files behind a file list, with the selected file's
- * turn-start/turn-end comparison drawn as a unified diff. Both reads come from
- * the Host routes ui-deliverables serves (the summary and one file's
- * comparison) through `changes-review.js`; this module only draws them.
- * Session-only: the review lives while the turn's Session does, so nothing is
- * persisted and a closed tab simply reads again when reopened.
- */
+ * One turn's changed files behind a file list, with the selected file's turn-start/turn-end
+ * comparison drawn as a unified diff. Both reads come from the Host routes ui-deliverables serves
+ * (the summary and one file's comparison) through `changes-review.js`; this module only draws them.
+ * Session-only: the review lives while the turn's Session does, so nothing is persisted and a
+ * closed tab simply reads again when reopened. */
 import { createElement as h, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { translate } from '../locale/index.js'
 import { PanelState } from '../panel-state.js'

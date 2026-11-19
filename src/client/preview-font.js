@@ -1,13 +1,13 @@
 /* Preview text size: the one place where the two components that own it talk to each other.
  *
- * The per-tab size belongs to the file header (inside the explorer), while the base size and its
+ * The per-tab size belongs to the file header (inside the explorer); the base size and its
  * "clear every tab's own value" action belong to the settings page — a slot contribution mounted
- * in a completely different part of the tree, with no shared parent to thread a callback through.
- * The explorer registers one handler while it is mounted; the settings page calls it. No state
- * lives here (the handler clears the caller's own tab state), so nothing has to be kept in sync.
+ * elsewhere in the tree, with no shared parent to thread a callback through. The explorer registers
+ * one handler while mounted; the settings page calls it. No state lives here (the handler clears the
+ * caller's own tab state), so nothing has to be kept in sync.
  *
  * Deliberately one handler per mounted explorer: a session switch remounts the explorer, whose
- * cleanup unregisters the previous one, so a stale mount can never be asked to clear its tabs.
+ * cleanup unregisters the previous one, so a stale mount is never asked to clear its tabs.
  */
 const handlers = new Set()
 

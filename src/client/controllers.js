@@ -71,14 +71,11 @@ export class EditorContextController {
     this.publish(sessionId)
   }
   activate(sessionId) {
-    // Restore only this session's own last published context; a foreign
-    // value must never leak in.
     const own = this.latest.get(sessionId)
     if (own !== undefined) this.update(sessionId, own)
     this.publish(sessionId)
   }
-  /* Field-level gating for the snapshot store: a projection equal to the
-     published one must not re-notify subscribers. */
+  /* Gate on field equality: an equal projection must not re-notify subscribers. */
   publish(sessionId) {
     const store = this.stores.get(sessionId)
     if (store === undefined) return
@@ -154,8 +151,7 @@ export function selectWorkspaceForSession(items, sessionId, cwd) {
   return undefined
 }
 
-/* Resolve the workspace a session belongs to — membership first, then the
-   session cwd path — the same selection AppFrame uses. */
+/* The workspace a session belongs to, through the shared selection above. */
 export function workspaceOfSession(ctx, id) {
   const row = ctx.sessions.list.getSnapshot().byId[id]
   if (row === undefined) return undefined
@@ -280,8 +276,7 @@ export class PromptContextBridge {
       return bridge.sendSessionWithEditorContext(session, text, imageIds, mode)
     }
     Object.defineProperty(wrappedSendSession, SEND_SESSION_BRIDGE_MARKER, { value: true })
-    /* Record the true original on the wrapper itself so an overlapping
-       re-install can unwrap instead of recursing. */
+    /* Record the true original on the wrapper so an overlapping re-install unwraps instead of recursing. */
     Object.defineProperty(wrappedSendSession, SEND_SESSION_BRIDGE_ORIGINAL, { value: originalSendSession })
     this.wrappedSendSession = wrappedSendSession
     conversation.sendSession = wrappedSendSession

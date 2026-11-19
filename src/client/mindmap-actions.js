@@ -4,9 +4,9 @@ import { withoutForeignForkWatch } from './mindmap/fork-watch.js'
 import { mindmapRootTitleOf, normalizeMindmapWorkspacePath } from './mindmap/helpers.js'
 import { mindmapBlankSessions } from './mindmap/hider.js'
 
-  /* The mind-map action face shared by the docked mind-map view: document IO,
-     fork, rename and archive. forkAt does not open the child — the view opens
-     it only after the doc write completes. */
+  /* The mind-map action face of the docked view: document IO, fork, rename and
+     archive. forkAt does not open the child — the view does that once the doc
+     write completes. */
 export function buildMindmapActions(ctx) {
     /* Resolve the workspace whose canonical path matches a cwd string, so a root-node-created session can be created with its workspaceId. */
     const mindmapWorkspaceIdForCwd = (cwd) => {
@@ -30,10 +30,9 @@ export function buildMindmapActions(ctx) {
     return {
       archiveSession: async id => { await ctx.workspaces.archiveSession(String(id)) },
     createSession: async (recordedCwd, anchorId) => {
-      /* A top-level session (created by clicking the mind-map root node) is a
-         brand-new blank harness session, created in the map's recorded
-         workspace (or the anchor session's cwd) via workspaceId so the host
-         attaches it to that workspace. */
+      /* A top-level session (mind-map root-node click) is a brand-new blank
+         harness session, created in the map's recorded workspace (or the
+         anchor's cwd) via workspaceId so the host attaches it there. */
       const snapshot = ctx.sessions.list.getSnapshot()
       const cwd = (typeof recordedCwd === 'string' && recordedCwd !== '')
         ? recordedCwd
@@ -59,18 +58,18 @@ export function buildMindmapActions(ctx) {
     forkAt: async (id, seq, asRoot) => {
       /* This path writes the document itself (optimistic branch + saveDoc) and
          refreshes the index, so the foreign-fork watch must not also sync the
-         family (an extra Host sync per map fork would pay a full persistence
-         scan, the client doc write having just invalidated that cache). */
+         family: an extra Host sync per map fork pays a full persistence scan
+         whose cache the client write just invalidated. */
       const childId = await withoutForeignForkWatch(() => ctx.sessions.fork({ sessionId: String(id), atSeq: seq }))
       /* A fork child inherits the source session's durable pending queue: the
          parent's next submitted message enters its inbox BEFORE the turn/start
          the fork cut extends to, while its claim lands AFTER the cut — so the
          child would claim it ahead of the user's own first message. The Host
-         drops it while the fresh child is still idle (this runs BEFORE the
-         view opens the child, so no prompt can reach it first). Best effort:
-         a failed cleanup degrades to the leaked-queue behavior. This is the
-         only cleanup call for the map's own fork (the watch is suppressed for
-         it); foreign forks are cleaned by the watch itself. */
+         drops it while the fresh child is still idle; this runs BEFORE the view
+         opens the child, so no prompt can reach it first. Best effort: a failed
+         cleanup degrades to the leaked-queue behavior. Only cleanup call for
+         the map's own fork (the watch is suppressed for it); foreign forks are
+         cleaned by the watch itself. */
       try {
         await clearMindmapForkQueue(String(childId))
       } catch {

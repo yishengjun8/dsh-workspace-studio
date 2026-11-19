@@ -1,8 +1,8 @@
 /* The settings page's row/card design system.
  *
- * Every card is the same three-column grid — label | control | reset slot — so the controls line up down the
- * page, and every card body is the same collapsible shell. These primitives therefore belong to no one card:
- * they live here so a card module can move out of settings.js without dragging the whole page (or
+ * Every card is the same three-column grid — label | control | reset slot — so controls line up down the
+ * page, and every card body is the same collapsible shell. These primitives belong to no one card: they
+ * live here so a card module can move out of settings.js without dragging the whole page (or
  * re-implementing a row) with it.
  *
  * The search/filter that walks this markup (applySettingsFilter, in settings.js) keys off the

@@ -118,14 +118,13 @@ export function useCollectionsFilter({ doc, workspaces, paused, currentWorkspace
 /**
  * The plugin menu on a Harness workspace group row, plus the row's permanent collection icon.
  *
- * The menu opens from two entry points: a contextmenu on the row (the Harness binds no contextmenu
- * there, so this is additive and its own `⋯` menu keeps working) and a click on the injected icon.
+ * The menu opens from two entry points: a contextmenu on the row (the Harness binds none there, so
+ * this is additive and its own `⋯` menu keeps working) and a click on the injected icon.
  *
  * The icon is a REAL node, not a `::after` chip: a pseudo-element cannot receive its own click, and
- * the Harness's own action area (`.rowActions`) is `display:none` until the row is hovered, so it
- * cannot host a permanent control either. It is therefore appended as the LAST child of the row and
- * kept there across React re-renders by a coalesced MutationObserver, the same shape sidebar-chrome.js
- * uses for its seats.
+ * the Harness's action area (`.rowActions`) is `display:none` until hover, so it cannot host a
+ * permanent control either; it is therefore appended as the row's LAST child and kept there across
+ * React re-renders by a coalesced MutationObserver, as sidebar-chrome.js does for its seats.
  *
  * @param props.doc - normalized collection document (drives the icon's state and tooltip).
  * @param props.labels - localized copy `{ iconNone, iconMember }`.

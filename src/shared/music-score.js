@@ -1,13 +1,13 @@
 /* Music-workshop score model shared by the Host and the client bundle.
  *
- * Pure data only: no fetch, no DOM, no Node APIs. The Host uses it to validate what it
- * stores and to build a deterministic fallback score when no model is configured; the
- * client uses the very same normalisation for its in-memory document, so a saved file,
- * an AI answer and a template never drift into three different shapes.
+ * Pure data only: no fetch, no DOM, no Node APIs. The Host validates what it stores and builds a
+ * deterministic fallback score when no model is configured; the client uses the same normalisation
+ * for its in-memory document, so a saved file, an AI answer and a template never drift into three
+ * different shapes.
  *
- * v3: a score is an arbitrary list of VCSL sample-instrument tracks (GarageBand-style),
- * each either a melodic track with notes or the drum kit with a per-bar step pattern.
- * v1/v2 documents are rejected: their ids describe the removed oscillator palette.
+ * v3: a score is an arbitrary list of VCSL sample-instrument tracks (GarageBand-style), each either
+ * a melodic track with notes or the drum kit with a per-bar step pattern. v1/v2 documents are
+ * rejected: their ids describe the removed oscillator palette.
  */
 export const MUSIC_DOC_KIND = 'workspace-studio.music'
 export const MUSIC_DOC_VERSION = 3

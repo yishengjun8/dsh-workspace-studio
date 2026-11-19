@@ -16,9 +16,9 @@ import { quarantineFile } from './quarantine.js'
  * doc-wide display number `n`, the session's own turn number `t`, and the
  * turn/end `seq` (the fork boundary). The Host re-parses each session's full
  * log on sync so new turns fold in regardless of the client's window; a cold
- * member is served from the memory/disk parse cache while its per-session log
- * fingerprint is unchanged (see `sessionRowFingerprint` / `mindmapParsedTurnsOf`),
- * because a whole-family re-read costs tens of seconds on large families.
+ * member is served from the parse cache while its per-session log fingerprint
+ * is unchanged (see `sessionRowFingerprint` / `mindmapParsedTurnsOf`), because a
+ * whole-family re-read costs tens of seconds on large families.
  */
 
 const MINDMAP_SUB_DIR = 'mindmap'
@@ -67,7 +67,7 @@ const MINDMAP_DOC_READ_CACHE_MAX = 16
 const mindmapDocReadCache = new Map() // path -> { ino, size, mtimeMs, ctimeMs, at, doc }
 
 /* ---- AI card summaries (optional; model chosen in 设置 → 导图浏览设置) ----
-   The Host only ENQUEUES generation as a side effect of sync; background workers call the `llm` service through ctx.get('llm'). A finished summary is persisted as turn.summary and survives reconcile by seq (like `n`). Failures cool down so a broken model never re-hammers the provider every 2.5 s; manual regeneration bypasses the queue. */
+   The Host only ENQUEUES generation as a side effect of sync; background workers call the `llm` service through ctx.get('llm'). A finished summary persists as turn.summary and survives reconcile by seq (like `n`). Failures cool down so a broken model never re-hammers the provider every 2.5 s; manual regeneration bypasses the queue. */
 const MINDMAP_SUMMARY_DEFAULT_LENGTH = 48
 const MINDMAP_SUMMARY_MAX_LENGTH = 500
 const MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH = 64
@@ -315,7 +315,7 @@ export async function sessionModelOf(ctx, persistence, sessionId) {
   return null
 }
 
-/* Scan a doc for turns without a summary and enqueue generation, bounded per call and deduped globally (in-flight and cooldown keys are skipped). Pure bookkeeping; workers run asynchronously and never block the sync response. `force` modes: undefined -> normal backfill; 'all' -> toolbar 重新生成全部摘要, bypassing both checks; 'missing' -> 总结当前会话 prerequisite, bypassing only the cooldown. In-flight keys are skipped except for force='all'. `onlySessionId` restricts the scan to ONE session's turns so the 总结当前会话 prerequisite never force-enqueues the whole doc. */
+/* Scan a doc for turns without a summary and enqueue generation, bounded per call and deduped globally (in-flight and cooldown keys skipped). Pure bookkeeping; workers run asynchronously and never block the sync response. `force`: undefined -> normal backfill; 'all' -> toolbar 重新生成全部摘要, bypassing both checks; 'missing' -> 总结当前会话 prerequisite, bypassing only the cooldown. In-flight keys are skipped except for force='all'. `onlySessionId` restricts the scan to ONE session so the 总结当前会话 prerequisite never force-enqueues the whole doc. */
 function mindmapEnqueueSummaries(ctx, persistence, doc, config, limit, force, onlySessionId) {
   if (config === null || config === undefined) {
     /* Feature turned off for THIS doc: drop its queued jobs so disabling stops token spend immediately; an in-flight call finishes but skips its write. Pending SESSION summaries of this doc are dropped too. Other docs' queues are untouched. */
@@ -492,7 +492,7 @@ function mindmapSummaryContent(text) {
   return `<content_to_summarize>\n<![CDATA[\n${safe}\n]]>\n</content_to_summarize>`
 }
 
-/* Consume one llm.stream under a hard deadline: a stuck for-await would never release the single summary worker slot, stalling the whole queue until a dsh restart. Racing consumption against a deadline slightly beyond the abort timer frees the worker even when the stream never settles. Returns the accumulated text, or null when the stream errored/aborted or the deadline fired first. */
+/* Consume one llm.stream under a hard deadline: a stuck for-await would never release the single summary worker slot, stalling the whole queue until a dsh restart. Racing consumption against a deadline slightly beyond the abort timer frees the worker even when the stream never settles. Returns the accumulated text, or null when the stream errored/aborted or the deadline fired. */
 async function mindmapConsumeStream(llm, params, timeoutMs) {
   let output = ''
   const consume = (async () => {
@@ -585,10 +585,10 @@ async function mindmapGenerateSummary(ctx, model, question, length) {
  * cache for every root the write affects (`alsoInvalidate` retires the roots a replacement leaves
  * behind, e.g. the old root whose alias stub now points at the new doc).
  *
- * Pairing these two steps by hand at ten call sites is how "wrote the doc, forgot the cache" crept
- * back in as a stale map for up to the sync TTL; going through here makes that impossible. A FAILED
- * write deliberately leaves the cache alone: the disk still holds the pre-mutation doc, so whatever
- * the cache describes is still true. */
+ * Pairing these steps by hand at ten call sites is how "wrote the doc, forgot the cache" crept back
+ * in as a stale map for up to the sync TTL; going through here makes that impossible. A FAILED write
+ * deliberately leaves the cache alone: the disk still holds the pre-mutation doc, so whatever the
+ * cache describes is still true. */
 export async function writeMindmapDocFile(doc, alsoInvalidate = []) {
   await writeJsonAtomic(mindmapDocPath(doc.rootSessionId), doc)
   mindmapSyncCache.delete(String(doc.rootSessionId))
@@ -683,7 +683,7 @@ function mindmapWriteSessionSummary(ctx, rootId, sessionId, summary) {
   })
 }
 
-/* One pending session summary job: re-check readiness against the LATEST doc (a new turn may have arrived mid-wait), then generate + persist. Returns true ONLY when a new summary was persisted — the drain uses that to chain straight to the next pending session instead of waiting for the next sync tick; every other outcome (still waiting, failed, feature off, doc gone) must NOT chain, or the drain would spin on the readiness check without ever calling the model. An UNREADY session is rotated to the back of the pending map (see below) so it cannot starve the batch queued behind it. */
+/* One pending session summary job: re-check readiness against the LATEST doc (a new turn may have arrived mid-wait), then generate + persist. Returns true ONLY when a new summary was persisted — the drain chains straight to the next pending session instead of waiting for the next sync tick; every other outcome (still waiting, failed, feature off, doc gone) must NOT chain, or the drain would spin on the readiness check without ever calling the model. An UNREADY session is rotated to the back of the pending map (see below) so it cannot starve the batch behind it. */
 async function mindmapRunSessionSummary(ctx, persistence, rootId, sessionId, config) {
   const key = mindmapSessionSummaryKey(rootId, sessionId)
   /* The user may have turned the AI-summary feature off for THIS root while this job was pending: never generate or write after a disable (same rule as the card jobs). */
@@ -855,7 +855,7 @@ export async function regenerateMindmapSummary(ctx, persistence, sessionId, seq,
   return { ok: true, summary }
 }
 
-/* Toolbar "重新生成全部摘要": force-enqueue EVERY turn of the doc (bypassing the has-summary and cooldown checks) so all cards regenerate with the current model/length. Old card summaries are KEPT until the new ones land; SESSION summaries are CLEARED and auto-regenerated once the card batch finishes. The body of the mutation runs under the root lock with a fresh read and returns the turn count for the client's confirm dialog. */
+/* Toolbar "重新生成全部摘要": force-enqueue EVERY turn of the doc (bypassing the has-summary and cooldown checks) so all cards regenerate with the current model/length. Old card summaries are KEPT until the new ones land; SESSION summaries are CLEARED and auto-regenerated once the card batch finishes. The mutation body runs under the root lock with a fresh read and returns the turn count for the client's confirm dialog. */
 async function regenerateAllCardsBody(ctx, persistence, fresh, config) {
   let count = 0
   for (const session of fresh.sessions ?? []) {
@@ -911,7 +911,7 @@ export async function regenerateAllMindmapSummaries(ctx, persistence, sessionId,
   return mindmapRegenerateAll(ctx, persistence, sessionId, fresh => regenerateAllCardsBody(ctx, persistence, fresh, config))
 }
 
-/* Toolbar "重新生成所有会话总结": regenerate ONLY the session-level (head-card) summaries of every session with turns. Unlike the card batch, NO existing card summary is recalculated and NO stored session summary is cleared — the old paragraph stays on the card until the new one lands. A session whose cards are incomplete has its MISSING card summaries force-enqueued (cooldown bypassed, scoped to that session) because a session summary is derived from card summaries only; the sync backfill would generate those anyway, this just does it immediately. */
+/* Toolbar "重新生成所有会话总结": regenerate ONLY the session-level (head-card) summaries of every session with turns. Unlike the card batch, NO existing card summary is recalculated and NO stored session summary is cleared — the old paragraph stays until the new one lands. A session whose cards are incomplete has its MISSING card summaries force-enqueued (cooldown bypassed, scoped to that session) because a session summary derives from card summaries only; the sync backfill would generate those anyway, this just does it immediately. */
 async function regenerateAllSessionSummariesBody(ctx, persistence, fresh, config) {
   let count = 0
   for (const session of fresh.sessions ?? []) {
@@ -1010,7 +1010,7 @@ async function mindmapCwdOf(ctx, persistence, sessionId) {
 }
 
 /* Cold (non-attached) session read through the handle-based persistence seam: one read handle opened, read, closed. Returns { events, inheritedEventCount } — events is null when the handle could not be read — or null when the backend is absent or the session does not exist.
-   `handle.read()` answers a RESULT OBJECT `{ eventState, events }` (session-persistence/handle.ts), not a bare array; a bare array is still tolerated so the reader survives either shape. **Accepting only an array silently turned EVERY cold read into "unavailable"** (the shape check failed after the full decode was already paid), which is why cold members never folded their new turns and why a whole-family refresh cost 40-55 s while caching nothing — keep both shapes here. */
+   `handle.read()` answers a RESULT OBJECT `{ eventState, events }` (session-persistence/handle.ts), not a bare array; a bare array is still tolerated. **Accepting only an array silently turned EVERY cold read into "unavailable"** (the shape check failed after the full decode was already paid), which is why cold members never folded their new turns and a whole-family refresh cost 40-55 s while caching nothing — keep both shapes here. */
 async function mindmapColdSessionRead(ctx, persistence, sessionId) {
   if (persistence === undefined || typeof persistence.open !== 'function') return null
   let handle
@@ -1105,21 +1105,21 @@ function parseMindmapTurnsCached(sessionId, events) {
 
 /* ---- Cold-log parse cache (memory + disk) --------------------------------
    Re-reading one cold log costs seconds, and a fork child's log carries its
-   parent's whole inherited prefix, so the cost scales with the family's TOTAL log
-   volume (measured on this deployment: 23 sessions / 37 MB of logs = 40-55 s per
-   refresh, which saturates the Host and makes the client's own open look like
-   "loads nothing"). Two layers, BOTH keyed by the same per-session fingerprint
-   (see `sessionRowFingerprint`):
+   parent's whole inherited prefix, so cost scales with the family's TOTAL log
+   volume (measured here: 23 sessions / 37 MB of logs = 40-55 s per refresh,
+   which saturates the Host and makes the client's own open look like "loads
+   nothing"). Two layers, BOTH keyed by the same per-session fingerprint (see
+   `sessionRowFingerprint`):
 
    - memory: an LRU bounded at MINDMAP_COLD_PARSE_CACHE_MAX;
    - disk: one small JSON per session under
      ~/.dsh-plugin/dsh-workspace-studio/mindmap-cache/, so a dsh RESTART does not
      re-read a family it has already parsed — the memory layer alone is lost on
-     every restart, which is exactly the reported "first open after starting the
-     program is slow". Same idea as the token-stats usage index.
+     restart, exactly the reported "first open after starting the program is
+     slow". Same idea as the token-stats usage index.
 
    Only COLD sessions reach this path with a disk write: a resident session's
-   parse is served from snapshot() memory (parseMindmapTurnsCached) and its log
+   parse comes from snapshot() memory (parseMindmapTurnsCached) and its log
    changes on every append, so persisting it would rewrite one file per token
    batch and never help a restart. */
 const MINDMAP_COLD_PARSE_CACHE_MAX = 256
@@ -1181,12 +1181,12 @@ const MINDMAP_READ_FAIL_CACHE_MAX = 256
 const MINDMAP_READ_FAIL_TTL_MS = 10 * 60 * 1000
 const mindmapReadFailCache = new Map() // sessionId -> { fingerprint, at }
 
-/* Validate one persisted entry against the session and fingerprint we just read.
-   The three outcomes are deliberately distinct, because only ONE of them is corruption:
+/* Validate one persisted entry against the session and fingerprint just read.
+   The three outcomes are deliberately distinct, because only ONE is corruption:
      - 'ok'      the entry answers this read;
      - 'stale'   a current-format entry whose session/fingerprint moved on (a plain miss the
                  next flush overwrites) — never a reason to clean anything up;
-     - 'invalid' the file cannot be used by this code in any version (a format this reader no
+     - 'invalid' the file is unusable by this code in any version (a format this reader no
                  longer knows, a malformed record, a session mismatch) and is quarantined.
    Turns are stored as [t, seq, user] tuples — the same three fields parseMindmapTurns produces. */
 function mindmapParseDiskEntry(value, sessionId, fingerprint) {
@@ -1387,10 +1387,10 @@ async function mindmapParsedTurnsOf(ctx, persistence, sessionId) {
    The disk layer makes a RESTART cheap once it exists, but the first family ever seen still pays one
    full read, and every changed log pays it again. So after startup — once the user has been quiet —
    walk the documented families (most recently updated first) and parse their cold members in the
-   background: one session at a time, yielding between sessions, and stopping as soon as a real
-   open/sync arrives (the user is then paying for those reads themselves). Bounded by session count,
-   byte budget and wall clock so the warm-up can never become the CPU hog it exists to prevent — the
-   token-stats startup scan already runs in parallel. */
+   background: one session at a time, yielding between sessions, stopping as soon as a real open/sync
+   arrives (the user then pays for those reads themselves). Bounded by session count, byte budget and
+   wall clock so it can never become the CPU hog it exists to prevent — the token-stats startup scan
+   already runs in parallel. */
 const MINDMAP_WARM_INITIAL_DELAY_MS = 20_000
 const MINDMAP_WARM_QUIET_MS = 15_000
 const MINDMAP_WARM_GAP_MS = 250
@@ -1935,12 +1935,12 @@ export function mindmapSeedBoundaryOf(parsed, seedLength) {
 }
 
 /* Parentless ordinary fork (harness >= 0.2.1-rc.3 stopped writing `header.parentSession`, and the
-   client list dropped `parentSessionId`): identify the card the child was cut at INSIDE the document
-   itself. The inherited turn/end is a copy of the source event, so (turn/end seq, turn number,
-   question text) name exactly one recorded card — and when the fork cut an INHERITED turn, that
-   card's owner IS the ancestor chain the branch has to hang off. More than one match is ambiguous:
-   never guess (a wrong parent card is worse than a branch that waits for the next fork). Pure;
-   exported for the offline checks. */
+   client list dropped `parentSessionId`): identify the card the child was cut at INSIDE the document.
+   The inherited turn/end is a copy of the source event, so (turn/end seq, turn number, question
+   text) name exactly one recorded card — and when the fork cut an INHERITED turn, that card's owner
+   IS the ancestor chain the branch hangs off. More than one match is ambiguous: never guess (a wrong
+   parent card is worse than a branch that waits for the next fork). Pure; exported for offline
+   checks. */
 export function mindmapSeedAnchorOf(doc, boundary) {
   if (doc === null || doc === undefined || boundary === null || boundary === undefined) return undefined
   const seq = Number(boundary.seq)
@@ -1964,8 +1964,8 @@ export function mindmapSeedAnchorOf(doc, boundary) {
 /* Monotonic suffix for adopted-session ids: `Date.now()` alone is millisecond-precision, and two adoption passes in the same millisecond would mint the same id. */
 let mindmapAdoptSeq = 0
 /* One adoption pass. A fork child can identify its branch two ways:
-   - LEGACY LINEAGE: the harness used to record the source as `header.parentSession`; that path is
-     kept unchanged for logs written before the field was removed.
+   - LEGACY LINEAGE: the harness used to record the source as `header.parentSession`; kept unchanged
+     for logs written before the field was removed.
    - SEED ONLY: current harness forks carry no lineage at all, so the cut is located against the
      DOCUMENT (mindmapSeedAnchorOf). Only `live && seeded` candidates enter this path — parsing every
      seeded log in the profile per pass is exactly the performance red line (docs/development-notes §27).
@@ -2528,11 +2528,11 @@ export function validateMindmapSession(value) {
 /* Drop a fresh fork child's inherited pending queue. A harness fork copies the source log prefix up
    to the next turn/start, and the parent's next submitted message is enqueued into its durable inbox
    BEFORE that turn/start while its claim lands AFTER it — so the child starts with the parent's
-   following message still pending and would claim it ahead of the user's own first send. The fork
-   resolves with the child agent idle and unopened, so dropping its pending inbox here is race-free.
-   Guarded to a host-created SEEDED fork (`isSeeded`, which ordinary forks still carry after harness
-   0.2.1-rc.3 removed `header.parentSession`) that is not a forked subagent, whose agent is NOT
-   running: never a live user's queued work on an arbitrary session. */
+   following message pending and would claim it ahead of the user's own first send. The fork resolves
+   with the child agent idle and unopened, so dropping its pending inbox here is race-free. Guarded to
+   a host-created SEEDED fork (`isSeeded`; ordinary forks still carry it after harness 0.2.1-rc.3
+   removed `header.parentSession`) that is not a forked subagent and whose agent is NOT running: never
+   a live user's queued work on an arbitrary session. */
 export async function clearForkInheritedQueue(ctx, sessionId) {
   const id = validateMindmapSession(sessionId)
   let live = undefined

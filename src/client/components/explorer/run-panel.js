@@ -1,9 +1,9 @@
 /* Run console: the preview column's lower half for an executable file.
  *
- * The panel is deliberately thin over two owners: host/run.js owns the process and the output ring
- * buffer, run-store.js owns the rendered tail and the poll cursor. What lives here is presentation
- * and the interactions a console needs — run / stop / rerun / clear / copy / follow-the-tail, the
- * confirm-before-first-run gate, the splitter drag, and the "cannot run" guidance.
+ * Deliberately thin over two owners: host/run.js owns the process and the output ring buffer,
+ * run-store.js the rendered tail and the poll cursor. Here live presentation and the interactions a
+ * console needs — run / stop / rerun / clear / copy / follow-the-tail, the confirm-before-first-run
+ * gate, the splitter drag, and the "cannot run" guidance.
  */
 import { createElement as h, useCallback, useEffect, useRef, useState } from 'react'
 import { RUN_ARGS_MAX_LENGTH, RUN_CODE_MIN_PX, RUN_PANEL_MIN_PX, RUN_PANEL_RATIO_DEFAULT } from '../../constants.js'

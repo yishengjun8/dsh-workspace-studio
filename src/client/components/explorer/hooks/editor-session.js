@@ -26,15 +26,14 @@ export function useEditorSession({
      the read-only preview of an outside-workspace file has no other trigger. */
   const faces = useRemoteFaces()
   const [preview, setPreview] = useState({ state: 'idle' })
-  /* `editing` / `dirty` / `saving` have ONE owner: the tab. The hook used to mirror local copies into it
-     at ~39 call sites and the two could disagree — a cache-hit read cleared the local `dirty` while the
-     tab stayed dirty, so the "unsaved changes" gate read false for a tab the rest of the explorer
-     treated as dirty. The setters below write the tab and these values read it back, so a tab switch
-     needs no re-seeding.
-     `draft` stays local: it changes on every keystroke, and routing it through the tab would re-render
-     the whole explorer per character.
-     `status` stays local: a SESSION-TRANSIENT banner (a cancelled save, a just-refreshed note) must NOT
-     survive a tab switch; the tab carries the durable banner the read pass reconciles. */
+  /* `editing` / `dirty` / `saving` have ONE owner: the tab. The hook used to mirror local copies into
+     it at ~39 call sites and the two could disagree — a cache-hit read cleared the local `dirty` while
+     the tab stayed dirty, so the "unsaved changes" gate read false for a tab the rest of the explorer
+     treated as dirty. The setters below write the tab, these values read it back, so a tab switch needs
+     no re-seeding. `draft` stays local: it changes on every keystroke and routing it through the tab
+     would re-render the whole explorer per character. `status` stays local: a SESSION-TRANSIENT banner
+     (a cancelled save, a just-refreshed note) must NOT survive a tab switch; the tab carries the
+     durable banner the read pass reconciles. */
   const editing = Boolean(activeTab?.editing)
   const dirty = Boolean(activeTab?.dirty)
   const saving = Boolean(activeTab?.saving)

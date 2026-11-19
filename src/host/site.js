@@ -41,7 +41,7 @@ function siteSegment(decoded) {
   if (decoded === '' || decoded === '.' || decoded === '..' || decoded.includes('/') || decoded.includes('\\')
     || /\u0000|[\u0001-\u001f\u007f\u2028\u2029]/u.test(decoded)
     /* Same Windows rules as normalizeRelativePath: a colon is illegal in a name and `C:` would
-       alias a drive, so refuse it on Windows only (POSIX keeps colons, which are legal there). */
+       alias a drive, so refuse it on Windows only (POSIX keeps colons, legal there). */
     || (process.platform === 'win32' && decoded.includes(':'))
     || /[. ]$/u.test(decoded)
     || RESERVED_SEGMENT.test(decoded.split('.')[0].toUpperCase())) {

@@ -1,8 +1,8 @@
 /* The configured models behind the AI-summary picker.
  *
- * Shared by the settings card and the map view (the toolbar's model picker) — hence hooks/ rather than
- * components/settings.js, which a renderer feature must not import (it owns layout and DOM filtering,
- * none of which a picker needs). The fetch itself is de-duplicated and cached in api.js.
+ * Shared by the settings card and the map view (the toolbar's model picker) — hence hooks/ rather
+ * than components/settings.js, which a renderer feature must not import (it owns layout and DOM
+ * filtering, none of which a picker needs). api.js de-duplicates and caches the fetch.
  *
  * Degrades to an empty list: a Host without the route, or an unavailable provider, must leave the
  * picker empty rather than break the surface that renders it.

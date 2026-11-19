@@ -1,8 +1,8 @@
 /* One session's music-cache mutation event.
  *
- * Several music-workshop tabs can be mounted at once for the same preview session. They do not
- * share React state, so a compose/switch/delete in one tab tells the others to reload the
- * metadata list. Only a scope string is broadcast; no score document crosses the event.
+ * Several music-workshop tabs can be mounted at once for one preview session without sharing React
+ * state, so a compose/switch/delete in one tab tells the others to reload the metadata list. Only a
+ * scope string is broadcast; no score document crosses the event.
  */
 const CACHE_EVENT = 'dsh-ws-music-cache-changed'
 

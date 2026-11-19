@@ -40,10 +40,9 @@ function collectionMenuBox(anchor, height) {
   return anchorBox(rect === null ? 8 : rect.left, rect === null ? 8 : rect.bottom + 4, MENU_WIDTH, height)
 }
 
-/** Fixed-position placement for one row's action menu. The menu drops from the row's left edge (so
- *  the row's text is covered cleanly and the ⋯ stays visible); a context-menu open keeps the pointer
- *  as its origin. Both flip above the anchor rather than being clamped over it when the bottom is
- *  short. */
+/** Fixed-position placement for one row's action menu. The menu drops from the row's left edge (so the
+ *  row's text is covered cleanly and the ⋯ stays visible); a context-menu open keeps the pointer as its
+ *  origin. Both flip above the anchor rather than being clamped over it when the bottom is short. */
 function rowMenuBox(anchor) {
   let left
   let top

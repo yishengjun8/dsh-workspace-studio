@@ -2,25 +2,24 @@
  * Editor-context injection for the harness command-claim submission path.
  *
  * The composer owns two submission sinks: the plain prompt sink
- * (`conversation.sendSession`, wrapped by PromptContextBridge) and a slash
- * command's claim transaction (`claim.submit` -> the `commands.execute` Remote
- * RPC). The claim path never touches `sendSession`, so a command whose argument
- * text becomes a user prompt needs its own injection point — this module owns
- * the decision table for it and nothing else (no IO, no harness imports).
+ * (`conversation.sendSession`, wrapped by PromptContextBridge) and a slash command's
+ * claim transaction (`claim.submit` -> the `commands.execute` Remote RPC). The claim
+ * path never touches `sendSession`, so a command whose argument text becomes a user
+ * prompt needs its own injection point — this module owns that decision table only
+ * (no IO, no harness imports).
  *
- * Only commands that forward their arguments to the agent as a user prompt are
- * listed. `/plan <message>` steers exactly that text as a user message
- * (packages/plan/plan-mode `agent.steer(createUserMessage(...))`), so an
- * envelope prepended to the arguments reaches the model and the existing
- * bubble folding / session-title guard apply unchanged. `/goal` is
- * deliberately absent: its argument is persisted as the durable goal objective,
- * where an XML envelope would leak into the goal UI.
+ * Only commands that forward their arguments to the agent as a user prompt are listed.
+ * `/plan <message>` steers exactly that text as a user message (packages/plan/plan-mode
+ * `agent.steer(createUserMessage(...))`), so an envelope prepended to the arguments
+ * reaches the model and the existing bubble folding / session-title guard apply
+ * unchanged. `/goal` is deliberately absent: its argument is persisted as the durable
+ * goal objective, where an XML envelope would leak into the goal UI.
  */
 
-/* Command name -> arguments that switch behavior instead of carrying a prompt.
-   The comparison mirrors the harness handler exactly (`rawInput.trim() === 'off'`
-   in plan-mode, and the same test drives the plan projection), so it is
-   case-sensitive and only matches the whole argument text. */
+/* Command name -> arguments that switch behavior instead of carrying a prompt. The
+   comparison mirrors the harness handler exactly (`rawInput.trim() === 'off'` in
+   plan-mode, the same test drives the plan projection): case-sensitive, whole
+   argument text only. */
 const PROMPT_COMMAND_CONTROL_WORDS = new Map([
   ['plan', new Set(['off'])],
 ])
@@ -35,11 +34,10 @@ function commandPromptText(name, args) {
 }
 
 /**
- * Wrap one claim so a prompt-bearing submission routes through the injector;
- * any other claim — or a control-word/empty-argument submission — keeps its
- * own submit. Both claim routes (Enter-time adjudication and claim-time
- * application: slash-menu pick / Space) funnel through here, so this is the
- * single place that knows the claim shape.
+ * Wrap one claim so a prompt-bearing submission routes through the injector; any other
+ * claim — or a control-word/empty-argument submission — keeps its own submit. Both claim
+ * routes (Enter-time adjudication and claim-time application: slash-menu pick / Space)
+ * funnel through here, the single place that knows the claim shape.
  * @param claim - the command claim handed to the submit machine.
  * @param submitWithContext - (claim, args, actx, attachments) => Promise<SubmitOutcome>.
  * @returns the claim itself when it carries no prompt, else a wrapped copy.

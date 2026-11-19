@@ -1,13 +1,13 @@
 /* Interpreter configuration store.
  *
- * Owns WHICH interpreter a runnable file will use: the resolved per-extension table (what each suffix
- * resolves to right now) that the settings page renders, plus the Host policy maps (global
- * per-extension + per-file overrides) the settings page and the console's dialog read and write.
+ * Owns WHICH interpreter a runnable file uses: the resolved per-extension table the settings page
+ * renders, plus the Host policy maps (global per-extension + per-file overrides) that page and the
+ * console's dialog read and write.
  *
- * The Host-side policy file is the single source of truth (both ends share it, so a refresh is a
- * re-read, not a restore), and this module is a cache with a version counter. The console's per-file
- * RUN state lives in run-store.js; the two never import each other — components compose them (an
- * override write here is followed by run-store's reloadRunPath there).
+ * The Host policy file is the single source of truth (both ends share it, so a refresh is a re-read,
+ * not a restore); this module is a cache with a version counter. The console's per-file RUN state
+ * lives in run-store.js; the two never import each other — components compose them (an override
+ * write here is followed by run-store's reloadRunPath there).
  */
 import { useSyncExternalStore } from 'react'
 import { fetchRunInterpreters, fetchRunPolicy, probeRunInterpreter, setRunPolicy } from './api.js'

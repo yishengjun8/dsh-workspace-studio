@@ -1,17 +1,16 @@
 /* Strict schemas for this plugin's persisted CLIENT state (localStorage).
  *
- * One rule, applied everywhere: a persisted value is either read as the CURRENT format or
- * dropped — never migrated, never partially tolerated.
+ * One rule everywhere: a persisted value is read as the CURRENT format or dropped — never
+ * migrated, never partially tolerated.
  *   - the top level is unparseable or not a plain object   → remove the key, use defaults;
- *   - an entry/field does not satisfy the schema           → drop that entry/field, fill the
- *                                                            field's default, write the cleaned
- *                                                            value back;
+ *   - an entry/field does not satisfy the schema           → drop it, fill the field's default,
+ *                                                            write the cleaned value back;
  *   - a number is out of its range                         → clamp (and snap to the grid when the
  *                                                            field declares a step);
  *   - an unknown field or group                            → dropped.
  * The format version travels in the storage KEY (…settings.v2): a shape change bumps the key and
- * LEGACY_STORE_KEYS deletes the previous key outright, so no reader sees an older shape and no
- * per-version branch exists.
+ * LEGACY_STORE_KEYS deletes the previous one, so no reader sees an older shape and no per-version
+ * branch exists.
  *
  * readPersistedState() is the single place that knows a shape; the mount-time gate
  * (sanitizePersistedClientState) makes the cleanup durable by rewriting the cleaned value (and

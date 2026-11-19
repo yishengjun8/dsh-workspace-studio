@@ -3,13 +3,13 @@
  *
  *  Safety model:
  *   - only whitelisted extensions (plus POSIX executable-bit files) can be planned at all;
- *   - the command is an argv ARRAY handed to spawn/execFile — there is never a shell, so no
- *     quoting/escaping surface and no injection from the user's argument text;
+ *   - the command is an argv ARRAY handed to spawn/execFile — never a shell, so no quoting/escaping
+ *     surface and no injection from the user's argument text;
  *   - the working directory is the file's own directory inside the resolved workspace, and the
- *     target path goes through the same realpath containment fence as every other endpoint;
- *   - the child environment is the Host's minus the DSH_* session/config variables, so a run
- *     script cannot read the harness's own credentials;
- *   - stdin is closed (a non-interactive console; a script that waits on input gets EOF);
+ *     target goes through the same realpath containment fence as every other endpoint;
+ *   - the child environment is the Host's minus the DSH_* session/config variables, so a run script
+ *     cannot read the harness's own credentials;
+ *   - stdin is closed (a non-interactive console; a script waiting on input gets EOF);
  *   - output is capped by a ring buffer, and finished runs are dropped after a keep window.
  */
 import { execFile, spawn } from 'node:child_process'
@@ -145,12 +145,12 @@ function windowsSystem32(name, env = process.env) {
   return join(root, 'System32', name)
 }
 
-/* Windows ships a WSL launcher at %SystemRoot%\System32\bash.exe even when no distribution is
-   installed, and it is on PATH before any real bash. It is unusable here twice over: with no distro
+/* Windows ships a WSL launcher at %SystemRoot%\System32\bash.exe even with no distribution
+   installed, and it precedes any real bash on PATH. It is unusable here twice over: with no distro
    it prints an "install a distribution" wall of text, and even with one it cannot take the arguments
    this plugin passes (the file and cwd are Windows paths, which WSL reads as literal backslash
-   names). It is therefore never a candidate; `.sh` on Windows means Git Bash (or the user's own
-   interpreter override), and the "cannot run" card says so. */
+   names). It is never a candidate: `.sh` on Windows means Git Bash (or the user's own interpreter
+   override), and the "cannot run" card says so. */
 const WSL_LAUNCHERS = new Set(['bash.exe', 'wsl.exe', 'bash', 'wsl'])
 
 function isWslLauncherPath(target, env = process.env) {
@@ -226,11 +226,11 @@ function basenameOf(target) {
   return base === '' ? String(target ?? '') : base
 }
 
-/** The flags an OVERRIDE path needs, judged by that path rather than by the recipe's first candidate.
+/** The flags an OVERRIDE path needs, judged by that path rather than the recipe's first candidate.
  *
- *  This is a correctness fix, not a nicety: `-3` is the `py` launcher's own flag, and inheriting the
- *  family's first-candidate flags would build `python.exe -3 script.py`, which CPython rejects with
- *  "Unknown option: -3" — i.e. pointing `.py` at a real python.exe would break the run. */
+ *  A correctness fix, not a nicety: `-3` is the `py` launcher's own flag, and inheriting the family's
+ *  first-candidate flags would build `python.exe -3 script.py`, which CPython rejects with
+ *  "Unknown option: -3" — pointing `.py` at a real python.exe would break the run. */
 function flagsForOverride(family, overridePath, env = process.env) {
   if (family === 'python') {
     const base = basenameOf(overridePath).toLowerCase()
@@ -371,10 +371,10 @@ function validateInterpreterPath(value) {
   return value
 }
 
-/** Validate one override that is about to be STORED: shape first, then the fact that it can actually
- *  run. A stored path that does not exist would silently fall back to auto-detection at run time —
- *  exactly the confusion this feature exists to remove — so an unusable path is refused with the
- *  reason the user needs, and the dialog keeps the typed value in place for editing. */
+/** Validate one override about to be STORED: shape first, then the fact that it can actually run. A
+ *  stored path that does not exist would silently fall back to auto-detection at run time — exactly
+ *  the confusion this feature removes — so an unusable path is refused with the reason the user
+ *  needs, and the dialog keeps the typed value for editing. */
 async function validateInterpreterOverride(value) {
   const target = validateInterpreterPath(value)
   if (target === '') return ''
@@ -386,10 +386,9 @@ async function validateInterpreterOverride(value) {
 
 /** The per-file override of one resolved file path, or null.
  *
- *  Lookup is exact first, then (Windows only) case-insensitive: the same file can be addressed with a
- *  different drive/directory case depending on how the workspace was opened, and a silent miss would
- *  look exactly like a lost setting. The map is capped at RUN_FILE_OVERRIDE_MAX, so the fallback scan
- *  is cheap by construction. */
+ *  Exact first, then (Windows only) case-insensitive: the same file can be addressed with a different
+ *  drive/directory case depending on how the workspace was opened, and a silent miss would look like
+ *  a lost setting. The map is capped at RUN_FILE_OVERRIDE_MAX, so the fallback scan is cheap. */
 function lookupFileOverride(files, target) {
   if (!isPlainObject(files) || typeof target !== 'string' || target === '') return null
   const exact = files[target]
@@ -403,10 +402,10 @@ function lookupFileOverride(files, target) {
 }
 
 /** Update the run policy: the per-workspace confirmation opt-out, the global per-extension map and
- *  the per-file overrides. Every path is validated (existing + executable) before anything is
- *  written, and the per-file map is capped with an explicit error instead of silently evicting a
- *  setting the user made by hand. The whole policy is rewritten from the normalized value, so a
- *  field this schema does not name (the retired per-family `interpreters` map) is dropped here. */
+ *  the per-file overrides. Every path is validated (existing + executable) before anything is written,
+ *  and the per-file map is capped with an explicit error instead of silently evicting a setting the
+ *  user made by hand. The policy is rewritten from the normalized value, so a field this schema does
+ *  not name (the retired per-family `interpreters` map) is dropped here. */
 export async function writeRunPolicy(workspaceId, payload, queues) {
   const trustedPatch = payload?.trusted
   if (trustedPatch !== undefined && typeof trustedPatch !== 'boolean') {
@@ -838,8 +837,8 @@ function childEnvironment() {
  * A child's bytes arrive with no declared encoding and are NOT reliably UTF-8 on Windows: the WSL
  * launcher (bash.exe / wsl.exe) answers in UTF-16LE with no BOM, PowerShell 5.1 writes UTF-16LE to a
  * redirected pipe, and cmd-hosted tools print in the OEM/ANSI codepage (GBK on a Chinese system).
- * Decoding everything as UTF-8 renders a wall of U+FFFD, so each stream gets its own decoder: a BOM
- * or NUL-heavy bytes lock UTF-16, otherwise valid UTF-8 is kept, and anything else falls back to the
+ * Decoding it all as UTF-8 renders a wall of U+FFFD, so each stream gets its own decoder: a BOM or
+ * NUL-heavy bytes lock UTF-16, otherwise valid UTF-8 is kept, and anything else falls back to the
  * locale's legacy codepage through iconv-lite (the same encoding family the file preview ships). */
 const OUTPUT_CODEPAGE_BY_LOCALE = Object.freeze([
   [/^(zh|yue)/, 'gb18030'],
@@ -877,8 +876,8 @@ function utf8SafeLength(buffer) {
  *
  *  The no-BOM UTF-16 case is decided by NUL bytes: a console message never contains one, so even a
  *  single NUL — let alone an ASCII run interleaved with them — is proof. The sample must be wide
- *  (1 KB, not the first few bytes), because a CJK message begins with many NUL-free characters
- *  (a Chinese WSL error message starts with 16 CJK chars before the first NUL byte). */
+ *  (1 KB, not the first few bytes): a CJK message begins with many NUL-free characters (a Chinese WSL
+ *  error starts with 16 CJK chars before the first NUL). */
 function detectStreamEncoding(pending) {
   if (pending.length >= 2 && pending[0] === 0xff && pending[1] === 0xfe) return { encoding: 'utf16le', skip: 2 }
   if (pending.length >= 2 && pending[0] === 0xfe && pending[1] === 0xff) return { encoding: 'utf16be', skip: 2 }
@@ -1081,10 +1080,10 @@ function runTaskkill(pids, tree) {
 
 /** Descendant pids of one Windows pid, deepest first.
  *
- *  Enumerated with PowerShell's CIM (wmic is absent on current Windows builds) because
- *  `taskkill /T` alone can miss a grandchild: the intermediate process dies first, and the traversal
- *  no longer reaches it. Measured on this machine — a python child of a python child survived a
- *  /T /F kill of the launcher, and kept the run's output pipes open with it. */
+ *  Enumerated with PowerShell's CIM (wmic is absent on current Windows builds) because `taskkill /T`
+ *  alone can miss a grandchild: the intermediate process dies first and the traversal no longer
+ *  reaches it. Measured here — a python child of a python child survived a /T /F kill of the launcher
+ *  and kept the run's output pipes open. */
 async function windowsDescendantPids(rootPid) {
   const script = 'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId)" }'
   const output = await new Promise((resolveQuery) => {

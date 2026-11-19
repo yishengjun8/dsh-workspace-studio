@@ -201,7 +201,7 @@ export function useSessionMenu({ props, mountedRef, currentSession }) {
   // a preview tab. The dock request is only consumed by the explorer whose
   // previewSessionId matches, so the map's tab never leaks into the leaving
   // session's snapshot. The switch targets the map's remembered session while
-  // it still resolves to this map's root, else falls back to the root.
+  // it still resolves to this map's root, else the root.
   const openMindmapSession = useCallback((id, name) => {
     const rootId = String(id)
     const remembered = readMindmapLastSession(rootId)

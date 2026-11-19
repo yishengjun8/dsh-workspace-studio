@@ -34,7 +34,7 @@ function draftFileName(relativePath) {
 
 export function draftWorkspacePart(workspaceId) {
   const value = String(workspaceId)
-  // Existing ids are UUIDs; hash unusual ones so a future registry cannot turn the draft root into a path join. Windows reserved names and trailing dot/space must ALSO hash: `CON` would make the drafts directory creation fail with EINVAL, and `foo.` aliases `foo` on NTFS — silently merging two workspaces' draft trees.
+  // Existing ids are UUIDs; hash unusual ones so a future registry cannot turn the draft root into a path join. Windows reserved names and trailing dot/space must ALSO hash: `CON` fails directory creation with EINVAL and `foo.` aliases `foo` on NTFS, silently merging two workspaces' draft trees.
   return /^[A-Za-z0-9._-]+$/u.test(value) && value !== '.' && value !== '..'
     && !/[. ]$/.test(value)
     && !/^(CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|COM[1-9]|LPT[1-9])$/i.test(value.split('.')[0])
@@ -88,10 +88,10 @@ export async function readJsonFileOrNull(target) {
 }
 
 /**
- * Read one JSON file with the difference between "absent" and "present but unusable" preserved:
- * a reader that must CLEAN UP an unusable record needs that distinction, while an IO/permission
- * failure is neither of the two and is rethrown (a transient fault must never be mistaken for
- * corruption and turn into deleted user content).
+ * Read one JSON file preserving the difference between "absent" and "present but unusable": a
+ * reader that must CLEAN UP an unusable record needs that distinction, while an IO/permission
+ * failure is neither and is rethrown (a transient fault must never be mistaken for corruption and
+ * delete user content).
  * @returns {Promise<{status: 'missing'} | {status: 'invalid'} | {status: 'ok', value: object}>}
  */
 export async function readJsonStrict(target) {

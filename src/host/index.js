@@ -31,11 +31,10 @@ export const inject = ['webServer', 'workspaceRegistry', 'sessions']
 /* The invocation's extra trust authorities come from a harness service whose name moved in the
    0.2.1-alpha.1 Web profile: `webRuntime` was replaced by `webStartup`
    (harness docs/upgrade-guide/v0.2.1-alpha.1/web-listener-trust-config). Neither name may be listed
-   in `inject`: a row that injects a service its harness never provides waits forever, so the whole
-   plugin would silently never activate. Both names are read lazily instead, newest first, and a
-   harness offering neither contributes no extra authority — the loopback/bind fence in http.js still
-   applies, so this degrades to "only local browsers reach the API" rather than to an open or a dead
-   plugin. */
+   in `inject`: a row injecting a service its harness never provides waits forever, so the plugin
+   would silently never activate. Both are read lazily instead, newest first, and a harness offering
+   neither contributes no extra authority — the loopback/bind fence in http.js still applies, so this
+   degrades to "only local browsers reach the API", never to an open or a dead plugin. */
 function trustedHostsOf(ctx) {
   for (const service of ['webStartup', 'webRuntime']) {
     let candidate
@@ -95,15 +94,15 @@ const API_PREFIX = '/workspace-studio/api'
    `group` names the two endpoints whose handlers take their own arguments ('run', 'collections');
    every other route is served by the chain below.
 
-   Dispatch convention — ONE rule, applied everywhere:
+   Dispatch convention — ONE rule:
      - the HTTP method selects the operation on a RESOURCE (read / replace / create / remove), and the
        resource is the path;
      - a TREE-scoped verb that is not resource CRUD (`copy` / `move` / `delete` of a whole subtree)
        travels as `action` in the body of its one endpoint, because the same path may be a file or a
        directory and the operation is a transaction over both;
-     - `/collections` PUT is a merge PATCH (`upsert` / `remove` / `order` / `selectedId` fields applied
-       in ONE queued step), not a verb dispatch: splitting it into per-field routes would cost the
-       atomicity the patch exists to provide.
+     - `/collections` PUT is a merge PATCH (`upsert` / `remove` / `order` / `selectedId` applied in ONE
+       queued step), not a verb dispatch: per-field routes would cost the atomicity the patch exists
+       for.
    A verb never gets a subpath purely to look like the others: two dispatch styles would then exist
    where one does today. */
 const ROUTES = Object.freeze({
@@ -224,10 +223,10 @@ async function handleRunRoute(ctx, config, url, req, res, writeQueues) {
     return
   }
   /* TWO shapes of one question, handled before the workspace requirement:
-     - by `runId` (a page re-attaching to a run it already knows) — the run registry is
-       workspace-independent, so this must stay readable after the workspace entry vanished, exactly
-       like /run/stop. Requiring a workspaceId here made `/run/status?runId=…` answer 404 for a run
-       that was still live and stoppable;
+     - by `runId` (a page re-attaching to a run it knows): the run registry is workspace-independent,
+       so this must stay readable after the workspace entry vanished, exactly like /run/stop —
+       requiring a workspaceId made `/run/status?runId=…` 404 for a run that was still live and
+       stoppable;
      - by `workspaceId` + `path` (the console asking about its own file). */
   if (endpoint === `${API_PREFIX}/run/status`) {
     const runId = url.searchParams.get('runId') ?? ''
@@ -271,9 +270,9 @@ async function handleRunRoute(ctx, config, url, req, res, writeQueues) {
 async function refreshMindmapDocLoad(ctx, persistence, doc) {
   /* An OPEN must start from a FRESH session index: the row revisions behind the
      cold-read fingerprint are cached for 45 s, and a turn that completed while
-     this map was closed has to be folded by this very load (otherwise the newest
-     card would be missing until the row TTL lapsed). One extra list scan per
-     open is far cheaper than the full-family re-read it protects. */
+     this map was closed must be folded by this very load (else the newest card
+     would be missing until the row TTL lapsed). One extra list scan per open is
+     far cheaper than the full-family re-read it protects. */
   mindmapInvalidatePersistenceList()
   const refresh = await refreshMindmapDocCore(ctx, persistence, doc)
   let wrote = false
@@ -398,11 +397,11 @@ async function handleRequest(ctx, config, writeQueues, req, res) {
       return
     }
     if (siteTokenEndpoint) {
-      /* Mint the HTML preview's site token. Handled BEFORE the workspaceId requirement because an
+      /* Mint the HTML preview's site token, BEFORE the workspaceId requirement because an
          out-of-workspace document is addressed by its absolute path alone. The client injects the
-         returned prefix as the preview frame's <base>, so every relative URL of the previewed
-         document — including ones a page script builds at runtime, and CSS url() references —
-         resolves through the token-gated read route instead of the GUI's own origin. */
+         returned prefix as the preview frame's <base>, so every relative URL — including ones a page
+         script builds at runtime, and CSS url() references — resolves through the token-gated read
+         route instead of the GUI's own origin. */
       sendJson(req, res, 200, await mintPreviewSite(
         ctx,
         API_PREFIX,
@@ -511,7 +510,7 @@ async function handleRequest(ctx, config, writeQueues, req, res) {
       sendJson(req, res, 200, await downloadUpdate(ctx, config, payload))
       return
     }
-    /* Token usage statistics (设置 → 工作区设置 → Token 统计): the client resolves every range (standard week/month presets and custom dates) to concrete [from, to) ms in its own timezone and sends them here; the Host filters the aggregated usage index by that window. Plugin-global like the update endpoints, so it is handled before the workspaceId requirement. */
+    /* Token usage statistics (设置 → 工作区设置 → Token 统计): the client resolves every range (week/month presets, custom dates) to concrete [from, to) ms in its own timezone and sends them here; the Host filters the aggregated index by that window. Plugin-global like the update endpoints, so it is handled before the workspaceId requirement. */
     if (tokenStatsEndpoint) {
       /* HEAD must not scan the session logs (the client never reads the body): answer the availability gate only. */
       if (req.method === 'HEAD') {
@@ -560,7 +559,7 @@ async function handleRequest(ctx, config, writeQueues, req, res) {
       /* Ancestor-aware: a fork descendant resolves to its ancestor's document (a raced branch write cannot split off as a new root); only a session with NO documented ancestor is converted. */
       const existing = await findMindmapDocWithAncestors(ctx, persistence, sessionId)
       if (existing !== null) {
-        /* Fold the latest turns and adopt fork children so a freshly opened map is complete; write back only when something changed (the sidebar order keys on updatedAt). Runs under the per-root lock with a fresh read, so a concurrent sync or client write is never clobbered. The refresh core is fault-isolated: a reconcile/adopt failure degrades to the RECORDED doc instead of a 500, and the next sync retries it. A root replacement between probe and lock re-anchors the retry to the new root. */
+        /* Fold the latest turns and adopt fork children so a freshly opened map is complete; write back only when something changed (the sidebar order keys on updatedAt). Runs under the per-root lock with a fresh read, so a concurrent sync or client write is never clobbered. The refresh core is fault-isolated: a reconcile/adopt failure degrades to the RECORDED doc instead of a 500, and the next sync retries; a root replacement between probe and lock re-anchors the retry to the new root. */
         const loaded = await mindmapLockedReanchorOp(
           () => findMindmapDocWithAncestors(ctx, persistence, sessionId),
           () => findMindmapDocWithAncestors(ctx, persistence, sessionId),
@@ -597,7 +596,7 @@ async function handleRequest(ctx, config, writeQueues, req, res) {
         }
         return { doc: built, created: true }
       })
-      /* First conversion also seeds the sync cache (its doc reached the disk): the 2.5 s sync after a first open must not re-run build+adopt. The conservative adoptIncomplete:true keeps adoptClean false for one cycle so the next sync re-checks orphans the conversion pass may have missed; the `created:false` branch is left unseeded. */
+      /* First conversion also seeds the sync cache (its doc reached the disk), so the 2.5 s sync after a first open does not re-run build+adopt. adoptIncomplete:true keeps adoptClean false for one cycle so the next sync re-checks orphans the conversion pass may have missed; the `created:false` branch is left unseeded. */
       if (firstAccess.doc !== null && firstAccess.created === true) {
         await seedMindmapSyncCacheAfterLoad(ctx, persistence, firstAccess.doc, { changed: true, wrote: true, adoptIncomplete: true, warnings: [] })
       }
@@ -712,7 +711,7 @@ async function handleRequest(ctx, config, writeQueues, req, res) {
     const relativePath = normalizeRelativePath(url.searchParams.get('path') ?? '')
     const encodingId = url.searchParams.get('encoding') ?? 'utf-8'
     if (rawEndpoint) {
-      /* "Open in new window": serve the file's original bytes with a sandbox CSP so the opened document is a unique origin (scripts run, but it cannot read the GUI's storage or call the API with credentials). Markdown files get a server-rendered HTML document instead, whose CSP drops allow-scripts entirely; errors go out as plain text — the response is a browser tab, not a fetch. */
+      /* "Open in new window": serve the file's original bytes with a sandbox CSP so the opened document is a unique origin (scripts run, but it cannot read the GUI's storage or call the API with credentials). Markdown gets a server-rendered HTML document instead, whose CSP drops allow-scripts entirely; errors go out as plain text — the response is a browser tab, not a fetch. */
       try {
         const raw = await readRawFile(workspace, relativePath, config)
         if (raw.isMarkdown) {
@@ -777,9 +776,8 @@ async function handleRequest(ctx, config, writeQueues, req, res) {
     /* Scoped to the FILE endpoint: a stray `check=1` on /tree, /entry or a PUT must never hijack the real operation. */
     /* Cheap change check for open preview tabs: the client polls this on a fixed cadence (no SSE push).
        POST (not GET) so the previous snapshot travels in the body instead of a length-bound query
-       string. The previous snapshot is parsed once and passed into fileChangeSnapshot so an unchanged
-       mtime/size short-circuits before the hash, then the returned snapshot is compared for the
-       client's `changed` answer. */
+       string. The previous snapshot is parsed once and passed into fileChangeSnapshot, so an unchanged
+       mtime/size short-circuits before the hash; the returned snapshot answers the client's `changed`. */
     if (fileEndpoint && req.method === 'POST' && url.searchParams.get('check') === '1') {
       if (relativePath === '') throw new HttpError(400, 'invalid-path', '变更检查必须指定文件路径')
       const body = await readJsonObject(req, config)
@@ -792,7 +790,7 @@ async function handleRequest(ctx, config, writeQueues, req, res) {
       const snapshot = await readPreviewHead(workspace, relativePath, config.maxPreviewBytes, previous)
       let changed = false
       if (snapshot !== null && previous !== undefined) {
-        /* A { gone: true } baseline means the file was deleted and has now been re-created: report a change so the client reloads instead of keeping the stale content. When the baseline carries a STRING hash, content is the only change signal (a touch -r / rsync -t with identical content must NOT reload the tab). A non-string baseline falls back to mtime/size comparison. */
+        /* A { gone: true } baseline means the file was deleted and has been re-created: report a change so the client reloads instead of keeping stale content. When the baseline carries a STRING hash, content is the only change signal (a touch -r / rsync -t with identical content must NOT reload the tab); a non-string baseline falls back to mtime/size. */
         changed = previous.gone === true
           || (typeof previous.hash === 'string'
             ? previous.hash !== snapshot.hash
@@ -855,10 +853,10 @@ export function apply(ctx, config) {
   )
   /* Mind-map parse-cache warm-up: the first open of a family would otherwise decode
      its whole log volume (tens of MB, tens of seconds) on the request path; this
-     parses the documented families in the background while the user is idle and
-     persists the result (mindmap-cache/), so both the first click after a restart
-     and later syncs are served from the cache. It backs off the moment a real
-     open/sync arrives and is bounded; see warmMindmapParsedCache. */
+     parses documented families in the background while the user is idle and persists
+     the result (mindmap-cache/), so the first click after a restart and later syncs
+     are served from the cache. It backs off the moment a real open/sync arrives and
+     is bounded; see warmMindmapParsedCache. */
   ctx.effect(
     () => warmMindmapParsedCache(ctx),
     'workspace-studio: mindmap parse cache warm-up',

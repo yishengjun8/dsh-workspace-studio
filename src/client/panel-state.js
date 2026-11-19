@@ -2,12 +2,12 @@
  * optional action button.
  *
  * The pieces that must not drift are the `data-error` marker, the `role` (a `status` region is
- * announced — that is the point of the plan/review sentences), and the retry affordance.
+ * announced — the point of the plan/review sentences) and the retry affordance.
  *
- * `className` stays per site: each place styles its message differently (a card, a centred sentence, a
- * boxed state), and collapsing the classes would be a redesign that needs a visual check, not a
+ * `className` stays per site: each place styles its message differently (card, centred sentence,
+ * boxed state) and collapsing the classes would be a redesign needing a visual check, not a
  * refactor. `'plain'` layout with a retry wraps message and button in a `${className}-stack` so a tall
- * message keeps its button below it; `'inline'` renders the message as a span with the action beside
+ * message keeps its button below; `'inline'` renders the message as a span with the action beside
  * it. `retryClassName` exists because the renderer area styles its own retry button.
  */
 import { createElement as h } from 'react'

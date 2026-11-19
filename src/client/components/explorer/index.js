@@ -42,10 +42,10 @@ import { composeMusicScore } from '../../../shared/music-score.js'
 import { normalizeMusicPrefs } from '../../music-prefs.js'
 import { ReviewView } from '../../renderers/review-view.js'
 
-/* Whether a preview tab has no file-tree row: a docked mind map, an opened plan,
-   an opened change review, or a file OUTSIDE the workspace. Such a tab selects
-   nothing in the tree and is never revealed — revealing an outside path would ask
-   the Host to list "ancestor" directories the workspace fence refuses (400 invalid-path). */
+/* Whether a preview tab has no file-tree row: a docked mind map, an opened plan or change
+   review, or a file OUTSIDE the workspace. It selects nothing and is never revealed —
+   revealing an outside path would ask the Host to list "ancestor" directories the fence
+   refuses (400 invalid-path). */
 function hasNoTreeRow(tab) {
   return isSyntheticTab(tab) || tab?.outside === true
 }
@@ -189,7 +189,7 @@ export function WorkspaceExplorer({
   // Live editor scroll positions, written per scroll event without touching React state or persistence.
   const scrollTopRef = useRef(new Map())
   const sessionEstablishedRef = useRef(false)
-  /* Whether a snapshot with real content (a persistable tab or a tree expansion) was ever persisted for this mount; the skip guard below only applies while nothing real was ever persisted. */
+  /* Whether this mount ever persisted real content (a persistable tab or a tree expansion); the skip guard below applies only while nothing real was ever persisted. */
   const persistedRealContentRef = useRef(initialPreviewSession.tabs.some(tab => !isUnpersistedTab(tab)) || (initialPreviewSession.expanded ?? []).length > 0)
   // Paths confirmed missing while restoring persisted expansion; later restore passes skip them until the cleaned snapshot is persisted.
   const prunedPathsRef = useRef(new Set())
@@ -425,15 +425,13 @@ export function WorkspaceExplorer({
     activatePath(path)
   })
 
-  /* Open requests for change reviews (the chat's changed-files card): the
-     openResource router publishes them, and the explorer whose previewSessionId
-     matches the request's family consumes one as a session-only review tab. The
-     tab carries the review's dsh-resource address in its synthetic path plus the
-     file index the card was clicked on; a later click on another row re-seeds
-     that index on the SAME tab instead of opening a second one. */
-  /* Consumed by the explorer showing the review's own session — the chat's
-     session, or the map root whose preview strip the chat shares — so either
-     identity is accepted. Any other mount leaves the request pending for the
+  /* Open requests for change reviews (the chat's changed-files card): the openResource router
+     publishes them, and the explorer whose previewSessionId matches the request's family consumes
+     one as a session-only review tab, carrying the review's dsh-resource address in its synthetic
+     path plus the file index the card was clicked on; a later click on another row re-seeds that
+     index on the SAME tab instead of opening a second one. Consumed by the explorer showing the
+     review's own session — the chat's session, or the map root whose preview strip the chat
+     shares — so either identity is accepted; any other mount leaves the request pending for the
      matching one. */
   usePendingRequest(reviewOpenStore, [previewSessionId ?? null, sessionId ?? null], (request) => {
     const path = reviewTabPath(request.address)
@@ -819,11 +817,11 @@ export function WorkspaceExplorer({
     setTabs(current => openPermanentTab(current, fileTabFromEntry(entry, false)))
     revealPath(entry)
   }, [revealPath])
-  /* Single-click open: the temporary preview slot. A click on an already-open file only
-     activates it (re-clicking the italic tab must not make it permanent), otherwise the
-     existing temporary tab is displaced IN PLACE — the strip never reorders — and its
-     runtime refs are dropped. A temporary tab holding unsaved work is never displaced:
-     openPreviewTab promotes it and hands back a fresh slot for the new file. */
+  /* Single-click open: the temporary preview slot. A click on an already-open file only activates
+     it (re-clicking the italic tab must not make it permanent); otherwise the existing temporary
+     tab is displaced IN PLACE — the strip never reorders — and its runtime refs are dropped. A
+     temporary tab holding unsaved work is never displaced: openPreviewTab promotes it and hands
+     back a fresh slot for the new file. */
   const chooseFilePreview = useCallback((entry) => {
     previewTabsBootstrapped.current = true
     setSelected(entry)
@@ -866,11 +864,10 @@ export function WorkspaceExplorer({
     setSelected(entry)
     revealPath(entry)
   }, [revealPath])
-  /* Read-only preview of a file OUTSIDE the workspace (the chat's file-open path can name
-     one): the workspace-confined API cannot serve it, so the tab is session-only and its
-     content comes from the harness workspace-files Remote. No tree selection and no reveal:
-     expanding its "ancestors" would fire directory reads the Host refuses on sight — the
-     bug this path exists to avoid. */
+  /* Read-only preview of a file OUTSIDE the workspace (the chat's file-open path can name one):
+     the workspace-confined API cannot serve it, so the tab is session-only and its content comes
+     from the harness workspace-files Remote. No tree selection and no reveal: expanding its
+     "ancestors" would fire directory reads the Host refuses on sight — the bug this path avoids. */
   const openOutsideFile = useCallback((entry) => {
     previewTabsBootstrapped.current = true
     setSelected(undefined)
@@ -1091,7 +1088,7 @@ export function WorkspaceExplorer({
     lastWriteRef.current = rewritePathMap(lastWriteRef.current, from, to)
     draftGenerationsRef.current = rewritePathMap(draftGenerationsRef.current, from, to)
     scrollTopRef.current = rewritePathMap(scrollTopRef.current, from, to)
-    /* The change-poll baseline must follow the move too, or the new path would start with no baseline and trigger a full re-check. */
+    /* The change-poll baseline follows the move too, or the new path starts with no baseline and re-checks from scratch. */
     watchSnapshotsRef.current = rewritePathMap(watchSnapshotsRef.current, from, to)
     /* The content baseline and the retained editor session describe the same disk content, so they follow the move. */    contentBaselinesRef.current = rewritePathMap(contentBaselinesRef.current, from, to)
     const retainedNext = new Map()
@@ -1192,13 +1189,11 @@ export function WorkspaceExplorer({
       setDeleteBusy(false)
       for (const item of affected) {
         if (!item.dirty) continue
-        // Use the tab's CURRENT draft, not the stale `affected` snapshot: the delete dialog keeps
-        // editor focus, so the user may have typed after capture, and a failed delete must not roll
-        // the staging draft back. force=true also re-writes staging drafts of NON-editable dirty
-        // tabs (their scheduleAutosave gate would skip them), so a failed delete never destroys an
-        // orphaned draft. Drop the autosave dedup FIRST: draftTree already tombstoned these drafts,
-        // yet lastWriteRef still records the same text, so scheduleAutosave's content-dedup would
-        // skip the re-write and the orphaned draft would stay lost.
+        // Use the tab's CURRENT draft (the dialog keeps editor focus, so the user may have typed
+        // since capture) and never roll the staging draft back on a failed delete. force=true also
+        // re-writes NON-editable dirty tabs, whose scheduleAutosave gate would skip them. Drop the
+        // autosave dedup FIRST: draftTree already tombstoned these drafts while lastWriteRef still
+        // holds the same text, so content-dedup would skip the re-write and the draft stays lost.
         const fresh = tabsRef.current.find(tab => tab.path === item.path)
         lastWriteRef.current.delete(item.path)
         scheduleAutosave(item.path, fresh?.draft ?? item.draft, true)
@@ -1231,7 +1226,7 @@ export function WorkspaceExplorer({
         draftGenerationsRef.current.delete(item.path)
         scrollTopRef.current.delete(item.path)
       }
-      /* Runtime maps of closed tabs die with the subtree too, and the global cache must not serve content of a deleted path as if it were current. */      const subtreeMatch = (path) => path === entry.path || (path !== '' && path.startsWith(`${entry.path}/`))
+      /* Runtime maps of closed tabs die with the subtree; the global cache must not serve a deleted path as current. */      const subtreeMatch = (path) => path === entry.path || (path !== '' && path.startsWith(`${entry.path}/`))
       for (const path of [...retainedStatesRef.current.keys()]) {
         if (subtreeMatch(path)) retainedStatesRef.current.delete(path)
       }
@@ -1806,14 +1801,13 @@ export function WorkspaceExplorer({
   const entryDialogBlocked = entryBusy || entryDialog === undefined || entryDialogError !== undefined
   const reason = preview.state === 'ready' ? readOnlyReason(preview) : translate('editor.notLoaded')
   /* ---- Preview text size (part 1 of 2): the file header's stepper ----
-   * This control sizes the SOURCE EDITOR's text, so it is shown only while the source editor is the
-   * view on screen. Every rendered view is a preview state — a Markdown / HTML tab opens straight
-   * into it, a read-only file's paged browse is VIEW_PREVIEW too — and there the size has nothing
-   * to act on, so the header hides it rather than offering a control with no effect.
-   * The ACTIVE tab's own percentage wins; a tab without one follows the settings page's base size,
-   * so "no value of mine" and "follow the base" are one state (clearing the input returns to it).
-   * Byte-rendered tabs (image / PDF / Office conversions) have no text to size and no control;
-   * synthetic tabs (mind map / plan / review) draw no file header at all. */
+   * It sizes the SOURCE EDITOR's text, so it shows only while the source editor is the view on screen.
+   * Every rendered view is a preview state — a Markdown / HTML tab opens straight into it, a read-only
+   * file's paged browse is VIEW_PREVIEW too — where the size has nothing to act on, so the header hides
+   * the control rather than offering one with no effect. The ACTIVE tab's own percentage wins; a tab
+   * without one follows the settings page's base size, so "no value of mine" and "follow the base" are
+   * one state (clearing the input returns to it). Byte-rendered tabs (image / PDF / Office conversions)
+   * have no text to size and no control; synthetic tabs (mind map / plan / review) draw no file header. */
   const fontBase = clampFontPercent(settings.previewFontScale ?? FONT_SCALE_DEFAULT, FONT_SCALE_DEFAULT)
   const fontOwn = activeTab !== undefined && Number.isFinite(activeTab.fontPercent)
   const fontPercent = clampFontPercent(fontOwn ? activeTab.fontPercent : fontBase, fontBase)
@@ -1901,14 +1895,14 @@ export function WorkspaceExplorer({
         : activeTab.diskState === DISK_STATE_STALE ? { text: translate('status.fileChanged') }
           : undefined
   const notice = status?.error === true ? status : (diskNotice ?? status)
-  /* "Open in the browser" hands an HTML tab's file to the operating system, which passes the REAL PATH to the
-     default program, so the browser opens the file itself and its relative stylesheets, scripts and images
-     resolve natively. The page cannot do that itself: an http(s) origin may not navigate to file://, and the
+  /* "Open in the browser" hands an HTML tab's file to the operating system, which passes the REAL PATH
+     to the default program, so the browser opens the file itself and its relative stylesheets, scripts
+     and images resolve natively. The page cannot: an http(s) origin may not navigate to file://, and the
      Desktop shell forwards only http(s) to the system browser — hence the path travels through the Host.
-     EVERY OTHER file keeps the /raw browser tab on purpose. Handing a script to the OS default program RUNS
-     it (measured on Windows: `.js` is `WScript.exe "%1" %*`, and `.bat` / `.cmd` / `.ps1` / `.sh` are no
-     better), which would bypass the run console's first-run confirmation for one menu click; and the
-     remaining text types would merely open in Notepad or an editor instead of this plugin's clean text tab.
+     EVERY OTHER file keeps the /raw browser tab on purpose: handing a script to the OS default program
+     RUNS it (measured on Windows: `.js` is `WScript.exe "%1" %*`, and `.bat` / `.cmd` / `.ps1` / `.sh` are
+     no better), bypassing the run console's first-run confirmation for one menu click; other text types
+     would merely open in Notepad or an editor instead of this plugin's clean text tab.
      Mind-map, plan, review, external, image, PDF and Office tabs have no such file to open. */
   const canOpenExternally = tabMenuTarget !== undefined && !isSyntheticTab(tabMenuTarget) && !tabMenuTarget.external
     && !isImageName(tabMenuTarget.name) && !isPdfName(tabMenuTarget.name) && !isOfficeName(tabMenuTarget.name)

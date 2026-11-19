@@ -5,11 +5,10 @@ import { isMusicTab, isPlanTab, isReviewTab, isSyntheticTab, isTemporaryTab } fr
 import { getRunEntry, useRunVersion } from '../../run-store.js'
 import { IconCloseWin10, IconPinVscode } from '../../icons.js'
 
-/* One 12px slot between the name and the close button carries every runtime tab state:
-   a filled dot for unsaved edits, a hollow ring for "the disk moved", a two-tone dot
-   for both at once, and a slashed red ring for a deleted file. Only `stale` is
-   interactive — clicking it reloads that path; the other states deliberately offer no
-   reload, because one would discard unsaved work (conflict) or has nothing to read
+/* One 12px slot between the name and the close button carries every runtime tab state: a filled dot for
+   unsaved edits, a hollow ring for "the disk moved", a two-tone dot for both at once, and a slashed red
+   ring for a deleted file. Only `stale` is interactive — clicking it reloads that path; the others
+   deliberately offer no reload, because one would discard unsaved work (conflict) or has nothing to read
    (gone, closed with the × instead). */
 function tabMark(tab, onReload) {
   const state = typeof tab.diskState === 'string' ? tab.diskState : DISK_STATE_CLEAN

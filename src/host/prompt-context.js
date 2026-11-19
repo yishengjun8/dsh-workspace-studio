@@ -85,8 +85,8 @@ function validatePromptContextPayload(value, config) {
     endLine: requiredInteger(value.selection.endLine, 'selection.endLine', 1),
     endColumn: requiredInteger(value.selection.endColumn, 'selection.endColumn', 1),
     /* A CLEAN selection's text is OPTIONAL: the Host re-reads the file and derives the slice itself
-       (verifyCleanSelection), so a client never has to upload up to maxContextBytes of text that the
-       file on disk already contains. A DIRTY selection must carry it — those edits exist nowhere else. */
+       (verifyCleanSelection), so the client need not upload up to maxContextBytes of text already on
+       disk. A DIRTY selection must carry it — those edits exist nowhere else. */
     text: typeof value.selection.text === 'string' ? value.selection.text : undefined,
   }
   if (selection.text !== undefined && selection.text.includes('\0')) {
@@ -206,8 +206,7 @@ async function verifyCleanSelection(file, context, maximum) {
     throw new HttpError(409, 'context-coordinate-mismatch', '选区超出当前文件范围')
   }
   const logicalSlice = logical.slice(selection.from, selection.to)
-  // The client LF-normalizes offsets and selection text before sending (see publishContextState in src/client/components/explorer/hooks/editor-session.js), so the slice is compared directly without re-adding the file's original line endings.
-  // A text-free request (the modern clean-selection shape) is verified by the coordinate recomputation below instead: the slice IS the file's own content at those offsets.
+  // The client LF-normalizes offsets and selection text before sending (see publishContextState in src/client/components/explorer/hooks/editor-session.js), so the slice is compared directly without re-adding the file's line endings. A text-free request (the modern clean-selection shape) is verified by the coordinate recomputation below instead: the slice IS the file's own content at those offsets.
   if (selection.text !== undefined && logicalSlice !== selection.text) {
     throw new HttpError(409, 'context-content-mismatch', '选中文本与当前文件内容不一致')
   }

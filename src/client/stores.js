@@ -7,9 +7,9 @@ import { normalizeRelativeDir } from './paths.js'
 import { MUSIC_DEFAULT_DIR } from '../shared/music-score.js'
 
 // The persisted sidebar width lives with the explorer pane geometry
-// (EXPLORER_LAYOUT_STORE_KEY), so this rehydrates it on load; 0 means
-// collapsed. The schema in persisted-state.js owns the shape, so the value is
-// either canonical or absent — a missing key falls back to the default width.
+// (EXPLORER_LAYOUT_STORE_KEY) and is rehydrated here; 0 means collapsed.
+// persisted-state.js owns the shape, so the value is canonical or absent — a
+// missing key falls back to the default width.
 function readPersistedSidebarWidth() {
   const layout = readPersistedState(EXPLORER_LAYOUT_STORE_KEY)
   return layout === null ? SIDEBAR_DEFAULT : layout.sidebar

@@ -2,7 +2,7 @@
 import { realpath } from 'node:fs/promises'
 import { HttpError } from './errors.js'
 export async function workspaceOwnsSession(ctx, workspace, sessionId) {
-  /* The registry can hand out entries mid-load/partial: the client guards the same field everywhere, so a missing/malformed sessionIds must degrade to the cwd comparison instead of a TypeError → 500 on /context. */
+  /* The registry can hand out entries mid-load/partial (the client guards the same field): a missing/malformed sessionIds must degrade to the cwd comparison, not a TypeError → 500 on /context. */
   const sessionIds = Array.isArray(workspace.sessionIds) ? workspace.sessionIds : []
   if (sessionIds.some(candidate => String(candidate) === sessionId)) return true
   const session = ctx.sessions.get(sessionId)

@@ -140,9 +140,8 @@ export function collectionById(doc, id) {
 
 /**
  * The stored membership of one collection.
- * @returns the id list, or null for a built-in view (its visibility rule is not a stored id list:
- *   "all workspaces" shows every workspace, "unowned workspaces" shows the ones in no collection —
- *   see visibleWorkspace).
+ * @returns the id list, or null for a built-in view, whose visibility rule is not a stored id list
+ *   (see visibleWorkspace).
  */
 function memberWorkspaceIds(doc, collectionId) {
   if (isBuiltinCollection(collectionId)) return null

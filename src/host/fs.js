@@ -85,9 +85,9 @@ export async function revealInExplorer(workspace, relativePath) {
   return { workspaceId: String(workspace.id), path: relativePath, opened: true }
 }
 
-/** Resolve the native "open with the default program" command for one FILE: unlike the reveal command this
- *  hands the file ITSELF to the shell, so the operating system picks its default handler (a browser for
- *  .html). undefined on platforms with no desktop handler. */
+/** Resolve the native "open with the default program" command for one FILE: unlike reveal, it hands the file ITSELF
+ *  to the shell so the operating system picks its default handler (a browser for .html); undefined with no desktop
+ *  handler. */
 async function openCommandFor(target, platform = process.platform) {
   if (platform === 'win32') return { file: 'explorer.exe', args: [target] }
   if (platform === 'darwin') return { file: 'open', args: [target] }
@@ -101,10 +101,10 @@ async function openCommandFor(target, platform = process.platform) {
   return undefined
 }
 
-/** Hand one workspace-confined FILE to the operating system's default program. This is the only way a page
- *  can let the browser open a local file itself: an http(s) page origin may not navigate to file://, and the
- *  Desktop shell forwards only http(s) to the system browser (every other scheme is denied). No bytes cross
- *  this route — the Host only resolves the path inside the workspace and launches the native command. */
+/** Hand one workspace-confined FILE to the operating system's default program. The only way a page can let the
+ *  browser open a local file itself: an http(s) origin may not navigate to file://, and the Desktop shell forwards
+ *  only http(s) to the system browser (every other scheme denied). No bytes cross this route — the Host resolves the
+ *  path inside the workspace and launches the native command. */
 export async function openInDefaultApp(workspace, relativePath) {
   if (relativePath === '') throw new HttpError(400, 'invalid-path', '请选择要打开的文件')
   const root = await realpath(workspace.path)
@@ -201,8 +201,8 @@ function findMatches(content, query, caseSensitive, cap) {
       results.push({
         line: lineIndex + 1,
         text: `${from > 0 ? '…' : ''}${text.slice(from, to)}${to < text.length ? '…' : ''}`,
-        // Columns relative to the displayed snippet window (hit highlighting);
-        // startLineColumn/endLineColumn are absolute 1-based columns within the full line so the client can select the true match even when the snippet is truncated.
+        // Columns relative to the displayed snippet window (hit highlighting); startLineColumn/endLineColumn
+        // are absolute 1-based columns within the full line so the client can select the true match when truncated.
         startColumn: start - from + 1,
         endColumn: start - from + length + 1,
         startLineColumn: start + 1,
@@ -333,7 +333,7 @@ export async function searchWorkspace(workspace, query, caseSensitive, nameOnly,
   await Promise.all(workers)
   /* Incomplete only when the scan stopped before visiting every file; the old matchCount term falsely marked a search truncated when the cap was hit exactly after the last file. Worker check-then-push is synchronous, so `results` never overshoots maxSearchFiles. */
   if (index < total) truncated = true
-  /* The walk itself may have stopped early at the collection cap — that is a truncation too, even when the workers consumed every collected entry. */
+  /* The walk itself may have stopped early at the collection cap — a truncation too, even when the workers consumed every collected entry. */
   if (walkTruncated) truncated = true
   results.sort((left, right) => left.path.localeCompare(right.path, 'en', { numeric: true, sensitivity: 'base' }))
   return {
@@ -457,10 +457,10 @@ export async function readRawFile(workspace, relativePath, config) {
 /* ------------------------------------------------------------------------
  * External file-change checking for clean preview tabs.
  *
- * The browsing pane is snapshot-based, so the client polls a cheap change-check
- * endpoint on a fixed cadence; this helper compares stat fields first and hashes
- * only when they moved. Read-only and scoped to paths already opened in the
- * preview; no directory tree is watched.
+ * The pane is snapshot-based, so the client polls a cheap change-check endpoint
+ * on a fixed cadence; this helper compares stat fields first and hashes only
+ * when they moved. Read-only, scoped to paths already opened in the preview —
+ * no directory tree is watched.
  * ---------------------------------------------------------------------- */
 
 /** sha256 of the first maxPreviewBytes bytes PLUS a same-sized tail sample when the file is larger, so a change beyond the preview window is still detected. For files at or under the window this is exactly the preview prefix, matching readPreview's revision basis. */

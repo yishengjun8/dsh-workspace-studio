@@ -1,15 +1,14 @@
 /* Route the chat's resource-open path into the plugin's own preview tabs.
  *
- * The shipped chat opens files through ctx.sidebarRight.openResource, which requires
- * the harness right-Sidebar seat this root layout never mounts. This module patches
- * openResource: a FILE address is resolved against the session's workspace and
- * published to the mounted explorer (fileOpenRequestStore) — inside the workspace it
- * opens as a normal preview tab, outside as the session-only read-only preview; a
- * PLAN address (ui-plan's 「查看全文」 and the turn's plan card) goes to planOpenStore;
- * a CHANGE-REVIEW address (ui-deliverables' changed-files card) to reviewOpenStore;
- * every other address back to the harness implementation (its own registered tab
- * types, or one notice instead of an uncaught throw for the missing seat). The patch
- * claims only the addresses this layout can draw.
+ * The shipped chat opens files through ctx.sidebarRight.openResource, which needs the
+ * harness right-Sidebar seat this root layout never mounts, so this module patches it.
+ * A FILE address is resolved against the session's workspace and published to the
+ * mounted explorer (fileOpenRequestStore) — inside the workspace a normal preview tab,
+ * outside the session-only read-only preview; a PLAN address (ui-plan's 「查看全文」 and
+ * the turn's plan card) goes to planOpenStore; a CHANGE-REVIEW address (ui-deliverables'
+ * changed-files card) to reviewOpenStore; every other address back to the harness
+ * implementation (its registered tab types, or one notice instead of an uncaught throw
+ * for the missing seat). The patch claims only the addresses this layout can draw.
  *
  * It follows the sendSession bridge convention: a marker + recorded original let an
  * overlapping re-install unwrap a stale wrapper instead of recursing, and cleanup
@@ -135,10 +134,9 @@ function routeFileOpen(ctx, parsed, options) {
   }
   const line = options?.params?.line
   const requestedLine = typeof line === 'number' && Number.isFinite(line) ? line : undefined
-  /* The scope alone does not decide this: a SESSION-scoped address may carry an
-     absolute path (see parseFileAddress), and an absolute tree path is refused
-     by the Host's workspace-confined API on sight. `requestFileOpen` makes that
-     call in one place. */
+  /* The scope alone does not decide: a SESSION-scoped address may carry an absolute
+     path (see parseFileAddress), and an absolute tree path is refused on sight by
+     the Host's workspace-confined API. `requestFileOpen` makes that call in one place. */
   requestFileOpen(workspace.workspaceId, workspace.path, parsed.path, undefined, requestedLine)
 }
 

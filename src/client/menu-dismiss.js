@@ -10,12 +10,11 @@
  * listener closed a menu the user had just opened on the sidebar or the preview
  * pane as soon as the chat produced its next token.
  *
- * A menu is anchored at a point inside ONE region, so only a scrollport that
- * OWNS that anchor — the anchor itself, or an ancestor of it — can move it, and
- * only such a scroll may dismiss it. While no anchor can be named (the region
- * was replaced under an open menu) the test degrades to "any scrollport except
- * the conversation column", keeping the streaming-scroll bug from coming back
- * through a missing anchor.
+ * A menu is anchored at a point inside ONE region, so only a scrollport that OWNS
+ * that anchor — itself or an ancestor — can move it, and only such a scroll may
+ * dismiss it. With no anchor (the region was replaced under an open menu) the test
+ * degrades to "any scrollport except the conversation column", so the
+ * streaming-scroll bug cannot return through a missing anchor.
  */
 import { clamp } from './format.js'
 import { CONVERSATION_SCROLLPORT_SELECTOR } from './scroll-gate.js'
@@ -26,8 +25,8 @@ const MENU_GUTTER = 4
 
 /**
  * Where a floating menu goes: `x`/`y` are the preferred left/top (a click point or an anchor's edge)
- * and `width`/`height` its measured size. One implementation for every menu, so the trailing gutter
- * cannot be forgotten on one caller and kept on another.
+ * and `width`/`height` its measured size. One implementation for every menu, so the gutter cannot
+ * diverge between callers.
  */
 export function anchorBox(x, y, width, height) {
   return {

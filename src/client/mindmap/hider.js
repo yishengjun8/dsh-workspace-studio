@@ -5,50 +5,46 @@ import { isMindmapFamilySession } from './panel.js'
 import { mindmapRegistry } from './registry.js'
 
 /* Hides mind-map family sessions (root + every fork descendant) from the
-   sidebar list; each mind map is shown by its self-drawn entry instead. Rows
-   are matched by title — a title hides a row only when every session with it is
-   hidden — and rescanned on DOM mutations / index changes; the current blank
-   session is matched structurally (selected row without a time cell), only
-   inside a mind-map family.
+   sidebar list; each mind map is shown by its self-drawn entry instead. A title
+   hides a row only when every session with it is hidden; rows are rescanned on
+   DOM mutations / index changes, and the current blank session is matched
+   structurally (selected row without a time cell) only inside a mind-map family.
 
    Scan cost is bounded: records are filtered to row/overflow mutations before a
-   scan is scheduled, an unchanged scan signature skips every DOM write, and the
-   body guard re-anchors only when the observed target was replaced. Class
-   attributes are watched because React's className rewrite on becoming the
-   current session wipes the hidden class with no childList record; those
-   rewrites are re-hidden in the same animation frame, so no flash.
+   scan, an unchanged signature skips every DOM write, and the body guard
+   re-anchors only when the observed target was replaced. Class attributes are
+   watched because React's className rewrite on becoming the current session
+   wipes the hidden class with no childList record; those rewrites are re-hidden
+   in the same animation frame, so no flash.
 
    Hiding has TWO outputs on purpose (a stylesheet plus the row class). The
-   Harness sidebar's row animation is a FLIP that measures post-update row rects
-   INSIDE the React commit (AnimatedRows' getSnapshotBeforeUpdate /
-   componentDidUpdate) and translates each row by the measured delta; a row
-   removed only AFTER that measurement (the observer callback runs after the
-   commit) makes every delta below it stale by the removed height, so those rows
-   start above their final place and glide too far — "the group expands and
-   everything under it rolls down from far above". The decision is therefore
-   ALSO published as selectors (same idiom as the collections filter): a row the
-   census already knows carries `display:none` from the moment React inserts it,
-   so it never enters that measurement. The class pass stays as belt-and-braces
-   — it is also what the overflow COUNT pass reads. The count is patched from
-   the Harness's own `sessions.expand` number and only the hidden rows the
-   Harness still counts (hidden, not rendered) are subtracted: the Harness now
-   computes that number from its archived filter and its session watermark, so
-   recomputing it locally would encode a sidebar model that no longer exists.
+   sidebar's row animation is a FLIP that measures post-update row rects INSIDE
+   the React commit (AnimatedRows' getSnapshotBeforeUpdate/componentDidUpdate)
+   and translates each row by the measured delta; a row removed only AFTER that
+   measurement (the observer runs after the commit) makes every delta below it
+   stale by the removed height, so those rows start above their final place and
+   glide too far — "the group expands and everything under it rolls down from far
+   above". The decision is therefore ALSO published as selectors (same idiom as
+   the collections filter): a row the census knows carries `display:none` from
+   the moment React inserts it, so it never enters that measurement. The class
+   pass stays as belt-and-braces — it is also what the overflow COUNT pass reads.
+   The count is patched from the Harness's own `sessions.expand` number, minus
+   only the hidden rows it still counts (hidden, not rendered): the Harness
+   computes that number from its archived filter and session watermark, so
+   recomputing locally would encode a sidebar model that no longer exists.
 
    That patch writes ONLY the value of the text node React owns. Replacing the
    child (the old `textContent` write) detaches React's HostText instance, so
-   every later count React renders lands outside the document and the button
-   keeps showing a stale number — the next pass then subtracts from that stale
-   value, the displayed count climbs instead of reaching zero, and the "nothing
-   left to reveal" branch never fires. The baseline is likewise the last text
-   the Harness itself wrote (captured from its characterData records), never a
-   value this pass wrote.
+   every later count lands outside the document and the button keeps a stale
+   number — the next pass subtracts from that stale value, the displayed count
+   climbs instead of reaching zero, and the "nothing left to reveal" branch never
+   fires. The baseline is likewise the last text the Harness itself wrote (from
+   its characterData records), never a value this pass wrote.
 
    A Harness expand click raises its watermark by five RAW rows, so a click can
-   reveal five rows this hider hides and nothing on screen. The click is
-   therefore followed by a bounded series of the same clicks until one row is
-   actually visible, the Harness switches to its collapse label, or the count is
-   exhausted.
+   reveal five rows this hider hides and nothing on screen: each click is
+   followed by a bounded series of the same clicks until one row is visible, the
+   Harness switches to its collapse label, or the count is exhausted.
 
    The archived filter itself is read from ui-workspace's persisted view state
    (`dsh.workspace.view.v<n>`) with a rendered-rows fallback, never from a

@@ -186,38 +186,34 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
      current (the next periodic sync re-fetches and stays consistent). */
   const localWriteSeqRef = useRef(0)
   /* ---- fold/unfold write QUEUE (see queueFoldIntent/toggleFold below) ----
-     A fold pill click must NEVER be dropped: the old implementation refused
-     every click that arrived while a doc write was in flight (a return on the
-     shared forkingRef gate), which read as "点了折叠没反应，等一下才能再点" —
-     and because folding merges the clicked card into the previous folded run,
-     the NEXT card slides under the pointer, so that dropped click is exactly
-     the one the user makes. Clicks are queued as intents instead; the drain
-     composes them onto the optimistic doc and writes them (coalesced) as soon
-     as the doc-write gate is free.
-     `foldQueueRef` holds intents not yet APPLIED to the optimistic doc (they
-     only wait here while a structural write — fork/delete/archive/select —
-     owns the doc, since applying them onto a doc that write may still roll
-     back would persist a failed change). `foldWritingRef` marks this drain as
-     the current doc-write owner (it also holds `forkingRef` for the writer, so
-     structural writers cannot interleave their read-modify-write).
-     `foldAckRef` is the last doc the Host accepted (the rollback target when a
-     queued write fails; null = "seed me from the doc the next batch starts
-     from"). `foldIntentRef` carries the last applied intent so the settle can
-     word its notice. */
+     A fold pill click must NEVER be dropped: the old implementation returned on
+     the shared forkingRef gate while a write was in flight (which read as
+     "点了折叠没反应，等一下才能再点"), and since folding merges the card into the
+     previous folded run the NEXT card slides under the pointer — the dropped
+     click is exactly the one the user makes. Clicks queue as intents; the drain
+     composes them onto the optimistic doc and writes them coalesced once the gate
+     frees.
+     `foldQueueRef`: intents not yet APPLIED — they wait only while a structural
+     write (fork/delete/archive/select) owns the doc, since applying them onto a
+     doc that may still roll back would persist a failed change.
+     `foldWritingRef`: this drain is the doc-write owner (it also holds
+     `forkingRef`, so structural writers cannot interleave their RMW).
+     `foldAckRef`: the last doc the Host accepted (rollback target; null = seed
+     from the next batch's doc). `foldIntentRef`: the last applied intent, for the
+     settle notice. */
   const foldQueueRef = useRef([])
   const foldWritingRef = useRef(false)
   const foldAckRef = useRef(null)
   const foldIntentRef = useRef(null)
   const drainFoldRef = useRef(null)
-  /* Single-flight gate for THIS body's Host reads (periodic sync, run-edge sync, empty-phase
-     probe). The Host runs mind-map work under a per-root lock and one full family refresh
-     costs seconds, so the 2.5 s poll used to stack up to a dozen requests behind that lock;
-     the user's own "open this map from the sidebar" click then queued behind the backlog and
-     died at its request timeout, which read as "the map never loads". At most ONE request per
-     map body may be in flight; a response that never settles cannot wedge the poll because
-     the gate reopens once the longest request timeout has passed. Declared here (before every
-     effect that reads it in a dependency array) so no effect's deps evaluation hits the
-     binding before initialization. */
+  /* Single-flight gate for THIS body's Host reads (periodic sync, run-edge sync,
+     empty-phase probe). The Host runs mind-map work under a per-root lock and one
+     family refresh costs seconds, so the 2.5 s poll stacked a dozen requests behind
+     it and the user's sidebar click died at its request timeout ("the map never
+     loads"). At most ONE request per body may be in flight; a response that never
+     settles cannot wedge the poll because the gate reopens after the longest
+     request timeout. Declared before every effect that reads it in a deps array, so
+     no deps evaluation hits the binding before initialization. */
   const readInFlightRef = useRef(false)
   const readStartedAtRef = useRef(0)
   const beginRead = useCallback(() => {
@@ -2182,16 +2178,13 @@ export function MindMapView({ sessionId, useSessions, loadDoc, saveDoc, syncDoc,
     setMenu(null)
     requestSummarizeSession(target)
   }, [menu, requestSummarizeSession])
-  /* Waiting completion: the Host's background job for this session is over when
-     EITHER a NEW summary landed in the doc (a non-empty value different from the
-     baseline captured at request time) OR the Host-reported pending/running set
-     released the session after having listed it. Neither signal alone is enough:
-     the value check cannot see a regeneration that produced identical text, and
-     the set check cannot see a job that finished before the next sync. `seen`
-     latches the second observation so an early (pre-job) sync payload with an
-     empty set can never count as a release. A 5-minute stall (generation failed
-     and cooled down, or the map was closed) surfaces as a timeout notice and
-     releases the queue. */
+  /* Waiting completion: the Host's background job for this session ended when EITHER a new
+     summary landed (non-empty, different from the baseline captured at request time) OR the
+     Host-reported pending/running set released the session after listing it. Neither alone
+     suffices: the value check cannot see a regeneration with identical text, the set check
+     cannot see a job that finished before the next sync. `seen` latches the release so an
+     early (pre-job) sync with an empty set never counts. A 5-minute stall (generation failed
+     and cooled down, or the map closed) surfaces as a timeout notice and releases the queue. */
   useEffect(() => {
     if (sessionSummaryWaiting === null) return undefined
     const id = String(sessionSummaryWaiting.id)

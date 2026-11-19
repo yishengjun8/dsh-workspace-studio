@@ -5,15 +5,14 @@
  * ~/.dsh-plugin/dsh-workspace-studio/collections/ holds
  * `{ version, selectedId, collections: [{ id, name, workspaceIds }] }`.
  *
- * Two deliberate shapes: a collection stores workspace IDS, so a workspace the Harness later deletes
- * leaves a dangling id that readers ignore and the next write drops (a re-add under a new id yields
- * empty membership, not a wrong one); and the built-in "all workspaces" collection is a CLIENT
- * constant, never stored, so this file holds user collections only, in the user's own order (the
- * built-in one is always first).
+ * A collection stores workspace IDS, so a workspace the Harness later deletes leaves a dangling id
+ * that readers ignore and the next write drops (a re-add under a new id yields empty membership,
+ * not a wrong one); the built-in "all workspaces" collection is a CLIENT constant, never stored, so
+ * this file holds user collections only, in the user's order (the built-in one is always first).
  *
- * Reads are forgiving and writes are strict — the same split run.js uses: a hand-edited file keeps
- * whatever is still usable (bad entries dropped, nothing else invented), while a patch the UI could
- * not have produced is refused outright instead of being half-applied.
+ * Reads are forgiving and writes are strict (as in run.js): a hand-edited file keeps whatever is
+ * usable (bad entries dropped, nothing invented); a patch the UI could not have produced is
+ * refused outright rather than half-applied.
  */
 import { randomBytes } from 'node:crypto'
 import { homedir } from 'node:os'
@@ -198,10 +197,10 @@ function validateUpserts(value) {
 /**
  * Apply one patch to the store and persist it: `{ selectedId?, order?, upsert?, remove? }`.
  *
- * The patch shape (rather than a whole-document replace) keeps two open surfaces — the Web tab and
- * the desktop app — from clobbering each other: every operation is merged server-side inside the
- * store's serialized queue, so a reorder cannot erase a membership edit that landed in between. The
- * response is always the full normalized store, which is what the client renders next.
+ * A patch (not a whole-document replace) keeps the two open surfaces — Web tab and desktop app —
+ * from clobbering each other: every operation is merged server-side inside the store's serialized
+ * queue, so a reorder cannot erase a membership edit that landed in between. The response is the
+ * full normalized store the client renders next.
  * @param payload - request body.
  * @param queues - shared per-key write queue (writeQueues in index.js).
  * @param maxCollections - deployment bound on USER collections (config.maxCollections).

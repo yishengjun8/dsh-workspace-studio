@@ -1,10 +1,10 @@
-/* Music workshop dock: a GarageBand-style instrument rack with a shared timeline, a
- * context editor (piano roll for melodic tracks, drum grid for drum tracks), Web Audio
- * playback and score files under the workspace's music directory.
+/* Music workshop dock: a GarageBand-style instrument rack with a shared timeline, a context editor
+ * (piano roll for melodic tracks, drum grid for drum tracks), Web Audio playback and score files under
+ * the workspace's music directory.
  *
- * The score owns any number of instrument tracks; the panel edits one selected track at a
- * time. The piano roll supports a paint stroke (pointer-down + drag lights consecutive
- * cells), which is the fast path for writing a run of sixteenths.
+ * The score owns any number of instrument tracks; the panel edits one selected track at a time. The
+ * piano roll supports a paint stroke (pointer-down + drag lights consecutive cells), the fast path for
+ * writing a run of sixteenths.
  */
 import { createElement as h, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { translate, useLocaleText } from '../../locale/index.js'

@@ -56,23 +56,12 @@ export function parseChangesReviewAddress(address) {
   }
 }
 
-/**
- * The authenticated URL of one announced change summary.
- * @param sessionId - viewed Session.
- * @param seq - the announcing event's sequence.
- * @returns the document-relative route with its coordinates.
- */
+/** Document-relative URL of one announced change summary (authenticated inside the connection's fence). */
 function changesSummaryUrl(sessionId, seq) {
   return `${CHANGES_SUMMARY_ROUTE}?${new URLSearchParams({ sessionId: String(sessionId), seq: String(seq) })}`
 }
 
-/**
- * The authenticated URL of one listed file's turn-start and turn-end comparison.
- * @param sessionId - viewed Session.
- * @param seq - the announcing event's sequence.
- * @param index - the file's index in the summary.
- * @returns the document-relative route with its coordinates.
- */
+/** Document-relative URL of one listed file's turn-start / turn-end comparison. */
 function changesDiffUrl(sessionId, seq, index) {
   return `${CHANGES_DIFF_ROUTE}?${new URLSearchParams({ sessionId: String(sessionId), seq: String(seq), index: String(index) })}`
 }
@@ -85,11 +74,7 @@ function isCount(value) {
   return Number.isSafeInteger(value) && value >= 0
 }
 
-/**
- * Validate one changed-file record read from the summary route.
- * @param value - decoded JSON.
- * @returns whether the record carries a path, a display path, and line counts.
- */
+/** Whether one changed-file record carries a path, a display path and line counts. */
 function isChangedFile(value) {
   if (!isRecord(value)) return false
   const { path, display, added, deleted, binary, oversized } = value
@@ -98,11 +83,7 @@ function isChangedFile(value) {
     && (binary === undefined || binary === true) && (oversized === undefined || oversized === true)
 }
 
-/**
- * Validate a summary read from the summary route.
- * @param value - decoded JSON.
- * @returns whether the value identifies a turn, a complete file list, and the line totals.
- */
+/** Whether a summary identifies a turn, a complete file list and the line totals. */
 function isChangesSummary(value) {
   if (!isRecord(value)) return false
   const { turn, files, total, added, deleted } = value
@@ -117,11 +98,7 @@ function isHunk(value) {
     && Array.isArray(lines) && lines.every(line => typeof line === 'string' && /^[+ -]/.test(line))
 }
 
-/**
- * Validate a comparison read from the comparison route.
- * @param value - decoded JSON.
- * @returns whether the value is a text comparison with well-formed hunks, or a binary or oversized refusal.
- */
+/** Whether a comparison is a text diff with well-formed hunks, or a binary/oversized refusal. */
 function isChangesDiff(value) {
   if (!isRecord(value)) return false
   const { kind, path, display } = value
@@ -148,21 +125,13 @@ export function hunkRows(hunk) {
   })
 }
 
-/**
- * The `@@ … @@` header of one hunk.
- * @param hunk - a served hunk.
- * @returns its unified-diff range header.
- */
+/** The `@@ … @@` range header of one hunk. */
 export function hunkHeader(hunk) {
   return `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`
 }
 
-/**
- * The hunks to draw, cut at {@link MAX_RENDERED_LINES} lines in total: a turn that rewrote a huge
- * file must not build an unbounded DOM.
- * @param hunks - served hunks.
- * @returns the hunks with the last one shortened as needed, and whether anything was cut.
- */
+/** The hunks to draw, cut at {@link MAX_RENDERED_LINES} total: a turn that rewrote a huge file
+ * must not build an unbounded DOM. */
 export function cappedHunks(hunks) {
   const kept = []
   let budget = MAX_RENDERED_LINES
@@ -181,9 +150,6 @@ export function cappedHunks(hunks) {
  * outside it. With the cwd known the result is absolute, so the request decides inside-versus-outside
  * against the workspace root; without it only a path that stays inside the root can be requested at
  * all — a `..` segment with no cwd is exactly the case that cannot be resolved here.
- * @param cwd - the Session's working directory, when known.
- * @param path - the summary's `path`.
- * @returns the resolved path, or undefined when it cannot be resolved safely.
  */
 export function resolveReviewFilePath(cwd, path) {
   if (typeof path !== 'string' || path === '') return undefined
@@ -193,12 +159,11 @@ export function resolveReviewFilePath(cwd, path) {
   return normalized.split('/').includes('..') ? undefined : normalized
 }
 
-/* Read one JSON route into its view state through the plugin's single network layer (api.js
-   `readHarnessJson` keeps the URL document-relative but reuses the shared timeout/error contract).
-   A non-OK answer, or a payload that fails validation (the Host and this bundle disagree about the
-   shape, which the view could not render), becomes the `failed` state; an aborted read stays a
-   rejection so its caller ignores it. Nothing is cached module-wide — one mounted tab holds its own
-   state, so a Host restart can never leave a stale "missing" answer standing for the page. */
+/* Read one JSON route into its view state through `readHarnessJson` (document-relative URL, shared
+   timeout/error contract). A non-OK answer, or a payload that fails validation (Host and bundle
+   disagree about a shape the view could not render), becomes `failed`; an aborted read stays a
+   rejection so its caller ignores it. Nothing is cached module-wide — each mounted tab holds its own
+   state, so a Host restart can never leave a stale "missing" answer standing. */
 async function readJson(url, signal, failed, decode) {
   try {
     const value = await readHarnessJson(url, signal)
@@ -212,12 +177,7 @@ async function readJson(url, signal, failed, decode) {
   }
 }
 
-/**
- * @param sessionId - viewed Session.
- * @param seq - the announcing event's sequence.
- * @param signal - cancels the read.
- * @returns the summary, or `'missing'` once the Host no longer serves it (or the read failed).
- */
+/** The summary, or `'missing'` once the Host no longer serves it (or the read failed). */
 export function loadChangesSummary(sessionId, seq, signal) {
   return readJson(changesSummaryUrl(sessionId, seq), signal, 'missing',
     value => (isChangesSummary(value) ? value : undefined)).catch((error) => {
@@ -227,13 +187,7 @@ export function loadChangesSummary(sessionId, seq, signal) {
   })
 }
 
-/**
- * @param sessionId - viewed Session.
- * @param seq - the announcing event's sequence.
- * @param index - the file's index in the summary.
- * @param signal - cancels the read.
- * @returns the comparison, or the `'missing'` / `'error'` state a retry may replace.
- */
+/** The comparison, or the `'missing'` / `'error'` state a retry may replace. */
 export function loadChangesDiff(sessionId, seq, index, signal) {
   return readJson(changesDiffUrl(sessionId, seq, index), signal, 'error',
     value => (isChangesDiff(value) ? value : undefined)).catch((error) => {
@@ -265,12 +219,8 @@ export const reviewOpenStore = {
    the explorer) but is deliberately never persisted: a review tab itself does not survive a reload,
    so a durable width would restore a pane nothing could show. */
 
-/**
- * The split's bounds and the width to draw for one container width.
- * @param stored - the user's stored list width.
- * @param bodyWidth - the measured body width, or 0 before the first measure.
- * @returns the separator's min/max and a width always inside them.
- */
+/** The split's min/max for one container width (a stored width before the first measure) and a
+ * width always inside them. */
 export function reviewListBounds(stored, bodyWidth) {
   const measured = Number.isFinite(bodyWidth) && bodyWidth > 0
   /* Before the first measure the stored value must stand as the user left it:
@@ -289,27 +239,17 @@ export function reviewListBounds(stored, bodyWidth) {
 let splitSnapshot = { width: REVIEW_LIST_DEFAULT }
 const splitListeners = new Set()
 
-/**
- * Subscribe to the split width.
- * @param listener - called after every width change.
- * @returns the unsubscribe function.
- */
+/** Subscribe to the split width; returns the unsubscribe function. */
 export function subscribeReviewSplit(listener) {
   splitListeners.add(listener)
   return () => { splitListeners.delete(listener) }
 }
 
-/**
- * The current split width snapshot. Stable between changes, as React requires.
- * @returns the snapshot object.
- */
+/** The current split width snapshot. Stable between changes, as React requires. */
 export function readReviewSplit() { return splitSnapshot }
 
-/**
- * Set the split width for every mounted review tab. An unusable value is ignored
- * and an unchanged one notifies nobody, so a same-pixel drag step costs nothing.
- * @param width - the new list width in pixels.
- */
+/** Set the split width for every mounted review tab: an unusable value is ignored and an unchanged
+ * one notifies nobody, so a same-pixel drag step costs nothing. */
 export function setReviewSplitWidth(width) {
   const next = Number.isFinite(width) ? Math.round(width) : splitSnapshot.width
   if (next === splitSnapshot.width) return

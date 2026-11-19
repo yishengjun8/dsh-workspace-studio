@@ -114,15 +114,13 @@ export function useSidebarChrome(options = {}) {
     }
     const groupsEqual = (a, b) => a.length === b.length
       && a.every((group, index) => group.container === b[index]?.container && group.title === b[index]?.title)
-    /* The global panel list docks into the foot (styles.js): the shell keeps it
-       inside its shared scroller, so CSS pins it below that scroller and needs two
-       measured numbers — the list's own height (the slot reserved above Settings)
-       and the distance from the scroller's bottom edge to that slot (how far the
-       list hangs below the scroller). Both change with the pinned panels, the
-       collapsed rail, the locale and whatever seats the shell adds or removes
-       between the two, so measure the geometry rather than deriving it from the
-       footer row's height (1.0.127 exposed that assumption: a row inserted below
-       the scroller shifted the slot by 46px and the list covered Mobile mode). */
+    /* The global panel list docks into the foot (styles.js): the shell keeps it inside its shared
+       scroller, so CSS pins it below and needs two measured numbers — the list's own height (the
+       slot reserved above Settings) and the distance from the scroller's bottom edge to that slot
+       (how far the list hangs below). Both change with the pinned panels, the collapsed rail, the
+       locale and whatever seats the shell adds or removes between the two, so measure rather than
+       derive from the footer row's height (1.0.127: a row inserted below the scroller shifted the
+       slot by 46px and the list covered Mobile mode). */
     let dockNav = null
     let dockFoot = null
     let dockRegion = null

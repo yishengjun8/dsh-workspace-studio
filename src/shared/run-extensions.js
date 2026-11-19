@@ -1,8 +1,8 @@
 /* The executable-file runner's extension vocabulary, shared VERBATIM by both bundles.
  *
  * The Host is the authority: it resolves the interpreter, re-checks every request and refuses any
- * extension without a recipe. The client only decides whether to OFFER a console for a preview tab.
- * One table in src/shared keeps the two sides from drifting: a divergence would show up as a missing
+ * extension without a recipe; the client only decides whether to OFFER a console for a preview tab.
+ * One table in src/shared keeps the sides from drifting — a divergence shows up as a missing
  * console or a refused run for the same file.
  *
  * `direct` executes the file itself.

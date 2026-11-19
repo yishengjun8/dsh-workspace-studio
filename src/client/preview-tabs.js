@@ -25,7 +25,7 @@ export function isReviewTab(tab) { return tab !== null && tab !== undefined && t
 /* Synthetic tab path of a music-workshop document: unique per open score and never a real workspace path. The id is minted client-side and stays stable for the tab's whole life (a save only changes savedPath/name). */
 export function musicTabPath(id) { return `music:${String(id)}` }
 export function isMusicTab(tab) { return tab !== null && tab !== undefined && tab.kind === 'music' }
-/* A tab rendering something other than a workspace file (a docked mind map, an opened plan, a turn's change review, a music score): it has no file read, draft, editor state, or tree selection; plan/review tabs are also dropped from every persisted snapshot, while a docked mind map and a music score DO persist. */
+/* A tab rendering something other than a workspace file (docked mind map, opened plan, change review, music score): no file read, draft, editor state or tree selection; plan/review tabs are also dropped from every persisted snapshot, while a docked map and a music score DO persist. */
 export function isSyntheticTab(tab) { return isMindmapTab(tab) || isPlanTab(tab) || isReviewTab(tab) || isMusicTab(tab) }
 /* Whether a tab is dropped from every persisted snapshot: an external (dropped-in or
    outside-workspace) tab whose content lives only in memory, an opened plan, or a turn's
@@ -171,11 +171,11 @@ export function openPermanentTab(tabs, tab) {
 }
 /* Single-click preview open. An already-open target is returned untouched — the caller only
    activates it: re-clicking a temporary tab must not promote it, and the existing temporary slot
-   is not closed. Otherwise the temporary slot is replaced IN PLACE, so the strip never reorders.
-   A temporary tab holding unsaved work is never displaced: it is promoted to permanent and the new
-   file opens in a fresh temporary slot instead (a click must not bin edits the 1s debounced staging
-   write may not have persisted yet). Returns { tabs, replacedPath }: replacedPath is the displaced
-   tab, whose runtime refs the caller drops; it is clean by construction, so nothing is flushed. */
+   stays. Otherwise the temporary slot is replaced IN PLACE, so the strip never reorders. A
+   temporary tab holding unsaved work is never displaced: it is promoted to permanent and the new
+   file opens in a fresh temporary slot (a click must not bin edits the 1s debounced staging write
+   may not have persisted yet). Returns { tabs, replacedPath }: replacedPath is the displaced tab,
+   whose runtime refs the caller drops; it is clean by construction, so nothing is flushed. */
 export function openPreviewTab(tabs, tab) {
   const current = Array.isArray(tabs) ? tabs : []
   if (current.some(item => item.path === tab.path)) return { tabs: current, replacedPath: null }

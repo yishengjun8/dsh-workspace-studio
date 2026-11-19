@@ -117,8 +117,6 @@ const pendingOpen = createRequestStore()
 export const planOpenStore = {
   ...pendingOpen,
   open(address, name, expectFamily) {
-    /* The addressed session is the request's key, so the host explorer (which
-       only knows the addresses it accepts) is the whole match rule. */
     pendingOpen.request(expectFamily, {
       address: String(address),
       name: typeof name === 'string' ? name : '',

@@ -1,6 +1,6 @@
 /* One lazily-created `<style id>` in the document head, written only when its text actually changes.
  *
- * Four properties matter here, and getting one of them wrong is silent:
+ * Four properties matter, and getting one wrong is silent:
  *   - create on first use, in <head>;
  *   - REUSE an element a previous install left behind (a remount must not stack sheets);
  *   - write nothing when the decision did not change (the sidebar re-renders on every poll);

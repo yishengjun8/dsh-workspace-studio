@@ -451,7 +451,7 @@ function TokenStatsDialog({ onClose }) {
             filteredRows.map(row => {
               const key = `${row.provider}\u0001${row.model}`
               const off = uncheckedKeys.has(key)
-              /* The whole row toggles this model's checkbox (same single entry point as the checkbox itself): one is not a second code path, it is a second hit area for the very same action. */
+              /* The whole row toggles this model's checkbox: a second hit area for the same action, not a second code path. */
               return h('tr', {
                 className: `dsh-ws-token-selectable${off ? ' dsh-ws-token-dim' : ''}`,
                 key,
@@ -526,7 +526,7 @@ function TokenStatsDialog({ onClose }) {
             h('th', { className: 'dsh-ws-token-model' }, translate('tokens.col.model')),
             TOKEN_PRICE_FIELDS.map(field => h('th', { key: `token-${field}` }, translate(`tokens.col.${field}`))),
             h('th', null, translate('tokens.cost.amount')))),
-          /* One <tbody> per model: the token/money line and, only when revealed, the price line. Five columns total, so this table never needs a horizontal scrollbar, and hovering a model highlights both of its lines. */
+          /* One <tbody> per model: the token/money line and, only when revealed, the price line. Five columns total, so no horizontal scrollbar; hovering a model highlights both of its lines. */
           costRows.map(row => {
             const key = costKeyOf(row)
             const override = priceState.overrides[key] ?? {}
