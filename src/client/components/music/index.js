@@ -49,7 +49,7 @@ import { isFollowChatModel, musicModelKey } from '../../music-prefs.js'
 import { MusicDiscardDialog, MusicDurationDialog, MusicOpenDialog, MusicSaveDialog } from './dialogs.js'
 import { MusicCachePopover } from './cache-popover.js'
 import { notifyMusicCacheChanged, subscribeMusicCacheChanged } from './cache-events.js'
-import { MusicCollabBar, MusicCollabRow, useMusicCollab } from './collab.js'
+import { MusicCollabBar, MusicCollabRow, NOTES_BUDGET, scopeBarOf, useMusicCollab } from './collab.js'
 import { ComposeChoicePopover } from './compose-choice.js'
 import { ComposeInstrumentsPopover } from './compose-instruments.js'
 import { composeRanges, mergeComposedSegments } from './compose-run.js'
@@ -216,6 +216,9 @@ export function MusicDock({
   const [selectedTrackId, setSelectedTrackId] = useState(() => doc.tracks[0]?.id ?? null)
   const [selectedNote, setSelectedNote] = useState(() => firstNoteSelection(doc.tracks[0]))
   const [activeBar, setActiveBar] = useState(1)
+  /* Chat-collaboration scope: one explicit bar or the whole piece (no implicit follow). */
+  const [collabBar, setCollabBar] = useState(1)
+  const [collabWhole, setCollabWhole] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [styleOpen, setStyleOpen] = useState(false)
   const [moodOpen, setMoodOpen] = useState(false)
@@ -556,9 +559,29 @@ export function MusicDock({
      the bar shows is recomputed from the real before/after tracks. */
   const collabTabIdRef = useRef(null)
   if (collabTabIdRef.current === null) collabTabIdRef.current = `music-${Math.random().toString(36).slice(2, 10)}`
-  const collabFocusBar = selectedNote !== null && selectedNoteFound !== null && activeTrack !== null && selectedNote.trackId === activeTrack.id
-    ? selectedNoteFound.note.bar
-    : activeBar
+  /* The chat scope is explicit: one bar or the whole piece. Memoized so the registration /
+     envelope effects keyed on it only re-fire when the user actually changes the scope. */
+  const collabScope = useMemo(() => ({ bar: collabBar, mode: collabWhole ? 'whole' : 'bar' }), [collabBar, collabWhole])
+  const collabNoteTotal = useMemo(
+    () => doc.tracks.reduce((sum, track) => sum + (track.kind === 'drums' ? 0 : track.notes.length), 0),
+    [doc.tracks],
+  )
+  const collabScopeBar = scopeBarOf(collabScope, doc.bars)
+  const collabLarge = collabWhole && collabNoteTotal > NOTES_BUDGET
+  const changeCollabScope = useCallback((value) => {
+    if (value === 'whole') {
+      setCollabWhole(true)
+      return
+    }
+    const bar = Math.round(Number(value))
+    if (!Number.isFinite(bar)) return
+    setCollabWhole(false)
+    setCollabBar(Math.min(Math.max(1, bar), docRef.current.bars))
+  }, [])
+  /* Keep the pinned bar inside the piece when the bar count shrinks (recompose / open). */
+  useEffect(() => {
+    setCollabBar(current => Math.min(Math.max(1, current), doc.bars))
+  }, [doc.bars])
 
   const applyCollabPatch = useCallback((patch) => {
     const current = docRef.current
@@ -590,9 +613,9 @@ export function MusicDock({
   const collab = useMusicCollab({
     active,
     doc,
-    focusBar: collabFocusBar,
     hostCollab: collabReady,
     onApply: applyCollabPatch,
+    scope: collabScope,
     selectedTrackId: activeTrack?.id ?? null,
     sessionId: typeof chatSessionId === 'string' ? chatSessionId : '',
     tabId: collabTabIdRef.current,
@@ -613,21 +636,6 @@ export function MusicDock({
   const undoCollabEdit = () => {
     if (collab.notice === null) return
     applyTrackHistoryFor(collab.notice.trackId, 'undo')
-  }
-
-  /* Entry B: the chat composer has no public prefill seam, so hand the sentence over via the
-     clipboard rather than reaching into the harness DOM. */
-  const requestTrackInChat = (track) => {
-    if (track === null || track === undefined) return
-    const text = translate('music.collab.prefill', { track: trackDisplayName(track) })
-    const clipboard = typeof navigator === 'undefined' ? undefined : navigator.clipboard
-    if (clipboard === undefined || typeof clipboard.writeText !== 'function') {
-      setStatus({ error: true, text: translate('music.collab.copyFailed') })
-      return
-    }
-    clipboard.writeText(text)
-      .then(() => setStatus({ text: translate('music.collab.copied') }))
-      .catch(() => setStatus({ error: true, text: translate('music.collab.copyFailed') }))
   }
 
   const auditionNote = useCallback(async (midi) => {
@@ -744,6 +752,8 @@ export function MusicDock({
     setSelectedTrackId(first?.id ?? null)
     setSelectedNote(firstNoteSelection(first))
     setActiveBar(1)
+    setCollabBar(1)
+    setCollabWhole(false)
     setPromptText(next.prompt.text)
     setStyle(next.prompt.style)
     setMood(next.prompt.mood)
@@ -938,6 +948,8 @@ export function MusicDock({
       setSelectedTrackId(next.tracks[0]?.id ?? null)
       setSelectedNote(firstNoteSelection(next.tracks[0]))
       setActiveBar(1)
+      setCollabBar(1)
+      setCollabWhole(false)
       setComposeInstruments(next.prompt.instruments)
       flushToTab(next, { savedPath: null })
       setStatus({
@@ -1677,11 +1689,15 @@ export function MusicDock({
               : null)
           : null),
         h(MusicCollabRow, {
+          bars: doc.bars,
           hostCollab: collabReady,
-          onRequestInChat: requestTrackInChat,
+          largePiece: collabLarge,
+          onScopeChange: changeCollabScope,
+          scope: collabScope,
           state: collab.state,
           superseded: collab.superseded,
           track: activeTrack,
+          trackCount: doc.tracks.length,
           trackName: activeTrack === null ? '' : trackDisplayName(activeTrack),
         }),
       /* Selected-track / selected-note inspector, directly under the AI card. */
@@ -1846,6 +1862,7 @@ export function MusicDock({
                   onChange: changeGroove,
                   onToggle: toggleDrum,
                   onVary: varyDrumBar,
+                  scopeBar: collabWhole ? null : collabScopeBar,
                   swing: doc.swing,
                   track: activeTrack,
                 })
@@ -1864,6 +1881,7 @@ export function MusicDock({
                   onZoomX: value => onMusicPrefs?.({ rollZoomX: value }),
                   onZoomY: value => onMusicPrefs?.({ rollZoomY: value }),
                   playhead,
+                  scopeBar: collabWhole ? null : collabScopeBar,
                   selectedIndex: selectedNote !== null && selectedNote.trackId === activeTrack.id ? selectedNote.index : null,
                   track: activeTrack,
                   zoomX: musicPrefs?.rollZoomX ?? 1,

@@ -241,6 +241,9 @@ export function upsertMusicCollab(payload) {
         bars: Array.isArray(selectedRaw.bars) && selectedRaw.bars.length === 2
           ? [clampInt(selectedRaw.bars[0], 1, doc.bars, 1), clampInt(selectedRaw.bars[1], 1, doc.bars, 1)]
           : null,
+        /* The page's scope: one bar or the whole piece. Older pages do not send it and mean
+           one bar, so a missing / unknown value stays 'bar'. */
+        scope: selectedRaw.scope === 'whole' ? 'whole' : 'bar',
       }
   const previous = collabs.get(session)
   const rev = clampInt(payload?.rev, 0, Number.MAX_SAFE_INTEGER, 0)

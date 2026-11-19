@@ -119,6 +119,18 @@ equal(whole.notes.length, 2, 'read without bars answers for the whole track')
 const focused = readMusicCollabTrack({ focus: true, session: 's-read', trackId: 'piano' })
 equal(focused.notes.length, 1, 'read with focus answers for the focused bar')
 
+/* The page's scope survives registration: whole piece keeps its mode; a missing scope means
+   one bar (older pages must not suddenly become whole-piece). */
+register('s-scope', 'tab-a', { selected: { bars: [1, 8], scope: 'whole', trackId: 'piano' } })
+equal(
+  readMusicCollabOverview({ session: 's-scope' }).selected,
+  { trackId: 'piano', bars: [1, 8], scope: 'whole' },
+  'whole-piece scope survives registration',
+)
+equal(readMusicCollabOverview({ session: 's-read' }).selected.scope, 'bar', 'a registration without scope means one bar')
+register('s-scope-unknown', 'tab-a', { selected: { bars: [1, 1], scope: 'everywhere', trackId: 'piano' } })
+equal(readMusicCollabOverview({ session: 's-scope-unknown' }).selected.scope, 'bar', 'an unknown scope falls back to one bar')
+
 const drumsDoc = { ...doc, bars: 16 }
 const drums = Object.fromEntries(MUSIC_DRUM_IDS.map(lane => [lane, Array.from({ length: 16 }, (_, bar) => (lane === 'kick' && bar === 0 ? { '0': 96 } : {}))]))
 rev += 1

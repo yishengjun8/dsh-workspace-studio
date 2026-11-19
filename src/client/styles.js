@@ -1356,6 +1356,27 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 [data-slot="sidebar.workspaces"] .dsh-ws-collection-rowicon:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary);opacity:1}
 [data-slot="sidebar.workspaces"] .dsh-ws-collection-rowicon:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px;opacity:1}
 .dsh-ws-frame[data-sidebar-collapsed] .dsh-ws-collection-rowicon{display:none}
+/* The one-click "join this collection" chip on a row the shown collection filters out (a workspace
+   added within the newcomer window, or the one on screen). It replaces the plain "not in this
+   collection" chip, because a pseudo-element cannot receive its own click. */
+[data-slot="sidebar.workspaces"] .dsh-ws-collection-join{flex:none;display:inline-flex;align-items:center;height:18px;margin-left:5px;margin-right:1px;padding:0 5px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-secondary);font:inherit;font-size:10px;line-height:16px;white-space:nowrap;cursor:pointer;transition:border-color .12s,background .12s,color .12s}
+[data-slot="sidebar.workspaces"] .dsh-ws-collection-join:hover{border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 55%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 9%,transparent)}
+[data-slot="sidebar.workspaces"] .dsh-ws-collection-join:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}
+[data-slot="sidebar.workspaces"] .dsh-ws-collection-join-state{color:var(--dsw-alias-label-tertiary)}
+[data-slot="sidebar.workspaces"] .dsh-ws-collection-join-sep{width:1px;height:9px;margin:0 5px;background:var(--dsw-alias-border-l2)}
+[data-slot="sidebar.workspaces"] .dsh-ws-collection-join-action{color:var(--dsw-alias-state-business-primary);font-weight:600}
+[data-slot="sidebar.workspaces"] .dsh-ws-collection-join[data-busy]{cursor:progress;border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 35%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 9%,transparent)}
+[data-slot="sidebar.workspaces"] .dsh-ws-collection-join[data-busy] .dsh-ws-collection-join-action{color:var(--dsw-alias-label-tertiary)}
+[data-slot="sidebar.workspaces"] .dsh-ws-collection-join[data-error]{border-color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 9%,transparent)}
+[data-slot="sidebar.workspaces"] .dsh-ws-collection-join[data-error] .dsh-ws-collection-join-state,[data-slot="sidebar.workspaces"] .dsh-ws-collection-join[data-error] .dsh-ws-collection-join-action{color:var(--dsw-alias-state-error-primary)}
+/* While the chip is there it owns the copy: retire the pseudo-element chip and the permanent
+   membership icon (its job — "pick a collection to join" — is exactly what the chip does, and its
+   26 px are better spent on the workspace title; right-click still opens the full menu). */
+[data-slot="sidebar.workspaces"] [data-row-key^="workspace:"]:has(> .dsh-ws-collection-join)::after{display:none}
+[data-slot="sidebar.workspaces"] [data-row-key^="workspace:"]:has(> .dsh-ws-collection-join) .dsh-ws-collection-rowicon{display:none}
+[data-slot="sidebar.workspaces"] [data-row-key^="workspace:"][data-join-flash]{animation:dsh-ws-collection-join-flash .66s ease-out}
+@keyframes dsh-ws-collection-join-flash{from{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 18%,transparent)}to{background:transparent}}
+@media (prefers-reduced-motion:reduce){[data-slot="sidebar.workspaces"] [data-row-key^="workspace:"][data-join-flash]{animation:none}}
 /* The empty-view message: the filter stylesheet sets only its content property, so this box only ever
    appears in a view that filtered everything away (an unset content generates no pseudo-element). */
 [data-slot="sidebar.workspaces"]::after{display:block;padding:10px 10px 4px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;pointer-events:none}
@@ -1425,7 +1446,13 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-music input[type=range]{-webkit-appearance:none;appearance:none;flex:1;min-width:36px;height:3px;margin:0;border-radius:2px;background:color-mix(in srgb,var(--dsw-alias-label-primary) 16%,transparent);outline:none;cursor:pointer}
 .dsh-ws-music input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:10px;height:10px;border:2px solid var(--dsw-alias-bg-layer-1);border-radius:50%;background:var(--dsw-alias-state-business-primary);box-shadow:0 0 0 1px color-mix(in srgb,var(--dsw-alias-state-business-primary) 65%,transparent)}
 .dsh-ws-music input[type=range]:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:4px}
-.dsh-ws-music-select{display:block;width:100%;height:26px;min-width:0;padding:0 22px 0 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:10.5px;line-height:1;text-overflow:ellipsis;white-space:nowrap;overflow:hidden;appearance:none;-webkit-appearance:none;cursor:pointer;box-sizing:border-box}
+.dsh-ws-music-select{display:block;width:100%;height:26px;min-width:0;padding:0 22px 0 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:10.5px;line-height:1;text-overflow:ellipsis;white-space:nowrap;overflow:hidden;appearance:none;-webkit-appearance:none;cursor:pointer;box-sizing:border-box;color-scheme:light}
+/* Native option rows: the popup is drawn by the OS, not by our tokens, and on a dark page it
+   defaults to a light list with the inherited white text (unreadable). Pin each row's own
+   background + text color and force the popup's color scheme from the app's dark marker. */
+.dsh-ws-music-select option{background-color:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary)}
+.dsh-ws-music-select option:disabled{color:var(--dsw-alias-label-caption)}
+body[data-ds-dark-theme] .dsh-ws-music-select{color-scheme:dark}
 .dsh-ws-music-select:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .dsh-ws-music-select-wrap{position:relative;min-width:0;width:100%;height:26px}
 .dsh-ws-music-select-caret{position:absolute;right:8px;top:50%;transform:translateY(-50%);pointer-events:none;color:var(--dsw-alias-label-caption);font-size:8px;line-height:1}
@@ -1445,8 +1472,13 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-music-collab-bar-summary{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}
 .dsh-ws-music-collab-bar-hint{flex:none;color:var(--dsw-alias-label-caption);font-size:9px}
 .dsh-ws-music-collab-body{display:flex;flex-direction:column;gap:6px;padding:8px}
-.dsh-ws-music-collab-current{margin:0;color:var(--dsw-alias-label-secondary);font-size:10.5px;line-height:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dsh-ws-music-collab-body .dsh-ws-music-mini-button{align-self:flex-start}
+/* Chat scope: one select decides what the next prompt carries (a bar or the whole piece). */
+.dsh-ws-music-collab-scope{display:flex;flex-direction:column;gap:4px;min-width:0}
+.dsh-ws-music-collab-scope-label{color:var(--dsw-alias-label-caption);font-size:9px;font-weight:600;letter-spacing:.05em}
+.dsh-ws-music-collab-scope .dsh-ws-music-select-wrap{width:100%}
+.dsh-ws-music-collab-badge{flex:none;padding:0 5px;border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent);color:var(--dsw-alias-state-business-primary);font-size:9px;line-height:15px;font-weight:600}
+.dsh-ws-music-collab-hint{margin:0;padding:6px 7px;border-radius:6px;background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 8%,transparent);color:var(--dsw-alias-label-secondary);font-size:10px;line-height:15px}
+.dsh-ws-music-collab-warn{margin:0;padding:6px 7px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary) 35%,transparent);border-radius:6px;background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 9%,transparent);color:var(--dsw-alias-label-secondary);font-size:10px;line-height:15px}
 .dsh-ws-music-scroll{flex:1;min-height:0;overflow:auto;padding:10px}
 .dsh-ws-music-scroll::-webkit-scrollbar,.dsh-ws-music-roll-scroll::-webkit-scrollbar,.dsh-ws-music-drum-scroll::-webkit-scrollbar{width:10px;height:10px}
 .dsh-ws-music-scroll::-webkit-scrollbar-thumb,.dsh-ws-music-roll-scroll::-webkit-scrollbar-thumb,.dsh-ws-music-drum-scroll::-webkit-scrollbar-thumb{background:var(--dsw-alias-scrollbar-bg-l2);background-clip:padding-box;border:3px solid transparent;border-radius:8px}
@@ -1793,6 +1825,10 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-music-roll-ruler{display:flex;height:19px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1)}.dsh-ws-music-roll-ruler::before{content:'';flex:none;width:33px;border-right:1px solid var(--dsw-alias-border-l2)}
 .dsh-ws-music-roll-ruler span{flex:1;border-left:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-caption);font-size:8.5px;line-height:18px;padding-left:4px;font-variant-numeric:tabular-nums}
 .dsh-ws-music-roll-ruler span:first-child{border-left:0}
+/* The chat-collaboration range: mark the bar the next prompt will target. No auto-scroll —
+   the highlight is the receipt, the user's viewport stays where it was. */
+.dsh-ws-music-roll-ruler span[data-scope]{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 16%,transparent);color:var(--dsw-alias-state-business-primary);font-weight:600;box-shadow:inset 0 -2px 0 var(--dsw-alias-state-business-primary)}
+.dsh-ws-music-bar-tab[data-scope]{box-shadow:inset 0 -2px 0 var(--dsw-alias-state-business-primary)}
 .dsh-ws-music-roll-body{display:flex;align-items:stretch}
 .dsh-ws-music-roll-keys{position:sticky;left:0;z-index:8;flex:none;align-self:stretch;width:33px;border-right:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);box-shadow:4px 0 8px color-mix(in srgb,var(--dsw-alias-bg-base) 78%,transparent)}
 .dsh-ws-music-roll-key{display:flex;align-items:center;justify-content:flex-end;width:100%;height:12px;padding:0 3px 0 0;border:0;border-radius:0;background:transparent;color:var(--dsw-alias-label-caption);font:inherit;font-size:7px;line-height:1;letter-spacing:.02em;text-align:right;cursor:pointer;box-sizing:border-box}

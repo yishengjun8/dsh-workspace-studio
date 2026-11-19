@@ -246,6 +246,10 @@ function parseMusicContext(text) {
   const headerEnd = body.indexOf('\n')
   const header = headerEnd < 0 ? body : body.slice(0, headerEnd)
   const titleMatch = /title="([^"]*)"/.exec(header)
+  const barsMatch = /bars="(\d+)"/.exec(header)
+  /* Whole-piece scope is an explicit line the workshop writes; old envelopes have none and
+     keep the one-bar reading below. */
+  const whole = /(?:^|\n)scope:\s*whole\b/.test(body)
   const selectedMatch = /selected:\s*([A-Za-z0-9_-]+)(?:\s+bar\s+(\d+))?/.exec(body)
   /* The `selected:` token is a TRACK id (`t-…` for hand-added tracks, the instrument name for
      composed ones); the chip wants the instrument, which the `tracks:` line already maps. */
@@ -259,9 +263,11 @@ function parseMusicContext(text) {
   const roleKey = instrument === '' ? '' : `music.role.${instrument}`
   const role = roleKey === '' ? '' : translate(roleKey)
   const bar = selectedMatch?.[2] ?? ''
-  const range = role === '' || role === roleKey
-    ? null
-    : (bar === '' ? role : `${role} · ${translate('music.collab.chipBar', { bar })}`)
+  const range = whole
+    ? translate('music.collab.chipWhole', { bars: barsMatch?.[1] ?? '' })
+    : role === '' || role === roleKey
+      ? null
+      : (bar === '' ? role : `${role} · ${translate('music.collab.chipBar', { bar })}`)
   return {
     path: 'music',
     fileName: translate('music.collab.chip'),

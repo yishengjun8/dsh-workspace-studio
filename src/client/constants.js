@@ -365,6 +365,11 @@ export const COLLECTION_ALL_ID = '__all__'
 export const COLLECTION_UNOWNED_ID = '__unowned__'
 export const COLLECTION_LIMIT = 50
 export const COLLECTION_NAME_MAX = 40
+/* How long a workspace added to the Harness stays visible while it is outside the collection being
+   shown: for this long after its `createdAt` the sidebar keeps its row (dashed, plus a one-click
+   "join this collection" chip) instead of filtering it away, because a row that disappears right
+   after "添加工作区…" reads as a broken feature. Past the window the row falls back to hidden. */
+export const COLLECTION_NEWCOMER_WINDOW_MS = 2 * 60 * 60 * 1000
 /* The harness's persisted workspace-browser view store (`dsh.workspace.view.v5`): its `groupBy`
    decides whether the collection dropdown and its filtering are active at all. Both the key and the
    field are a harness coupling point (dev-notes §47); an unreadable value falls back to the

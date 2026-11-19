@@ -20,7 +20,7 @@ const POLL_AFTER_PATCH_MS = 400
 const POLL_SLOW_MS = 4000
 /* Above this many notes the registration carries the selected track in full and the rest as
    summaries; editing a summarised track is refused rather than silently guessed. */
-const NOTES_BUDGET = 4096
+export const NOTES_BUDGET = 4096
 const ENVELOPE_MAX = 1400
 
 const escapeAttr = value => String(value ?? '').replace(/["<>&]/g, character => ({
@@ -30,21 +30,49 @@ const escapeAttr = value => String(value ?? '').replace(/["<>&]/g, character => 
   '&': '&amp;',
 })[character])
 
+/** The scope's bar, clamped to the piece. Whole-piece scope ignores it. */
+export function scopeBarOf(scope, bars) {
+  const bar = Math.round(Number(scope?.bar))
+  return Number.isFinite(bar) ? Math.min(Math.max(1, bar), bars) : 1
+}
+
+/** One line naming the piece's sections, for the whole-piece envelope. */
+function sectionLine(doc) {
+  const sections = Array.isArray(doc.sections) ? doc.sections : []
+  if (sections.length === 0) return ''
+  return sections
+    .slice(0, 12)
+    .map(section => `${section.name} ${section.from}-${section.to}`)
+    .join(' · ')
+}
+
 /**
  * The compact block the chat sees. Bounded on purpose: the notes stay behind music_read_track,
  * and a 24-track piece must not turn every prompt into a score dump.
+ *
+ * `scope` is `{ mode: 'bar' | 'whole', bar }`. Bar scope writes the one-bar `selected:` line
+ * the chip has always parsed; whole-piece scope adds a `scope:` line plus the section map and
+ * leaves `selected:` without a bar, so the model knows every track / every bar is addressable.
  */
-export function buildMusicChatEnvelope(doc, selectedTrack, focusBar) {
+export function buildMusicChatEnvelope(doc, selectedTrack, scope) {
   if (doc === null || doc === undefined || !Array.isArray(doc.tracks)) return ''
+  const whole = scope?.mode === 'whole'
+  const bar = scopeBarOf(scope, doc.bars)
   const head = `<music_piece title="${escapeAttr(doc.title)}" bars="${doc.bars}" bpm="${doc.bpm}" key="${doc.keyRoot} ${doc.keyMode}" style="${doc.prompt?.style ?? ''}" mood="${doc.prompt?.mood ?? ''}">`
   const lines = doc.tracks.map(track => (track.kind === 'drums'
     ? `${track.id}(${track.instrument}) drums ${doc.bars} bars x 6 lanes`
     : `${track.id}(${track.instrument}) ${track.notes.length} notes`))
   let trackLine = `tracks: ${lines.join(', ')}`
-  const tail = ['</music_piece>']
-  if (selectedTrack !== null && selectedTrack !== undefined) {
-    tail.unshift(`selected: ${selectedTrack.id}${Number.isFinite(focusBar) ? ` bar ${focusBar}` : ''}`)
+  const tail = []
+  if (whole) {
+    tail.push(`scope: whole · ${doc.bars} bars · ${doc.tracks.length} tracks · any track, any bars`)
+    const sections = sectionLine(doc)
+    if (sections !== '') tail.push(`sections: ${sections}`)
   }
+  if (selectedTrack !== null && selectedTrack !== undefined) {
+    tail.push(`selected: ${selectedTrack.id}${whole ? '' : ` bar ${bar}`}`)
+  }
+  tail.push('</music_piece>')
   /* Trim the track list, never the tags: a truncated block would not parse, and an unparsed
      envelope would leak into the bubble as raw XML. */
   const room = ENVELOPE_MAX - head.length - tail.join('\n').length - 32
@@ -53,7 +81,9 @@ export function buildMusicChatEnvelope(doc, selectedTrack, focusBar) {
 }
 
 /** The exact registration payload: the Host's tools see nothing else about the page. */
-export function buildRegistration({ doc, focusBar, selectedTrackId, session, tab }) {
+export function buildRegistration({ doc, scope, selectedTrackId, session, tab }) {
+  const whole = scope?.mode === 'whole'
+  const bar = scopeBarOf(scope, doc.bars)
   const totalNotes = doc.tracks.reduce((sum, track) => sum + (track.kind === 'drums' ? 0 : track.notes.length), 0)
   const fullAll = totalNotes <= NOTES_BUDGET
   const tracks = doc.tracks.map(track => {
@@ -92,7 +122,9 @@ export function buildRegistration({ doc, focusBar, selectedTrackId, session, tab
       seamless: doc.prompt?.seamless !== false,
       chordProgression: doc.chordProgression,
     },
-    selected: selectedTrackId === null ? null : { trackId: selectedTrackId, bars: [focusBar, focusBar] },
+    selected: selectedTrackId === null
+      ? null
+      : { trackId: selectedTrackId, bars: whole ? [1, doc.bars] : [bar, bar], scope: whole ? 'whole' : 'bar' },
     tracks,
   }
 }
@@ -101,8 +133,10 @@ export function buildRegistration({ doc, focusBar, selectedTrackId, session, tab
  * Keep one workshop tab registered for its session and apply whatever the chat asks for.
  * `onApply(patch)` must return `{ result, summary? }` — the panel decides how a patch lands
  * (one history step, conflict detection, validation) because only it owns the document.
+ * `scope` is the page's `{ mode, bar }`; it is a memoized value so effects keyed on it do not
+ * re-fire on every render.
  */
-export function useMusicCollab({ active, doc, focusBar, hostCollab, onApply, selectedTrackId, sessionId, tabId }) {
+export function useMusicCollab({ active, doc, hostCollab, onApply, scope, selectedTrackId, sessionId, tabId }) {
   const [notice, setNotice] = useState(null)
   const [state, setState] = useState('idle')
   /* True while another workshop tab of this session holds the Host slot. It is state, not only
@@ -115,8 +149,8 @@ export function useMusicCollab({ active, doc, focusBar, hostCollab, onApply, sel
   /* Registration must be able to go out from a callback — the heartbeat, a re-register after a
      Host restart, the page becoming visible again — so the live values are refs, not closure
      captures that would freeze at the render that created the callback. */
-  const focusBarRef = useRef(focusBar)
-  focusBarRef.current = focusBar
+  const scopeRef = useRef(scope)
+  scopeRef.current = scope
   const selectedRef = useRef(selectedTrackId)
   selectedRef.current = selectedTrackId
   /* True while another workshop tab of this session holds the Host slot: a poll loop must not
@@ -134,7 +168,7 @@ export function useMusicCollab({ active, doc, focusBar, hostCollab, onApply, sel
   const enabled = hostCollab === true && typeof sessionId === 'string' && sessionId !== ''
   const registrationOf = useCallback(() => buildRegistration({
     doc: docRef.current,
-    focusBar: focusBarRef.current,
+    scope: scopeRef.current,
     selectedTrackId: selectedRef.current,
     session: sessionId,
     tab: tabId,
@@ -157,7 +191,7 @@ export function useMusicCollab({ active, doc, focusBar, hostCollab, onApply, sel
     if (!enabled) return undefined
     const timer = window.setTimeout(() => { void publishRegistration() }, REGISTER_DEBOUNCE_MS)
     return () => window.clearTimeout(timer)
-  }, [enabled, doc, selectedTrackId, focusBar, publishRegistration])
+  }, [enabled, doc, selectedTrackId, scope, publishRegistration])
 
   /* Heartbeat so an idle tab does not age out of the Host's 30-minute window. The payload is
      built when the beat fires, so a selection made since the last one is already in it. A
@@ -265,8 +299,8 @@ export function useMusicCollab({ active, doc, focusBar, hostCollab, onApply, sel
   }, [enabled, sessionId, tabId, publishRegistration])
 
   /* Publish the Chat envelope. Clearing is reserved for teardown or collaboration turning off:
-     the store keeps the user's on/off choice per entry, so clearing on every score edit would
-     silently switch the pill back on. */
+     the store keeps the user's on/off choice per session (it is not part of the entry), so
+     neither a score edit nor a remount switches the pill back on. */
   useEffect(() => {
     if (!enabled) clearMusicChatContext(sessionId, tabId)
     return () => clearMusicChatContext(sessionId, tabId)
@@ -275,8 +309,8 @@ export function useMusicCollab({ active, doc, focusBar, hostCollab, onApply, sel
   useEffect(() => {
     if (!enabled || superseded) return undefined
     const selectedTrack = docRef.current.tracks.find(track => track.id === selectedTrackId) ?? null
-    setMusicChatContext(sessionId, tabId, buildMusicChatEnvelope(docRef.current, selectedTrack, focusBar))
-  }, [enabled, superseded, sessionId, tabId, doc, selectedTrackId, focusBar])
+    setMusicChatContext(sessionId, tabId, buildMusicChatEnvelope(docRef.current, selectedTrack, scope))
+  }, [enabled, superseded, sessionId, tabId, doc, selectedTrackId, scope])
 
   return {
     notice,
@@ -287,11 +321,15 @@ export function useMusicCollab({ active, doc, focusBar, hostCollab, onApply, sel
 }
 
 /** The collaboration row under the AI card: what the chat currently targets. */
-export function MusicCollabRow({ hostCollab, onRequestInChat, state, superseded, track, trackName }) {
+export function MusicCollabRow({ bars, hostCollab, largePiece, onScopeChange, scope, state, superseded, track, trackCount, trackName }) {
+  const whole = scope?.mode === 'whole'
+  const bar = scopeBarOf(scope, bars)
+  const hasTrack = track !== null && track !== undefined
   return h('section', { className: 'dsh-ws-music-card dsh-ws-music-collab' },
     h('div', { className: 'dsh-ws-music-card-head' },
       h('span', { 'aria-hidden': true, className: 'dsh-ws-music-card-mark' }, '⇄'),
-      h('span', { className: 'dsh-ws-music-card-title' }, translate('music.collab.title'))),
+      h('span', { className: 'dsh-ws-music-card-title' }, translate('music.collab.title')),
+      whole ? h('span', { className: 'dsh-ws-music-collab-badge' }, translate('music.collab.scopeWhole')) : null),
     h('div', { className: 'dsh-ws-music-collab-body' },
       hostCollab === false
         ? h('p', { className: 'dsh-ws-music-empty-note' }, translate('music.collab.hostOutdated'))
@@ -299,16 +337,31 @@ export function MusicCollabRow({ hostCollab, onRequestInChat, state, superseded,
       superseded === true
         ? h('p', { className: 'dsh-ws-music-empty-note' }, translate('music.collab.superseded'))
         : null,
-      track === null || track === undefined
-        ? h('p', { className: 'dsh-ws-music-empty-note' }, translate('music.collab.noTrack'))
-        : h('p', { className: 'dsh-ws-music-collab-current' }, translate('music.collab.currentTrack', { track: trackName })),
-      h('button', {
-        className: 'dsh-ws-music-mini-button',
-        disabled: track === null || track === undefined || hostCollab !== true,
-        onClick: () => onRequestInChat(track),
-        title: translate('music.collab.requestTitle'),
-        type: 'button',
-      }, translate('music.collab.request')),
+      /* The scope control is the single source of truth for what rides the next prompt: the
+         select value goes straight into the registration and the chat envelope. */
+      h('label', { className: 'dsh-ws-music-collab-scope' },
+        h('span', { className: 'dsh-ws-music-collab-scope-label' }, translate('music.collab.scope')),
+        h('div', { className: 'dsh-ws-music-select-wrap' },
+          h('select', {
+            'aria-label': translate('music.collab.scope'),
+            className: 'dsh-ws-music-select',
+            onChange: event => onScopeChange(event.target.value),
+            value: whole ? 'whole' : String(bar),
+          },
+          h('option', { key: 'whole', value: 'whole' }, translate('music.collab.scopeWholeOption', { bars: String(bars), tracks: String(trackCount) })),
+          /* A disabled option is the group heading. It stays inside the same native popup and
+             inherits the explicit option colors (an <optgroup> label follows the OS popup
+             background and can vanish in dark mode). */
+          h('option', { disabled: true, key: 'bars-label', value: '' }, translate('music.collab.barGroup')),
+          Array.from({ length: bars }, (_, index) => index + 1).map(value => h('option', {
+            key: value,
+            value: String(value),
+          }, translate('music.collab.barOption', { bar: String(value) })))),
+          h('span', { 'aria-hidden': true, className: 'dsh-ws-music-select-caret' }, '▾'))),
+      whole ? h('p', { className: 'dsh-ws-music-collab-hint' }, translate('music.collab.wholeHint')) : null,
+      whole && hasTrack && largePiece === true
+        ? h('p', { className: 'dsh-ws-music-collab-warn' }, translate('music.collab.wholeLarge', { track: trackName }))
+        : null,
       state === 'error' ? h('p', { className: 'dsh-ws-music-empty-note' }, translate('music.collab.error')) : null))
 }
 

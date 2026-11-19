@@ -63,6 +63,7 @@ export function PianoRoll({
   onZoomX,
   onZoomY,
   playhead,
+  scopeBar = null,
   selectedIndex,
   track,
   zoomX = 1,
@@ -310,7 +311,10 @@ export function PianoRoll({
           className: 'dsh-ws-music-roll-grid',
           style: { '--dsh-ws-music-rows': String(rows), minWidth: 0, width: `${gridMinWidth}px` },
         },
-          h('div', { className: 'dsh-ws-music-roll-ruler' }, barLabels.map(bar => h('span', { key: bar }, String(bar)))),
+          h('div', { className: 'dsh-ws-music-roll-ruler' }, barLabels.map(bar => h('span', {
+            'data-scope': scopeBar === bar || undefined,
+            key: bar,
+          }, String(bar)))),
           h('div', { className: 'dsh-ws-music-roll-body' },
             h('div', { className: 'dsh-ws-music-roll-keys' }, Array.from({ length: rows }, (_, index) => {
               const midi = high - index

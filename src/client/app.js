@@ -12,6 +12,7 @@ import { createExplorerPaneStore, createExplorerSettingsStore, createLayoutStore
 import { installChatModelService } from './chat-model.js'
 import { currentSessionOf, EditorContextController, openHarnessSession, PromptContextBridge, recentWorkspaceIdOf, selectWorkspaceForSession, workspaceOfSession } from './controllers.js'
 import { EditorContextPrefix, MusicContextPrefix, installEditorContextMessageCompactor } from './context-bridge.js'
+import { retainMusicChatContext } from './music-context.js'
 /* The session-row context menu is a fixed 3 items + separator; clamp its top edge
    against its real height so the last item stays reachable. */
 const SESSION_CONTEXT_MENU_HEIGHT = 140
@@ -236,17 +237,47 @@ export function AppFrame(props) {
     iconMember: translate('collections.icon.member'),
     emptyUnowned: translate('collections.empty.unowned'),
     emptyCollection: translate('collections.empty.collection'),
+    /* The one-click "join this collection" chip on a row the shown collection filters out. */
+    joinState: translate('collections.join.state'),
+    joinAction: translate('collections.join.action'),
+    joinBusy: translate('collections.join.busy'),
+    joinRetry: translate('collections.join.retry'),
+    joinFailed: translate('collections.join.failed'),
+    joinTitle: name => translate('collections.join.title', { name }),
   }), [localeRevision])
-  useCollectionsFilter({
+  const collectionsPlan = useCollectionsFilter({
     currentWorkspaceId: workspaceId,
     doc: collectionsDoc,
     labels: collectionLabels,
     paused: !collectionsActive,
     workspaces,
   })
+  /* One click on a row's join chip: append this workspace to the collection on screen. The LIVE
+     store is read here, not the render copy: a click can follow another patch (a rename, a delete)
+     whose merged answer this render never saw, and the Host merges patches, so the message must
+     carry the full member list. */
+  const joinCollection = useCallback(async (targetWorkspaceId) => {
+    const liveDoc = collectionsStore.getSnapshot().doc
+    const collection = collectionById(liveDoc, liveDoc?.selectedId)
+    if (collection === undefined) return { ok: false }
+    const id = String(targetWorkspaceId)
+    if (collection.workspaceIds.includes(id)) return { ok: true, doc: liveDoc }
+    const result = await applyCollectionsPatch({
+      upsert: [{ id: collection.id, name: collection.name, workspaceIds: [...collection.workspaceIds, id] }],
+    })
+    if (result?.ok === true) showSessionNotice(translate('collections.join.added', { name: collection.name }))
+    else showSessionNotice(translate('collections.join.error'), true)
+    return result
+  }, [showSessionNotice])
   /* The icon's tooltips need the same document/membership the filter uses, so both hooks share one
-     localized copy object (a fresh object per render would re-apply the icons every time). */
-  const workspaceCollectionMenu = useWorkspaceCollectionMenu({ doc: collectionsDoc, labels: collectionLabels })
+     localized copy object (a fresh object per render would re-apply the icons every time). The join
+     chip rides the same injection channel (see useWorkspaceCollectionMenu). */
+  const workspaceCollectionMenu = useWorkspaceCollectionMenu({
+    doc: collectionsDoc,
+    joinIds: collectionsPlan.joinIds,
+    labels: collectionLabels,
+    onJoin: joinCollection,
+  })
   const patchCollections = useCallback(patch => applyCollectionsPatch(patch), [])
   const switchCollection = useCallback(async (id) => {
     /* A click on the view already on screen is a no-op for state: it must not rewrite the same
@@ -333,6 +364,9 @@ export function AppFrame(props) {
   useEffect(() => {
     const liveSessionIds = sessionIds.map(String)
     props.retainEditorSessions(liveSessionIds)
+    /* The workshop pill's off choice outlives its envelope: a session switch remounts the whole
+       preview area, so the choice must be pruned by liveness, never by remount. */
+    retainMusicChatContext(liveSessionIds)
   }, [props.retainEditorSessions, sessionIds])
   useLayoutEffect(() => {
     if (!detailsCapable) props.actions.closeDetails()

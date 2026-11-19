@@ -14,7 +14,7 @@ const LANE_LABEL_KEYS = {
   perc: 'music.drum.perc',
 }
 
-export function DrumMachine({ activeBar, bars, humanize, onActiveBar, onChange, onToggle, onVary, swing, track }) {
+export function DrumMachine({ activeBar, bars, humanize, onActiveBar, onChange, onToggle, onVary, scopeBar = null, swing, track }) {
   const paintRef = useRef(null)
   const barIndex = Math.max(0, Math.min(bars - 1, activeBar - 1))
   const stepsOf = lane => track.drums?.[lane]?.[barIndex] ?? {}
@@ -40,6 +40,7 @@ export function DrumMachine({ activeBar, bars, humanize, onActiveBar, onChange, 
           'aria-selected': activeBar === index + 1,
           className: 'dsh-ws-music-bar-tab',
           'data-active': activeBar === index + 1 || undefined,
+          'data-scope': scopeBar === index + 1 || undefined,
           key: index,
           onClick: () => onActiveBar(index + 1),
           role: 'tab',

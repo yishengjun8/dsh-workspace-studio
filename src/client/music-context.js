@@ -7,8 +7,14 @@
  * switched off with one click.
  *
  * Module memory on purpose: an envelope describes a live page, so it must not outlive a reload.
+ *
+ * The pill's on/off choice outlives the entry: switching sessions remounts the whole preview
+ * area (the explorer's React key is the preview session id), so the workshop tab is torn down
+ * and its envelope re-published. A choice kept only in the entry would silently switch back on.
+ * Same per-session flag and live-session pruning as the editor context row.
  */
 const entries = new Map()
+const disabled = new Set()
 const listeners = new Set()
 
 export const MUSIC_PIECE_PREFIX = '<music_piece'
@@ -29,8 +35,9 @@ export function setMusicChatContext(sessionId, owner, envelope) {
     return
   }
   const previous = entries.get(sessionId)
-  /* The user's on/off choice is theirs: a re-publish (every score edit does one) keeps it. */
-  const active = previous === undefined ? true : previous.active
+  /* The user's on/off choice is theirs: a re-publish (every score edit does one, and a remount
+     does a fresh one) keeps it. */
+  const active = !disabled.has(sessionId)
   if (previous !== undefined && previous.envelope === envelope && previous.owner === owner && previous.active === active) return
   entries.set(sessionId, { owner, envelope, active, snapshot: snapshotOf(envelope, active) })
   emit()
@@ -48,11 +55,20 @@ export function clearMusicChatContext(sessionId, owner) {
 
 /** The dock pill's click: carry the score on the next prompt, or leave it out. */
 export function toggleMusicChatContext(sessionId) {
+  if (typeof sessionId !== 'string' || sessionId === '') return
   const entry = entries.get(sessionId)
   if (entry === undefined) return
   const active = entry.active !== true
+  if (active) disabled.delete(sessionId)
+  else disabled.add(sessionId)
   entries.set(sessionId, { ...entry, active, snapshot: snapshotOf(entry.envelope, active) })
   emit()
+}
+
+/** Forget the choice of sessions that no longer exist (mirrors EditorContextController.retain). */
+export function retainMusicChatContext(sessionIds) {
+  const live = new Set(sessionIds)
+  for (const sessionId of disabled) if (!live.has(sessionId)) disabled.delete(sessionId)
 }
 
 /** The envelope the next prompt should carry, or null when the row is switched off / absent. */

@@ -9,7 +9,7 @@
  * The Host owns the durable copy (collections/collections.json); this store is a render tail over
  * it and never persists anything itself.
  */
-import { COLLECTION_ALL_ID, COLLECTION_LIMIT, COLLECTION_NAME_MAX, COLLECTION_UNOWNED_ID, WORKSPACE_GROUP_BY_DEFAULT, WORKSPACE_VIEW_STORE_KEY } from './constants.js'
+import { COLLECTION_ALL_ID, COLLECTION_LIMIT, COLLECTION_NAME_MAX, COLLECTION_NEWCOMER_WINDOW_MS, COLLECTION_UNOWNED_ID, WORKSPACE_GROUP_BY_DEFAULT, WORKSPACE_VIEW_STORE_KEY } from './constants.js'
 
 /** The Harness sidebar region this feature paints into (see dev-notes §47). */
 const REGION = '[data-slot="sidebar.workspaces"]'
@@ -169,6 +169,29 @@ function visibleWorkspace(doc, collectionId, workspaceId) {
 export function collectionsOfWorkspace(doc, workspaceId) {
   const id = String(workspaceId)
   return (doc?.collections ?? []).filter(collection => collection.workspaceIds.includes(id))
+}
+
+/**
+ * Whether a workspace counts as "just added" for the sidebar.
+ *
+ * A workspace that appeared a moment ago cannot be a member of the collection the user is looking
+ * at unless they put it there by hand, so its row stays visible (dashed, with the one-click join
+ * chip) instead of being filtered away while the user is still working in it. `createdAt` is the
+ * Harness registry's ISO timestamp; an unparsable value is NOT a newcomer, so such a row keeps the
+ * pre-existing behaviour (filtered away) instead of showing up forever.
+ *
+ * @param workspace - Harness workspace item (`workspaceId`, `createdAt`).
+ * @param now - current epoch ms (injected, so the rule stays pure and testable).
+ * @param windowMs - how long "just added" lasts (COLLECTION_NEWCOMER_WINDOW_MS).
+ */
+function isNewcomerWorkspace(workspace, now, windowMs) {
+  const raw = workspace?.createdAt
+  const created = typeof raw === 'number' ? raw : typeof raw === 'string' ? Date.parse(raw) : NaN
+  if (!Number.isFinite(created)) return false
+  const age = now - created
+  /* Both ends are bounded: a Host clock a little ahead of the page must not hide a fresh row, and a
+     wild future timestamp must not keep one around forever. */
+  return age <= windowMs && age >= -windowMs
 }
 
 /**
@@ -421,39 +444,58 @@ function inRegion(suffix) {
  * @param input.currentWorkspaceId - the viewed session's workspace; outside the shown view its group
  *   stays visible, dashed, instead of disappearing under the user.
  * @param input.paused - true while the grouping mode is not "按工作区" (no rules at all).
- * @returns `{ css, chips, empty }`, `chips` being `{ workspaceId, kind: 'outside' | 'count', names? }`
- *   and `empty` naming the empty-state copy to show (`'unowned' | 'collection'`) or undefined.
+ * @param input.now - epoch ms, injectable for tests (default: Date.now()).
+ * @param input.newcomerWindowMs - "just added" window, injectable for tests.
+ * @returns `{ css, chips, empty, joinIds }`, `chips` being
+ *   `{ workspaceId, kind: 'outside' | 'count', names?, join? }`, `joinIds` the set of rows that get
+ *   the one-click "join this collection" button (user collections only), and `empty` naming the
+ *   empty-state copy to show (`'unowned' | 'collection'`) or undefined.
  */
-export function collectionFilterPlan({ doc, workspaces, labels, currentId, currentWorkspaceId, paused }) {
-  if (paused) return { css: '', chips: [], empty: undefined }
+export function collectionFilterPlan({ doc, workspaces, labels, currentId, currentWorkspaceId, paused, now, newcomerWindowMs }) {
+  if (paused) return { css: '', chips: [], empty: undefined, joinIds: new Set() }
   const selected = currentId ?? doc?.selectedId ?? COLLECTION_ALL_ID
   const current = String(currentWorkspaceId ?? '')
   /* "All workspaces" is the only view that filters nothing; both the unowned view and every user
      collection do filter, and one predicate covers all three cases (see visibleWorkspace). */
   const filters = selected !== COLLECTION_ALL_ID
+  /* Only a USER collection can be joined: the two built-in views are not collections, so a row kept
+     visible under them keeps the plain pseudo-element chip and gets no button. */
+  const joinable = !isBuiltinCollection(selected)
+  const stamp = Number.isFinite(now) ? now : Date.now()
+  const windowMs = Number.isFinite(newcomerWindowMs) ? newcomerWindowMs : COLLECTION_NEWCOMER_WINDOW_MS
   const rules = []
   const chips = []
+  const joinIds = new Set()
+  const keptIds = new Set()
   let visibleCount = 0
   for (const workspace of workspaces ?? []) {
     const workspaceId = String(workspace?.workspaceId ?? '')
     if (workspaceId === '') continue
     const visible = visibleWorkspace(doc, selected, workspaceId)
-    if (visible) visibleCount += 1
-    if (!visible) {
-      if (workspaceId !== current) {
-        rules.push(`${inRegion(`*:has(> [data-row-key="workspace:${escapeAttribute(workspaceId)}"])`)}{display:none}`)
-      } else {
-        chips.push({ workspaceId, kind: 'outside' })
+    if (visible) {
+      visibleCount += 1
+      if (isBuiltinCollection(selected)) {
+        /* No chip under a built-in view: the permanent row icon both shows "in no collection" and is
+           where it is edited. */
+        continue
       }
+      const others = collectionsOfWorkspace(doc, workspaceId).filter(collection => collection.id !== selected)
+      if (others.length > 0) chips.push({ workspaceId, kind: 'count', names: others.map(collection => collection.name) })
       continue
     }
-    if (isBuiltinCollection(selected)) {
-      /* No chip under a built-in view: the permanent row icon both shows "in no collection" and is
-         where it is edited. */
+    /* Two rows survive the filter: the workspace on screen (hiding the row of the session the user is
+       reading is never right) and one added within the newcomer window (a row that vanishes right
+       after "添加工作区…" reads as a broken feature). */
+    const kept = workspaceId === current || (joinable && isNewcomerWorkspace(workspace, stamp, windowMs))
+    if (!kept) {
+      rules.push(`${inRegion(`*:has(> [data-row-key="workspace:${escapeAttribute(workspaceId)}"])`)}{display:none}`)
       continue
     }
-    const others = collectionsOfWorkspace(doc, workspaceId).filter(collection => collection.id !== selected)
-    if (others.length > 0) chips.push({ workspaceId, kind: 'count', names: others.map(collection => collection.name) })
+    /* A kept row is on screen, so it also keeps the empty-view copy away. */
+    visibleCount += 1
+    keptIds.add(workspaceId)
+    chips.push({ workspaceId, kind: 'outside', join: joinable })
+    if (joinable) joinIds.add(workspaceId)
   }
   /* The ungrouped bucket is not a workspace, so it belongs to the built-in "all workspaces" view only. */
   if (filters) rules.push(`${inRegion('*:has(> [data-row-key="workspace:"])')}{display:none}`)
@@ -463,9 +505,9 @@ export function collectionFilterPlan({ doc, workspaces, labels, currentId, curre
     for (const workspace of workspaces ?? []) {
       const workspaceId = String(workspace?.workspaceId ?? '')
       if (visibleWorkspace(doc, selected, workspaceId)) continue
-      /* The viewed session's own workspace is kept visible (see the "outside" chip above), so its
-         rows must stay visible too — hiding the row of the session on screen is never right. */
-      if (workspaceId === current) continue
+      /* Every kept group keeps its session rows too: an expanded header with nothing under it is
+         a half-hidden row, not a filter. */
+      if (keptIds.has(workspaceId)) continue
       for (const sessionId of workspace.sessionIds ?? []) hidden.push(String(sessionId))
     }
     if (hidden.length <= HIDDEN_SESSION_RULE_MAX) {
@@ -485,13 +527,19 @@ export function collectionFilterPlan({ doc, workspaces, labels, currentId, curre
   }
   for (const chip of chips) {
     const selector = inRegion(`[data-row-key="workspace:${escapeAttribute(chip.workspaceId)}"]`)
-    const content = chip.kind === 'outside'
-      ? JSON.stringify((selected === COLLECTION_UNOWNED_ID ? labels?.outsideView : labels?.outside) ?? '')
-      : JSON.stringify(`+${chip.names.length}`)
     const outline = chip.kind === 'outside'
       ? `${selector}{outline:1px dashed var(--dsw-alias-state-business-primary);outline-offset:-2px}`
       : ''
+    /* The join button carries the message itself; a pseudo-element cannot receive its click, so it
+       must not stand in for the button (styles.js also retires it while the button is present). */
+    if (chip.kind === 'outside' && chip.join === true) {
+      rules.push(outline)
+      continue
+    }
+    const content = chip.kind === 'outside'
+      ? JSON.stringify((selected === COLLECTION_UNOWNED_ID ? labels?.outsideView : labels?.outside) ?? '')
+      : JSON.stringify(`+${chip.names.length}`)
     rules.push(`${outline}${selector}::after{content:${content}}`)
   }
-  return { css: rules.join('\n'), chips, empty }
+  return { css: rules.join('\n'), chips, empty, joinIds }
 }
