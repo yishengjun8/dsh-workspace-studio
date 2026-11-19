@@ -166,41 +166,9 @@ export function toggleDrumStep(drums, lane, barIndex, step, velocity) {
   }
 }
 
-/* The bar-level "give me a variation" action: keeps the kick/snare spine and re-rolls the
-   colour lanes (hat / open / clap / perc), adding a small fill on the last bar. Local and
-   instant — the panel treats it as an ordinary edit, so it saves with the score. */
-export function varyDrums(drums, bars, barIndex, density = 0.55, random = Math.random) {
-  const next = { ...drums }
-  const hatSteps = []
-  for (let step = 0; step < MUSIC_STEPS_PER_BAR; step += 1) {
-    if (random() < 0.45 + density * 0.35) hatSteps.push(step)
-  }
-  next.hat = next.hat.map((steps, index) => {
-    if (index !== barIndex) return steps
-    const result = {}
-    for (const step of hatSteps) result[String(step)] = Math.round(58 + random() * 50)
-    return result
-  })
-  for (const lane of ['open', 'clap', 'perc']) {
-    next[lane] = next[lane].map((steps, index) => {
-      if (index !== barIndex) return steps
-      const result = {}
-      for (let step = 0; step < MUSIC_STEPS_PER_BAR; step += 1) {
-        if (random() < (lane === 'perc' ? 0.16 : 0.08)) result[String(step)] = Math.round(60 + random() * 50)
-      }
-      return result
-    })
-  }
-  if (barIndex === bars - 1) {
-    next.snare = next.snare.map((steps, index) => {
-      if (index !== barIndex) return steps
-      const result = { ...steps }
-      for (const step of [13, 14, 15]) if (random() < 0.75) result[String(step)] = Math.round(84 + random() * 30)
-      return result
-    })
-  }
-  return next
-}
+/* The bar-level “give me a variation” action lives in the shared edit module now: the chat tool's drumVary op and the panel's own button must run one algorithm.
+   Re-exported here so the panel keeps importing it from its usual place. */
+export { varyDrums } from '../../../shared/music-edit.js'
 
 export function noteTitle(note) {
   return `${midiName(note.midi)} · 小节 ${note.bar}`

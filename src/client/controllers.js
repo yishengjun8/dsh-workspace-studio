@@ -4,7 +4,8 @@ import { translate } from './locale/index.js'
 import { formatBytes } from './format.js'
 import { renderContext } from './api.js'
 import { wrapPromptClaim, wrapPromptClaimOutcome } from './command-context.js'
-import { clearEditorContextDisplays, describeEditorContext, rememberEditorContextDisplay } from './context-bridge.js'
+import { clearEditorContextDisplays, describeEditorContext, describeMusicContext, rememberEditorContextDisplay } from './context-bridge.js'
+import { musicChatEnvelope } from './music-context.js'
 import { cleanedSessionTitle, installTitleGuard } from './title-guard.js'
 
 const EMPTY_EDITOR_CONTEXT_VIEW = Object.freeze({ present: false, active: false })
@@ -334,13 +335,28 @@ export class PromptContextBridge {
     }
     return this.enqueue(sessionId, async (signal) => {
       if (signal.aborted || this.conversation === undefined || this.originalSendSession === undefined) throw new Error(translate('context.canceled'))
-      if (context === undefined) {
+      /* The music workshop's envelope rides the same message: it is what tells the model a
+         workshop is open, which track is selected, and that the music tools may be used. */
+      const music = musicChatEnvelope(sessionId)
+      if (context === undefined && music === null) {
         if (text === '' && imageIds.length === 0) return
         return this.originalSendSession.call(this.conversation, session, text, imageIds, mode)
       }
-      const rendered = await this.renderEnvelope(sessionId, context, signal)
-      const combined = text === '' ? rendered : `${rendered}\n\n${text}`
-      const display = describeEditorContext(context, rendered)
+      const rendered = context === undefined ? '' : await this.renderEnvelope(sessionId, context, signal)
+      const parts = []
+      if (rendered !== '') parts.push(rendered)
+      if (music !== null) parts.push(music)
+      if (text !== '') parts.push(text)
+      const combined = parts.join('\n\n')
+      const display = context === undefined
+        ? (describeMusicContext(music) ?? {
+          path: 'music',
+          fileName: translate('music.collab.chip'),
+          range: null,
+          title: translate('music.collab.chip'),
+          raw: music,
+        })
+        : describeEditorContext(context, rendered)
       /* The handle lets a failed send discard exactly this entry, since
          popping by text key could remove a different concurrent send's entry. */
       const displayHandle = rememberEditorContextDisplay(combined, display)
@@ -611,15 +627,28 @@ export class PromptContextBridge {
       this.notify(id, error)
       throw error
     }
-    /* No context attached (or one that cannot be snapshotted): the command runs
-       exactly as the harness would have submitted it. */
-    if (context === undefined) return claim.submit(args, actx, attachments)
+    /* The music envelope follows the same rule: with neither context nor a workshop the
+       command runs exactly as the harness would have submitted it. */
+    const music = musicChatEnvelope(id)
+    if (context === undefined && music === null) return claim.submit(args, actx, attachments)
     const prompt = args.trim()
     return this.enqueue(id, async (signal) => {
       if (signal.aborted) throw new Error(translate('context.canceled'))
-      const rendered = await this.renderEnvelope(id, context, signal)
-      const combined = `${rendered}\n\n${prompt}`
-      const display = describeEditorContext(context, rendered)
+      const rendered = context === undefined ? '' : await this.renderEnvelope(id, context, signal)
+      const parts = []
+      if (rendered !== '') parts.push(rendered)
+      if (music !== null) parts.push(music)
+      if (prompt !== '') parts.push(prompt)
+      const combined = parts.join('\n\n')
+      const display = context === undefined
+        ? (describeMusicContext(music) ?? {
+          path: 'music',
+          fileName: translate('music.collab.chip'),
+          range: null,
+          title: translate('music.collab.chip'),
+          raw: music,
+        })
+        : describeEditorContext(context, rendered)
       const displayHandle = rememberEditorContextDisplay(combined, display)
       this.cleanedTitles.set(id, cleanedSessionTitle({
         remainder: prompt,

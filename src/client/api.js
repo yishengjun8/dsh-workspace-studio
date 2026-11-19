@@ -66,6 +66,9 @@ const ROUTES = Object.freeze({
   musicSampleFile: { path: '/music/samples/file', failure: { code: 'music-sample-failed', key: 'error.music.samples-failed' } },
   musicCache: { path: '/music/cache', failure: { code: 'music-cache-failed', key: 'error.music.cache-failed' }, invalid: 'error.invalid-response.music-cache' },
   musicCacheItem: { path: '/music/cache/item', failure: { code: 'music-cache-failed', key: 'error.music.cache-failed' }, invalid: 'error.invalid-response.music-cache' },
+  musicCollab: { path: '/music/collab', failure: { code: 'music-collab-failed', key: 'error.music.collab-failed' } },
+  musicCollabPatch: { path: '/music/collab/patch', failure: { code: 'music-collab-failed', key: 'error.music.collab-failed' } },
+  musicCollabAck: { path: '/music/collab/patch/ack', failure: { code: 'music-collab-failed', key: 'error.music.collab-failed' } },
 })
 
 const DEFAULT_FAILURE = Object.freeze({ code: 'request-failed', key: 'error.request-failed' })
@@ -440,6 +443,37 @@ export const saveMusicCacheRequest = (session, entry, signal) => request(ROUTES.
   signal,
   decode: (value) => (value !== null && typeof value === 'object' && value.entry !== null && typeof value.entry === 'object' ? value : undefined),
 })
+/* ---- music workshop chat collaboration (session-keyed, never workspace files) ---- */
+
+/** Register or refresh this workshop tab so the session's chat tools can reach it. */
+export const registerMusicCollabRequest = (payload, signal) => request(ROUTES.musicCollab, {
+  method: 'POST',
+  body: payload,
+  timeoutMs: 10_000,
+  signal,
+})
+/** Drop the registration when the tab closes. */
+export const dropMusicCollabRequest = (session, tab, signal) => request(ROUTES.musicCollab, {
+  method: 'DELETE',
+  query: { session, tab },
+  timeoutMs: 10_000,
+  signal,
+})
+/** Poll the one pending patch; callers treat a null patch as "nothing to do". */
+export const musicCollabPatchRequest = (session, tab, signal) => request(ROUTES.musicCollabPatch, {
+  query: { session, tab },
+  timeoutMs: 10_000,
+  signal,
+})
+/** Report what the page did with a patch. */
+export const ackMusicCollabPatchRequest = (payload, session, tab, signal) => request(ROUTES.musicCollabAck, {
+  method: 'POST',
+  body: payload,
+  query: { session, tab },
+  timeoutMs: 10_000,
+  signal,
+})
+
 export const deleteMusicCacheRequest = (session, id, signal) => request(ROUTES.musicCacheItem, {
   method: 'DELETE',
   query: { id, session },

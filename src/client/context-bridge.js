@@ -1,5 +1,6 @@
-import { createElement as h, useRef, useState, useEffect, useLayoutEffect } from 'react'
+import { createElement as h, useRef, useState, useEffect, useLayoutEffect, useSyncExternalStore } from 'react'
 import { translate } from './locale/index.js'
+import { musicContextSnapshot, subscribeMusicContext, toggleMusicChatContext } from './music-context.js'
 
 export function EditorContextPrefix({ useEditorContext, useSessions, toggle, ensureSession, sessionId }) {
   const rowRef = useRef(null)
@@ -43,6 +44,33 @@ export function EditorContextPrefix({ useEditorContext, useSessions, toggle, ens
     h('span', { className: 'dsh-ws-context-prefix-label' }, label)))
 }
 
+/* The workshop's pill in the same input dock, with the same seat, shape and on/off gesture as
+   the editor context row: the score is already what the model reads, so it has to be visible
+   before sending — and one click has to take it off the next prompt. */
+export function MusicContextPrefix({ sessionId }) {
+  const id = String(sessionId)
+  const snapshot = useSyncExternalStore(subscribeMusicContext, () => musicContextSnapshot(id))
+  if (snapshot.present !== true) return null
+  const display = describeMusicContext(snapshot.envelope)
+  if (display === null) return null
+  const label = display.range === null ? display.fileName : `${display.fileName} · ${display.range}`
+  const active = snapshot.active === true
+  const title = active
+    ? translate('music.context.active', { label })
+    : translate('music.context.inactive', { label })
+  return h('div', { className: 'dsh-ws-context-row' },
+    h('button', {
+      'aria-label': title,
+      'aria-pressed': active,
+      className: 'dsh-ws-context-prefix',
+      'data-inactive': !active || undefined,
+      onClick: () => toggleMusicChatContext(id),
+      title,
+      type: 'button',
+    }, h('span', { 'aria-hidden': true, className: 'dsh-ws-context-prefix-mark' }, active ? '♪' : '○'),
+    h('span', { className: 'dsh-ws-context-prefix-label' }, label)))
+}
+
 const OPENED_FILE_PREFIX = '<opened_file>The user opened the file '
 const OPENED_FILE_SUFFIX = ' in the IDE. This may or may not be related to the current task.</opened_file>'
 const SELECTION_PREFIX = '<selection>The user selected the lines '
@@ -51,10 +79,15 @@ const SELECTION_PREFIX = '<selection>The user selected the lines '
    end mid-sentence ("<selection>The user selected the lines") and must still match. */
 const TITLE_OPENED_FILE_PREFIX = '<opened_file>The user opened the file'
 const TITLE_SELECTION_PREFIX = '<selection>The user selected the lines'
+/* The music workshop's envelope: a compact block describing the open score, so the chat model
+   knows a workshop exists and which track is selected. It is folded into the same one-line chip. */
+const MUSIC_PREFIX = '<music_piece'
+const MUSIC_CLOSE = '</music_piece>'
+const TITLE_MUSIC_PREFIX = '<music_piece'
 
 export function isEditorContextEnvelopeTitle(title) {
   return typeof title === 'string'
-    && (title.startsWith(TITLE_OPENED_FILE_PREFIX) || title.startsWith(TITLE_SELECTION_PREFIX))
+    && (title.startsWith(TITLE_OPENED_FILE_PREFIX) || title.startsWith(TITLE_SELECTION_PREFIX) || title.startsWith(TITLE_MUSIC_PREFIX))
 }
 const SELECTION_TRAILER = 'This may or may not be related to the current task.'
 const SELECTION_CLOSE = '</selection>'
@@ -202,8 +235,50 @@ function parseSelectionContext(text) {
   }
 }
 
+/* The workshop's own envelope. Its display shape matches the file envelopes so the chip row,
+   the text-node rewrite and the pending-message map all take it without a second code path. */
+function parseMusicContext(text) {
+  if (!text.startsWith(MUSIC_PREFIX)) return null
+  const closeAt = text.indexOf(MUSIC_CLOSE, MUSIC_PREFIX.length)
+  if (closeAt < 0) return null
+  const end = closeAt + MUSIC_CLOSE.length
+  const body = text.slice(0, end)
+  const headerEnd = body.indexOf('\n')
+  const header = headerEnd < 0 ? body : body.slice(0, headerEnd)
+  const titleMatch = /title="([^"]*)"/.exec(header)
+  const selectedMatch = /selected:\s*([A-Za-z0-9_-]+)(?:\s+bar\s+(\d+))?/.exec(body)
+  /* The `selected:` token is a TRACK id (`t-…` for hand-added tracks, the instrument name for
+     composed ones); the chip wants the instrument, which the `tracks:` line already maps. */
+  let instrument = selectedMatch?.[1] ?? ''
+  if (selectedMatch !== null) {
+    const tracksLine = /^tracks: (.*)$/m.exec(body)?.[1] ?? ''
+    for (const entry of tracksLine.matchAll(/([^\s,()]+)\(([^)]*)\)/g)) {
+      if (entry[1] === selectedMatch[1]) instrument = entry[2]
+    }
+  }
+  const roleKey = instrument === '' ? '' : `music.role.${instrument}`
+  const role = roleKey === '' ? '' : translate(roleKey)
+  const bar = selectedMatch?.[2] ?? ''
+  const range = role === '' || role === roleKey
+    ? null
+    : (bar === '' ? role : `${role} · ${translate('music.collab.chipBar', { bar })}`)
+  return {
+    path: 'music',
+    fileName: translate('music.collab.chip'),
+    range,
+    title: titleMatch === null || titleMatch[1] === '' ? translate('music.collab.chip') : titleMatch[1],
+    raw: text.slice(0, end),
+    visibleText: promptRemainder(text, end),
+  }
+}
+
 function parseEditorContextEnvelope(text) {
-  return parseOpenedFileContext(text) ?? parseSelectionContext(text)
+  return parseOpenedFileContext(text) ?? parseSelectionContext(text) ?? parseMusicContext(text)
+}
+
+/** Display shape of one music envelope, for the send seam's pending-message chip. */
+export function describeMusicContext(raw) {
+  return typeof raw === 'string' && raw !== '' ? parseMusicContext(raw) : null
 }
 
 /* The rendered message text is React-owned: since 0.2.1 the Harness renders it
@@ -228,7 +303,7 @@ function stripLeadingEnvelope(root, context) {
     total += node.nodeValue ?? ''
     if (total.length >= wanted) break
   }
-  if (!total.startsWith(OPENED_FILE_PREFIX) && !total.startsWith(SELECTION_PREFIX)) return undefined
+  if (!total.startsWith(OPENED_FILE_PREFIX) && !total.startsWith(SELECTION_PREFIX) && !total.startsWith(MUSIC_PREFIX)) return undefined
   const afterEnvelope = total.slice(context.raw.length)
   const separator = afterEnvelope.startsWith('\r\n\r\n') ? 4 : afterEnvelope.startsWith('\n\n') ? 2 : 0
   let strip = context.raw.length + separator
@@ -257,7 +332,7 @@ function findEditorContextContent(candidate) {
     return candidate instanceof HTMLElement ? candidate : null
   }
   const containerText = candidate.textContent ?? ''
-  if (!containerText.startsWith(OPENED_FILE_PREFIX) && !containerText.startsWith(SELECTION_PREFIX)) {
+  if (!containerText.startsWith(OPENED_FILE_PREFIX) && !containerText.startsWith(SELECTION_PREFIX) && !containerText.startsWith(MUSIC_PREFIX)) {
     return candidate
   }
   let current = candidate
@@ -266,7 +341,7 @@ function findEditorContextContent(candidate) {
     for (const child of current.children) {
       if (child instanceof HTMLElement && child.tagName === 'DIV') {
         const text = child.textContent ?? ''
-        if (text.startsWith(OPENED_FILE_PREFIX) || text.startsWith(SELECTION_PREFIX)) {
+        if (text.startsWith(OPENED_FILE_PREFIX) || text.startsWith(SELECTION_PREFIX) || text.startsWith(MUSIC_PREFIX)) {
           next = child
           break
         }
@@ -300,7 +375,7 @@ function findEditorContextCandidate(container) {
   const elements = [container, ...container.querySelectorAll('div,span,p,pre')]
   for (const element of elements) {
     const text = element.textContent ?? ''
-    if (text.startsWith(OPENED_FILE_PREFIX) || text.startsWith(SELECTION_PREFIX)) {
+    if (text.startsWith(OPENED_FILE_PREFIX) || text.startsWith(SELECTION_PREFIX) || text.startsWith(MUSIC_PREFIX)) {
       candidate = element
       break
     }
@@ -336,36 +411,66 @@ function renderEditorContextSummary(bubble, context) {
   return row
 }
 
+/* One chip for the envelopes that rode the same message: the editor's first, the workshop's
+   when both were attached, with their ranges joined. */
+function mergeContextDisplays(displays) {
+  const list = displays.filter(display => display !== null && display !== undefined)
+  if (list.length === 0) return null
+  if (list.length === 1) return list[0]
+  const first = list[0]
+  const ranges = []
+  for (const display of list) {
+    if (typeof display.range !== 'string' || display.range === '' || ranges.includes(display.range)) continue
+    ranges.push(display.range)
+  }
+  return {
+    fileName: first.fileName,
+    path: first.path,
+    range: ranges.length === 0 ? null : ranges.join(' · '),
+    raw: list.map(display => display.raw).filter(raw => typeof raw === 'string' && raw !== '').join('\n\n'),
+    title: first.title,
+  }
+}
+
 export function installEditorContextMessageCompactor() {
   if (typeof document === 'undefined' || typeof MutationObserver === 'undefined' || document.body === null) return () => {}
   const originals = new Map()
   const compactBubble = (bubble) => {
     const text = bubble.textContent ?? ''
-    const context = parseEditorContextEnvelope(text)
-    if (context === null) return
-    /* Strip the envelope from the leading text nodes only; every element of the
-       React-rendered message (reference chips, extra blocks) keeps its identity.
-       Store the touched nodes and the summary row so cleanup restores exactly
-       what this pass rewrote and nothing a later render owns. */
-    const touched = stripLeadingEnvelope(bubble, context)
-    if (touched === undefined) return
-    originals.set(bubble, {
-      touched,
-      summary: renderEditorContextSummary(bubble, consumeEditorContextDisplay(text) ?? context),
-    })
+    const first = parseEditorContextEnvelope(text)
+    if (first === null) return
+    /* Strip EVERY leading envelope in this pass: the workshop block rides after the editor's
+       when both are attached, and leaving it to a second observer pass would overwrite this
+       pass's chip row (and its restore bookkeeping) with the music one. */
+    const contexts = []
+    let touched = []
+    while (contexts.length < 2) {
+      const context = parseEditorContextEnvelope(bubble.textContent ?? '')
+      if (context === null) break
+      const stripped = stripLeadingEnvelope(bubble, context)
+      if (stripped === undefined) break
+      contexts.push(context)
+      touched = touched.concat(stripped)
+    }
+    if (contexts.length === 0) return
+    const display = mergeContextDisplays([consumeEditorContextDisplay(text) ?? contexts[0], ...contexts.slice(1)])
+    originals.set(bubble, { summary: renderEditorContextSummary(bubble, display), touched })
     bubble.classList.add('dsh-ws-message-context-bubble')
-    if (context.visibleText === '') bubble.setAttribute('data-dsh-ws-empty-prompt', '')
+    const last = contexts[contexts.length - 1]
+    if (last.visibleText === '') bubble.setAttribute('data-dsh-ws-empty-prompt', '')
     else bubble.removeAttribute('data-dsh-ws-empty-prompt')
   }
   /* Cache each container's leading text slice (WeakMap keys let removed containers be collected) and skip the read while it is unchanged. */
   const containerPrefixes = new WeakMap()
-  const ENVELOPE_PREFIX_LEN = Math.max(OPENED_FILE_PREFIX.length, SELECTION_PREFIX.length)
+  const ENVELOPE_PREFIX_LEN = Math.max(OPENED_FILE_PREFIX.length, SELECTION_PREFIX.length, MUSIC_PREFIX.length)
   const compactContainer = (container) => {
     const text = container.textContent ?? ''
     const prefix = text.slice(0, ENVELOPE_PREFIX_LEN)
     if (containerPrefixes.get(container) === prefix) return
     containerPrefixes.set(container, prefix)
-    if (!text.startsWith(OPENED_FILE_PREFIX) && !text.startsWith(SELECTION_PREFIX)) return
+    /* All three envelopes must pass this gate: the music block is the shortest prefix, so a
+       missing check here silently leaves the whole <music_piece> XML in the bubble. */
+    if (!text.startsWith(OPENED_FILE_PREFIX) && !text.startsWith(SELECTION_PREFIX) && !text.startsWith(MUSIC_PREFIX)) return
     const candidate = findEditorContextCandidate(container)
     const bubble = candidate === null ? null : findEditorContextBubble(candidate)
     if (bubble !== null) compactBubble(bubble)

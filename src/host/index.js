@@ -11,6 +11,9 @@ import { ENCODINGS } from './encodings.js'
 import { listTree, openInDefaultApp, readExternalPreview, readPreview, readPreviewHead, readRawFile, revealInExplorer, searchWorkspace } from './fs.js'
 import { readMusicSample, readMusicSampleManifest } from './music-samples.js'
 import { deleteMusicCacheEntry, listMusicCache, readMusicCacheEntry, upsertMusicCache } from './music-cache.js'
+import { ackMusicCollabPatch, dropMusicCollab, readMusicCollabPatch, upsertMusicCollab } from './music-collab.js'
+import { MUSIC_REWRITE_BARS_MAX, MUSIC_REWRITE_NOTES_MAX } from '../shared/music-edit.js'
+import { installMusicTools } from './music-tools.js'
 import { createEntry, fsOperation, renameEntry, saveFile } from './write.js'
 import { deleteDraftFile, draftTreeOperation, parseDraftGenerationQuery, readDraftFile, saveDraftFile, validateDraftOwner, validateDraftPayload } from './drafts.js'
 import { adoptMindmapOrphans, buildMindmapDoc, clearForkInheritedQueue, deleteMindmapDoc, findMindmapDocWithAncestors, indexMindmapDocs, isValidMindmapDoc, listMindmapModels, MINDMAP_DOC_MAX_BYTES, mindmapAnchorOf, mindmapDrainPendingSessionSummaries, mindmapInvalidatePersistenceList, mindmapLock, mindmapLockedReanchorOp, mindmapSessionSummarizingOf, mindmapSummarizingOf, parseMindmapSummaryConfig, purgeArchivedMindmapDocs, readMindmapDocFile, refreshMindmapDocCore, regenerateAllMindmapSummaries, regenerateAllSessionSummaries, regenerateMindmapSummary, renameMindmapDoc, seedMindmapSyncCacheAfterLoad, summarizeMindmapSession, syncMindmapDoc, validateMindmapSession, warmMindmapParsedCache, writeMindmapDoc, writeMindmapDocFile } from './mindmap.js'
@@ -156,12 +159,19 @@ const ROUTES = Object.freeze({
   [`${API_PREFIX}/music/samples/file`]: { methods: 'GET, HEAD' },
   [`${API_PREFIX}/music/cache`]: { methods: 'GET, HEAD, PUT' },
   [`${API_PREFIX}/music/cache/item`]: { methods: 'GET, HEAD, DELETE' },
+  /* Chat collaboration: the open workshop tab registers itself, the page polls one pending patch
+     and acks it; all three are keyed by session, not by workspace. */
+  [`${API_PREFIX}/music/collab`]: { methods: 'POST, DELETE' },
+  [`${API_PREFIX}/music/collab/patch`]: { methods: 'GET, HEAD' },
+  [`${API_PREFIX}/music/collab/patch/ack`]: { methods: 'POST' },
 })
 /* The runner's request body bound: the argument text is capped at 4 KiB by run.js, so the JSON
    envelope only needs a little headroom over the shared mutation cap. */
 const RUN_BODY_MAX_BYTES = 16 * 1024
 /* Music requests: the compose arguments are small, but save carries one whole score document. */
 const MUSIC_BODY_MAX_BYTES = 2 * 1024 * 1024
+/* A collaboration registration mirrors the open score (summary + the editable tracks' notes). */
+const MUSIC_COLLAB_BODY_MAX_BYTES = 1536 * 1024
 const MUSIC_SAMPLE_ROOT = new URL('../assets/vcsl/', import.meta.url)
 /* 50 collections x 40-char names x up to 2000 workspace ids: the honest bound is a few hundred KiB,
    and the envelope never carries file content. */
@@ -382,6 +392,9 @@ async function handleRequest(ctx, config, writeQueues, req, res) {
     const musicSamplesFileEndpoint = url.pathname === `${API_PREFIX}/music/samples/file`
     const musicCacheEndpoint = url.pathname === `${API_PREFIX}/music/cache`
     const musicCacheItemEndpoint = url.pathname === `${API_PREFIX}/music/cache/item`
+    const musicCollabEndpoint = url.pathname === `${API_PREFIX}/music/collab`
+    const musicCollabPatchEndpoint = url.pathname === `${API_PREFIX}/music/collab/patch`
+    const musicCollabAckEndpoint = url.pathname === `${API_PREFIX}/music/collab/patch/ack`
     /* Handlers below, in order. Each compares the path it serves; the method whitelist and the 404
        answer were already settled by the ROUTES lookup above. */
     if (contextEndpoint) {
@@ -606,7 +619,15 @@ async function handleRequest(ctx, config, writeQueues, req, res) {
       return
     }
     if (musicSchemaEndpoint) {
-      sendJson(req, res, 200, { barsMax: MUSIC_BARS_MAX, version: MUSIC_DOC_VERSION, noteLenMax: MUSIC_BARS_MAX * MUSIC_STEPS_PER_BAR })
+      sendJson(req, res, 200, {
+        barsMax: MUSIC_BARS_MAX,
+        version: MUSIC_DOC_VERSION,
+        noteLenMax: MUSIC_BARS_MAX * MUSIC_STEPS_PER_BAR,
+        /* Chat collaboration: the panel hides its collaboration row when the Host predates this. */
+        collab: true,
+        rewriteBarsMax: MUSIC_REWRITE_BARS_MAX,
+        rewriteNotesMax: MUSIC_REWRITE_NOTES_MAX,
+      })
       return
     }
     if (musicSamplesManifestEndpoint) {
@@ -619,6 +640,36 @@ async function handleRequest(ctx, config, writeQueues, req, res) {
       sendRaw(req, res, 200, bytes, 'audio/ogg', {
         'cache-control': 'public, max-age=31536000, immutable',
       })
+      return
+    }
+    /* Chat collaboration is keyed by session, not by workspace: a registration mirrors an open
+       page and never touches a file, so there is nothing here to fence through the workspace. */
+    if (musicCollabEndpoint) {
+      if (req.method === 'DELETE') {
+        sendJson(req, res, 200, dropMusicCollab({
+          session: url.searchParams.get('session'),
+          tab: url.searchParams.get('tab'),
+        }))
+        return
+      }
+      const payload = await readJsonObject(req, config, MUSIC_COLLAB_BODY_MAX_BYTES)
+      sendJson(req, res, 200, upsertMusicCollab(payload))
+      return
+    }
+    if (musicCollabPatchEndpoint) {
+      sendJson(req, res, 200, readMusicCollabPatch({
+        session: url.searchParams.get('session'),
+        tab: url.searchParams.get('tab'),
+      }))
+      return
+    }
+    if (musicCollabAckEndpoint) {
+      const payload = await readJsonObject(req, config, 64 * 1024)
+      sendJson(req, res, 200, ackMusicCollabPatch({
+        ...payload,
+        session: url.searchParams.get('session') ?? payload?.session,
+        tab: url.searchParams.get('tab') ?? payload?.tab,
+      }))
       return
     }
     const workspaceId = requiredQuery(url, 'workspaceId')
@@ -861,6 +912,13 @@ export function apply(ctx, config) {
     () => warmMindmapParsedCache(ctx),
     'workspace-studio: mindmap parse cache warm-up',
   )
+  /* Music workshop collaboration tools. Optional injection: a deployment without the tools
+     service still serves the workshop UI, it just has no model-facing tools to drive it, and
+     the panel's collaboration row then reports the missing capability instead of hanging. */
+  ctx.inject(['tools'], toolsCtx => {
+    const dispose = installMusicTools(toolsCtx)
+    toolsCtx.effect(() => dispose, 'workspace-studio: music collaboration tools')
+  })
 }
 
 

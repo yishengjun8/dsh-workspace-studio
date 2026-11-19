@@ -1438,6 +1438,15 @@ html.dsh-ws-mobile-on .dsh-ws-mindmap-header-button{display:none}
 .dsh-ws-music-danger:hover{background:var(--dsw-alias-interactive-bg-hover-danger);color:var(--dsw-alias-state-error-primary)}
 
 /* scroll body + three layouts */
+/* Chat collaboration: the cross-column bar above the work area and the row under the AI card. */
+.dsh-ws-music-collab-bar{flex:none;display:flex;align-items:center;gap:8px;min-height:26px;padding:3px 10px;border-bottom:1px solid var(--dsw-alias-border-l2);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 7%,transparent);color:var(--dsw-alias-label-secondary);font-size:10px;box-sizing:border-box}
+.dsh-ws-music-collab-bar-title{flex:none;padding:0;border:0;background:transparent;color:var(--dsw-alias-state-business-primary);font:inherit;font-size:10.5px;font-weight:600;white-space:nowrap;cursor:pointer}
+.dsh-ws-music-collab-bar-title:hover{text-decoration:underline}
+.dsh-ws-music-collab-bar-summary{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}
+.dsh-ws-music-collab-bar-hint{flex:none;color:var(--dsw-alias-label-caption);font-size:9px}
+.dsh-ws-music-collab-body{display:flex;flex-direction:column;gap:6px;padding:8px}
+.dsh-ws-music-collab-current{margin:0;color:var(--dsw-alias-label-secondary);font-size:10.5px;line-height:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-ws-music-collab-body .dsh-ws-music-mini-button{align-self:flex-start}
 .dsh-ws-music-scroll{flex:1;min-height:0;overflow:auto;padding:10px}
 .dsh-ws-music-scroll::-webkit-scrollbar,.dsh-ws-music-roll-scroll::-webkit-scrollbar,.dsh-ws-music-drum-scroll::-webkit-scrollbar{width:10px;height:10px}
 .dsh-ws-music-scroll::-webkit-scrollbar-thumb,.dsh-ws-music-roll-scroll::-webkit-scrollbar-thumb,.dsh-ws-music-drum-scroll::-webkit-scrollbar-thumb{background:var(--dsw-alias-scrollbar-bg-l2);background-clip:padding-box;border:3px solid transparent;border-radius:8px}

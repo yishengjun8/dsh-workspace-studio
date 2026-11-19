@@ -161,6 +161,28 @@ export function chordRootName(label) {
   return match[1].replace('b', '#').replace('Db', 'C#').replace('Eb', 'D#').replace('Gb', 'F#').replace('Ab', 'G#').replace('Bb', 'A#')
 }
 
+/* Absolute pitch classes (0-11) of one progression label, using the same shape table the
+   composer uses. The chat tool validates a rewritten track against these, so the check and
+   the generated material can never disagree about what "Am7" means. An empty or rootless
+   label yields NO tones: callers then skip the chord rule for that bar instead of silently
+   enforcing C major (chordRootName's own "unknown means C" fallback is for the composer). */
+export function chordPitchClasses(label) {
+  const text = typeof label === 'string' ? label.trim() : ''
+  if (!/^[A-G][#b]?/.test(text)) return []
+  const root = MUSIC_KEY_ROOTS.indexOf(chordRootName(text))
+  if (root < 0) return []
+  const shape = /m7/.test(text) ? 'm7' : /maj7/.test(text) ? 'maj7' : /7$/.test(text) ? '7' : /m/.test(text) ? 'm' : 'maj'
+  return CHORD_SHAPES[shape].map(offset => (root + offset) % 12)
+}
+
+/* Pitch classes of the piece's key. Empty when the root is unknown, so callers skip the key
+   check instead of rejecting everything. */
+export function scalePitchClasses(keyRoot, keyMode) {
+  const root = MUSIC_KEY_ROOTS.indexOf(String(keyRoot ?? 'C').replace('b', '#').replace('Db', 'C#').replace('Eb', 'D#').replace('Gb', 'F#').replace('Ab', 'G#').replace('Bb', 'A#'))
+  if (root < 0) return []
+  return (keyMode === 'minor' ? MINOR_SCALE : MAJOR_SCALE).map(offset => (root + offset) % 12)
+}
+
 function rootMidiOf(name, octave) {
   const root = MUSIC_KEY_ROOTS.indexOf(String(name).replace('b', '#').replace('Db', 'C#').replace('Eb', 'D#').replace('Gb', 'F#').replace('Ab', 'G#').replace('Bb', 'A#'))
   const safeRoot = root < 0 ? 0 : root
@@ -170,7 +192,7 @@ function rootMidiOf(name, octave) {
 /* Mulberry32: a tiny deterministic PRNG so one seed always rebuilds the same sketch
    (no Math.random in the shared module, which the client would otherwise make
    non-reproducible between a fallback preview and a Host-side fallback). */
-function makeRandom(seed) {
+export function makeRandom(seed) {
   let state = (Number(seed) >>> 0) || 0x9e3779b9
   return function next() {
     state = (state + 0x6d2b79f5) >>> 0

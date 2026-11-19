@@ -42,12 +42,14 @@ import {
   scoreSeconds,
 } from '../../../shared/music-score.js'
 import { MUSIC_ARRANGE_BAR_WIDTH_DEFAULT, MUSIC_ROLL_GRID_WIDTH_DEFAULT, MUSIC_ROLL_ROW_HEIGHT_DEFAULT } from '../../constants.js'
+import { applyMusicOps, musicEditSummary, musicTrackFingerprint, validateRewrittenNotes } from '../../../shared/music-edit.js'
 import { useMindmapSummaryModels } from '../../hooks/mindmap-summary-models.js'
 import { useChatModel } from '../../chat-model.js'
 import { isFollowChatModel, musicModelKey } from '../../music-prefs.js'
 import { MusicDiscardDialog, MusicDurationDialog, MusicOpenDialog, MusicSaveDialog } from './dialogs.js'
 import { MusicCachePopover } from './cache-popover.js'
 import { notifyMusicCacheChanged, subscribeMusicCacheChanged } from './cache-events.js'
+import { MusicCollabBar, MusicCollabRow, useMusicCollab } from './collab.js'
 import { ComposeChoicePopover } from './compose-choice.js'
 import { ComposeInstrumentsPopover } from './compose-instruments.js'
 import { composeRanges, mergeComposedSegments } from './compose-run.js'
@@ -269,6 +271,7 @@ export function MusicDock({
   const [composeInstruments, setComposeInstruments] = useState(() => normalizeMusicInstruments(doc.prompt.instruments))
   const [instrumentsOpen, setInstrumentsOpen] = useState(false)
   const [hostReady, setHostReady] = useState(null)
+  const [collabReady, setCollabReady] = useState(null)
   const [samplesReady, setSamplesReady] = useState(false)
   const [samplesLoading, setSamplesLoading] = useState(true)
   const [samplesError, setSamplesError] = useState('')
@@ -312,9 +315,16 @@ export function MusicDock({
           setHostReady(payload.version === MUSIC_DOC_VERSION
             && payload.barsMax >= MUSIC_BARS_MAX
             && payload.noteLenMax >= MUSIC_BARS_MAX * MUSIC_STEPS_PER_BAR)
+          /* Chat collaboration needs the Host's in-memory bridge; an older Host has no such
+             route and the panel must say so instead of polling a 404 forever. */
+          setCollabReady(payload.collab === true)
         }
       })
-      .catch(() => { if (alive) setHostReady(false) })
+      .catch(() => {
+        if (!alive) return
+        setHostReady(false)
+        setCollabReady(false)
+      })
     return () => { alive = false }
   }, [])
 
@@ -479,9 +489,9 @@ export function MusicDock({
     if (options.restart === true && changed) restartPlayback(next)
   }, [restartPlayback, scheduleSync])
 
-  const recordTrackHistory = useCallback((trackId, before, after, key) => {
-    if (before === null || after === null) return
-    if (JSON.stringify(before.value) === JSON.stringify(after.value)) return
+  const recordTrackHistory = useCallback((trackId, before, after, key, meta = undefined) => {
+    if (before === null || after === null) return undefined
+    if (JSON.stringify(before.value) === JSON.stringify(after.value)) return undefined
     const record = trackHistoryRef.current.get(trackId) ?? { redo: [], undo: [] }
     const last = record.undo[record.undo.length - 1]
     const now = Date.now()
@@ -492,45 +502,133 @@ export function MusicDock({
       last.at = now
       record.redo = []
     } else {
-      record.undo.push({ after, at: now, before, key })
+      record.undo.push({ after, at: now, before, key, ...(meta === undefined ? {} : meta) })
       if (record.undo.length > TRACK_HISTORY_LIMIT) record.undo.shift()
       record.redo = []
     }
     trackHistoryRef.current.set(trackId, record)
     setHistoryVersion(version => version + 1)
+    return record
   }, [])
 
-  const commitTrackEdit = useCallback((next, trackId, key = null) => {
-    if (next === null) return false
+  const commitTrackEdit = useCallback((next, trackId, key = null, meta = undefined) => {
+    if (next === null) return null
     const before = trackEditSnapshot(findTrack(docRef.current, trackId))
     const after = trackEditSnapshot(findTrack(next, trackId))
-    if (before === null || after === null) return false
-    recordTrackHistory(`${pieceKeyRef.current}|${trackId}`, before, after, key)
-    commit(next)
-    return true
+    if (before === null || after === null) return null
+    const record = recordTrackHistory(`${pieceKeyRef.current}|${trackId}`, before, after, key, meta)
+    commit(next, meta?.restart === true ? { restart: true } : {})
+    return record ?? null
   }, [commit, recordTrackHistory])
 
-  const applyTrackHistory = (direction) => {
-    if (activeTrack === null) return
-    const record = trackHistoryRef.current.get(`${pieceKeyRef.current}|${activeTrack.id}`)
-    if (record === undefined) return
+  /* Undo/redo one track's stack. Addressed by track id rather than by the selection so the
+     collaboration bar can revert the track the chat edited even while another track is open. */
+  const applyTrackHistoryFor = useCallback((trackId, direction) => {
+    const record = trackHistoryRef.current.get(`${pieceKeyRef.current}|${trackId}`)
+    if (record === undefined) return false
     const from = direction === 'undo' ? record.undo : record.redo
     const to = direction === 'undo' ? record.redo : record.undo
     const step = from[from.length - 1]
-    if (step === undefined) return
+    if (step === undefined) return false
     const snapshot = direction === 'undo' ? step.before : step.after
-    const next = withTrackEdit(docRef.current, activeTrack.id, snapshot)
-    if (next === null) return
+    const next = withTrackEdit(docRef.current, trackId, snapshot)
+    if (next === null) return false
     from.pop()
     to.push(step)
     if (to.length > TRACK_HISTORY_LIMIT) to.shift()
     setHistoryVersion(version => version + 1)
-    setSelectedNote(firstNoteSelection(findTrack(next, activeTrack.id)))
+    if (trackId === selectedTrackId) setSelectedNote(firstNoteSelection(findTrack(next, trackId)))
     commit(next)
+    return true
+  }, [commit, selectedTrackId])
+
+  const applyTrackHistory = (direction) => {
+    if (activeTrack === null) return
+    applyTrackHistoryFor(activeTrack.id, direction)
   }
 
   const undoTrackEdit = () => applyTrackHistory('undo')
   const redoTrackEdit = () => applyTrackHistory('redo')
+
+  /* ---- chat collaboration ----------------------------------------------------------------
+     The page owns the score: a patch from the Host becomes ONE undoable track edit, a stale
+     base fingerprint is refused (conflict) instead of overwriting a hand edit, and the number
+     the bar shows is recomputed from the real before/after tracks. */
+  const collabTabIdRef = useRef(null)
+  if (collabTabIdRef.current === null) collabTabIdRef.current = `music-${Math.random().toString(36).slice(2, 10)}`
+  const collabFocusBar = selectedNote !== null && selectedNoteFound !== null && activeTrack !== null && selectedNote.trackId === activeTrack.id
+    ? selectedNoteFound.note.bar
+    : activeBar
+
+  const applyCollabPatch = useCallback((patch) => {
+    const current = docRef.current
+    const track = findTrack(current, String(patch?.trackId ?? ''))
+    if (track === null) return { result: 'gone' }
+    if (typeof patch?.baseRev !== 'string' || patch.baseRev !== musicTrackFingerprint(track)) return { result: 'conflict' }
+    let nextTrack = null
+    if (patch.mode === 'notes') {
+      const checked = validateRewrittenNotes({ doc: current, bars: patch.bars, notes: patch.notes })
+      if (!checked.ok || checked.bars === null) return { result: 'rejected' }
+      const [from, to] = checked.bars
+      const outside = track.notes.filter(note => note.bar < from || note.bar > to)
+      nextTrack = {
+        ...track,
+        notes: [...outside, ...checked.notes].sort((a, b) => (a.bar - b.bar) || (a.step - b.step) || (a.midi - b.midi)),
+      }
+    } else {
+      const applied = applyMusicOps(track, patch.ops, { bars: current.bars, keyRoot: current.keyRoot, keyMode: current.keyMode })
+      if (applied.error !== undefined) return { result: 'rejected' }
+      nextTrack = applied.track
+    }
+    const next = normalizeMusicDoc({ ...current, tracks: current.tracks.map(item => (item.id === track.id ? nextTrack : item)) })
+    if (next === null) return { result: 'rejected' }
+    const summary = musicEditSummary(track, nextTrack, current)
+    commitTrackEdit(next, track.id, null, { id: patch.id, restart: true, source: 'ai' })
+    return { result: 'applied', summary }
+  }, [commitTrackEdit])
+
+  const collab = useMusicCollab({
+    active,
+    doc,
+    focusBar: collabFocusBar,
+    hostCollab: collabReady,
+    onApply: applyCollabPatch,
+    selectedTrackId: activeTrack?.id ?? null,
+    sessionId: typeof chatSessionId === 'string' ? chatSessionId : '',
+    tabId: collabTabIdRef.current,
+  })
+
+  /* The bar's undo only lights up while the AI step is still the top of that track's stack. */
+  const collabCanUndo = useMemo(() => {
+    if (collab.notice === null) return false
+    const record = trackHistoryRef.current.get(`${pieceKeyRef.current}|${collab.notice.trackId}`)
+    const step = record?.undo[record.undo.length - 1]
+    return step !== undefined && step.id === collab.notice.historyId
+  }, [collab.notice, historyVersion])
+
+  const collabTrackName = collab.notice === null
+    ? ''
+    : (findTrack(doc, collab.notice.trackId) === null ? '' : trackDisplayName(findTrack(doc, collab.notice.trackId)))
+
+  const undoCollabEdit = () => {
+    if (collab.notice === null) return
+    applyTrackHistoryFor(collab.notice.trackId, 'undo')
+  }
+
+  /* Entry B: the chat composer has no public prefill seam, so hand the sentence over via the
+     clipboard rather than reaching into the harness DOM. */
+  const requestTrackInChat = (track) => {
+    if (track === null || track === undefined) return
+    const text = translate('music.collab.prefill', { track: trackDisplayName(track) })
+    const clipboard = typeof navigator === 'undefined' ? undefined : navigator.clipboard
+    if (clipboard === undefined || typeof clipboard.writeText !== 'function') {
+      setStatus({ error: true, text: translate('music.collab.copyFailed') })
+      return
+    }
+    clipboard.writeText(text)
+      .then(() => setStatus({ text: translate('music.collab.copied') }))
+      .catch(() => setStatus({ error: true, text: translate('music.collab.copyFailed') }))
+  }
 
   const auditionNote = useCallback(async (midi) => {
     if (activeTrack === null || activeTrack.kind === 'drums') return
@@ -1387,6 +1485,18 @@ export function MusicDock({
   hostReady !== false && samplesLoading ? h('div', { className: 'dsh-ws-music-banner', role: 'status' }, translate('music.samples.loading')) : null,
   hostReady !== false && !samplesLoading && samplesError !== '' ? h('div', { className: 'dsh-ws-music-banner', role: 'alert' }, `${translate('music.samples.failed')} ${samplesError}`) : null,
 
+  h(MusicCollabBar, {
+    canUndo: collabCanUndo,
+    notice: collab.notice,
+    onDismiss: collab.dismissNotice,
+    onSelectTrack: (id) => {
+      setSelectedTrackId(id)
+      setSelectedNote(firstNoteSelection(findTrack(docRef.current, id)))
+    },
+    onUndo: undoCollabEdit,
+    trackName: collabTrackName,
+  }),
+
   h('div', { className: 'dsh-ws-music-scroll' },
     h('div', { className: 'dsh-ws-music-work' },
       /* left: AI compose + history */
@@ -1566,6 +1676,14 @@ export function MusicDock({
                 : translate('music.compose.progress')))
               : null)
           : null),
+        h(MusicCollabRow, {
+          hostCollab: collabReady,
+          onRequestInChat: requestTrackInChat,
+          state: collab.state,
+          superseded: collab.superseded,
+          track: activeTrack,
+          trackName: activeTrack === null ? '' : trackDisplayName(activeTrack),
+        }),
       /* Selected-track / selected-note inspector, directly under the AI card. */
         h('aside', { className: 'dsh-ws-music-inspector' },
           h('section', { className: 'dsh-ws-music-card' },

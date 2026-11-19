@@ -1,6 +1,6 @@
 import { createElement as h, Fragment, useRef, useState, useEffect, useLayoutEffect, useMemo, useCallback, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
-import { COLLECTION_ALL_ID, COLLECTION_UNOWNED_ID, CONTEXT_MENU_WIDTH, EDITOR_CONTEXT_PROVIDER, EXPLORER_MAX_RATIO, MINDMAP_END_COLOR_DEFAULT, MINDMAP_HEAD_COLOR_DEFAULT, MINDMAP_SPIN_BASE_DURATION_S, MINDMAP_SPIN_STOP_DURATION_S, MOBILE_HEADER_FALLBACK_H, PACKAGE_ID, PREVIEW_MAX, PREVIEW_MIN, SIDEBAR_COLLAPSED, SIDEBAR_MAX_FALLBACK, SIDEBAR_MAX_RATIO, SIDEBAR_MIN, TREE_MAX, TREE_MIN, WORKSPACE_GROUP_BY_DEFAULT } from './constants.js'
+import { COLLECTION_ALL_ID, COLLECTION_UNOWNED_ID, CONTEXT_MENU_WIDTH, EDITOR_CONTEXT_PROVIDER, EXPLORER_MAX_RATIO, MINDMAP_END_COLOR_DEFAULT, MINDMAP_HEAD_COLOR_DEFAULT, MINDMAP_SPIN_BASE_DURATION_S, MINDMAP_SPIN_STOP_DURATION_S, MOBILE_HEADER_FALLBACK_H, MUSIC_CONTEXT_PROVIDER, PACKAGE_ID, PREVIEW_MAX, PREVIEW_MIN, SIDEBAR_COLLAPSED, SIDEBAR_MAX_FALLBACK, SIDEBAR_MAX_RATIO, SIDEBAR_MIN, TREE_MAX, TREE_MIN, WORKSPACE_GROUP_BY_DEFAULT } from './constants.js'
 import { installLocaleService, translate, useLocaleText } from './locale/index.js'
 import { setDrawerOpen, setMobile, useMobile } from './mobile.js'
 import { styles } from './styles.js'
@@ -11,7 +11,7 @@ import { checkFileChange, createWorkspaceEntry, deleteDraft, deleteMindmapDoc, p
 import { createExplorerPaneStore, createExplorerSettingsStore, createLayoutStore, createPreviewSessionStore, LayoutController } from './stores.js'
 import { installChatModelService } from './chat-model.js'
 import { currentSessionOf, EditorContextController, openHarnessSession, PromptContextBridge, recentWorkspaceIdOf, selectWorkspaceForSession, workspaceOfSession } from './controllers.js'
-import { EditorContextPrefix, installEditorContextMessageCompactor } from './context-bridge.js'
+import { EditorContextPrefix, MusicContextPrefix, installEditorContextMessageCompactor } from './context-bridge.js'
 /* The session-row context menu is a fixed 3 items + separator; clamp its top edge
    against its real height so the last item stays reachable. */
 const SESSION_CONTEXT_MENU_HEIGHT = 140
@@ -713,6 +713,14 @@ export function mountStudio(ctx) {
       ensureSession: id => { promptContextBridge.ensure(id) },
     }),
   }, EditorContextPrefix))
+  /* The workshop's companion pill: the score already rides the next prompt, so the same dock
+     shows what it is and one click switches it off for that send. */
+  ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
+    name: 'conversation.input.dock',
+    id: MUSIC_CONTEXT_PROVIDER,
+    order: 31,
+    inject: sessionId => ({ sessionId: String(sessionId) }),
+  }, MusicContextPrefix))
   /* Chat edit/write rows: default-open Studio row with the merged diff view,
      shadowing the shipped FileMutationRow for the edit/write keys. */
   registerStudioFileMutationToolview(ctx)

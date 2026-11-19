@@ -6,6 +6,7 @@ export const UPDATE_DOWNLOAD_TIMEOUT_MS = 180_000
 /* Token statistics: the first-ever scan walks every session log on the Host (subsequent opens hit the revision-guarded index), so the request gets a long timeout like the update download. */
 export const TOKEN_STATS_TIMEOUT_MS = 120_000
 export const EDITOR_CONTEXT_PROVIDER = 'workspace-editor-context'
+export const MUSIC_CONTEXT_PROVIDER = 'workspace-music-context'
 export const SEND_SESSION_BRIDGE_MARKER = Symbol('workspace-studio.send-session-bridge')
 /* The true original sendSession recorded on a wrapper so an overlapping re-install can unwrap a stale wrapper instead of recursing. */
 export const SEND_SESSION_BRIDGE_ORIGINAL = Symbol('workspace-studio.send-session-bridge.original')
