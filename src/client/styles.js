@@ -399,7 +399,7 @@ body[data-ds-dark-theme] .dsh-ws-editor-host{--dsh-ws-token-directive:#c586c0}
 .dsh-ws-frame [data-slot="sidebar"] > div > div[class*="newSessionRow"]{display:none}
 /* The harness right-sidebar expand button is dead under this root layout (no rightbar track), and its document-preview purpose is served by the plugin's own preview column; hide it. */
 .dsh-ws-frame [data-sidebar-right-expand]{display:none}
-.dsh-ws-sidebar-top-actions{flex:none;min-width:0;display:flex;align-items:stretch;gap:6px;height:38px;margin:0 2px 8px;box-sizing:border-box}
+.dsh-ws-sidebar-top-actions{flex:none;min-width:0;display:flex;align-items:stretch;gap:6px;height:38px;margin:0 2px;box-sizing:border-box}
 .dsh-ws-sidebar-top-action{flex:1;min-width:0;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:38px;padding:0 10px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-button-elevated-fill);color:var(--dsw-alias-label-primary);font:inherit;font-size:14px;font-weight:500;line-height:22px;cursor:pointer;overflow:hidden;white-space:nowrap}
 .dsh-ws-sidebar-top-action:hover{background:var(--dsw-alias-button-floating-hover)}
 .dsh-ws-sidebar-top-action[data-active]{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-brand-primary)}
@@ -407,6 +407,13 @@ body[data-ds-dark-theme] .dsh-ws-editor-host{--dsh-ws-token-directive:#c586c0}
 .dsh-ws-sidebar-top-icon{flex:none;width:14px;height:14px}
 .dsh-ws-sidebar-top-icon svg{display:block;width:100%;height:100%}
 .dsh-ws-sidebar-top-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Region seat top gap: the shell's scroll viewport opens with an 8px spacer row (grid row 1)
+   that stacked on top of this row's own 8px foot margin, so the workspace section title sat
+   16px further from the nav tabs than the tabs sit from the logo row above them (61px of ink
+   gap against 33px). Drop both spacers and keep the scroller's own 4px margin plus the 2px
+   separator row, so the two gaps read the same; files mode restates the rows in its own rule
+   (and is excluded here so this one cannot outrank that row-4 bound). */
+.dsh-ws-frame:not([data-sidebar-collapsed]):not([data-sidebar-files]) [data-slot="sidebar"] > div > div[class*="scrollRegion"] > div[class*="scrollArea"]{grid-template-rows:0 max-content 2px max-content}
 /* Collapsed rail: the two controls become icon-only 36px buttons, stacked. */
 .dsh-ws-sidebar-top-actions[data-rail]{flex-direction:column;align-items:flex-start;gap:0;height:auto;margin:0 0 12px;position:relative;z-index:10}
 .dsh-ws-sidebar-top-actions[data-rail] .dsh-ws-sidebar-top-action{flex:none;width:36px;height:36px;padding:0;gap:0;border-color:transparent;background:transparent}
@@ -424,9 +431,10 @@ body[data-ds-dark-theme] .dsh-ws-editor-host{--dsh-ws-token-directive:#c586c0}
 /* Files mode owns the region height. The shell grid's row 4 is max-content, so the
    seat grew with the tree and the shell viewport itself scrolled — taking the panel
    header and the VCS bar away with it. Bound row 4 to the height left over (the
-   shell's own rows stay 8px / max-content / 2px) and let only the tree scroller move;
-   the shell's scroll fade would then sit over the tree's last rows, so drop it. */
-.dsh-ws-frame[data-sidebar-files] [data-slot="sidebar"] > div > div[class*="scrollRegion"] > div[class*="scrollArea"]{grid-template-rows:8px max-content 2px minmax(0,1fr);overflow-y:hidden}
+   shell's own rows are 0 / max-content / 2px, the head spacer dropped by the rule
+   above) and let only the tree scroller move; the shell's scroll fade would then sit
+   over the tree's last rows, so drop it. */
+.dsh-ws-frame[data-sidebar-files] [data-slot="sidebar"] > div > div[class*="scrollRegion"] > div[class*="scrollArea"]{grid-template-rows:0 max-content 2px minmax(0,1fr);overflow-y:hidden}
 .dsh-ws-frame[data-sidebar-files] [data-slot="sidebar"] > div > div[class*="scrollRegion"] > div[class*="scrollArea"] > div:has(> .dsh-ws-sidebar-files){flex:1;min-height:0}
 .dsh-ws-frame[data-sidebar-files] [data-slot="sidebar"] > div > div[class*="scrollRegion"] > span[class*="scrollFade"]{display:none}
 .dsh-ws-frame[data-sidebar-files] .dsh-ws-sidebar-files .dsh-ws-panel-header{flex:none}
