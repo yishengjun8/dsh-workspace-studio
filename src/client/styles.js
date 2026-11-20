@@ -390,6 +390,13 @@ body[data-ds-dark-theme] .dsh-ws-editor-host{--dsh-ws-token-directive:#c586c0}
    logoRow and New Session is its own row, so this rule matches nothing today; it stays as the
    guard for a shell that restores a direct-child button here. */
 .dsh-ws-frame [data-slot="sidebar"] > div > button{display:none}
+/* The harness New Session row (a child of the sidebar column since 0.2.2, between logoRow and
+   scrollRegion) is hidden: this layout keeps no New Session entry in the sidebar top, where the
+   plugin's own 会话列表 / 文件浏览 tabs take the seat directly under the logo. One rule covers both
+   states — the wide row with its label and the collapsed rail's icon-only button are the same
+   node — and hiding the node (not the inner button) leaves React's unmount path intact
+   (dev-notes §55). */
+.dsh-ws-frame [data-slot="sidebar"] > div > div[class*="newSessionRow"]{display:none}
 /* The harness right-sidebar expand button is dead under this root layout (no rightbar track), and its document-preview purpose is served by the plugin's own preview column; hide it. */
 .dsh-ws-frame [data-sidebar-right-expand]{display:none}
 .dsh-ws-sidebar-top-actions{flex:none;min-width:0;display:flex;align-items:stretch;gap:6px;height:38px;margin:0 2px 8px;box-sizing:border-box}
