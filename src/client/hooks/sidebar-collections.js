@@ -170,12 +170,16 @@ export function useCollectionGroupBy() {
  * @param props.currentWorkspaceId - the viewed session's workspace; when it sits outside the shown
  *   collection its group stays visible, dashed, as the "not in this collection" marker.
  * @param props.labels - localized chip copy: `{ outside, outsideView }`.
- * @returns the filter plan (`{ css, chips, empty, joinIds }`) — `joinIds` is what
+ * @returns the filter plan (`{ css, chips, empty, joinIds, expiresAt }`) — `joinIds` is what
  *   useWorkspaceCollectionMenu turns into the one-click "join" chip.
  */
 export function useCollectionsFilter({ doc, workspaces, paused, currentWorkspaceId, labels }) {
   const titledRef = useRef(new Set())
   const currentId = doc?.selectedId ?? COLLECTION_ALL_ID
+  /* Recomputation nudge: a kept newcomer stops being one at `plan.expiresAt`, and nothing else
+     re-renders this hook at that instant, so a timer bumps this counter and the memo below (which
+     reads the clock itself) decides again with the new time. */
+  const [nudge, setNudge] = useState(0)
 
   /* The whole decision is a pure function (collections.js); this hook only paints it. */
   const plan = useMemo(() => collectionFilterPlan({
@@ -185,7 +189,16 @@ export function useCollectionsFilter({ doc, workspaces, paused, currentWorkspace
     labels,
     paused,
     workspaces,
-  }), [currentId, currentWorkspaceId, doc, labels, paused, workspaces])
+  }), [currentId, currentWorkspaceId, doc, labels, nudge, paused, workspaces])
+
+  /* One re-render at the instant the earliest kept newcomer ages out; the timer is re-armed from
+     the plan itself, so a recompute that keeps a row (or drops it) simply reschedules or stops. */
+  useEffect(() => {
+    const at = plan.expiresAt
+    if (!Number.isFinite(at)) return undefined
+    const timer = setTimeout(() => setNudge(value => value + 1), Math.max(0, at - Date.now()) + 20)
+    return () => clearTimeout(timer)
+  }, [plan])
 
   useEffect(() => {
     if (typeof document === 'undefined') return undefined

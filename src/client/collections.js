@@ -172,26 +172,28 @@ export function collectionsOfWorkspace(doc, workspaceId) {
 }
 
 /**
- * Whether a workspace counts as "just added" for the sidebar.
+ * When a workspace stops counting as "just added" for the sidebar, in epoch ms.
  *
- * A workspace that appeared a moment ago cannot be a member of the collection the user is looking
- * at unless they put it there by hand, so its row stays visible (dashed, with the one-click join
- * chip) instead of being filtered away while the user is still working in it. `createdAt` is the
- * Harness registry's ISO timestamp; an unparsable value is NOT a newcomer, so such a row keeps the
- * pre-existing behaviour (filtered away) instead of showing up forever.
+ * A workspace that appeared a moment ago can still be unfiled, so its row stays visible (dashed,
+ * with the one-click join chip) instead of being filtered away while the user is still working in
+ * it. `createdAt` is the Harness registry's ISO timestamp; an unparsable value is NOT a newcomer,
+ * so such a row keeps the pre-existing behaviour (filtered away) instead of showing up forever.
  *
  * @param workspace - Harness workspace item (`workspaceId`, `createdAt`).
  * @param now - current epoch ms (injected, so the rule stays pure and testable).
  * @param windowMs - how long "just added" lasts (COLLECTION_NEWCOMER_WINDOW_MS).
+ * @returns the epoch ms at which the row must be re-evaluated, or undefined when it is not a
+ *   newcomer (the plan hands this to the hook, which re-renders at that instant).
  */
-function isNewcomerWorkspace(workspace, now, windowMs) {
+function newcomerExpiresAt(workspace, now, windowMs) {
   const raw = workspace?.createdAt
   const created = typeof raw === 'number' ? raw : typeof raw === 'string' ? Date.parse(raw) : NaN
-  if (!Number.isFinite(created)) return false
+  if (!Number.isFinite(created)) return undefined
   const age = now - created
   /* Both ends are bounded: a Host clock a little ahead of the page must not hide a fresh row, and a
      wild future timestamp must not keep one around forever. */
-  return age <= windowMs && age >= -windowMs
+  if (age > windowMs || age < -windowMs) return undefined
+  return created + windowMs
 }
 
 /**
@@ -446,13 +448,14 @@ function inRegion(suffix) {
  * @param input.paused - true while the grouping mode is not "按工作区" (no rules at all).
  * @param input.now - epoch ms, injectable for tests (default: Date.now()).
  * @param input.newcomerWindowMs - "just added" window, injectable for tests.
- * @returns `{ css, chips, empty, joinIds }`, `chips` being
+ * @returns `{ css, chips, empty, joinIds, expiresAt }`, `chips` being
  *   `{ workspaceId, kind: 'outside' | 'count', names?, join? }`, `joinIds` the set of rows that get
- *   the one-click "join this collection" button (user collections only), and `empty` naming the
- *   empty-state copy to show (`'unowned' | 'collection'`) or undefined.
+ *   the one-click "join this collection" button (user collections only), `empty` naming the
+ *   empty-state copy to show (`'unowned' | 'collection'`) or undefined, and `expiresAt` the epoch ms
+ *   at which a kept newcomer row stops being one (undefined when nothing expires).
  */
 export function collectionFilterPlan({ doc, workspaces, labels, currentId, currentWorkspaceId, paused, now, newcomerWindowMs }) {
-  if (paused) return { css: '', chips: [], empty: undefined, joinIds: new Set() }
+  if (paused) return { css: '', chips: [], empty: undefined, joinIds: new Set(), expiresAt: undefined }
   const selected = currentId ?? doc?.selectedId ?? COLLECTION_ALL_ID
   const current = String(currentWorkspaceId ?? '')
   /* "All workspaces" is the only view that filters nothing; both the unowned view and every user
@@ -468,6 +471,7 @@ export function collectionFilterPlan({ doc, workspaces, labels, currentId, curre
   const joinIds = new Set()
   const keptIds = new Set()
   let visibleCount = 0
+  let expiresAt
   for (const workspace of workspaces ?? []) {
     const workspaceId = String(workspace?.workspaceId ?? '')
     if (workspaceId === '') continue
@@ -484,12 +488,21 @@ export function collectionFilterPlan({ doc, workspaces, labels, currentId, curre
       continue
     }
     /* Two rows survive the filter: the workspace on screen (hiding the row of the session the user is
-       reading is never right) and one added within the newcomer window (a row that vanishes right
-       after "添加工作区…" reads as a broken feature). */
-    const kept = workspaceId === current || (joinable && isNewcomerWorkspace(workspace, stamp, windowMs))
-    if (!kept) {
+       reading is never right) and one added within the newcomer window that is still UNFILED. A
+       workspace the user already put in another collection is not waiting to be classified, and
+       keeping it here for the whole window would nag the same row in every collection they visit
+       (it is stored membership that says where it belongs). */
+    const newcomer = joinable && collectionsOfWorkspace(doc, workspaceId).length === 0
+      ? newcomerExpiresAt(workspace, stamp, windowMs)
+      : undefined
+    if (workspaceId !== current && newcomer === undefined) {
       rules.push(`${inRegion(`*:has(> [data-row-key="workspace:${escapeAttribute(workspaceId)}"])`)}{display:none}`)
       continue
+    }
+    /* A kept newcomer disappears on its own at this instant and nothing else re-renders the sidebar
+       then, so the plan names it and the hook schedules a recompute (see useCollectionsFilter). */
+    if (newcomer !== undefined && workspaceId !== current && (expiresAt === undefined || newcomer < expiresAt)) {
+      expiresAt = newcomer
     }
     /* A kept row is on screen, so it also keeps the empty-view copy away. */
     visibleCount += 1
@@ -541,5 +554,5 @@ export function collectionFilterPlan({ doc, workspaces, labels, currentId, curre
       : JSON.stringify(`+${chip.names.length}`)
     rules.push(`${outline}${selector}::after{content:${content}}`)
   }
-  return { css: rules.join('\n'), chips, empty, joinIds }
+  return { css: rules.join('\n'), chips, empty, joinIds, expiresAt }
 }
