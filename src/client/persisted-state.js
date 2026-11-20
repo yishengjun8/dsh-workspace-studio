@@ -47,6 +47,7 @@ import { MUSIC_DEFAULT_DIR } from '../shared/music-score.js'
 /* Store keys of every format before the current one: deleted on load and never interpreted, so nothing here knows those shapes. */
 const LEGACY_STORE_KEYS = Object.freeze([
   'dsh.workspace.studio.preview-sessions.v1',
+  'dsh.workspace.studio.preview-sessions.v2',
   'dsh.workspace.studio.settings.v1',
   'dsh.workspace.studio.layout.v1',
   'dsh.workspace.studio.token-prices.v1',
@@ -256,7 +257,7 @@ function normalizePreviewSessions(value) {
        when it carries non-default music prefs, so reopening the workshop in that session
        starts from the recorded settings. */
     if (restored.tabs.length === 0 && restored.expanded.length === 0 && !hasMusicPrefs(restored.musicPrefs)) continue
-    const serialized = serializePreviewSession(restored.activePath, restored.tabs, restored.expanded, restored.musicPrefs)
+    const serialized = serializePreviewSession(restored.activePath, restored.tabs, restored.expanded, restored.musicPrefs, restored)
     sessions[key] = {
       ...serialized,
       ...(typeof snapshot.updatedAt === 'number' && Number.isFinite(snapshot.updatedAt)

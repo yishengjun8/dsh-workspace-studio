@@ -1,14 +1,15 @@
-import { createElement as h, Fragment } from 'react'
-import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
+import { createElement as h, Fragment, useEffect, useState } from 'react'
+import { CodeBlock, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import { translate } from '../../locale/index.js'
 import { PanelState } from '../../panel-state.js'
 import { colorGroupOf, diffColorVars, highlightPresetOf, readOnlyReason } from '../../format.js'
+import { getCachedPreview } from '../../file-cache.js'
 import { CodeEditor } from '../editor.js'
 import { BrowseView } from '../../renderers/browse-view.js'
 import { ConvertedView } from '../../renderers/converted-view.js'
 import { HtmlPreview } from '../../renderers/html-preview.js'
 import { ImageView } from '../../renderers/image-view.js'
-import { RENDERER_IMAGE, RENDERER_OFFICE, RENDERER_PDF, useMarkdownLabels } from '../../renderers/registry.js'
+import { byteKindOf, RENDERER_IMAGE, RENDERER_OFFICE, RENDERER_PDF, shikiLanguageFor, useMarkdownLabels } from '../../renderers/registry.js'
 import { isRunnableName } from '../../run-detect.js'
 import { isSyntheticTab } from '../../preview-tabs.js'
 import { RunConsole } from './run-panel.js'
@@ -106,4 +107,99 @@ export function PreviewPane({ preview, settings, editing, activeTab, draft, view
         ? h(HtmlPreview, { draft, path: preview.path, readEpoch, sessionId, workspaceId })
         : null),
   ))
+}
+
+/* Text of a tab rendered in the NON-focused pane. The inactive pane is a read-only look at the same
+   tab: a loaded (or draft-carrying) tab already has its text in memory, a cold restored tab is read
+   once through the workspace API, and a cached read paints instantly. The read never writes drafts,
+   never marks the tab, and never mounts a CodeMirror instance (one live editor is a hard invariant of
+   editor.js's bridge). */
+function useStaticPreviewText(tab, workspaceId, readFile) {
+  const byteKind = tab === undefined ? undefined : byteKindOf(tab.name)
+  const external = tab?.external === true
+  const outside = tab?.outside === true
+  const [state, setState] = useState(() => {
+    if (tab === undefined) return { state: 'idle' }
+    if (external) return { state: 'ready', text: tab.draft !== '' ? tab.draft : tab.baseText }
+    if (tab.loaded === true && tab.draftKnown === true) return { state: 'ready', text: tab.draft }
+    return { state: 'loading' }
+  })
+  useEffect(() => {
+    if (tab === undefined || byteKind !== undefined) return undefined
+    if (external) {
+      setState({ state: 'ready', text: tab.draft !== '' ? tab.draft : (typeof tab.baseText === 'string' ? tab.baseText : '') })
+      return undefined
+    }
+    if (tab.loaded === true && tab.draftKnown === true) {
+      setState({ state: 'ready', text: tab.draft })
+      return undefined
+    }
+    if (outside) {
+      if (typeof tab.baseText === 'string' && tab.baseText !== '') {
+        setState({ state: 'ready', text: tab.draft !== '' ? tab.draft : tab.baseText })
+        return undefined
+      }
+      setState({ state: 'outside' })
+      return undefined
+    }
+    const encoding = tab.encoding ?? 'utf-8'
+    const cached = getCachedPreview(workspaceId, tab.path, encoding)
+    if (cached !== undefined && typeof cached.payload?.content === 'string') {
+      setState({ state: 'ready', text: cached.payload.content })
+      return undefined
+    }
+    const controller = new AbortController()
+    setState({ state: 'loading' })
+    readFile(workspaceId, tab.path, controller.signal, encoding).then((result) => {
+      if (controller.signal.aborted) return
+      setState({ state: 'ready', text: typeof result?.content === 'string' ? result.content : '' })
+    }).catch((error) => {
+      if (controller.signal.aborted || error?.name === 'AbortError') return
+      setState({ state: 'error', message: error instanceof Error ? error.message : String(error) })
+    })
+    return () => controller.abort()
+  }, [tab?.baseText, tab?.draft, tab?.draftKnown, tab?.encoding, tab?.external, tab?.loaded, tab?.outside, tab?.path, byteKind, external, outside, readFile, workspaceId])
+  return state
+}
+
+/* Read-only body of a file tab in the non-focused pane. Markdown / HTML honor the pane's remembered
+   view mode; code and every other text file render as a highlighted static block. */
+export function StaticPreviewPane({ readFile, sessionId, tab, viewMode, workspaceId }) {
+  const markdownLabels = useMarkdownLabels()
+  const text = useStaticPreviewText(tab, workspaceId, readFile)
+  if (tab === undefined) return h('div', { className: 'dsh-ws-empty' }, translate('panel.previewHint'))
+  if (isSyntheticTab(tab)) return null
+  const byteKind = byteKindOf(tab.name)
+  if (byteKind === RENDERER_IMAGE || byteKind === RENDERER_PDF || byteKind === RENDERER_OFFICE) {
+    return h('div', { className: 'dsh-ws-preview-body dsh-ws-static-preview', 'data-kind': byteKind },
+      byteKind === RENDERER_IMAGE
+        ? h(ImageView, { name: tab.name, path: tab.path, readEpoch: 0, sessionId })
+        : h(ConvertedView, { kind: byteKind, name: tab.name, path: tab.path, readEpoch: 0, sessionId }))
+  }
+  if (text.state === 'outside') {
+    return h('div', { className: 'dsh-ws-empty' }, translate('preview.split.activateToRead'))
+  }
+  if (text.state === 'error') {
+    return h('div', { className: 'dsh-ws-empty' }, h(PanelState, { className: 'dsh-ws-error-card', message: text.message }))
+  }
+  if (text.state === 'loading') return h('div', { className: 'dsh-ws-empty' }, translate('renderer.loading'))
+  const content = typeof text.text === 'string' ? text.text : ''
+  const isMarkdown = /\.(md|markdown)$/iu.test(tab.name)
+  const isHtml = /\.(html?|xhtml)$/iu.test(tab.name)
+  if (isHtml && viewMode === 'preview') {
+    return h('div', { className: 'dsh-ws-preview-body dsh-ws-static-preview' },
+      h(HtmlPreview, { draft: content, path: tab.path, readEpoch: 0, sessionId, workspaceId }))
+  }
+  if (isMarkdown && viewMode === 'preview') {
+    return h('div', { className: 'dsh-ws-preview-body dsh-ws-static-preview' },
+      h('div', { className: 'dsh-ws-md-preview' }, h(MarkdownText, { text: content, labels: markdownLabels })))
+  }
+  return h('div', { className: 'dsh-ws-preview-body dsh-ws-static-preview' },
+    h('div', { className: 'dsh-ws-static-code' }, h(CodeBlock, {
+      code: content,
+      copiedLabel: translate('renderer.copied'),
+      copyLabel: translate('renderer.copy'),
+      lang: shikiLanguageFor(tab.name),
+      lineNumbers: true,
+    })))
 }

@@ -111,6 +111,13 @@ let editorInstanceSeq = 0
 function handleEditorUpdate(update) {
   const bridge = liveEditorBridge.current
   if (bridge === null) return
+  /* A retained EditorState keeps its old update listener. During a tab/pane switch the bridge
+     moves to the NEW instance before the old view is destroyed; an old view's late transaction
+     (focus/selection on unmount) must not report itself as the new instance's state, or the
+     retained map would store file A's document under file B's path. Only the live view's
+     transactions may route through the live bridge. */
+  const liveView = bridge.viewRef?.current
+  if (liveView !== undefined && liveView !== null && update.view !== liveView) return
   if (update.docChanged) {
     /* One sliceDoc per change, shared by the autosave and the context publish;
        the docChanged flag lets it rebuild its CRLF prefix table only on change. */
@@ -292,6 +299,7 @@ export function CodeEditor({ file, editing, wrap, onContext, onDirty, onSaveShor
       dirtyRef,
       contextRef,
       stateSinkRef,
+      viewRef: editorRef,
       compartmentsRef,
       /* Assigned below, once the change-gutter scheduler exists (see handleEditorUpdate). */
       scheduleDiff: null,

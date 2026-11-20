@@ -65,6 +65,7 @@ const ROUTES = Object.freeze({
   musicSave: { path: '/music/save', failure: { code: 'music-save-failed', key: 'error.music.save-failed' }, invalid: 'error.invalid-response.music' },
   musicLoad: { path: '/music/load', failure: { code: 'music-load-failed', key: 'error.music.load-failed' }, invalid: 'error.invalid-response.music' },
   musicList: { path: '/music/list', failure: { code: 'music-list-failed', key: 'error.music.list-failed' }, invalid: 'error.invalid-response.music' },
+  musicExport: { path: '/music/export', failure: { code: 'music-export-failed', key: 'error.music.export-failed' }, invalid: 'error.invalid-response.music' },
   musicSchema: { path: '/music/schema', failure: { code: 'music-schema-failed', key: 'error.music.schema-failed' }, invalid: 'error.invalid-response.music' },
   musicSampleManifest: { path: '/music/samples/manifest', failure: { code: 'music-samples-failed', key: 'error.music.samples-failed' }, invalid: 'error.invalid-response.music' },
   musicSampleFile: { path: '/music/samples/file', failure: { code: 'music-sample-failed', key: 'error.music.samples-failed' } },
@@ -73,6 +74,8 @@ const ROUTES = Object.freeze({
   musicCollab: { path: '/music/collab', failure: { code: 'music-collab-failed', key: 'error.music.collab-failed' } },
   musicCollabPatch: { path: '/music/collab/patch', failure: { code: 'music-collab-failed', key: 'error.music.collab-failed' } },
   musicCollabAck: { path: '/music/collab/patch/ack', failure: { code: 'music-collab-failed', key: 'error.music.collab-failed' } },
+  musicJobs: { path: '/music/jobs', failure: { code: 'music-collab-failed', key: 'error.music.collab-failed' } },
+  musicJobsAck: { path: '/music/jobs/ack', failure: { code: 'music-collab-failed', key: 'error.music.collab-failed' } },
 })
 
 const DEFAULT_FAILURE = Object.freeze({ code: 'request-failed', key: 'error.request-failed' })
@@ -427,6 +430,24 @@ export const listMusicRequest = (workspaceId, dir, signal) => request(ROUTES.mus
   signal,
   decode: (value) => (value !== null && typeof value === 'object' && typeof value.dir === 'string' && Array.isArray(value.files) ? value : undefined),
 })
+/* Export: the panel hands over one already-encoded file (WAV / MIDI / score JSON). The body is
+   raw bytes, so the JSON `content-type` branch of request() is bypassed on purpose; `overwrite`
+   only goes out after the dialog saw the Host's 409 for an existing file. */
+export const exportMusicFileRequest = (workspaceId, payload, signal) => request(ROUTES.musicExport, {
+  method: 'POST',
+  query: {
+    workspaceId,
+    dir: payload.dir,
+    name: payload.name,
+    format: payload.format,
+    overwrite: payload.overwrite === true ? '1' : undefined,
+  },
+  body: payload.bytes,
+  contentType: 'application/octet-stream',
+  timeoutMs: 90_000,
+  signal,
+  decode: (value) => (value !== null && typeof value === 'object' && typeof value.path === 'string' ? value : undefined),
+})
 /* Session-scoped piece history: only metadata comes back in the list; the selected doc is read
    from the item route so a 20-entry history never ships every score to the client at once. */
 export const listMusicCacheRequest = (session, signal) => request(ROUTES.musicCache, {
@@ -474,6 +495,28 @@ export const ackMusicCollabPatchRequest = (payload, session, tab, signal) => req
   method: 'POST',
   body: payload,
   query: { session, tab },
+  timeoutMs: 10_000,
+  signal,
+})
+/* ---- music workshop chat auto-generation jobs (session-keyed, never workspace files) ---- */
+
+/** Create the one generation job for a session (the page does not call this; the tool does on the Host). */
+export const createMusicJobRequest = (payload, signal) => request(ROUTES.musicJobs, {
+  method: 'POST',
+  body: payload,
+  timeoutMs: 10_000,
+  signal,
+})
+/** The page's poll: claim a pending job, or read back `{ job: null }` / `{ busy: true }`. */
+export const pollMusicJobRequest = (session, signal) => request(ROUTES.musicJobs, {
+  query: { session },
+  timeoutMs: 10_000,
+  signal,
+})
+/** Report the final compose/save/export result so the waiting tool call can return. */
+export const ackMusicJobRequest = (payload, signal) => request(ROUTES.musicJobsAck, {
+  method: 'POST',
+  body: payload,
   timeoutMs: 10_000,
   signal,
 })

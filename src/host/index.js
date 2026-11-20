@@ -2,18 +2,20 @@
 import z from '@deepseek-ai/schemastery'
 import { Buffer } from 'node:buffer'
 import { HttpError } from './errors.js'
-import { composeMusic, listMusicDocs, loadMusicDoc, saveMusicDoc } from './music.js'
+import { composeMusic, exportMusicFile, listMusicDocs, loadMusicDoc, saveMusicDoc } from './music.js'
 import { MUSIC_BARS_MAX, MUSIC_DOC_VERSION, MUSIC_STEPS_PER_BAR } from '../shared/music-score.js'
+import { MUSIC_EXPORT_FORMATS, MUSIC_EXPORT_MAX_BYTES } from '../shared/music-export.js'
 import { applyCollectionsPatch, readCollectionsStore } from './collections.js'
-import { isTrustedRequest, normalizeFailure, readJsonObject, requiredQuery, sendError, sendJson, sendRaw } from './http.js'
+import { isTrustedRequest, normalizeFailure, readBody, readJsonObject, requiredQuery, sendError, sendJson, sendRaw } from './http.js'
 import { normalizeRelativePath } from './paths.js'
 import { ENCODINGS } from './encodings.js'
 import { listTree, openInDefaultApp, readExternalPreview, readPreview, readPreviewHead, readRawFile, revealInExplorer, searchWorkspace } from './fs.js'
 import { readMusicSample, readMusicSampleManifest } from './music-samples.js'
 import { deleteMusicCacheEntry, listMusicCache, readMusicCacheEntry, upsertMusicCache } from './music-cache.js'
 import { ackMusicCollabPatch, dropMusicCollab, readMusicCollabPatch, upsertMusicCollab } from './music-collab.js'
+import { ackMusicJob, createMusicJob, readMusicJob, resetMusicJobs } from './music-jobs.js'
 import { MUSIC_REWRITE_BARS_MAX, MUSIC_REWRITE_NOTES_MAX } from '../shared/music-edit.js'
-import { installMusicTools } from './music-tools.js'
+import { installMusicComposeGuidance, installMusicTools } from './music-tools.js'
 import { createCommandPermissions } from './command-permissions.js'
 import { createEntry, fsOperation, renameEntry, saveFile } from './write.js'
 import { deleteDraftFile, draftTreeOperation, parseDraftGenerationQuery, readDraftFile, saveDraftFile, validateDraftOwner, validateDraftPayload } from './drafts.js'
@@ -81,6 +83,10 @@ export const Config = z.object({
   /* Deployment-level kill switch for the console file-permission gate. The user-level switch lives in
      permissions/cache.json; both must be true for the gate to fire. */
   enableCommandPermissions: z.boolean().default(true),
+  /* Chat auto-generation: when on, the music_compose tool and its short system-prompt guidance are
+     registered. Turning it off leaves the read/edit tools and the whole workshop UI untouched. */
+  enableMusicChat: z.boolean().default(true),
+  musicChatTimeoutMs: z.natural().min(10_000).max(600_000).default(300_000),
   gitExecutable: z.string().default('git'),
   svnExecutable: z.string().default('svn'),
   vcsTimeoutMs: z.natural().min(1000).max(120_000).default(10_000),
@@ -164,6 +170,7 @@ const ROUTES = Object.freeze({
   [`${API_PREFIX}/music/save`]: { methods: 'POST' },
   [`${API_PREFIX}/music/load`]: { methods: 'POST' },
   [`${API_PREFIX}/music/list`]: { methods: 'GET, HEAD' },
+  [`${API_PREFIX}/music/export`]: { methods: 'POST' },
   [`${API_PREFIX}/music/schema`]: { methods: 'GET' },
   [`${API_PREFIX}/music/samples/manifest`]: { methods: 'GET, HEAD' },
   [`${API_PREFIX}/music/samples/file`]: { methods: 'GET, HEAD' },
@@ -174,6 +181,10 @@ const ROUTES = Object.freeze({
   [`${API_PREFIX}/music/collab`]: { methods: 'POST, DELETE' },
   [`${API_PREFIX}/music/collab/patch`]: { methods: 'GET, HEAD' },
   [`${API_PREFIX}/music/collab/patch/ack`]: { methods: 'POST' },
+  /* Chat auto-generation: a tool creates one job, the page polls/claims it, and its ack settles
+     the waiting tool call. Also session-keyed, never workspace-keyed. */
+  [`${API_PREFIX}/music/jobs`]: { methods: 'GET, POST' },
+  [`${API_PREFIX}/music/jobs/ack`]: { methods: 'POST' },
 })
 /* The runner's request body bound: the argument text is capped at 4 KiB by run.js, so the JSON
    envelope only needs a little headroom over the shared mutation cap. */
@@ -182,6 +193,8 @@ const RUN_BODY_MAX_BYTES = 16 * 1024
 const MUSIC_BODY_MAX_BYTES = 2 * 1024 * 1024
 /* A collaboration registration mirrors the open score (summary + the editable tracks' notes). */
 const MUSIC_COLLAB_BODY_MAX_BYTES = 1536 * 1024
+/* A generation job carries only the compose brief, never a score or file bytes. */
+const MUSIC_JOB_BODY_MAX_BYTES = 64 * 1024
 const MUSIC_SAMPLE_ROOT = new URL('../assets/vcsl/', import.meta.url)
 /* 50 collections x 40-char names x up to 2000 workspace ids: the honest bound is a few hundred KiB,
    and the envelope never carries file content. */
@@ -438,6 +451,7 @@ async function handleRequest(ctx, config, writeQueues, req, res, permissions) {
     const musicSaveEndpoint = url.pathname === `${API_PREFIX}/music/save`
     const musicLoadEndpoint = url.pathname === `${API_PREFIX}/music/load`
     const musicListEndpoint = url.pathname === `${API_PREFIX}/music/list`
+    const musicExportEndpoint = url.pathname === `${API_PREFIX}/music/export`
     const musicSchemaEndpoint = url.pathname === `${API_PREFIX}/music/schema`
     const musicSamplesManifestEndpoint = url.pathname === `${API_PREFIX}/music/samples/manifest`
     const musicSamplesFileEndpoint = url.pathname === `${API_PREFIX}/music/samples/file`
@@ -446,6 +460,8 @@ async function handleRequest(ctx, config, writeQueues, req, res, permissions) {
     const musicCollabEndpoint = url.pathname === `${API_PREFIX}/music/collab`
     const musicCollabPatchEndpoint = url.pathname === `${API_PREFIX}/music/collab/patch`
     const musicCollabAckEndpoint = url.pathname === `${API_PREFIX}/music/collab/patch/ack`
+    const musicJobsEndpoint = url.pathname === `${API_PREFIX}/music/jobs`
+    const musicJobsAckEndpoint = url.pathname === `${API_PREFIX}/music/jobs/ack`
     /* Handlers below, in order. Each compares the path it serves; the method whitelist and the 404
        answer were already settled by the ROUTES lookup above. */
     if (contextEndpoint) {
@@ -678,6 +694,10 @@ async function handleRequest(ctx, config, writeQueues, req, res, permissions) {
         collab: true,
         rewriteBarsMax: MUSIC_REWRITE_BARS_MAX,
         rewriteNotesMax: MUSIC_REWRITE_NOTES_MAX,
+        /* Export: the panel offers the formats the Host can write and refuses to open the
+           dialog at all when this field is missing (an older Host has no /music/export). */
+        exportFormats: [...MUSIC_EXPORT_FORMATS],
+        exportMaxBytes: MUSIC_EXPORT_MAX_BYTES,
       })
       return
     }
@@ -721,6 +741,23 @@ async function handleRequest(ctx, config, writeQueues, req, res, permissions) {
         session: url.searchParams.get('session') ?? payload?.session,
         tab: url.searchParams.get('tab') ?? payload?.tab,
       }))
+      return
+    }
+    /* Auto-generation jobs: session-keyed like the collaboration bridge, so they are handled
+       before the workspaceId fence. The page only polls and acks; `create` is called by the tool
+       through this module, not over HTTP, but the route stays available for a page-side probe. */
+    if (musicJobsEndpoint) {
+      if (req.method === 'POST') {
+        const payload = await readJsonObject(req, config, MUSIC_JOB_BODY_MAX_BYTES)
+        sendJson(req, res, 200, createMusicJob(payload?.session, payload?.params))
+        return
+      }
+      sendJson(req, res, 200, readMusicJob(url.searchParams.get('session')))
+      return
+    }
+    if (musicJobsAckEndpoint) {
+      const payload = await readJsonObject(req, config, MUSIC_JOB_BODY_MAX_BYTES)
+      sendJson(req, res, 200, ackMusicJob(payload))
       return
     }
     const workspaceId = requiredQuery(url, 'workspaceId')
@@ -770,6 +807,24 @@ async function handleRequest(ctx, config, writeQueues, req, res, permissions) {
     }
     if (musicListEndpoint) {
       sendJson(req, res, 200, await listMusicDocs(workspace, { dir: url.searchParams.get('dir') ?? '' }))
+      return
+    }
+    if (musicExportEndpoint) {
+      /* Raw bytes, not JSON: the client encodes WAV / MIDI and uploads one body. The budget is
+         the export one (96 MiB), never the 4 KiB JSON mutation cap. */
+      const bytes = await readBody(
+        req,
+        MUSIC_EXPORT_MAX_BYTES,
+        'music-export-too-large',
+        `导出文件不能超过 ${MUSIC_EXPORT_MAX_BYTES} 字节`,
+      )
+      sendJson(req, res, 200, await exportMusicFile(workspace, config, writeQueues, {
+        dir: url.searchParams.get('dir') ?? '',
+        format: url.searchParams.get('format') ?? '',
+        name: url.searchParams.get('name') ?? '',
+        overwrite: url.searchParams.get('overwrite') === '1',
+        bytes,
+      }))
       return
     }
     if (vcsEndpoint) {
@@ -973,13 +1028,26 @@ export function apply(ctx, config) {
      service still serves the workshop UI, it just has no model-facing tools to drive it, and
      the panel's collaboration row then reports the missing capability instead of hanging. */
   ctx.inject(['tools'], toolsCtx => {
-    const dispose = installMusicTools(toolsCtx)
+    const dispose = installMusicTools(toolsCtx, {
+      config,
+      ctx,
+      enableCompose: config.enableMusicChat,
+      writeQueues,
+    })
     toolsCtx.effect(() => dispose, 'workspace-studio: music collaboration tools')
     /* Console file-permission gate: registered next to the tools service it observes. The listener is
        a `tools/pre-execute` waterfall participant, so it must call next() when it allows. */
     const disposeGate = permissions.install(toolsCtx)
     toolsCtx.effect(() => disposeGate, 'workspace-studio: console file permission gate')
   })
+  /* The "generate music" intent reaches the compose tool through this short guidance section; it is
+     registered only when the compose tool itself exists, so it never names an uncallable tool. */
+  ctx.inject(['tools', 'systemPrompt'], promptCtx => {
+    if (!config.enableMusicChat) return
+    const dispose = installMusicComposeGuidance(promptCtx)
+    promptCtx.effect(() => dispose, 'workspace-studio: music compose guidance')
+  })
+  ctx.effect(() => () => resetMusicJobs(), 'workspace-studio: music job bridge teardown')
 }
 
 

@@ -4,10 +4,10 @@ import { clampFontPercent, CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MAX, C
 import { translate } from '../../locale/index.js'
 import { clamp, diffColorVars, fileLabel, formatBytes, readOnlyReason, vcsStatusColorVars } from '../../format.js'
 import { copyText, defaultEntryName, entryNameError, entryPath, joinAbsolutePath, parentPath, pathBaseName, rewriteDirectoryMap, rewritePathMap, rewritePathSet, rewriteRelativePath, selectedLevelPath } from '../../paths.js'
-import { ancestorDirectoryPaths, dropIndexFromEvent, entryFromPreviewTab, isMindmapTab, isMusicTab, isPermissionTab, isPlanTab, isReviewTab, isSyntheticTab, isTemporaryTab, hasTabPath, isUnpersistedTab, mindmapRootIdOfTab, mindmapTabPath, musicTabPath, normalizePreviewSession, openPermanentTab, openPreviewTab, orderPinnedFirst, patchTab, permissionTabPath, planAddressOfTab, planTabPath, promoteTemporaryTab, reviewAddressOfTab, reviewTabPath, rewritePreviewTabs, serializePreviewSession } from '../../preview-tabs.js'
+import { ancestorDirectoryPaths, dropIndexFromEvent, entryFromPreviewTab, isMindmapTab, isMusicTab, isPermissionTab, isPlanTab, isReviewTab, isSyntheticTab, isTemporaryTab, hasTabPath, isUnpersistedTab, mindmapRootIdOfTab, mindmapTabPath, musicTabPath, normalizePreviewSession, openPermanentTab, openPreviewTab, orderPinnedFirst, paneOfTab, patchTab, permissionTabPath, planAddressOfTab, planTabPath, PREVIEW_PANE_BOTTOM, PREVIEW_PANE_TOP, promoteTemporaryTab, reviewAddressOfTab, reviewTabPath, rewritePreviewTabs, serializePreviewSession, tabsOfPane } from '../../preview-tabs.js'
 import { registerPreviewFontReset } from '../../preview-font.js'
 import { IconNewFile, IconNewFolder, IconRefresh, IconSearch } from '../../icons.js'
-import { encodingLabel, fetchEncodings, hostAbsoluteHref, openFileExternal, rawFileUrl, requestFsOperation, revealInExplorer, uploadExternalFile, WorkspaceApiError } from '../../api.js'
+import { encodingLabel, fetchEncodings, hostAbsoluteHref, openFileExternal, pollMusicJobRequest, rawFileUrl, requestFsOperation, revealInExplorer, uploadExternalFile, WorkspaceApiError } from '../../api.js'
 import { hasDraggedFiles, hasNormalFile } from '../../utils.js'
 import { invalidateCachedSubtree, rewriteCachedPaths } from '../../file-cache.js'
 import { mindmapDockStore } from '../../mindmap/registry.js'
@@ -25,7 +25,9 @@ import { vcsBarModel, vcsPendingAutoExpand } from '../../vcs.js'
 import { useVcsStatus } from './hooks/vcs.js'
 import { useDiffBase } from './hooks/diff-base.js'
 import { diffReasonKey, summaryHasChanges } from '../../diff-gutter.js'
-import { PreviewPane } from './preview.js'
+import { PreviewPane, StaticPreviewPane } from './preview.js'
+import { PaneSplitter } from './pane-splitter.js'
+import { useMobile } from '../../mobile.js'
 import { PreviewTabs } from './tabs.js'
 import { SearchResults } from './search.js'
 import { useDismissMenu } from './hooks/dismiss.js'
@@ -43,6 +45,7 @@ import { normalizeMusicPrefs } from '../../music-prefs.js'
 import { ReviewView } from '../../renderers/review-view.js'
 import { PermissionPage } from '../permissions.js'
 import { usePendingPermissions } from '../../permission-store.js'
+import { shouldSkipPoll } from '../../poll-gate.js'
 
 /* Whether a preview tab has no file-tree row: a docked mind map, an opened plan or change
    review, or a file OUTSIDE the workspace. It selects nothing and is never revealed —
@@ -54,7 +57,7 @@ function hasNoTreeRow(tab) {
 
 /* The tab a file-tree entry opens. `temporary` is the single-click preview slot; the
    permanent and preview paths share this one shape so they cannot drift apart. */
-function fileTabFromEntry(entry, temporary) {
+function fileTabFromEntry(entry, temporary, pane = PREVIEW_PANE_TOP) {
   return {
     baseText: '',
     dirty: false,
@@ -62,6 +65,7 @@ function fileTabFromEntry(entry, temporary) {
     draftKnown: false,
     editing: false,
     name: entry.name,
+    pane: pane === PREVIEW_PANE_BOTTOM ? PREVIEW_PANE_BOTTOM : PREVIEW_PANE_TOP,
     path: entry.path,
     pinned: false,
     saving: false,
@@ -74,6 +78,21 @@ function fileTabFromEntry(entry, temporary) {
     lineEnding: 'none',
     temporary: temporary === true,
   }
+}
+
+/* The flat tab array is the runtime source of truth; this keeps its pane blocks contiguous and
+   pinned-first inside each pane, so every strip render and every persisted group is canonical.
+   It runs on every tab update (the setTabs wrapper), making move/pin/unpin order-independent. */
+function orderTabLayout(tabs) {
+  const list = Array.isArray(tabs) ? tabs : []
+  const top = orderPinnedFirst(list.filter(tab => paneOfTab(tab) === PREVIEW_PANE_TOP))
+  const bottom = orderPinnedFirst(list.filter(tab => paneOfTab(tab) === PREVIEW_PANE_BOTTOM))
+  return [...top, ...bottom]
+}
+
+/* The default viewer mode of a file: documents open rendered, source files open in the editor. */
+function defaultViewModeOf(tab) {
+  return tab !== undefined && (isHtmlName(tab.name) || isMarkdownName(tab.name)) ? VIEW_PREVIEW : VIEW_EDIT
 }
 
 /* Bounded concurrency for the version-control auto-expansion: a large change set must not fire one
@@ -101,15 +120,37 @@ export function WorkspaceExplorer({
   workspace, treePortalTarget, sessionTitle, sessionId, previewSessionId, renameSession, publishEditorContext, listDirectory, readFile, saveFile, createEntry, renameEntry, storedPreviewSession, persistPreviewSession, settingsStore, loadDraft, persistDraftFile, removeDraftFile, draftTree, checkFileChange, mindmapActions, sessionCwdOf,
 }) {
   const settings = useSyncExternalStore(settingsStore.subscribe, settingsStore.getSnapshot)
+  const mobile = useMobile()
   /* Draft scope follows the shared persistence key: inside a mind map every member session shares one draft scope (the map's root), since the tab strip and its in-memory draft are shared. */
   const draftScopeId = sessionId === undefined ? `workspace:${workspace.workspaceId}` : `session:${previewSessionId ?? sessionId}`
   /* Restore under this mount's persistence family: a docked mind-map tab whose dockedAt stamp
      names another family must not reappear here. */
   const initialPreviewSession = normalizePreviewSession(storedPreviewSession, previewSessionId)
+  const initialPaneActive = initialPreviewSession.paneActive
   const [directories, setDirectories] = useState(() => new Map())
   const [expanded, setExpanded] = useState(() => new Set(['', ...(initialPreviewSession.expanded ?? [])]))
-  const [tabs, setTabs] = useState(() => initialPreviewSession.tabs)
-  const [activePath, setActivePath] = useState(() => initialPreviewSession.activePath)
+  /* `tabs` stays the flat runtime list; every write goes through the wrapper so the pane blocks
+     stay grouped and pinned-first inside each pane (orderTabLayout). */
+  const [tabs, setTabsState] = useState(() => initialPreviewSession.tabs)
+  const setTabs = useCallback((updater) => {
+    setTabsState(current => orderTabLayout(typeof updater === 'function' ? updater(current) : updater))
+  }, [])
+  /* Per-pane active tab and the last-focused pane. `activePath` is derived from the focused pane:
+     the single live editor session always follows it. */
+  const [paneActive, setPaneActive] = useState(() => initialPaneActive)
+  const [focusedPane, setFocusedPane] = useState(() => initialPreviewSession.focusedPane)
+  const [splitRatio, setSplitRatio] = useState(() => initialPreviewSession.splitRatio)
+  const activePath = paneActive[focusedPane] ?? null
+  /* Viewer mode is per pane, not per file: switching focus keeps the pane's mode, activating a
+     different tab in that pane resets it from the file's default (markdown/html = rendered). */
+  const [viewModes, setViewModes] = useState(() => {
+    const modeOf = (pane) => {
+      const path = initialPaneActive[pane]
+      return defaultViewModeOf(initialPreviewSession.tabs.find(tab => tab.path === path))
+    }
+    return { a: modeOf(PREVIEW_PANE_TOP), b: modeOf(PREVIEW_PANE_BOTTOM) }
+  })
+  const viewMode = viewModes[focusedPane]
   /* Per-session-page music settings (model choice + roll height). They live in the preview
      snapshot next to the tabs, so a map family shares one page and each session keeps its own. */
   const [musicPrefs, setMusicPrefs] = useState(() => normalizeMusicPrefs(initialPreviewSession.musicPrefs))
@@ -132,10 +173,13 @@ export function WorkspaceExplorer({
   const [encodingOptions, setEncodingOptions] = useState(ENCODING_FALLBACK)
   const [draggingPath, setDraggingPath] = useState(null)
   const [dropIndex, setDropIndex] = useState(null)
+  const [dropPane, setDropPane] = useState(null)
+  /* The lower-half split drop zone: shown only while a tab is dragged in the single-pane layout. */
+  const [dropZone, setDropZone] = useState(false)
+  /* In the split layout, the OTHER pane highlights when a dragged tab hovers over its body. */
+  const [dropBodyPane, setDropBodyPane] = useState(null)
   const [dropActive, setDropActive] = useState(false)
   const [previewToast, setPreviewToast] = useState()
-  /* Viewer mode for the active file (registry-driven): 'edit' = the editor, 'preview' = the rendered view; per-file, reset on switch, and deliberately not persisted. */
-  const [viewMode, setViewMode] = useState(VIEW_EDIT)
   /* Preview text size: the header stepper edits the ACTIVE tab's own percentage, and clicking its
      number swaps it for an input. `fontDraft` is that input's text ('' = nothing typed yet). */
   const [fontEditing, setFontEditing] = useState(false)
@@ -165,13 +209,20 @@ export function WorkspaceExplorer({
   const refreshPendingRef = useRef(null)
   // Like refreshPendingRef but for the cancel action: surfaces the "reloaded from disk" status once the discard re-read completes.
   const cancelRestoreRef = useRef(null)
-  const previewTabsRef = useRef(null)
+  /* Per-pane strips and their floating scrollbars; the live editor only uses the focused pane's
+     header/search refs, while both strips keep their own tab scroll state. */
+  const previewTabsRefA = useRef(null)
+  const previewTabsRefB = useRef(null)
   // The file tree's native scroll container; its scrollTop must be restored after a refresh re-lists expanded directories.
   const treeScrollRef = useRef(null)
   const previewSectionRef = useRef(null)
-  const previewScrollbarRef = useRef(null)
-  const previewScrollThumbRef = useRef(null)
+  const previewScrollbarRefA = useRef(null)
+  const previewScrollbarRefB = useRef(null)
+  const previewScrollThumbRefA = useRef(null)
+  const previewScrollThumbRefB = useRef(null)
   const previewHeaderRef = useRef(null)
+  /* The strip a tab/strip menu points at: its scroll region owns the menu (menu-dismiss §50). */
+  const tabMenuAnchorRef = useRef(null)
   const dropSuppressedRef = useRef(false)
   const toastSeqRef = useRef(0)
   const copyNoticeTimer = useRef()
@@ -187,6 +238,13 @@ export function WorkspaceExplorer({
   const reloadingPathsRef = useRef(new Set())
   const tabsRef = useRef(initialPreviewSession.tabs)
   const activePathRef = useRef(initialPreviewSession.activePath)
+  const paneActiveRef = useRef(initialPaneActive)
+  const focusedPaneRef = useRef(initialPreviewSession.focusedPane)
+  const splitRatioRef = useRef(initialPreviewSession.splitRatio)
+  const setViewMode = useCallback((mode) => {
+    const pane = focusedPaneRef.current
+    setViewModes(current => current[pane] === mode ? current : { ...current, [pane]: mode })
+  }, [])
   const expandedRef = useRef(new Set(['', ...(initialPreviewSession.expanded ?? [])]))
   // Live editor scroll positions, written per scroll event without touching React state or persistence.
   const scrollTopRef = useRef(new Map())
@@ -220,11 +278,26 @@ export function WorkspaceExplorer({
   const vcsRef = useRef(vcs)
   vcsRef.current = vcs
   const selectedDirectoryPath = selectedLevelPath(selected)
-  const activatePath = useCallback((path) => {
+  const activatePath = useCallback((path, pane = focusedPaneRef.current) => {
     // A cancel marker belongs to one file; switching files must not let a stale marker decorate a later read.
     if (path !== activePathRef.current) cancelRestoreRef.current = null
-    activePathRef.current = path
-    setActivePath(path)
+    if (pane === focusedPaneRef.current) activePathRef.current = path
+    setPaneActive(current => current[pane] === path ? current : { ...current, [pane]: path })
+  }, [])
+  /* Focus a tab that already exists (possibly in the other pane) without duplicating it. The
+     live editor session follows the focused pane's active path, so focusing the owner pane is
+     enough; refs are updated eagerly for callers that run in the same event. */
+  const selectTabInPane = useCallback((tab) => {
+    const pane = paneOfTab(tab)
+    if (pane !== focusedPaneRef.current) {
+      focusedPaneRef.current = pane
+      setFocusedPane(pane)
+    }
+    paneActiveRef.current = { ...paneActiveRef.current, [pane]: tab.path }
+    activePathRef.current = tab.path
+    setPaneActive(current => current[pane] === tab.path ? current : { ...current, [pane]: tab.path })
+    if (hasNoTreeRow(tab)) setSelected(undefined)
+    else setSelected(entryFromPreviewTab(tab))
   }, [])
   /* Open the music workshop: mint one synthetic music tab. The score starts as a deterministic
      sketch so the transport is immediately playable; the panel replaces it with an AI answer
@@ -248,6 +321,7 @@ export function WorkspaceExplorer({
       musicDoc: composeMusicScore({ bars: 8 }),
       musicRev: 0,
       name: translate('music.tab'),
+      pane: focusedPaneRef.current,
       path,
       pinned: false,
       revision: null,
@@ -262,6 +336,94 @@ export function WorkspaceExplorer({
     activatePath(path)
   }, [activatePath])
 
+  /* Chat auto-generation: open a NEW workshop tab for one claimed job. A new tab is deliberate —
+     the user's existing score (saved or not) is never replaced by a background request. */
+  const autoJobIdsRef = useRef(new Set())
+  const openMusicJobTab = useCallback((job) => {
+    const id = typeof job?.id === 'string' ? job.id : ''
+    if (id === '' || autoJobIdsRef.current.has(id)) return
+    if (autoJobIdsRef.current.size > 32) autoJobIdsRef.current.clear()
+    autoJobIdsRef.current.add(id)
+    setTabContextMenu(undefined)
+    setStripMenu(undefined)
+    const bars = Number.isFinite(Number(job?.params?.bars)) ? Math.max(4, Math.min(64, Math.round(Number(job.params.bars)))) : 8
+    const path = musicTabPath(`auto-${id}`)
+    setTabs(current => {
+      if (current.some(tab => tab.path === path)) return patchTab(current, path, { autoJob: job })
+      return [...current, {
+        autoJob: job,
+        baseText: '',
+        baseRevision: null,
+        bom: false,
+        dirty: false,
+        draft: '',
+        draftKnown: false,
+        editing: false,
+        encoding: 'utf-8',
+        external: false,
+        kind: 'music',
+        lineEnding: 'none',
+        musicDoc: composeMusicScore({ bars }),
+        musicRev: 0,
+        name: translate('music.tab'),
+        pane: focusedPaneRef.current,
+        path,
+        pinned: false,
+        revision: null,
+        savedPath: null,
+        saving: false,
+        scrollTop: 0,
+        size: null,
+        status: undefined,
+        symlink: false,
+      }]
+    })
+    setSelected(undefined)
+    activatePath(path)
+  }, [activatePath])
+
+  /* Chat job poller: one light request per 3s while the page is visible. The Host answers
+     `{ job: null }` when there is nothing to do and `{ busy: true }` while one job runs, so an
+     idle poll costs a small JSON round-trip on loopback. Hidden tabs skip (a background page
+     must not drive generation); the tool's Host fallback covers that case. */
+  useEffect(() => {
+    const session = sessionId ?? previewSessionId
+    if (typeof session !== 'string' || session === '') return undefined
+    let cancelled = false
+    let timer = 0
+    let controller = null
+    const schedule = (delay) => {
+      window.clearTimeout(timer)
+      timer = window.setTimeout(tick, delay)
+    }
+    const tick = async () => {
+      if (cancelled) return
+      if (shouldSkipPoll()) {
+        schedule(3000)
+        return
+      }
+      controller = new AbortController()
+      try {
+        const result = await pollMusicJobRequest(session, controller.signal)
+        if (cancelled) return
+        const job = result !== null && typeof result === 'object' ? result.job : null
+        if (job !== null && typeof job === 'object' && typeof job.id === 'string') openMusicJobTab(job)
+        schedule(3000)
+      } catch (error) {
+        if (cancelled) return
+        /* An old Host has no /music/jobs route (a new client before a dsh restart): back off
+           instead of hammering a 404; the tool itself does not exist on such a Host. */
+        schedule(error?.status === 404 ? 60_000 : 5_000)
+      }
+    }
+    schedule(0)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+      if (controller !== null) controller.abort()
+    }
+  }, [openMusicJobTab, previewSessionId, sessionId])
+
   /* Open the console file-permission page: one synthetic tab per scope (the current Session, or its
      mind-map root). Re-opening an already open scope activates that tab instead of duplicating it. */
   const openPermissionsPage = useCallback(() => {
@@ -270,6 +432,11 @@ export function WorkspaceExplorer({
     if (sessionId === null || sessionId === undefined || String(sessionId) === '') return
     const scopeKey = previewSessionId ?? String(sessionId)
     const path = permissionTabPath(scopeKey)
+    const existing = tabsRef.current.find(tab => tab.path === path)
+    if (existing !== undefined) {
+      selectTabInPane(existing)
+      return
+    }
     setTabs(current => (current.some(tab => tab.path === path) ? current : [...current, {
       baseText: '',
       baseRevision: null,
@@ -283,6 +450,7 @@ export function WorkspaceExplorer({
       kind: 'permissions',
       lineEnding: 'none',
       name: translate('permissions.tab'),
+      pane: focusedPaneRef.current,
       path,
       pinned: false,
       revision: null,
@@ -300,8 +468,20 @@ export function WorkspaceExplorer({
 
   useLayoutEffect(() => { tabsRef.current = tabs }, [tabs])
   useLayoutEffect(() => { activePathRef.current = activePath }, [activePath])
+  useLayoutEffect(() => { paneActiveRef.current = paneActive }, [paneActive])
+  useLayoutEffect(() => { focusedPaneRef.current = focusedPane }, [focusedPane])
+  useLayoutEffect(() => { splitRatioRef.current = splitRatio }, [splitRatio])
   useLayoutEffect(() => { expandedRef.current = expanded }, [expanded])
   const activeTab = useMemo(() => activePath === null ? undefined : tabs.find(tab => tab.path === activePath), [activePath, tabs])
+  const topTabs = useMemo(() => tabsOfPane(tabs, PREVIEW_PANE_TOP), [tabs])
+  const bottomTabs = useMemo(() => tabsOfPane(tabs, PREVIEW_PANE_BOTTOM), [tabs])
+  const splitOpen = bottomTabs.length > 0
+  const topActivePath = paneActive[PREVIEW_PANE_TOP] ?? null
+  const bottomActivePath = paneActive[PREVIEW_PANE_BOTTOM] ?? null
+  const topActiveTab = topActivePath === null ? undefined : topTabs.find(tab => tab.path === topActivePath)
+  const bottomActiveTab = bottomActivePath === null ? undefined : bottomTabs.find(tab => tab.path === bottomActivePath)
+  const otherPane = focusedPane === PREVIEW_PANE_TOP ? PREVIEW_PANE_BOTTOM : PREVIEW_PANE_TOP
+  const otherActiveTab = otherPane === PREVIEW_PANE_TOP ? topActiveTab : bottomActiveTab
   /* A mind-map tab hosts the global host's stable body container instead of a file: no file header, status bar, tree selection, or file read. A plan tab renders a harness plan document instead of a file and is equally chrome-free. */
   const activeMindmap = activeTab !== undefined && isMindmapTab(activeTab)
   const activePlan = activeTab !== undefined && isPlanTab(activeTab)
@@ -366,7 +546,11 @@ export function WorkspaceExplorer({
       const live = scrollTopRef.current.get(tab.path)
       return live === undefined ? tab : { ...tab, scrollTop: live }
     })
-    persistPreviewSession(serializePreviewSession(activePathRef.current, snapshotTabs, expandedRef.current, musicPrefsRef.current))
+    persistPreviewSession(serializePreviewSession(activePathRef.current, snapshotTabs, expandedRef.current, musicPrefsRef.current, {
+      focusedPane: focusedPaneRef.current,
+      paneActive: paneActiveRef.current,
+      splitRatio: splitRatioRef.current,
+    }))
   }, [persistPreviewSession])
   // Persist on a microtask after commit so a pin + immediate refresh cannot race the localStorage write, and bursts coalesce into one write per event-loop tick.
   const persistPendingRef = useRef(false)
@@ -389,7 +573,7 @@ export function WorkspaceExplorer({
     })
     schedulePersist()
   }, [schedulePersist])
-  useLayoutEffect(() => { schedulePersist() }, [activePath, schedulePersist, tabs, expanded, musicPrefs])
+  useLayoutEffect(() => { schedulePersist() }, [activePath, expanded, focusedPane, musicPrefs, paneActive, schedulePersist, splitRatio, tabs])
 
   /* Dock requests from the sidebar mind-map entries and the session-header button: add/update the mind-map tab and activate it. A request is consumed only when its expectFamily matches this mount's previewSessionId. */
   usePendingRequest(mindmapDockStore, previewSessionId ?? null, (request) => {
@@ -398,6 +582,7 @@ export function WorkspaceExplorer({
     mindmapViewHost.ensure(String(request.rootId), true)
     /* Stamp the persistence family the tab was docked on so a snapshot carrying the tab cannot leak it into unrelated sessions. */
     const dockedAt = previewSessionId ?? null
+    const existingTab = tabsRef.current.find(tab => tab.path === path)
     setTabs(current => {
       const existing = current.find(tab => tab.path === path)
       if (existing !== undefined) {
@@ -418,6 +603,7 @@ export function WorkspaceExplorer({
         kind: 'mindmap',
         lineEnding: 'none',
         name: request.name,
+        pane: focusedPaneRef.current,
         path,
         pinned: false,
         revision: null,
@@ -429,8 +615,11 @@ export function WorkspaceExplorer({
         symlink: false,
       }]
     })
-    setSelected(undefined)
-    activatePath(path)
+    if (existingTab !== undefined) selectTabInPane(existingTab)
+    else {
+      setSelected(undefined)
+      activatePath(path)
+    }
   })
 
   /* Open requests for harness plans (ui-plan's 「查看全文」 and the turn's plan card): the openResource router publishes them, and the explorer whose previewSessionId matches the request's family consumes one as a session-only plan tab. The tab carries the plan's dsh-resource address in its synthetic path; its body renders the temporary review document or the harness plan resource. */
@@ -447,6 +636,7 @@ export function WorkspaceExplorer({
   /* Consumed by the explorer showing the plan's own session — the chat's session, or the map root whose preview strip the chat shares — so either identity is accepted. Any other mount leaves the request pending for the matching one. */
   usePendingRequest(planOpenStore, [previewSessionId ?? null, sessionId ?? null], (request) => {
     const path = planTabPath(request.address)
+    const existing = tabsRef.current.find(tab => tab.path === path)
     setTabs(current => hasTabPath(current, path)
       ? current
       : [...current, {
@@ -461,6 +651,7 @@ export function WorkspaceExplorer({
         kind: 'plan',
         lineEnding: 'none',
         name: request.name !== '' ? request.name : translate('plan.tab'),
+        pane: focusedPaneRef.current,
         path,
         pinned: false,
         revision: null,
@@ -470,8 +661,11 @@ export function WorkspaceExplorer({
         size: null,
         symlink: false,
       }])
-    setSelected(undefined)
-    activatePath(path)
+    if (existing !== undefined) selectTabInPane(existing)
+    else {
+      setSelected(undefined)
+      activatePath(path)
+    }
   })
 
   /* Open requests for change reviews (the chat's changed-files card): the openResource router
@@ -484,6 +678,7 @@ export function WorkspaceExplorer({
      matching one. */
   usePendingRequest(reviewOpenStore, [previewSessionId ?? null, sessionId ?? null], (request) => {
     const path = reviewTabPath(request.address)
+    const existing = tabsRef.current.find(tab => tab.path === path)
     const coordinates = parseChangesReviewAddress(request.address)
     setTabs(current => hasTabPath(current, path)
       ? current.map(tab => tab.path === path
@@ -502,6 +697,7 @@ export function WorkspaceExplorer({
         kind: 'review',
         lineEnding: 'none',
         name: translate('review.tabName', { turn: String(coordinates?.turn ?? 1) }),
+        pane: focusedPaneRef.current,
         path,
         pinned: false,
         revision: null,
@@ -513,8 +709,11 @@ export function WorkspaceExplorer({
         size: null,
         symlink: false,
       }])
-    setSelected(undefined)
-    activatePath(path)
+    if (existing !== undefined) selectTabInPane(existing)
+    else {
+      setSelected(undefined)
+      activatePath(path)
+    }
   })
 
   const editorSession = useEditorSession({
@@ -639,7 +838,20 @@ export function WorkspaceExplorer({
     setDiffBaseEpoch(current => current + 1)
   }, [vcs.payload?.kind, vcs.payload?.label])
   const sessionRename = useSessionRename({ sessionId, sessionTitle, renameSession, mounted })
-  const scrollbar = usePreviewScrollbar({ previewTabsRef, previewScrollbarRef, previewScrollThumbRef, activePath, tabsLength: tabs.length })
+  const scrollbarA = usePreviewScrollbar({
+    previewTabsRef: previewTabsRefA,
+    previewScrollbarRef: previewScrollbarRefA,
+    previewScrollThumbRef: previewScrollThumbRefA,
+    activePath: topActivePath,
+    tabsLength: topTabs.length,
+  })
+  const scrollbarB = usePreviewScrollbar({
+    previewTabsRef: previewTabsRefB,
+    previewScrollbarRef: previewScrollbarRefB,
+    previewScrollThumbRef: previewScrollThumbRefB,
+    activePath: bottomActivePath,
+    tabsLength: bottomTabs.length,
+  })
   const {
     searchOpen, setSearchOpen, searchQuery, setSearchQuery,
     searchCaseSensitive, setSearchCaseSensitive, searchNameOnly, setSearchNameOnly,
@@ -651,10 +863,24 @@ export function WorkspaceExplorer({
     beginSessionRename, closeSessionRename, confirmSessionRename,
   } = sessionRename
   const {
-    scrollTabIntoView, handleTabsMouseEnter, handleTabsMouseLeave, handleTabsScroll,
-    handleScrollbarMouseEnter, handleScrollbarMouseLeave, handleScrollbarPointerDown,
-    handleScrollbarPointerMove, handleScrollbarPointerEnd,
-  } = scrollbar
+    scrollTabIntoView: scrollTabIntoViewA, handleTabsMouseEnter: handleTabsMouseEnterA,
+    handleTabsMouseLeave: handleTabsMouseLeaveA, handleTabsScroll: handleTabsScrollA,
+    handleScrollbarMouseEnter: handleScrollbarMouseEnterA, handleScrollbarMouseLeave: handleScrollbarMouseLeaveA,
+    handleScrollbarPointerDown: handleScrollbarPointerDownA, handleScrollbarPointerMove: handleScrollbarPointerMoveA,
+    handleScrollbarPointerEnd: handleScrollbarPointerEndA,
+  } = scrollbarA
+  const {
+    scrollTabIntoView: scrollTabIntoViewB, handleTabsMouseEnter: handleTabsMouseEnterB,
+    handleTabsMouseLeave: handleTabsMouseLeaveB, handleTabsScroll: handleTabsScrollB,
+    handleScrollbarMouseEnter: handleScrollbarMouseEnterB, handleScrollbarMouseLeave: handleScrollbarMouseLeaveB,
+    handleScrollbarPointerDown: handleScrollbarPointerDownB, handleScrollbarPointerMove: handleScrollbarPointerMoveB,
+    handleScrollbarPointerEnd: handleScrollbarPointerEndB,
+  } = scrollbarB
+  /* Scroll a tab into view in its own strip; each hook ignores a path its strip does not own. */
+  const scrollTabIntoView = useCallback((path) => {
+    scrollTabIntoViewA(path)
+    scrollTabIntoViewB(path)
+  }, [scrollTabIntoViewA, scrollTabIntoViewB])
   // The session-rename dialog entry also closes the panel title's own menu.
   const openSessionRename = useCallback(() => { setTitleContextMenu(undefined); beginSessionRename() }, [beginSessionRename])
   const abortDirectoryRequests = useCallback(() => {
@@ -827,8 +1053,17 @@ export function WorkspaceExplorer({
     const next = normalizePreviewSession(storedPreviewSession, previewSessionId)
     if (next.tabs.length === 0) return
     previewTabsBootstrapped.current = true
+    /* Late hydration must restore the whole pane layout, not just the focused path: a split
+       snapshot arriving after mount would otherwise render as a single pane with no bottom
+       active tab. Eager refs keep the read pass's dependencies consistent on the same commit. */
+    paneActiveRef.current = next.paneActive
+    focusedPaneRef.current = next.focusedPane
+    splitRatioRef.current = next.splitRatio
+    activePathRef.current = next.activePath
     setTabs(next.tabs)
-    activatePath(next.activePath)
+    setPaneActive(next.paneActive)
+    setFocusedPane(next.focusedPane)
+    setSplitRatio(next.splitRatio)
     const nextTab = next.tabs.find(tab => tab.path === next.activePath)
     if (nextTab !== undefined) {
       if (hasNoTreeRow(nextTab)) {
@@ -860,12 +1095,22 @@ export function WorkspaceExplorer({
      an already-open temporary tab is promoted in place instead of duplicated. */
   const chooseFile = useCallback((entry) => {
     previewTabsBootstrapped.current = true
+    const existing = tabsRef.current.find(tab => tab.path === entry.path)
+    if (existing !== undefined) {
+      /* A file already open in either pane is never duplicated: focus its pane and (for a
+         double-click) promote its temporary slot. */
+      setTabs(current => promoteTemporaryTab(current, entry.path))
+      selectTabInPane(existing)
+      setSelected(entry)
+      revealPath(entry)
+      return
+    }
     setSelected(entry)
     activatePath(entry.path)
     // A re-open re-runs the read pass, which re-seeds the change snapshot baseline so the polling tick never re-reports the just-loaded content.
-    setTabs(current => openPermanentTab(current, fileTabFromEntry(entry, false)))
+    setTabs(current => openPermanentTab(current, fileTabFromEntry(entry, false, focusedPaneRef.current)))
     revealPath(entry)
-  }, [revealPath])
+  }, [activatePath, revealPath, selectTabInPane, setTabs])
   /* Single-click open: the temporary preview slot. A click on an already-open file only activates
      it (re-clicking the italic tab must not make it permanent); otherwise the existing temporary
      tab is displaced IN PLACE — the strip never reorders — and its runtime refs are dropped. A
@@ -873,29 +1118,33 @@ export function WorkspaceExplorer({
      back a fresh slot for the new file. */
   const chooseFilePreview = useCallback((entry) => {
     previewTabsBootstrapped.current = true
+    const existing = tabsRef.current.find(tab => tab.path === entry.path)
+    if (existing !== undefined) {
+      /* A single click on an already-open file only activates it (never promotes it). */
+      selectTabInPane(existing)
+      setSelected(entry)
+      revealPath(entry)
+      return
+    }
     setSelected(entry)
     activatePath(entry.path)
-    if (hasTabPath(tabsRef.current, entry.path)) return
-    const { tabs: nextTabs, replacedPath } = openPreviewTab(tabsRef.current, fileTabFromEntry(entry, true))
+    const pane = focusedPaneRef.current
+    const { tabs: nextTabs, replacedPath } = openPreviewTab(tabsRef.current, fileTabFromEntry(entry, true, pane))
     setTabs(nextTabs)
     if (replacedPath !== null) forgetPathRefs(replacedPath)
     revealPath(entry)
-  }, [activatePath, forgetPathRefs, revealPath])
+  }, [activatePath, forgetPathRefs, revealPath, selectTabInPane, setTabs])
   /* Activating a tab in the strip never touches the tab list: a single click on an italic
      preview tab must not promote it (that is the strip's double-click), and routing this
      through chooseFile would silently do exactly that. */
   const activateTab = useCallback((tab) => {
-    if (hasNoTreeRow(tab)) {
-      setSelected(undefined)
-      activatePath(tab.path)
-      return
-    }
+    selectTabInPane(tab)
+    if (hasNoTreeRow(tab)) return
     const entry = entryFromPreviewTab(tab)
     previewTabsBootstrapped.current = true
     setSelected(entry)
-    activatePath(tab.path)
     revealPath(entry)
-  }, [activatePath, revealPath])
+  }, [revealPath, selectTabInPane])
   /* The strip's double-click / a pin makes a preview tab permanent. */
   const promoteTab = useCallback((path) => {
     setTabs(current => promoteTemporaryTab(current, path))
@@ -919,6 +1168,12 @@ export function WorkspaceExplorer({
      "ancestors" would fire directory reads the Host refuses on sight — the bug this path avoids. */
   const openOutsideFile = useCallback((entry) => {
     previewTabsBootstrapped.current = true
+    const existing = tabsRef.current.find(tab => tab.path === entry.path)
+    if (existing !== undefined) {
+      selectTabInPane(existing)
+      setSelected(undefined)
+      return
+    }
     setSelected(undefined)
     activatePath(entry.path)
     setTabs(current => hasTabPath(current, entry.path)
@@ -934,6 +1189,7 @@ export function WorkspaceExplorer({
           lineEnding: 'none',
           name: entry.name,
           outside: true,
+          pane: focusedPaneRef.current,
           path: entry.path,
           pinned: false,
           readOnlyReason: 'outside-workspace',
@@ -973,6 +1229,7 @@ export function WorkspaceExplorer({
         external: true,
         lineEnding: result.lineEnding ?? 'none',
         name: typeof result.name === 'string' && result.name !== '' ? result.name : file.name,
+        pane: focusedPaneRef.current,
         path,
         pinned: false,
         revision: null,
@@ -1125,14 +1382,24 @@ export function WorkspaceExplorer({
     composingRef.current = false
   }, [activePath, dirty])
   const closeEntryDialog=useCallback(()=>{if(entryBusy)return;setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);composingRef.current=false},[entryBusy])
-  // The viewer mode is scoped to one file: switching files lands on that file's default view —
-  // Markdown and HTML open straight into their rendered view (document preview / page preview),
-  // every other file in the source editor. The tab lookup reads the refs kept fresh by the layout
-  // effects above, so this effect keeps its activePath-only dependency.
-  useEffect(() => {
-    const tab = tabsRef.current.find(candidate => candidate.path === activePathRef.current)
-    setViewMode(isHtmlName(tab?.name) || isMarkdownName(tab?.name) ? VIEW_PREVIEW : VIEW_EDIT)
-  }, [activePath])
+  /* The viewer mode is scoped to one TAB, not to the window: switching the tab shown in either
+     pane lands on that file's default view (Markdown / HTML render, everything else edits), while
+     merely moving keyboard focus between panes keeps each pane's mode. */
+  const lastPanePathsRef = useRef({ a: initialPaneActive.a, b: initialPaneActive.b })
+  useLayoutEffect(() => {
+    const next = { ...lastPanePathsRef.current }
+    let changed = false
+    for (const pane of [PREVIEW_PANE_TOP, PREVIEW_PANE_BOTTOM]) {
+      const path = paneActive[pane] ?? null
+      if (next[pane] === path) continue
+      next[pane] = path
+      const tab = tabsRef.current.find(candidate => candidate.path === path)
+      const mode = defaultViewModeOf(tab)
+      setViewModes(current => current[pane] === mode ? current : { ...current, [pane]: mode })
+      changed = true
+    }
+    if (changed) lastPanePathsRef.current = next
+  }, [paneActive])
   const rewriteRuntimePaths = useCallback((from, to) => {
     lastWriteRef.current = rewritePathMap(lastWriteRef.current, from, to)
     draftGenerationsRef.current = rewritePathMap(draftGenerationsRef.current, from, to)
@@ -1149,7 +1416,7 @@ export function WorkspaceExplorer({
     rewriteCachedPaths(workspace.workspaceId, from, to)
   }, [workspace.workspaceId])
   /* Deps note (development-notes §16): this callback omits callbacks declared later in the body, since listing them would throw a TDZ ReferenceError; their identities are stable for the mount, so the omission is safe. */
-  const submitEntryDialog=useCallback(()=>{if(entryBusy||entryDialog===undefined)return;/* A concurrent tree mutation would bump mutationSeq and drop this op's bookkeeping after the server already succeeded — refuse while one is in flight (same guard as pasteEntry). */if(mutationController.current!==undefined){setEntryError(translate('editor.operationBusy'));return}const trimmed=entryDraft.trim();const message=entryNameError(entryDraft);if(message!==undefined){setEntryError(message);return}const parentPathValue=entryDialog.mode==='create'?entryDialog.parentPath:parentPath(entryDialog.entry.path);const siblings=directories.get(parentPathValue)?.entries??[];if(entryDialog.mode==='create'){if(siblings.some(entry=>entry.name===trimmed)){setEntryError(translate('entry.duplicate'));return}}else if(trimmed===entryDialog.entry.name||siblings.some(entry=>entry.name===trimmed&&entry.path!==entryDialog.entry.path)){setEntryError(trimmed===entryDialog.entry.name?translate('entry.nameUnchanged'):translate('entry.duplicate'));return}const controller=new AbortController();mutationController.current=controller;setEntryBusy(true);setEntryError(undefined);const mutationSeq=mutationSeqRef.current+=1;let draftMoveGeneration;const request=(async()=>{if(entryDialog.mode==='rename'){draftMoveGeneration=nextDraftGeneration('__tree__');await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:draftMoveGeneration,fromPath:entryDialog.entry.path,toPath:entryPath(parentPath(entryDialog.entry.path),trimmed)},controller.signal)}return entryDialog.mode==='create'?createEntry(workspace.workspaceId,entryDialog.parentPath,entryDialog.kind,trimmed,controller.signal):renameEntry(workspace.workspaceId,entryDialog.entry.path,trimmed,controller.signal)})();request.then(result=>{if(!mounted.current||mutationSeq!==mutationSeqRef.current)return;const mode=entryDialog.mode;const sourcePath=mode==='create'?entryDialog.parentPath:entryDialog.entry.path;const nextStatus=mode==='create'?result.kind==='directory'?translate('status.createdFolder'):translate('status.createdFile'):result.kind==='directory'?translate('status.renamedFolder'):translate('status.renamedFile');composingRef.current=false;setEntryBusy(false);setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);setStatus({text:nextStatus});vcsRef.current.refreshSoon();if(mode==='create'){setExpanded(cur=>{const next=new Set(cur);next.add(sourcePath);if(result.kind==='directory')next.add(result.path);return next});if(result.kind==='file'){previewTabsBootstrapped.current = true;setTabs(cur=>cur.some(tab=>tab.path===result.path)?cur:[...cur,{baseText:'',dirty:false,draft:'',editing:false,name:result.name,path:result.path,pinned:false,saving:false,scrollTop:0,size:null,status:undefined,symlink:Boolean(result.symlink),bom:false,lineEnding:'none',revision:null}]);activatePath(result.path)}setSelected(result);void loadDirectory(sourcePath);if(result.kind==='directory')void loadDirectory(result.path)}else{setDirectories(cur=>rewriteDirectoryMap(cur,sourcePath,result.path,result));setExpanded(cur=>rewritePathSet(cur,sourcePath,result.path));setTabs(cur=>rewritePreviewTabs(cur,sourcePath,result.path,result));rewriteRuntimePaths(sourcePath,result.path);migratePendingAutosavesRef.current?.(sourcePath,result.path);{const nextActivePath=activePathRef.current===null?null:rewriteRelativePath(activePathRef.current,sourcePath,result.path);if(nextActivePath!==activePathRef.current)setActivePath(nextActivePath)}setSelected(result);void loadDirectory(parentPath(sourcePath))}}).catch(error=>{const timedOut=error?.name==='AbortError'&&error?.reason?.name==='TimeoutError';if((error?.name==='AbortError'&&!timedOut)||!mounted.current||mutationSeq!==mutationSeqRef.current){return}if(entryDialog?.mode==='rename'&&draftMoveGeneration!==undefined){void rollbackDraftTree(entryDialog.entry.path,entryPath(parentPath(entryDialog.entry.path),trimmed))}setEntryBusy(false);setEntryError(timedOut?translate('editor.requestTimeout'):(error instanceof Error?error.message:String(error)))}).finally(()=>{if(mutationController.current===controller)mutationController.current=undefined;if(mounted.current)setEntryBusy(false)})},[createEntry,directories,draftScopeId,draftTree,entryBusy,entryDialog,entryDraft,loadDirectory,renameEntry,rewriteRuntimePaths,workspace.workspaceId])
+  const submitEntryDialog=useCallback(()=>{if(entryBusy||entryDialog===undefined)return;/* A concurrent tree mutation would bump mutationSeq and drop this op's bookkeeping after the server already succeeded — refuse while one is in flight (same guard as pasteEntry). */if(mutationController.current!==undefined){setEntryError(translate('editor.operationBusy'));return}const trimmed=entryDraft.trim();const message=entryNameError(entryDraft);if(message!==undefined){setEntryError(message);return}const parentPathValue=entryDialog.mode==='create'?entryDialog.parentPath:parentPath(entryDialog.entry.path);const siblings=directories.get(parentPathValue)?.entries??[];if(entryDialog.mode==='create'){if(siblings.some(entry=>entry.name===trimmed)){setEntryError(translate('entry.duplicate'));return}}else if(trimmed===entryDialog.entry.name||siblings.some(entry=>entry.name===trimmed&&entry.path!==entryDialog.entry.path)){setEntryError(trimmed===entryDialog.entry.name?translate('entry.nameUnchanged'):translate('entry.duplicate'));return}const controller=new AbortController();mutationController.current=controller;setEntryBusy(true);setEntryError(undefined);const mutationSeq=mutationSeqRef.current+=1;let draftMoveGeneration;const request=(async()=>{if(entryDialog.mode==='rename'){draftMoveGeneration=nextDraftGeneration('__tree__');await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:draftMoveGeneration,fromPath:entryDialog.entry.path,toPath:entryPath(parentPath(entryDialog.entry.path),trimmed)},controller.signal)}return entryDialog.mode==='create'?createEntry(workspace.workspaceId,entryDialog.parentPath,entryDialog.kind,trimmed,controller.signal):renameEntry(workspace.workspaceId,entryDialog.entry.path,trimmed,controller.signal)})();request.then(result=>{if(!mounted.current||mutationSeq!==mutationSeqRef.current)return;const mode=entryDialog.mode;const sourcePath=mode==='create'?entryDialog.parentPath:entryDialog.entry.path;const nextStatus=mode==='create'?result.kind==='directory'?translate('status.createdFolder'):translate('status.createdFile'):result.kind==='directory'?translate('status.renamedFolder'):translate('status.renamedFile');composingRef.current=false;setEntryBusy(false);setEntryDialog(undefined);setEntryDraft('');setEntryError(undefined);setStatus({text:nextStatus});vcsRef.current.refreshSoon();if(mode==='create'){setExpanded(cur=>{const next=new Set(cur);next.add(sourcePath);if(result.kind==='directory')next.add(result.path);return next});if(result.kind==='file'){previewTabsBootstrapped.current = true;setTabs(cur=>cur.some(tab=>tab.path===result.path)?cur:[...cur,{baseText:'',dirty:false,draft:'',editing:false,name:result.name,pane:focusedPaneRef.current,path:result.path,pinned:false,saving:false,scrollTop:0,size:null,status:undefined,symlink:Boolean(result.symlink),bom:false,lineEnding:'none',revision:null}]);activatePath(result.path)}setSelected(result);void loadDirectory(sourcePath);if(result.kind==='directory')void loadDirectory(result.path)}else{setDirectories(cur=>rewriteDirectoryMap(cur,sourcePath,result.path,result));setExpanded(cur=>rewritePathSet(cur,sourcePath,result.path));setTabs(cur=>rewritePreviewTabs(cur,sourcePath,result.path,result));rewriteRuntimePaths(sourcePath,result.path);migratePendingAutosavesRef.current?.(sourcePath,result.path);{const rewriteActivePath=path=>path===null||path===undefined?null:rewriteRelativePath(path,sourcePath,result.path);const nextPaneActive={a:rewriteActivePath(paneActiveRef.current.a),b:rewriteActivePath(paneActiveRef.current.b)};const nextFocusedActive=nextPaneActive[focusedPaneRef.current]??null;if(nextPaneActive.a!==paneActiveRef.current.a||nextPaneActive.b!==paneActiveRef.current.b){paneActiveRef.current=nextPaneActive;activePathRef.current=nextFocusedActive;setPaneActive(nextPaneActive)}else if(nextFocusedActive!==activePathRef.current){activePathRef.current=nextFocusedActive}}setSelected(result);void loadDirectory(parentPath(sourcePath))}}).catch(error=>{const timedOut=error?.name==='AbortError'&&error?.reason?.name==='TimeoutError';if((error?.name==='AbortError'&&!timedOut)||!mounted.current||mutationSeq!==mutationSeqRef.current){return}if(entryDialog?.mode==='rename'&&draftMoveGeneration!==undefined){void rollbackDraftTree(entryDialog.entry.path,entryPath(parentPath(entryDialog.entry.path),trimmed))}setEntryBusy(false);setEntryError(timedOut?translate('editor.requestTimeout'):(error instanceof Error?error.message:String(error)))}).finally(()=>{if(mutationController.current===controller)mutationController.current=undefined;if(mounted.current)setEntryBusy(false)})},[createEntry,directories,draftScopeId,draftTree,entryBusy,entryDialog,entryDraft,loadDirectory,renameEntry,rewriteRuntimePaths,workspace.workspaceId])
 
   // The unmount cleanup must run exactly once per real unmount; snapshot the callbacks in refs so the effect stays stable.
   const persistSessionTabsRef = useRef(persistSessionTabs)
@@ -1197,7 +1464,7 @@ export function WorkspaceExplorer({
   const copyEntryName=useCallback((entry)=>{void copyText(entry.name).then(ok=>{if(!mounted.current)return;setContextMenu(undefined);setCopyNotice(ok?translate('status.copiedName'):translate('status.copyFailed'));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},1600)})},[])
   const openInExplorer=useCallback((entry)=>{setContextMenu(undefined);const controller=new AbortController();revealInExplorer(workspace.workspaceId,entry.path,controller.signal).then(()=>{if(!mounted.current)return;setCopyNotice(translate('status.revealed'));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},1600)}).catch(error=>{if(!mounted.current||error?.name==='AbortError')return;setCopyNotice(translate('status.revealFailed',{message:error instanceof Error?error.message:String(error)}));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},3000)})},[workspace.workspaceId])
   const copyEntryToClipboard=useCallback((entry,cut)=>{setContextMenu(undefined);setClipboard({workspaceId:workspace.workspaceId,path:entry.path,name:entry.name,kind:entry.kind,cut});setCopyNotice(cut?translate('status.cut'):translate('status.copied'));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},1600)},[workspace.workspaceId])
-  const pasteEntry=useCallback((targetEntry)=>{if(clipboard===undefined||clipboard.workspaceId!==workspace.workspaceId)return;const targetDir=targetEntry.kind==='directory'?targetEntry.path:parentPath(targetEntry.path);const targetPath=entryPath(targetDir,pathBaseName(clipboard.path));if(clipboard.cut&&clipboard.path===targetPath)return;const wasCut=clipboard.cut;const affectedPrefix=clipboard.path===''?'':`${clipboard.path}/`;if(wasCut&&tabsRef.current.some(tab=>{if(!tab.dirty&&!tab.saving)return false;return tab.path===clipboard.path||(affectedPrefix!==''&&tab.path.startsWith(affectedPrefix))})){setStatus({error:true,text:translate('editor.unsavedBlocked')});return}/* A concurrent mutation would bump mutationSeq and drop this paste's bookkeeping after the fs move already succeeded — refuse while one is in flight. */if(mutationController.current!==undefined){setStatus({error:true,text:translate('editor.operationBusy')});return}const controller=new AbortController();mutationController.current=controller;const mutationSeq=mutationSeqRef.current+=1;let draftMoveGeneration;let draftMoveFailed=false;const request=(async()=>{const result=await requestFsOperation(workspace.workspaceId,{action:wasCut?'move':'copy',source:clipboard.path,target:targetPath},controller.signal);if(wasCut){draftMoveGeneration=nextDraftGeneration('__tree__');await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:draftMoveGeneration,fromPath:clipboard.path,toPath:result.path},controller.signal).catch(async error=>{if(!mounted.current)return;draftMoveFailed=true;console.warn('workspace-studio: draft move after fs move failed:',error);setStatus({error:true,text:translate('status.movedDraftWarning')});/* The old-path draft is the ONLY persistent copy of the user's unsaved edits: deleting it on a failed move (the old behavior) could lose them if the page refreshes before the next autosave lands on the new path. Retry once with a fresh generation (the failure is usually a transient generation race with a concurrent autosave); if the retry also fails, KEEP the old-path draft — a harmless zombie that only restores if a file appears at the old path again — and warn. */try{await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:nextDraftGeneration('__tree__'),fromPath:clipboard.path,toPath:result.path},controller.signal);draftMoveFailed=false}catch(retryError){if(mounted.current)console.warn('workspace-studio: draft move retry also failed; keeping draft at source path:',retryError)}})}return result})();request.then(result=>{if(!mounted.current||mutationSeq!==mutationSeqRef.current)return;setContextMenu(undefined);setStatus(draftMoveFailed?{error:true,text:translate('status.movedDraftWarning')}:{text:wasCut?translate('status.moved'):translate('status.pasted')});vcsRef.current.refreshSoon();if(wasCut){const source=clipboard.path;if(clipboardRef.current?.path===source&&clipboardRef.current?.cut===true)setClipboard(undefined);setSelected(result);setDirectories(cur=>rewriteDirectoryMap(cur,source,result.path,result));setExpanded(cur=>rewritePathSet(cur,source,result.path));setTabs(cur=>rewritePreviewTabs(cur,source,result.path,result));rewriteRuntimePaths(source,result.path);migratePendingAutosavesRef.current?.(source,result.path);const nextActivePath=activePathRef.current===null?null:rewriteRelativePath(activePathRef.current,source,result.path);if(nextActivePath!==activePathRef.current)setActivePath(nextActivePath);void loadDirectory(parentPath(source));void loadDirectory(targetDir)}else{void loadDirectory(targetDir)}}).catch(error=>{const timedOut=error?.name==='AbortError'&&error?.reason?.name==='TimeoutError';if((error?.name==='AbortError'&&!timedOut)||!mounted.current||mutationSeq!==mutationSeqRef.current)return;setContextMenu(undefined);const failedMessage=timedOut?translate('editor.requestTimeout'):(error instanceof Error?error.message:String(error));setCopyNotice(translate(wasCut?'status.cutFailed':'status.pasteFailed',{message:failedMessage}));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},3000)}).finally(()=>{if(mutationController.current===controller)mutationController.current=undefined})},[clipboard,draftScopeId,draftTree,loadDirectory,nextDraftGeneration,rewriteRuntimePaths,workspace.workspaceId])
+  const pasteEntry=useCallback((targetEntry)=>{if(clipboard===undefined||clipboard.workspaceId!==workspace.workspaceId)return;const targetDir=targetEntry.kind==='directory'?targetEntry.path:parentPath(targetEntry.path);const targetPath=entryPath(targetDir,pathBaseName(clipboard.path));if(clipboard.cut&&clipboard.path===targetPath)return;const wasCut=clipboard.cut;const affectedPrefix=clipboard.path===''?'':`${clipboard.path}/`;if(wasCut&&tabsRef.current.some(tab=>{if(!tab.dirty&&!tab.saving)return false;return tab.path===clipboard.path||(affectedPrefix!==''&&tab.path.startsWith(affectedPrefix))})){setStatus({error:true,text:translate('editor.unsavedBlocked')});return}/* A concurrent mutation would bump mutationSeq and drop this paste's bookkeeping after the fs move already succeeded — refuse while one is in flight. */if(mutationController.current!==undefined){setStatus({error:true,text:translate('editor.operationBusy')});return}const controller=new AbortController();mutationController.current=controller;const mutationSeq=mutationSeqRef.current+=1;let draftMoveGeneration;let draftMoveFailed=false;const request=(async()=>{const result=await requestFsOperation(workspace.workspaceId,{action:wasCut?'move':'copy',source:clipboard.path,target:targetPath},controller.signal);if(wasCut){draftMoveGeneration=nextDraftGeneration('__tree__');await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:draftMoveGeneration,fromPath:clipboard.path,toPath:result.path},controller.signal).catch(async error=>{if(!mounted.current)return;draftMoveFailed=true;console.warn('workspace-studio: draft move after fs move failed:',error);setStatus({error:true,text:translate('status.movedDraftWarning')});/* The old-path draft is the ONLY persistent copy of the user's unsaved edits: deleting it on a failed move (the old behavior) could lose them if the page refreshes before the next autosave lands on the new path. Retry once with a fresh generation (the failure is usually a transient generation race with a concurrent autosave); if the retry also fails, KEEP the old-path draft — a harmless zombie that only restores if a file appears at the old path again — and warn. */try{await draftTree(workspace.workspaceId,{action:'move',owner:draftScopeId,generation:nextDraftGeneration('__tree__'),fromPath:clipboard.path,toPath:result.path},controller.signal);draftMoveFailed=false}catch(retryError){if(mounted.current)console.warn('workspace-studio: draft move retry also failed; keeping draft at source path:',retryError)}})}return result})();request.then(result=>{if(!mounted.current||mutationSeq!==mutationSeqRef.current)return;setContextMenu(undefined);setStatus(draftMoveFailed?{error:true,text:translate('status.movedDraftWarning')}:{text:wasCut?translate('status.moved'):translate('status.pasted')});vcsRef.current.refreshSoon();if(wasCut){const source=clipboard.path;if(clipboardRef.current?.path===source&&clipboardRef.current?.cut===true)setClipboard(undefined);setSelected(result);setDirectories(cur=>rewriteDirectoryMap(cur,source,result.path,result));setExpanded(cur=>rewritePathSet(cur,source,result.path));setTabs(cur=>rewritePreviewTabs(cur,source,result.path,result));rewriteRuntimePaths(source,result.path);migratePendingAutosavesRef.current?.(source,result.path);const rewriteActivePath=path=>path===null||path===undefined?null:rewriteRelativePath(path,source,result.path);const nextPaneActive={a:rewriteActivePath(paneActiveRef.current.a),b:rewriteActivePath(paneActiveRef.current.b)};const nextFocusedActive=nextPaneActive[focusedPaneRef.current]??null;if(nextPaneActive.a!==paneActiveRef.current.a||nextPaneActive.b!==paneActiveRef.current.b){paneActiveRef.current=nextPaneActive;activePathRef.current=nextFocusedActive;setPaneActive(nextPaneActive)}else if(nextFocusedActive!==activePathRef.current){activePathRef.current=nextFocusedActive}void loadDirectory(parentPath(source));void loadDirectory(targetDir)}else{void loadDirectory(targetDir)}}).catch(error=>{const timedOut=error?.name==='AbortError'&&error?.reason?.name==='TimeoutError';if((error?.name==='AbortError'&&!timedOut)||!mounted.current||mutationSeq!==mutationSeqRef.current)return;setContextMenu(undefined);const failedMessage=timedOut?translate('editor.requestTimeout'):(error instanceof Error?error.message:String(error));setCopyNotice(translate(wasCut?'status.cutFailed':'status.pasteFailed',{message:failedMessage}));clearTimeout(copyNoticeTimer.current);copyNoticeTimer.current=setTimeout(()=>{if(mounted.current)setCopyNotice(undefined)},3000)}).finally(()=>{if(mutationController.current===controller)mutationController.current=undefined})},[clipboard,draftScopeId,draftTree,loadDirectory,nextDraftGeneration,rewriteRuntimePaths,workspace.workspaceId])
   const openDeleteConfirm=useCallback(entry=>{setContextMenu(undefined);setDeleteDialog(entry);setDeleteBusy(false)},[])
   const closeDeleteDialog=useCallback(()=>{if(deleteBusy)return;setDeleteDialog(undefined)},[deleteBusy])
   const confirmDelete = useCallback(async () => {
@@ -1267,7 +1534,10 @@ export function WorkspaceExplorer({
       setDeleteDialog(undefined)
       setStatus({ text: translate('status.deleted') })
       vcsRef.current.refreshSoon()
-      setTabs(cur => cur.filter(tab => tab.path !== entry.path && !tab.path.startsWith(`${entry.path}/`)))
+      const nextTabs = tabsRef.current.filter(tab => tab.path !== entry.path && !tab.path.startsWith(`${entry.path}/`))
+      const clearDeleted = path => (path !== null && path !== undefined && (path === entry.path || path.startsWith(`${entry.path}/`)) ? null : path)
+      const nextPaneActive = { a: clearDeleted(paneActiveRef.current.a), b: clearDeleted(paneActiveRef.current.b) }
+      const layout = commitLayout(nextTabs, nextPaneActive, focusedPaneRef.current)
       for (const item of affected) {
         /* A keystroke during the (possibly slow) fs delete re-armed a 1s autosave above the tree fence: disarm it here, or the PUT would recreate a Host staging draft for the deleted path (a future same-named file would restore it as dirty). */
         clearAutosaveTimer(item.path)
@@ -1283,10 +1553,7 @@ export function WorkspaceExplorer({
         if (subtreeMatch(path)) contentBaselinesRef.current.delete(path)
       }
       invalidateCachedSubtree(workspace.workspaceId, entry.path)
-      const nextActivePath = activePathRef.current === null
-        ? null
-        : (activePathRef.current === entry.path || activePathRef.current.startsWith(`${entry.path}/`)) ? null : activePathRef.current
-      if (nextActivePath !== activePathRef.current) activatePath(nextActivePath)
+      syncSelectionAfterLayout(layout)
       setExpanded(cur => {
         const next = new Set()
         for (const path of cur) if (path !== entry.path && !path.startsWith(`${entry.path}/`)) next.add(path)
@@ -1349,8 +1616,8 @@ export function WorkspaceExplorer({
   /* Each menu names its own region: a scroll that cannot move that region (the
      conversation's streaming tail follow above all) must not close the menu. */
   useDismissMenu(menuRef, contextMenu !== undefined, setContextMenu, treeScrollRef)
-  useDismissMenu(tabMenuRef, tabContextMenu !== undefined, setTabContextMenu, previewTabsRef)
-  useDismissMenu(stripMenuRef, stripMenu !== undefined, setStripMenu, previewTabsRef)
+  useDismissMenu(tabMenuRef, tabContextMenu !== undefined, setTabContextMenu, tabMenuAnchorRef)
+  useDismissMenu(stripMenuRef, stripMenu !== undefined, setStripMenu, tabMenuAnchorRef)
   useDismissMenu(titleMenuRef, titleContextMenu !== undefined, setTitleContextMenu, previewHeaderRef)
 
   const openWithEncoding = useCallback((encodingId) => {
@@ -1431,11 +1698,78 @@ export function WorkspaceExplorer({
   }, [encodingDialog, encodingPick, openWithEncoding, save, saving])
   useDismissMenu(encodingMenuRef, encodingMenu !== undefined, setEncodingMenu, previewHeaderRef)
 
+  /* Focus one pane (the live editor follows the focused pane). `reveal` keeps the file tree in
+     sync; the body of the previously focused pane becomes the read-only preview. */
+  const focusPane = useCallback((pane) => {
+    if (mobile.on || !splitOpen) return
+    if (pane !== PREVIEW_PANE_TOP && pane !== PREVIEW_PANE_BOTTOM) return
+    if (focusedPaneRef.current === pane) return
+    const path = paneActiveRef.current[pane]
+    if (path === null || path === undefined) return
+    focusedPaneRef.current = pane
+    activePathRef.current = path
+    setFocusedPane(pane)
+    const tab = tabsRef.current.find(item => item.path === path)
+    if (tab === undefined) return
+    if (hasNoTreeRow(tab)) {
+      setSelected(undefined)
+      return
+    }
+    const entry = entryFromPreviewTab(tab)
+    setSelected(entry)
+    revealPath(entry)
+  }, [mobile.on, revealPath, splitOpen])
+
+  /* Commit a tab list plus per-pane active paths, collapsing a pane that lost its last tab (the
+     approved rule: an empty pane never stays open; a surviving bottom pane moves up when the top
+     empties). Returns the resolved layout so the caller can sync selection/reveal. */
+  const commitLayout = useCallback((nextTabs, nextPaneActive, preferredFocus) => {
+    let list = orderTabLayout(nextTabs)
+    let top = tabsOfPane(list, PREVIEW_PANE_TOP)
+    let bottom = tabsOfPane(list, PREVIEW_PANE_BOTTOM)
+    const movedBottomActive = top.length === 0 && bottom.length > 0 ? nextPaneActive.b : null
+    if (top.length === 0 && bottom.length > 0) {
+      list = list.map(tab => ({ ...tab, pane: PREVIEW_PANE_TOP }))
+      top = tabsOfPane(list, PREVIEW_PANE_TOP)
+      bottom = []
+    }
+    let focus = preferredFocus === PREVIEW_PANE_BOTTOM ? PREVIEW_PANE_BOTTOM : PREVIEW_PANE_TOP
+    if (focus === PREVIEW_PANE_BOTTOM && bottom.length === 0) focus = PREVIEW_PANE_TOP
+    const nextActive = {
+      a: top.some(tab => tab.path === nextPaneActive.a)
+        ? nextPaneActive.a
+        : (top.some(tab => tab.path === movedBottomActive) ? movedBottomActive : (top[0]?.path ?? null)),
+      b: bottom.length === 0
+        ? null
+        : (bottom.some(tab => tab.path === nextPaneActive.b) ? nextPaneActive.b : (bottom[0]?.path ?? null)),
+    }
+    focusedPaneRef.current = focus
+    paneActiveRef.current = nextActive
+    activePathRef.current = nextActive[focus] ?? null
+    setTabs(list)
+    setPaneActive(nextActive)
+    setFocusedPane(focus)
+    return { focusedPane: focus, paneActive: nextActive, tabs: list }
+  }, [setTabs])
+
+  const syncSelectionAfterLayout = useCallback((layout) => {
+    const nextTab = layout.tabs.find(tab => tab.path === layout.paneActive[layout.focusedPane])
+    if (nextTab === undefined || hasNoTreeRow(nextTab)) {
+      setSelected(undefined)
+      return
+    }
+    const entry = entryFromPreviewTab(nextTab)
+    setSelected(entry)
+    revealPath(entry)
+  }, [revealPath])
+
   const closeTab = useCallback((path) => {
     const current = tabsRef.current
-    const index = current.findIndex(tab => tab.path === path)
-    if (index < 0) return
-    const closing = current[index]
+    const closing = current.find(tab => tab.path === path)
+    if (closing === undefined) return
+    const pane = paneOfTab(closing)
+    const paneList = tabsOfPane(current, pane)
+    const index = paneList.findIndex(tab => tab.path === path)
     /* A music score has no file draft to recover from: an unsaved edit must block the close,
        exactly like an editable file tab, or the composition would vanish with the tab. */
     if (isMusicTab(closing) && closing.dirty === true) {
@@ -1463,39 +1797,22 @@ export function WorkspaceExplorer({
     /* A closed plan tab releases its temporary review document: the tab is the only holder, and the review strip re-publishes it on a later open. */
     if (isPlanTab(closing)) planDocuments.drop(planAddressOfTab(closing))
     const nextTabs = current.filter(tab => tab.path !== path)
-    const nextActivePath = activePathRef.current === path
-      ? (nextTabs[index]?.path ?? nextTabs[index - 1]?.path ?? null)
-      : activePathRef.current
-    setTabs(nextTabs)
+    const nextPaneActive = { ...paneActiveRef.current }
+    if (nextPaneActive[pane] === path) {
+      nextPaneActive[pane] = paneList[Math.min(index, paneList.length - 1)]?.path ?? null
+    }
+    const layout = commitLayout(nextTabs, nextPaneActive, focusedPaneRef.current)
     forgetPathRefs(path)
-    activatePath(nextActivePath)
-    if (nextActivePath === null) {
-      setSelected(undefined)
-      setPreview({ state: 'idle' })
-      setEditing(false)
-      setDirty(false)
-      setSaving(false)
-      setDraft('')
-      setStatus(undefined)
-      publishEditorContext(undefined)
-      return
-    }
-    const nextTab = nextTabs.find(tab => tab.path === nextActivePath)
-    if (nextTab !== undefined) {
-      if (hasNoTreeRow(nextTab)) {
-        setSelected(undefined)
-      } else {
-        const entry = entryFromPreviewTab(nextTab)
-        setSelected(entry)
-        revealPath(entry)
-      }
-    }
-  }, [clearDraftFile, forgetPathRefs, publishEditorContext, revealPath, updateTab])
+    syncSelectionAfterLayout(layout)
+    if (layout.paneActive[layout.focusedPane] === null) setStatus(undefined)
+  }, [clearDraftFile, commitLayout, forgetPathRefs, syncSelectionAfterLayout, updateTab])
   const closeOtherTabs = useCallback((keepPath) => {
     const current = tabsRef.current
     const keep = current.find(tab => tab.path === keepPath)
     if (keep === undefined) return
-    const closing = current.filter(tab => tab.path !== keepPath && !tab.pinned)
+    const pane = paneOfTab(keep)
+    /* "Close others" is scoped to the pane the tab lives in: the other pane keeps its tabs. */
+    const closing = tabsOfPane(current, pane).filter(tab => tab.path !== keepPath && !tab.pinned)
     if (closing.length === 0) return
     /* Same rule as closeTab: a dirty tab is close-guarded only while editable. */
     if (closing.some(tab => tab.saving || (tab.dirty && (tab.editing !== false || isMusicTab(tab))))) {
@@ -1510,7 +1827,9 @@ export function WorkspaceExplorer({
         void clearDraftFile(tab.path, '', tab.encoding ?? 'utf-8', tab.lineEnding ?? 'none', Boolean(tab.bom), tab.revision ?? null).catch(() => {})
       }
     }
-    setTabs(current.filter(tab => tab.pinned || tab.path === keepPath))
+    const closingPaths = new Set(closing.map(tab => tab.path))
+    const nextTabs = current.filter(tab => !closingPaths.has(tab.path))
+    const layout = commitLayout(nextTabs, { ...paneActiveRef.current, [pane]: keepPath }, pane)
     for (const tab of closing) {
       /* A closed map tab must also unmount its global body (same rule as closeTab). */
       if (isMindmapTab(tab)) mindmapViewHost.drop(mindmapRootIdOfTab(tab))
@@ -1518,79 +1837,243 @@ export function WorkspaceExplorer({
       if (isPlanTab(tab)) planDocuments.drop(planAddressOfTab(tab))
       forgetPathRefs(tab.path)
     }
-    activatePath(keep.path)
-    if (hasNoTreeRow(keep)) {
-      setSelected(undefined)
-    } else {
-      const entry = entryFromPreviewTab(keep)
-      setSelected(entry)
-      revealPath(entry)
-    }
-  }, [activatePath, clearDraftFile, forgetPathRefs, revealPath, updateTab])
+    syncSelectionAfterLayout(layout)
+    if (!hasNoTreeRow(keep)) revealPath(entryFromPreviewTab(keep))
+  }, [clearDraftFile, commitLayout, forgetPathRefs, revealPath, syncSelectionAfterLayout, updateTab])
+  /* The setTabs wrapper keeps the pinned block first inside the tab's own pane, so pinning and
+     unpinning only change the flag. */
   const pinTab = useCallback((path) => {
-    setTabs(current => {
-      const tab = current.find(item => item.path === path)
-      if (tab === undefined || tab.pinned) return current
-      const pinned = { ...tab, pinned: true, /* Pinning makes it a real tab: the italic preview marker goes with it. */ temporary: false }
-      return orderPinnedFirst([pinned, ...current.filter(item => item.path !== path)])
-    })
-    if (activePathRef.current === path) scrollTabIntoView(path)
-  }, [scrollTabIntoView])
-  const unpinTab = useCallback((path) => {
-    setTabs(current => {
-      const tab = current.find(item => item.path === path)
-      if (tab === undefined || !tab.pinned) return current
-      const unpinned = { ...tab, pinned: false }
-      // Move the unpinned tab right after the last pinned one so the pinned block stays grouped at the front.
-      const rest = current.filter(item => item.path !== path)
-      let lastPinnedIndex = -1
-      for (let i = 0; i < rest.length; i += 1) if (rest[i].pinned) lastPinnedIndex = i
-      const insertAt = lastPinnedIndex < 0 ? 0 : lastPinnedIndex + 1
-      return [...rest.slice(0, insertAt), unpinned, ...rest.slice(insertAt)]
-    })
+    setTabs(current => current.map(tab => tab.path === path && tab.pinned !== true
+      ? { ...tab, pinned: true, /* Pinning makes it a real tab: the italic preview marker goes with it. */ temporary: false }
+      : tab))
     scrollTabIntoView(path)
   }, [scrollTabIntoView])
-  const dropTabAt = useCallback((insertAt) => {
-    if (draggingPath === null || insertAt === null) return
-    setTabs(current => {
-      const from = current.findIndex(tab => tab.path === draggingPath)
-      if (from < 0 || insertAt === from || insertAt === from + 1) return current
-      const moved = current[from]
-      const next = current.filter(tab => tab.path !== draggingPath)
-      next.splice(insertAt > from ? insertAt - 1 : insertAt, 0, moved)
-      return orderPinnedFirst(next)
-    })
-  }, [draggingPath])
-  /* The tab bar renders pinned-first, so clamp the insertion point to the dragged tab's own partition (pinned: inside the pinned block; unpinned: at or after the first unpinned slot) to match the drop indicator. */
-  const clampDropIndexForTab = useCallback((rawIndex) => {
+  const unpinTab = useCallback((path) => {
+    setTabs(current => current.map(tab => tab.path === path && tab.pinned === true ? { ...tab, pinned: false } : tab))
+    scrollTabIntoView(path)
+  }, [scrollTabIntoView])
+  const finishDrag = useCallback(() => {
+    setDraggingPath(null)
+    setDropIndex(null)
+    setDropPane(null)
+    setDropZone(false)
+    setDropBodyPane(null)
+  }, [])
+  /* Clamp the insertion point to the dragged tab's own partition inside ITS pane (pinned: inside
+     the pinned block; unpinned: at or after the first unpinned slot), matching the drop indicator. */
+  const clampDropIndexForPane = useCallback((pane, rawIndex) => {
     if (draggingPath === null || !Number.isInteger(rawIndex)) return rawIndex
-    const current = tabsRef.current
-    const from = current.findIndex(tab => tab.path === draggingPath)
+    const list = tabsOfPane(tabsRef.current, pane)
+    const from = list.findIndex(tab => tab.path === draggingPath)
     if (from < 0) return rawIndex
-    const draggedPinned = current[from]?.pinned === true
+    const draggedPinned = list[from]?.pinned === true
     let pinnedCount = 0
-    for (const tab of current) {
+    for (const tab of list) {
       if (tab.path !== draggingPath && tab.pinned) pinnedCount += 1
     }
     return draggedPinned ? Math.min(rawIndex, pinnedCount) : Math.max(rawIndex, pinnedCount)
   }, [draggingPath])
-  const updateDropIndex = useCallback((event) => {
+  const updateDropIndex = useCallback((pane, event) => {
     if (draggingPath === null) return
     event.preventDefault()
-    event.dataTransfer.dropEffect = 'move'
-    const next = clampDropIndexForTab(dropIndexFromEvent(event))
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+    setDropPane(pane)
+    setDropZone(false)
+    setDropBodyPane(null)
+    const next = clampDropIndexForPane(pane, dropIndexFromEvent(event))
     setDropIndex(current => current === next ? current : next)
-  }, [clampDropIndexForTab, draggingPath])
+  }, [clampDropIndexForPane, draggingPath])
   const handleTabsDragLeave = useCallback((event) => {
     if (event.currentTarget.contains(event.relatedTarget)) return
     setDropIndex(null)
+    setDropPane(null)
   }, [])
-  const handleTabsDrop = useCallback((event) => {
+  const dropTabAt = useCallback((pane, insertAt) => {
+    if (draggingPath === null || insertAt === null) return
+    const current = tabsRef.current
+    const moved = current.find(tab => tab.path === draggingPath)
+    if (moved === undefined) return
+    const sourcePane = paneOfTab(moved)
+    const sourceTabs = tabsOfPane(current, sourcePane)
+    if (sourcePane === pane) {
+      const from = sourceTabs.findIndex(tab => tab.path === draggingPath)
+      if (from < 0) return
+      const adjusted = insertAt > from ? insertAt - 1 : insertAt
+      if (adjusted === from) return
+      const targetTabs = sourceTabs.filter(tab => tab.path !== draggingPath)
+      targetTabs.splice(Math.max(0, Math.min(adjusted, targetTabs.length)), 0, moved)
+      const top = pane === PREVIEW_PANE_TOP ? targetTabs : tabsOfPane(current, PREVIEW_PANE_TOP)
+      const bottom = pane === PREVIEW_PANE_BOTTOM ? targetTabs : tabsOfPane(current, PREVIEW_PANE_BOTTOM)
+      setTabs([...top, ...bottom])
+      return
+    }
+    /* Cross-pane move: the moved tab becomes the target pane's active tab and the target pane
+       gains focus; an emptied source pane collapses through commitLayout. */
+    const withPane = current.map(tab => tab.path === draggingPath ? { ...tab, pane } : tab)
+    const targetTabs = tabsOfPane(withPane, pane).filter(tab => tab.path !== draggingPath)
+    const movedNow = tabsOfPane(withPane, pane).find(tab => tab.path === draggingPath)
+    if (movedNow === undefined) return
+    targetTabs.splice(Math.max(0, Math.min(insertAt, targetTabs.length)), 0, movedNow)
+    const top = pane === PREVIEW_PANE_TOP ? targetTabs : tabsOfPane(withPane, PREVIEW_PANE_TOP)
+    const bottom = pane === PREVIEW_PANE_BOTTOM ? targetTabs : tabsOfPane(withPane, PREVIEW_PANE_BOTTOM)
+    const nextTabs = [...top, ...bottom]
+    const sourceRest = sourceTabs.filter(tab => tab.path !== draggingPath)
+    const nextActive = { ...paneActiveRef.current, [pane]: draggingPath }
+    if (nextActive[sourcePane] === draggingPath) nextActive[sourcePane] = sourceRest[0]?.path ?? null
+    const layout = commitLayout(nextTabs, nextActive, pane)
+    syncSelectionAfterLayout(layout)
+  }, [commitLayout, draggingPath, setTabs, syncSelectionAfterLayout])
+  const handleTabsDrop = useCallback((pane, event) => {
     event.preventDefault()
-    dropTabAt(clampDropIndexForTab(dropIndexFromEvent(event)))
-    setDraggingPath(null)
-    setDropIndex(null)
-  }, [clampDropIndexForTab, dropTabAt])
+    event.stopPropagation()
+    const index = clampDropIndexForPane(pane, dropIndexFromEvent(event))
+    finishDrag()
+    dropTabAt(pane, index)
+  }, [clampDropIndexForPane, dropTabAt, finishDrag])
+
+  /* Create the bottom pane from a dragged tab (single-pane layout only): the tab moves down, the
+     top pane keeps the rest, and the new pane takes focus. */
+  const splitTab = useCallback((path) => {
+    if (mobile.on || splitOpen) return
+    const current = tabsRef.current
+    const moved = current.find(tab => tab.path === path)
+    if (moved === undefined) return
+    const sourceTabs = tabsOfPane(current, paneOfTab(moved))
+    if (sourceTabs.length < 2) {
+      setStatus({ error: true, text: translate('preview.split.needTwo') })
+      return
+    }
+    const sourceIndex = sourceTabs.findIndex(tab => tab.path === path)
+    const remaining = sourceTabs.filter(tab => tab.path !== path)
+    const topActive = paneActiveRef.current.a === path
+      ? (remaining[Math.min(sourceIndex, remaining.length - 1)]?.path ?? null)
+      : (paneActiveRef.current.a ?? remaining[0]?.path ?? null)
+    const nextTabs = current.map(tab => tab.path === path ? { ...tab, pane: PREVIEW_PANE_BOTTOM } : tab)
+    const layout = commitLayout(nextTabs, { a: topActive, b: path }, PREVIEW_PANE_BOTTOM)
+    /* Keep the session's remembered ratio: a first split starts at 50/50, and closing/reopening
+       the bottom pane returns to whatever the user last dragged. */
+    syncSelectionAfterLayout(layout)
+    setStatus({ text: translate('preview.split.created') })
+  }, [commitLayout, mobile.on, splitOpen, syncSelectionAfterLayout])
+  /* Collapse the bottom pane: its tabs move back into the top, in order, with the bottom's active
+     tab becoming the top's active tab (drafts and runtime state ride the tab objects). */
+  const closeBottomPane = useCallback(() => {
+    if (!splitOpen) return
+    const current = tabsRef.current
+    const topTabs = tabsOfPane(current, PREVIEW_PANE_TOP)
+    const bottomTabs = tabsOfPane(current, PREVIEW_PANE_BOTTOM)
+    if (bottomTabs.length === 0) return
+    const nextTabs = [...topTabs, ...bottomTabs.map(tab => ({ ...tab, pane: PREVIEW_PANE_TOP }))]
+    const bottomActive = paneActiveRef.current.b
+    const layout = commitLayout(nextTabs, { a: bottomActive ?? topTabs[0]?.path ?? null, b: null }, PREVIEW_PANE_TOP)
+    syncSelectionAfterLayout(layout)
+    setStatus({ text: translate('preview.split.closed', { count: bottomTabs.length }) })
+  }, [commitLayout, splitOpen, syncSelectionAfterLayout])
+  /* Menu equivalent of a cross-pane drag: move the tab to the other pane, activate it there and
+     focus that pane. An emptied source pane collapses through commitLayout. */
+  const moveTabToOtherPane = useCallback((path) => {
+    if (!splitOpen) return
+    const current = tabsRef.current
+    const tab = current.find(item => item.path === path)
+    if (tab === undefined) return
+    const source = paneOfTab(tab)
+    const target = source === PREVIEW_PANE_TOP ? PREVIEW_PANE_BOTTOM : PREVIEW_PANE_TOP
+    const sourceTabs = tabsOfPane(current, source)
+    if (tabsOfPane(current, target).length === 0) return
+    const nextTabs = current.map(item => item.path === path ? { ...item, pane: target } : item)
+    const nextActive = { ...paneActiveRef.current, [target]: path }
+    if (nextActive[source] === path) nextActive[source] = sourceTabs.filter(item => item.path !== path)[0]?.path ?? null
+    const layout = commitLayout(nextTabs, nextActive, target)
+    syncSelectionAfterLayout(layout)
+  }, [commitLayout, splitOpen, syncSelectionAfterLayout])
+  /* Mobile keeps one pane (the design's degradation rule): a split restored from the desktop is
+     merged into the top pane as soon as the mobile gate turns on, keeping the focused tab active. */
+  useEffect(() => {
+    if (!mobile.on || !splitOpen) return
+    const current = tabsRef.current
+    const topTabs = tabsOfPane(current, PREVIEW_PANE_TOP)
+    const bottomTabs = tabsOfPane(current, PREVIEW_PANE_BOTTOM)
+    if (bottomTabs.length === 0) return
+    const active = paneActiveRef.current[focusedPaneRef.current] ?? paneActiveRef.current.a ?? topTabs[0]?.path ?? null
+    const layout = commitLayout([...topTabs, ...bottomTabs.map(tab => ({ ...tab, pane: PREVIEW_PANE_TOP }))], { a: active, b: null }, PREVIEW_PANE_TOP)
+    syncSelectionAfterLayout(layout)
+  }, [commitLayout, mobile.on, splitOpen, syncSelectionAfterLayout])
+  /* Lower-half split drop zone of the single-pane layout. The strip's own handlers win over the
+     tabs; everything else below the midline is the split target. */
+  const handlePreviewTabDragOver = useCallback((event) => {
+    if (draggingPath === null || mobile.on) return
+    if (splitOpen) {
+      setDropZone(false)
+      if (event.target instanceof Element && event.target.closest('.dsh-ws-preview-tabs, .dsh-ws-panes-splitter') !== null) {
+        setDropBodyPane(null)
+        return
+      }
+      const paneEl = event.target instanceof Element ? event.target.closest('.dsh-ws-pane') : null
+      const moved = tabsRef.current.find(tab => tab.path === draggingPath)
+      if (paneEl === null || moved === undefined) {
+        setDropBodyPane(null)
+        return
+      }
+      const targetPane = paneEl.dataset.pane
+      if ((targetPane !== PREVIEW_PANE_TOP && targetPane !== PREVIEW_PANE_BOTTOM) || targetPane === paneOfTab(moved)) {
+        setDropBodyPane(null)
+        return
+      }
+      event.preventDefault()
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+      setDropBodyPane(targetPane)
+      return
+    }
+    setDropBodyPane(null)
+    if (event.target instanceof Element && event.target.closest('.dsh-ws-preview-tabs, .dsh-ws-panes-splitter') !== null) return
+    const moved = tabsRef.current.find(tab => tab.path === draggingPath)
+    if (moved === undefined) { setDropZone(false); return }
+    if (tabsOfPane(tabsRef.current, paneOfTab(moved)).length < 2) { setDropZone(false); return }
+    const section = previewSectionRef.current
+    if (section === null) return
+    const rect = section.getBoundingClientRect()
+    if (event.clientY <= rect.top + rect.height * 0.55) { setDropZone(false); return }
+    event.preventDefault()
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+    setDropZone(true)
+  }, [draggingPath, mobile.on, splitOpen])
+  const handlePreviewTabDragLeave = useCallback((event) => {
+    if (event.currentTarget.contains(event.relatedTarget)) return
+    setDropZone(false)
+    setDropBodyPane(null)
+  }, [])
+  const handlePreviewTabDrop = useCallback((event) => {
+    if (draggingPath === null) return
+    if (splitOpen) {
+      if (dropBodyPane === null) return
+      event.preventDefault()
+      const path = draggingPath
+      finishDrag()
+      moveTabToOtherPane(path)
+      return
+    }
+    if (!dropZone) return
+    event.preventDefault()
+    const path = draggingPath
+    finishDrag()
+    splitTab(path)
+  }, [draggingPath, dropBodyPane, dropZone, finishDrag, moveTabToOtherPane, splitOpen, splitTab])
+  /* A tab drag that ends over the editor body would otherwise reach CodeMirror's native drop
+     handler, which inserts the transferred text/plain (the tab path) into the document — the
+     split gesture's drop point is exactly that body. Handle the drop in the CAPTURE phase, before
+     the target sees it, and let a strip drop through to the strip's own reorder handler. */
+  const handlePreviewTabDropCapture = useCallback((event) => {
+    if (draggingPath === null) return
+    if (event.target instanceof Element && event.target.closest('.dsh-ws-preview-tabs') !== null) return
+    event.preventDefault()
+    event.stopPropagation()
+    const path = draggingPath
+    const moveTo = splitOpen ? dropBodyPane : null
+    const split = !splitOpen && dropZone
+    finishDrag()
+    if (moveTo !== null) moveTabToOtherPane(path)
+    else if (split) splitTab(path)
+  }, [draggingPath, dropBodyPane, dropZone, finishDrag, moveTabToOtherPane, splitOpen, splitTab])
   /* The strip API handed to the global mind-map host: doc-gone closes the tab and root renames update the tab label. closeTab/updateTab may change identity across renders, so the API forwards through refs. */
   const closeTabRef = useRef(closeTab)
   closeTabRef.current = closeTab
@@ -1664,20 +2147,6 @@ export function WorkspaceExplorer({
     : null
   const runTabEntry = useRunEntry(runTabPath)
   const runPanelOpen = runTabEntry?.collapsed !== true
-  /* A mind-map tab renders nothing here: this div is a placeholder the global host parks its stable map-body container into; parking is a plain appendChild move, so the doc, pan/zoom and highlight survive a session switch. */
-  const mindmapTabs = tabs.filter(isMindmapTab)
-  /* A plan tab renders the harness plan document inline; every plan body stays mounted (hidden when inactive) so switching tabs keeps its scroll and resource hold. */
-  const planTabs = tabs.filter(isPlanTab)
-  /* A review tab renders one turn's change review inline; like a plan body it
-     stays mounted (hidden when inactive), so switching tabs keeps the selected
-     file, its scroll, and the comparisons already read. */
-  const reviewTabs = tabs.filter(isReviewTab)
-  /* A music score renders inline and stays mounted (hidden when inactive): switching tabs keeps
-     the transport position, the selected note and unsaved edits alive. */
-  const musicTabs = tabs.filter(isMusicTab)
-  /* Permission pages stay mounted too: their 2 s scope poll and local history/revoke controls keep
-     their state while another preview tab is in front. */
-  const permissionTabs = tabs.filter(isPermissionTab)
   /* The active file's retained CodeMirror session; dropped when its name no longer matches the tab, so a rename builds the next view fresh. */
   const retainedForActive = (() => {
     if (activePath === null || activeTab === undefined || isSyntheticTab(activeTab)) return null
@@ -1687,112 +2156,92 @@ export function WorkspaceExplorer({
       retainedStatesRef.current.delete(activePath)
       return null
     }
+    /* The retained map is keyed by path, but a pane move / a fast focus switch can leave a state
+       whose document belongs to the tab that was in front before. Restoring it would show file A's
+       text under tab B (measured after moving a tab between panes). A known live draft is the
+       source of truth: discard a state whose document differs from it (LF-normalized, the editor's
+       own coordinates). */
+    if (activeTab.dirty !== true && activeTab.draftKnown === true) {
+      const expected = String(activeTab.draft).replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+      if (session.state.doc.toString() !== expected) {
+        retainedStatesRef.current.delete(activePath)
+        return null
+      }
+    }
     return session
   })()
-  const body = mindmapTabs.length > 0 || planTabs.length > 0 || reviewTabs.length > 0 || musicTabs.length > 0 || permissionTabs.length > 0
-    ? h(Fragment, null,
-        ...mindmapTabs.map(tab => h('div', {
-          className: 'dsh-ws-preview-body dsh-ws-mindmap-dock',
-          key: tab.path,
-          ref: (el) => {
-            if (el !== null) mindmapTabElsRef.current.set(tab.path, el)
-            else mindmapTabElsRef.current.delete(tab.path)
-          },
-          style: tab.path === activePath ? undefined : { display: 'none' },
-        })),
-        ...planTabs.map(tab => h('div', {
-          className: 'dsh-ws-preview-body dsh-ws-plan-dock',
-          key: tab.path,
-          style: tab.path === activePath ? undefined : { display: 'none' },
-        }, h(PlanView, {
-          address: planAddressOfTab(tab),
-          onTitle: (title) => applyPlanTitle(tab.path, title),
-        }))),
-        ...reviewTabs.map(tab => h('div', {
-          className: 'dsh-ws-preview-body dsh-ws-review-dock',
-          key: tab.path,
-          style: tab.path === activePath ? undefined : { display: 'none' },
-        }, h(ReviewView, {
-          address: reviewAddressOfTab(tab),
-          initialIndex: tab.reviewIndex ?? 0,
-          navSeq: tab.reviewNav ?? 1,
-          sessionCwdOf,
-          workspace,
-        }))),
-        ...musicTabs.map(tab => h('div', {
-          className: 'dsh-ws-preview-body dsh-ws-music-dock',
-          key: tab.path,
-          style: tab.path === activePath ? undefined : { display: 'none' },
-        }, h(MusicDock, {
-          active: tab.path === activePath,
-          arrangeBarWidth: settings.musicArrangeBarWidth,
-          cacheScopeId: previewSessionId ?? sessionId ?? `workspace:${String(workspace.workspaceId)}`,
-          chatSessionId: sessionId ?? previewSessionId,
-          musicPrefs,
-          onMusicPrefs: updateMusicPrefs,
-          onSaved: revealSavedScore,
-          onUpdate: patch => updateTab(tab.path, patch),
-          rollBaseHeight: settings.musicRollRowHeight,
-          rollBaseWidth: settings.musicRollGridWidth,
-          saveDir: settings.musicSaveDir,
-          tab,
-          workspace,
-        }))),
-        ...permissionTabs.map(tab => h('div', {
-          className: 'dsh-ws-preview-body dsh-ws-perm-dock',
-          key: tab.path,
-          style: tab.path === activePath ? undefined : { display: 'none' },
-        }, h(PermissionPage, {
-          sessionId,
-          sessionTitle,
-        }))),
-        activeMindmap || activePlan || activeReview || activeMusic || activePermission ? null : h(PreviewPane, {
-    activePath,
-    activeTab,
-    browseKind,
-    diffBase,
-    draft,
-    editing,
-    onDiffSummary: handleDiffSummary,
-    editorRef,
-    isBrowse: showBrowse,
-    isHtmlFile,
-    isMarkdown,
-    onBodyClick: () => { if (activePathRef.current !== null) scrollTabIntoView(activePathRef.current) },
-    onContext: publishContextState,
-    onDirty: (text) => {
-      const nextDirty = text !== baseText.current
-      setDraft(text)
-      setDirty(nextDirty)
-      updateActiveTab({ dirty: nextDirty, draft: text, draftKnown: nextDirty })
-      if (nextDirty) {
-        scheduleAutosave(activePath, text)
-      } else {
-        // Reverted exactly to the snapshot: drop the staging draft so a refresh can't resurrect intermediate edits.
-        lastWriteRef.current.set(activePath, { revision: null, content: text })
-        clearDraftFile(activePath, text, preview.encoding ?? 'utf-8', preview.lineEnding ?? 'none', Boolean(preview.bom), preview.revision ?? null).catch(() => {
-          // A double failure (Host DELETE + fallback persist) leaves the staging draft behind an apparently clean tab: say so instead of an unhandled rejection — the §15 read pass re-derives the truth (and would restore the surviving draft as dirty).
-          if (mounted.current && activePathRef.current === activePath) setStatus({ error: true, text: translate('editor.saveDraftCleanupFailed') })
-        })
-      }
-    },
-    onRevealApplied: () => setSearchReveal(undefined),
-    onSaveShortcut: () => { if (editing && !saving) void save() },
-    onScroll: (path, scrollTop) => { scrollTopRef.current.set(path, scrollTop) },
-    onSearchPanelContextMenu: (event) => { if (event.button !== 2) event.preventDefault() },
-    onViewState: retainEditorState,
-    preview,
-    readEpoch,
-    restore: retainedForActive,
-    scrollTopRef,
-    searchPanelContainerRef,
-    searchReveal,
-    sessionId: previewSessionId,
-    settings,
-    viewMode,
-    workspaceId: workspace.workspaceId,
-  }))
-    : h(PreviewPane, {
+  /* One synthetic-tab dock. Every synthetic tab of a pane stays mounted even while another tab is
+     in front (plan/review scroll + holds, music transport, the permission poll, the map body);
+     only the active one is visible. */
+  const renderDock = (tab, panePath) => {
+    if (isMindmapTab(tab)) {
+      return h('div', {
+        className: 'dsh-ws-preview-body dsh-ws-mindmap-dock',
+        key: tab.path,
+        ref: (el) => {
+          if (el !== null) mindmapTabElsRef.current.set(tab.path, el)
+          else mindmapTabElsRef.current.delete(tab.path)
+        },
+        style: tab.path === panePath ? undefined : { display: 'none' },
+      })
+    }
+    if (isPlanTab(tab)) {
+      return h('div', {
+        className: 'dsh-ws-preview-body dsh-ws-plan-dock',
+        key: tab.path,
+        style: tab.path === panePath ? undefined : { display: 'none' },
+      }, h(PlanView, {
+        address: planAddressOfTab(tab),
+        onTitle: (title) => applyPlanTitle(tab.path, title),
+      }))
+    }
+    if (isReviewTab(tab)) {
+      return h('div', {
+        className: 'dsh-ws-preview-body dsh-ws-review-dock',
+        key: tab.path,
+        style: tab.path === panePath ? undefined : { display: 'none' },
+      }, h(ReviewView, {
+        address: reviewAddressOfTab(tab),
+        initialIndex: tab.reviewIndex ?? 0,
+        navSeq: tab.reviewNav ?? 1,
+        sessionCwdOf,
+        workspace,
+      }))
+    }
+    if (isMusicTab(tab)) {
+      return h('div', {
+        className: 'dsh-ws-preview-body dsh-ws-music-dock',
+        key: tab.path,
+        style: tab.path === panePath ? undefined : { display: 'none' },
+      }, h(MusicDock, {
+        active: tab.path === panePath,
+        arrangeBarWidth: settings.musicArrangeBarWidth,
+        cacheScopeId: previewSessionId ?? sessionId ?? `workspace:${String(workspace.workspaceId)}`,
+        chatSessionId: sessionId ?? previewSessionId,
+        musicPrefs,
+        onMusicPrefs: updateMusicPrefs,
+        onSaved: revealSavedScore,
+        onUpdate: patch => updateTab(tab.path, patch),
+        rollBaseHeight: settings.musicRollRowHeight,
+        rollBaseWidth: settings.musicRollGridWidth,
+        saveDir: settings.musicSaveDir,
+        tab,
+        workspace,
+      }))
+    }
+    if (isPermissionTab(tab)) {
+      return h('div', {
+        className: 'dsh-ws-preview-body dsh-ws-perm-dock',
+        key: tab.path,
+        style: tab.path === panePath ? undefined : { display: 'none' },
+      }, h(PermissionPage, {
+        sessionId,
+        sessionTitle,
+      }))
+    }
+    return null
+  }
+  const livePreviewNode = h(PreviewPane, {
     activePath,
     activeTab,
     browseKind,
@@ -1838,6 +2287,30 @@ export function WorkspaceExplorer({
     viewMode,
     workspaceId: workspace.workspaceId,
   })
+  /* The body of one pane: all of its synthetic docks stay mounted; the active file is either the
+     single live PreviewPane (focused pane) or the read-only static view (the other pane). */
+  const renderPaneBody = (paneId, paneTabs, paneTab, panePath, isFocused) => {
+    const docks = paneTabs.filter(isSyntheticTab).map(tab => renderDock(tab, panePath))
+    if (paneTab !== undefined && isSyntheticTab(paneTab)) {
+      return h('div', { className: 'dsh-ws-pane-body' }, ...docks)
+    }
+    return h('div', { className: 'dsh-ws-pane-body' },
+      ...docks,
+      isFocused === true
+        ? livePreviewNode
+        : h('div', {
+          className: 'dsh-ws-static-scope',
+          /* Single clicks stay available for text selection in the read-only view; a double
+             click (or the tab/header) activates the pane and swaps in the live editor. */
+          onDoubleClick: () => focusPane(paneId),
+        }, h(StaticPreviewPane, {
+          readFile,
+          sessionId: previewSessionId,
+          tab: paneTab,
+          viewMode: viewModes[paneId],
+          workspaceId: workspace.workspaceId,
+        })))
+  }
   const searchBody = h(SearchResults, { expanded: searchExpanded, onOpenEntry: openSearchEntry, onOpenMatch: openSearchMatch, onToggleFile: toggleSearchFile, state: searchState })
   const entryDialogTrimmed = entryDraft.trim()
   const entryDialogParentPath = entryDialog?.mode === 'create'
@@ -2088,6 +2561,250 @@ export function WorkspaceExplorer({
           copyNotice ? h('div', { className: 'dsh-ws-copy-notice', role: 'status' }, copyNotice) : null,
         ),
   )
+
+  const inactiveHeaderLabel = (tab) => {
+    if (tab === undefined) return workspace.title
+    if (tab.outside === true) return translate('external.outsideFile', { name: tab.name })
+    if (tab.external) return translate('external.externalFile', { name: tab.name })
+    return tab.path
+  }
+  /* The non-focused pane's chrome: a read-only header (click/Enter focuses the pane) and a status
+     bar that reports lang/size/encoding plus the tab's disk state, without save/cancel controls. */
+  const renderInactiveHeader = (tab, paneId) => h('header', {
+    className: 'dsh-ws-panel-header dsh-ws-preview-file-header dsh-ws-static-header',
+    onClick: () => focusPane(paneId),
+    onKeyDown: (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        focusPane(paneId)
+      }
+    },
+    role: 'button',
+    tabIndex: 0,
+    title: translate('preview.split.activate'),
+  },
+  h('span', {
+    className: 'dsh-ws-preview-file-path',
+    title: tab === undefined ? undefined : (tab.outside === true ? tab.path : tab.external ? translate('external.externalFile.title') : tab.path),
+  }, inactiveHeaderLabel(tab)),
+  h('span', { className: 'dsh-ws-pane-readonly' }, translate('preview.split.readonly')))
+  const renderInactiveStatus = (tab) => {
+    const disk = tab === undefined
+      ? undefined
+      : tab.diskState === DISK_STATE_GONE ? { error: true, text: translate('status.fileRemoved') }
+        : tab.diskState === DISK_STATE_CONFLICT ? { error: true, text: translate('status.fileChangedDirty') }
+          : tab.diskState === DISK_STATE_STALE ? { text: translate('status.fileChanged') }
+            : undefined
+    return h('div', { className: 'dsh-ws-status dsh-ws-static-status' },
+      h('span', { className: 'dsh-ws-pane-readonly-chip' }, translate('preview.split.readonly')),
+      h('span', { className: 'dsh-ws-preview-status-msg', 'data-error': disk?.error || undefined }, disk?.text ?? translate('preview.split.activateHint')),
+      h('div', { className: 'dsh-ws-preview-status-meta' },
+        tab ? h('span', { className: 'dsh-ws-language' }, fileLabel(tab.name)) : null,
+        tab && Number.isFinite(tab.size) ? h('span', null, formatBytes(tab.size)) : null,
+        tab?.encoding ? h('span', { className: 'dsh-ws-encoding', title: translate('encoding.badge') }, encodingLabel(tab.encoding)) : null))
+  }
+  const renderLiveHeader = () => h('header', { className: 'dsh-ws-panel-header dsh-ws-preview-file-header', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && preview.kind !== RENDERER_IMAGE && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) }, ref: previewHeaderRef },
+    h('span', { className: 'dsh-ws-preview-file-path', title: activeTab === undefined ? undefined : (activeTab.outside === true ? activeTab.path : activeTab.external ? translate('external.externalFile.title') : activeTab.path) },
+      activeTab
+        ? (activeTab.outside === true
+            ? translate('external.outsideFile', { name: activeTab.name })
+            : activeTab.external
+              ? translate('external.externalFile', { name: activeTab.name })
+              : activeTab.path)
+        : workspace.title),
+    fontControlVisible
+      ? h('span', { className: 'dsh-ws-font-size', key: 'font-size' },
+        h('button', {
+          'aria-label': translate('preview.textSize.decrease.title'),
+          className: 'dsh-ws-text-button dsh-ws-font-step',
+          disabled: fontPercent <= FONT_SCALE_MIN || undefined,
+          onClick: () => stepFont(-FONT_SCALE_STEP),
+          title: translate('preview.textSize.decrease.title'),
+          type: 'button',
+        }, h('span', { className: 'dsh-ws-font-a', 'data-glyph': 'sm', 'aria-hidden': true }, 'A'), h('span', { className: 'dsh-ws-font-sign', 'aria-hidden': true }, '−')),
+        fontEditing
+          ? h('span', { className: 'dsh-ws-font-input' },
+            h('input', {
+              'aria-label': translate('preview.textSize.input'),
+              autoFocus: true,
+              className: 'dsh-ws-font-field',
+              inputMode: 'numeric',
+              maxLength: 3,
+              onBlur: commitFontPercent,
+              onChange: (event) => setFontDraft(event.target.value.replace(/[^0-9]/gu, '').slice(0, 3)),
+              onFocus: (event) => event.target.select(),
+              onKeyDown: (event) => {
+                if (event.isComposing) return
+                if (event.key === 'Enter') { event.preventDefault(); commitFontPercent(); return }
+                if (event.key === 'Escape') { event.preventDefault(); setFontEditing(false); setFontDraft(''); return }
+                if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
+                event.preventDefault()
+                const next = stepFontPercent(fontPercent, event.key === 'ArrowUp' ? FONT_SCALE_STEP : -FONT_SCALE_STEP)
+                setFontPercent(next)
+                setFontDraft(String(next))
+                setStatus({ text: translate('status.textSizeChanged', { percent: next }) })
+              },
+              placeholder: String(fontBase),
+              type: 'text',
+              value: fontDraft,
+            }),
+            h('span', { className: 'dsh-ws-font-pct', 'aria-hidden': true }, '%'))
+          : h('button', {
+            className: 'dsh-ws-text-button dsh-ws-font-value',
+            'data-inherit': fontOwn ? undefined : true,
+            onClick: () => { setFontDraft(String(fontPercent)); setFontEditing(true) },
+            title: translate('preview.textSize.value.title', { percent: fontBase }),
+            type: 'button',
+          }, `${fontPercent}%`),
+        h('button', {
+          'aria-label': translate('preview.textSize.increase.title'),
+          className: 'dsh-ws-text-button dsh-ws-font-step',
+          disabled: fontPercent >= FONT_SCALE_MAX || undefined,
+          onClick: () => stepFont(FONT_SCALE_STEP),
+          title: translate('preview.textSize.increase.title'),
+          type: 'button',
+        }, h('span', { className: 'dsh-ws-font-a', 'data-glyph': 'lg', 'aria-hidden': true }, 'A'), h('span', { className: 'dsh-ws-font-sign', 'aria-hidden': true }, '+')))
+      : null,
+    runTabPath === null
+      ? null
+      : h('button', {
+        'aria-label': translate('run.panel'),
+        className: 'dsh-ws-text-button',
+        'data-active': runPanelOpen || undefined,
+        onClick: () => setRunCollapsed(runTabPath, runPanelOpen),
+        title: translate('run.panel.title'),
+        type: 'button',
+      }, translate('run.panel')),
+    preview.state === 'ready'
+      ? h(Fragment, null,
+        viewerItems.length > 1
+          ? h('button', {
+            'aria-label': translate('viewer.menu'),
+            className: 'dsh-ws-text-button',
+            'data-active': currentViewer?.id === VIEW_PREVIEW || undefined,
+            onClick: () => setViewMode(currentViewer?.id === VIEW_PREVIEW ? VIEW_EDIT : VIEW_PREVIEW),
+            title: viewerToggleTitle,
+            type: 'button',
+          }, currentViewer?.label ?? '')
+          : null,
+        h('button', {
+          'aria-label': translate('editor.refresh'),
+          className: 'dsh-ws-icon-button',
+          disabled: Boolean(activeTab?.external && activeTab?.outside !== true),
+          onClick: refreshFile,
+          title: translate('editor.refresh.title'),
+          type: 'button',
+        }, h(IconRefresh)),
+      )
+      : null,
+  )
+  const renderLiveStatus = () => h('div', { className: 'dsh-ws-status', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && preview.kind !== RENDERER_IMAGE && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) } },
+    h('div', { className: 'dsh-ws-preview-status-actions' },
+      preview.state === 'ready' && preview.kind !== RENDERER_IMAGE
+        ? h(Fragment, null,
+          h('button', {
+            'aria-pressed': settings.wrap === true,
+            className: 'dsh-ws-text-button',
+            'data-active': settings.wrap === true || undefined,
+            onClick: () => settingsStore.actions.setWrap(settings.wrap !== true),
+            title: settings.wrap === true ? translate('editor.wrap.off.title') : translate('editor.wrap.on.title'),
+            type: 'button',
+          }, translate('editor.wrap')),
+          reason === null
+            ? h(Fragment, null,
+              h('button', { className: 'dsh-ws-text-button', disabled: !dirty || saving, onClick: cancel, type: 'button' }, translate('editor.cancel')),
+              h('button', { className: 'dsh-ws-text-button', disabled: !dirty || saving, onClick: () => void save(), type: 'button' }, saving ? translate('editor.saving') : translate('editor.save')),
+            )
+            : dirty
+              ? h('button', { className: 'dsh-ws-text-button', disabled: saving, onClick: () => void discardDraft(), title: translate('editor.discardDraft.title'), type: 'button' }, translate('editor.discardDraft'))
+              : null,
+        )
+        : null,
+    ),
+    diffSummaryNode,
+    h('div', { className: 'dsh-ws-preview-status-meta' },
+      activeTab ? h('span', { className: 'dsh-ws-language' }, fileLabel(activeTab.name)) : null,
+      size ? h('span', null, size) : null,
+      preview.state === 'ready' && preview.kind !== RENDERER_IMAGE && preview.encoding ? h('span', { className: 'dsh-ws-encoding', title: translate('encoding.badge') }, encodingLabel(preview.encoding)) : null,
+      preview.state === 'ready' && preview.kind !== RENDERER_IMAGE && reason ? h('span', { title: reason }, reason) : null,
+    ),
+    h('span', { className: 'dsh-ws-preview-status-msg', 'data-error': notice?.error || undefined }, notice?.text ?? ''),
+  )
+  /* One pane: its strip, private scrollbar, header/body/status. The lower pane additionally owns
+     the collapse control; both panes' strips focus their pane when a tab is activated. */
+  const renderPane = (paneId, paneTabs, paneTab, panePath, isFocused) => {
+    const bottom = paneId === PREVIEW_PANE_BOTTOM
+    const stripRef = bottom ? previewTabsRefB : previewTabsRefA
+    const barRef = bottom ? previewScrollbarRefB : previewScrollbarRefA
+    const thumbRef = bottom ? previewScrollThumbRefB : previewScrollThumbRefA
+    const synthetic = paneTab !== undefined && isSyntheticTab(paneTab)
+    return h('section', {
+      className: 'dsh-ws-pane',
+      'data-drop-body': splitOpen && dropBodyPane === paneId ? true : undefined,
+      'data-drop-label': splitOpen && dropBodyPane === paneId ? translate('preview.split.moveHere') : undefined,
+      'data-focused': isFocused && splitOpen ? true : undefined,
+      'data-pane': paneId,
+      style: splitOpen ? { flexGrow: bottom ? 1 - splitRatio : splitRatio } : undefined,
+    },
+    h(PreviewTabs, {
+      activePath: panePath,
+      bottom,
+      containerRef: stripRef,
+      draggingPath,
+      dropIndex: dropPane === paneId ? dropIndex : null,
+      onBlankContextMenu: (x, y) => {
+        tabMenuAnchorRef.current = stripRef.current
+        setStripMenu({ pane: paneId, x, y })
+      },
+      onChoose: activateTab,
+      onClose: closeTab,
+      onClosePane: bottom ? closeBottomPane : undefined,
+      onContextMenu: (path, x, y) => {
+        tabMenuAnchorRef.current = stripRef.current
+        setTabContextMenu({ pane: paneId, path, x, y })
+      },
+      onDragEnd: finishDrag,
+      onDragLeave: handleTabsDragLeave,
+      onDragOver: event => updateDropIndex(paneId, event),
+      onDragStart: (path, event) => {
+        setDraggingPath(path)
+        setDropPane(null)
+        setDropIndex(null)
+        setDropZone(false)
+        event.dataTransfer.effectAllowed = 'move'
+        event.dataTransfer.setData('text/plain', path)
+      },
+      onDrop: event => handleTabsDrop(paneId, event),
+      onMouseEnter: bottom ? handleTabsMouseEnterB : handleTabsMouseEnterA,
+      onMouseLeave: bottom ? handleTabsMouseLeaveB : handleTabsMouseLeaveA,
+      onPromote: promoteTab,
+      onReload: reloadTab,
+      onScroll: bottom ? handleTabsScrollB : handleTabsScrollA,
+      onUnpin: unpinTab,
+      tabs: paneTabs,
+    }),
+    paneTabs.length > 0
+      ? h('div', {
+        className: 'dsh-ws-preview-scrollbar',
+        onMouseEnter: bottom ? handleScrollbarMouseEnterB : handleScrollbarMouseEnterA,
+        onMouseLeave: bottom ? handleScrollbarMouseLeaveB : handleScrollbarMouseLeaveA,
+        onPointerCancel: bottom ? handleScrollbarPointerEndB : handleScrollbarPointerEndA,
+        onPointerDown: bottom ? handleScrollbarPointerDownB : handleScrollbarPointerDownA,
+        onPointerMove: bottom ? handleScrollbarPointerMoveB : handleScrollbarPointerMoveA,
+        onPointerUp: bottom ? handleScrollbarPointerEndB : handleScrollbarPointerEndA,
+        ref: barRef,
+      }, h('div', { className: 'dsh-ws-preview-scrollbar-thumb', ref: thumbRef }))
+      : null,
+    synthetic ? null : (isFocused ? renderLiveHeader() : renderInactiveHeader(paneTab, paneId)),
+    renderPaneBody(paneId, paneTabs, paneTab, panePath, isFocused),
+    synthetic ? null : (isFocused ? renderLiveStatus() : renderInactiveStatus(paneTab)),
+    /* The toast is positioned from the focused header; it must live INSIDE the owning pane, or
+       its absolute `top` (computed against the header's parent) would land in the wrong pane. */
+    isFocused && previewToast
+      ? h(PreviewToast, { headerRef: previewHeaderRef, key: previewToast.seq, onDone: () => setPreviewToast(undefined), text: previewToast.text })
+      : null)
+  }
+
   return h(Fragment, null,
     entryDialog && entryDialog.mode !== 'rename' ? h(EntryDialog, {
       blocked: entryDialogBlocked,
@@ -2118,165 +2835,68 @@ export function WorkspaceExplorer({
       'data-diff-ruler-span': settings.diffRulerSpan === 'full' ? 'full' : 'inset',
       'data-diff-ruler-thumb': settings.diffRulerThumb === 'full' ? 'full' : 'slim',
       'data-drop-active': dropActive || undefined,
+      'data-split-zone': dropZone ? 'true' : undefined,
       className: 'dsh-ws-preview',
+      onDragLeave: handlePreviewTabDragLeave,
+      onDragOver: handlePreviewTabDragOver,
+      onDrop: handlePreviewTabDrop,
+      onDropCapture: handlePreviewTabDropCapture,
       ref: previewSectionRef,
       style: { ...diffColorVars(settings), '--dsh-ws-vscroll-w': `${diffRulerWidth}px`, '--dsh-ws-content-scale': String(fontPercent / 100) },
     },
-      /* The strip always renders: with zero tabs it is still the entry point for the music
-         workshop (right-click the blank area, or the + button), which is otherwise unreachable
-         before the first file is opened. */
-      h(PreviewTabs, { activePath, containerRef: previewTabsRef, draggingPath, dropIndex, onBlankContextMenu: (x, y) => setStripMenu({ x, y }), onChoose: activateTab, onClose: closeTab, onContextMenu: (path, x, y) => setTabContextMenu({ path, x, y }), onDragEnd: () => { setDraggingPath(null); setDropIndex(null) }, onDragLeave: handleTabsDragLeave, onDragOver: updateDropIndex, onDragStart: (path, event) => { setDraggingPath(path); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', path) }, onDrop: handleTabsDrop, onMouseEnter: handleTabsMouseEnter, onMouseLeave: handleTabsMouseLeave, onPromote: promoteTab, onReload: reloadTab, onScroll: handleTabsScroll, onUnpin: unpinTab, tabs }),
-      tabs.length ? h('div', { className: 'dsh-ws-preview-scrollbar', onMouseEnter: handleScrollbarMouseEnter, onMouseLeave: handleScrollbarMouseLeave, onPointerCancel: handleScrollbarPointerEnd, onPointerDown: handleScrollbarPointerDown, onPointerMove: handleScrollbarPointerMove, onPointerUp: handleScrollbarPointerEnd, ref: previewScrollbarRef }, h('div', { className: 'dsh-ws-preview-scrollbar-thumb', ref: previewScrollThumbRef })) : null,
-      tabContextMenu ? h(TabContextMenu, { menuRef: tabMenuRef, onCloseOthers: () => { setTabContextMenu(undefined); closeOtherTabs(tabContextMenu.path) }, onOpenMusic: openMusicWorkshop, onOpenPermissions: openPermissionsPage, permissionCount: permissionPendingCount, canOpenPermissions: sessionId !== undefined && sessionId !== null && String(sessionId) !== '', onTogglePin: () => { setTabContextMenu(undefined); if (tabMenuTarget?.pinned) unpinTab(tabContextMenu.path); else pinTab(tabContextMenu.path) }, onOpenExternally: openTabExternally, canOpenExternally, openLabel: openExternallyLabel, openTitle: openExternallyTitle, canReload: tabMenuTarget !== undefined && !isSyntheticTab(tabMenuTarget) && !tabMenuTarget.external && tabMenuTarget.dirty !== true && tabMenuTarget.saving !== true, onReload: () => { setTabContextMenu(undefined); reloadTab(tabContextMenu.path) }, pinned: Boolean(tabMenuTarget?.pinned), reloadTitle: tabMenuTarget?.dirty === true ? translate('tab.reloadBlocked') : translate('tab.reload.title'), x: tabContextMenu.x, y: tabContextMenu.y }) : null,
-      stripMenu ? h(TabStripContextMenu, { menuRef: stripMenuRef, onOpenMusic: openMusicWorkshop, onOpenPermissions: openPermissionsPage, permissionCount: permissionPendingCount, canOpenPermissions: sessionId !== undefined && sessionId !== null && String(sessionId) !== '', x: stripMenu.x, y: stripMenu.y }) : null,
-      /* A mind-map tab hides the file header: the map draws its own toolbar
-         and title bar. A plan tab hides it too: the document carries its own
-         heading and has no file chrome to offer. A review tab hides it as
-         well: its own header names the turn and the selected file. */
-      activeMindmap || activePlan || activeReview || activeMusic || activePermission ? null : h('header', { className: 'dsh-ws-panel-header dsh-ws-preview-file-header', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && preview.kind !== RENDERER_IMAGE && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) }, ref: previewHeaderRef },
-        h('span', { className: 'dsh-ws-preview-file-path', title: activeTab === undefined ? undefined : (activeTab.outside === true ? activeTab.path : activeTab.external ? translate('external.externalFile.title') : activeTab.path) },
-          activeTab
-            ? (activeTab.outside === true
-                ? translate('external.outsideFile', { name: activeTab.name })
-                : activeTab.external
-                  ? translate('external.externalFile', { name: activeTab.name })
-                  : activeTab.path)
-            : workspace.title),
-        /* Preview text size: the right-hand button group's FIRST control, i.e. left of 控制台.
-           The value button becomes an input on click; a tab that has no value of its own shows the
-           base size with a dotted underline (its tooltip names the base). */
-        fontControlVisible
-          ? h('span', { className: 'dsh-ws-font-size', key: 'font-size' },
-            h('button', {
-              'aria-label': translate('preview.textSize.decrease.title'),
-              className: 'dsh-ws-text-button dsh-ws-font-step',
-              disabled: fontPercent <= FONT_SCALE_MIN || undefined,
-              onClick: () => stepFont(-FONT_SCALE_STEP),
-              title: translate('preview.textSize.decrease.title'),
-              type: 'button',
-            }, h('span', { className: 'dsh-ws-font-a', 'data-glyph': 'sm', 'aria-hidden': true }, 'A'), h('span', { className: 'dsh-ws-font-sign', 'aria-hidden': true }, '−')),
-            fontEditing
-              ? h('span', { className: 'dsh-ws-font-input' },
-                h('input', {
-                  'aria-label': translate('preview.textSize.input'),
-                  autoFocus: true,
-                  className: 'dsh-ws-font-field',
-                  inputMode: 'numeric',
-                  maxLength: 3,
-                  onBlur: commitFontPercent,
-                  onChange: (event) => setFontDraft(event.target.value.replace(/[^0-9]/gu, '').slice(0, 3)),
-                  onFocus: (event) => event.target.select(),
-                  onKeyDown: (event) => {
-                    /* IME composition must never commit the value (same guard as every other input). */
-                    if (event.isComposing) return
-                    if (event.key === 'Enter') { event.preventDefault(); commitFontPercent(); return }
-                    if (event.key === 'Escape') { event.preventDefault(); setFontEditing(false); setFontDraft(''); return }
-                    /* Arrow keys nudge by one step, staying in the input so a few taps can be dialled in. */
-                    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
-                    event.preventDefault()
-                    const next = stepFontPercent(fontPercent, event.key === 'ArrowUp' ? FONT_SCALE_STEP : -FONT_SCALE_STEP)
-                    setFontPercent(next)
-                    setFontDraft(String(next))
-                    setStatus({ text: translate('status.textSizeChanged', { percent: next }) })
-                  },
-                  /* Emptying the field is the reset gesture, not an error: the ghosted number is the
-                     base size the tab would fall back to. */
-                  placeholder: String(fontBase),
-                  type: 'text',
-                  value: fontDraft,
-                }),
-                h('span', { className: 'dsh-ws-font-pct', 'aria-hidden': true }, '%'))
-              : h('button', {
-                className: 'dsh-ws-text-button dsh-ws-font-value',
-                'data-inherit': fontOwn ? undefined : true,
-                onClick: () => { setFontDraft(String(fontPercent)); setFontEditing(true) },
-                title: translate('preview.textSize.value.title', { percent: fontBase }),
-                type: 'button',
-              }, `${fontPercent}%`),
-            h('button', {
-              'aria-label': translate('preview.textSize.increase.title'),
-              className: 'dsh-ws-text-button dsh-ws-font-step',
-              disabled: fontPercent >= FONT_SCALE_MAX || undefined,
-              onClick: () => stepFont(FONT_SCALE_STEP),
-              title: translate('preview.textSize.increase.title'),
-              type: 'button',
-            }, h('span', { className: 'dsh-ws-font-a', 'data-glyph': 'lg', 'aria-hidden': true }, 'A'), h('span', { className: 'dsh-ws-font-sign', 'aria-hidden': true }, '+')))
-          : null,
-        runTabPath === null
-          ? null
-          : h('button', {
-            'aria-label': translate('run.panel'),
-            className: 'dsh-ws-text-button',
-            /* Active = the console is showing: the same filled/quiet button language as the viewer toggle. */
-            'data-active': runPanelOpen || undefined,
-            onClick: () => setRunCollapsed(runTabPath, runPanelOpen),
-            title: translate('run.panel.title'),
-            type: 'button',
-          }, translate('run.panel')),
-        preview.state === 'ready'
-          ? h(Fragment, null,
-            /* Viewer toggle (registry-driven): exactly two candidates exist for every file that shows the button, so it flips directly instead of opening a menu. */
-            viewerItems.length > 1
-              ? h('button', {
-                'aria-label': translate('viewer.menu'),
-                className: 'dsh-ws-text-button',
-                'data-active': currentViewer?.id === VIEW_PREVIEW || undefined,
-                onClick: () => setViewMode(currentViewer?.id === VIEW_PREVIEW ? VIEW_EDIT : VIEW_PREVIEW),
-                title: viewerToggleTitle,
-                type: 'button',
-              }, currentViewer?.label ?? '')
-              : null,
-            h('button', {
-              'aria-label': translate('editor.refresh'),
-              className: 'dsh-ws-icon-button',
-              /* A dropped-in tab has no reread to offer; an outside-workspace tab re-reads through the Remote. */
-              disabled: Boolean(activeTab?.external && activeTab?.outside !== true),
-              onClick: refreshFile,
-              title: translate('editor.refresh.title'),
-              type: 'button',
-            }, h(IconRefresh)),
-          )
-          : null,
+      h('div', { className: 'dsh-ws-panes', 'data-split': splitOpen ? 'true' : undefined },
+        renderPane(PREVIEW_PANE_TOP, topTabs, topActiveTab, topActivePath, focusedPane === PREVIEW_PANE_TOP),
+        splitOpen ? h(PaneSplitter, { onChange: (value) => { splitRatioRef.current = value; setSplitRatio(value) }, ratio: splitRatio }) : null,
+        splitOpen ? renderPane(PREVIEW_PANE_BOTTOM, bottomTabs, bottomActiveTab, bottomActivePath, focusedPane === PREVIEW_PANE_BOTTOM) : null,
       ),
-      body,
-      // Merged bottom status bar: action buttons + file meta (left) and the transient status notice (right); a mind-map, plan, or review tab hides it.
-      activeMindmap || activePlan || activeReview || activeMusic || activePermission ? null : h('div', { className: 'dsh-ws-status', onContextMenu: (event) => { event.preventDefault(); if (preview.state === 'ready' && preview.kind !== RENDERER_IMAGE && activeTab !== undefined && !activeTab.external) setEncodingMenu({ x: event.clientX, y: event.clientY }) } },
-        h('div', { className: 'dsh-ws-preview-status-actions' },
-          preview.state === 'ready' && preview.kind !== RENDERER_IMAGE
-            ? h(Fragment, null,
-              h('button', {
-                'aria-pressed': settings.wrap === true,
-                className: 'dsh-ws-text-button',
-                'data-active': settings.wrap === true || undefined,
-                onClick: () => settingsStore.actions.setWrap(settings.wrap !== true),
-                title: settings.wrap === true ? translate('editor.wrap.off.title') : translate('editor.wrap.on.title'),
-                type: 'button',
-              }, translate('editor.wrap')),
-              reason === null
-                ? h(Fragment, null,
-                  h('button', { className: 'dsh-ws-text-button', disabled: !dirty || saving, onClick: cancel, type: 'button' }, translate('editor.cancel')),
-                  h('button', { className: 'dsh-ws-text-button', disabled: !dirty || saving, onClick: () => void save(), type: 'button' }, saving ? translate('editor.saving') : translate('editor.save')),
-                )
-                : dirty
-                  ? h('button', { className: 'dsh-ws-text-button', disabled: saving, onClick: () => void discardDraft(), title: translate('editor.discardDraft.title'), type: 'button' }, translate('editor.discardDraft'))
-                  : null,
-            )
-            : null,
-        ),
-        diffSummaryNode,
-        h('div', { className: 'dsh-ws-preview-status-meta' },
-          activeTab ? h('span', { className: 'dsh-ws-language' }, fileLabel(activeTab.name)) : null,
-          size ? h('span', null, size) : null,
-          preview.state === 'ready' && preview.kind !== RENDERER_IMAGE && preview.encoding ? h('span', { className: 'dsh-ws-encoding', title: translate('encoding.badge') }, encodingLabel(preview.encoding)) : null,
-          preview.state === 'ready' && preview.kind !== RENDERER_IMAGE && reason ? h('span', { title: reason }, reason) : null,
-        ),
-        h('span', { className: 'dsh-ws-preview-status-msg', 'data-error': notice?.error || undefined }, notice?.text ?? ''),
-      ),
+      h('div', { className: 'dsh-ws-split-zone', 'data-active': dropZone ? 'true' : undefined, 'aria-hidden': true },
+        h('div', { className: 'dsh-ws-split-zone-card' },
+          h('span', { className: 'dsh-ws-split-zone-icon', 'aria-hidden': true }, h('i'), h('i')),
+          h('span', { className: 'dsh-ws-split-zone-title' }, translate('preview.split.hint')),
+          h('span', { className: 'dsh-ws-split-zone-sub' }, translate('preview.split.hintSub')))),
+      tabContextMenu ? h(TabContextMenu, {
+        canClosePane: splitOpen,
+        canMoveToOtherPane: splitOpen,
+        canOpenExternally,
+        canOpenPermissions: sessionId !== undefined && sessionId !== null && String(sessionId) !== '',
+        canReload: tabMenuTarget !== undefined && !isSyntheticTab(tabMenuTarget) && !tabMenuTarget.external && tabMenuTarget.dirty !== true && tabMenuTarget.saving !== true,
+        canSplitDown: !splitOpen && tabMenuTarget !== undefined && tabsOfPane(tabs, paneOfTab(tabMenuTarget)).length >= 2,
+        menuRef: tabMenuRef,
+        onCloseOthers: () => { setTabContextMenu(undefined); closeOtherTabs(tabContextMenu.path) },
+        onClosePane: splitOpen ? () => { setTabContextMenu(undefined); closeBottomPane() } : undefined,
+        onMoveToOtherPane: splitOpen ? () => { setTabContextMenu(undefined); moveTabToOtherPane(tabContextMenu.path) } : undefined,
+        onOpenExternally: openTabExternally,
+        onOpenMusic: openMusicWorkshop,
+        onOpenPermissions: openPermissionsPage,
+        onReload: () => { setTabContextMenu(undefined); reloadTab(tabContextMenu.path) },
+        onSplitDown: splitOpen ? undefined : () => { setTabContextMenu(undefined); splitTab(tabContextMenu.path) },
+        onTogglePin: () => { setTabContextMenu(undefined); if (tabMenuTarget?.pinned) unpinTab(tabContextMenu.path); else pinTab(tabContextMenu.path) },
+        openLabel: openExternallyLabel,
+        openTitle: openExternallyTitle,
+        permissionCount: permissionPendingCount,
+        pinned: Boolean(tabMenuTarget?.pinned),
+        reloadTitle: tabMenuTarget?.dirty === true ? translate('tab.reloadBlocked') : translate('tab.reload.title'),
+        x: tabContextMenu.x,
+        y: tabContextMenu.y,
+      }) : null,
+      stripMenu ? h(TabStripContextMenu, {
+        canClosePane: splitOpen,
+        canOpenPermissions: sessionId !== undefined && sessionId !== null && String(sessionId) !== '',
+        canSplitDown: !splitOpen && tabsOfPane(tabs, stripMenu.pane).length >= 2,
+        menuRef: stripMenuRef,
+        onClosePane: splitOpen ? () => { setStripMenu(undefined); closeBottomPane() } : undefined,
+        onOpenMusic: openMusicWorkshop,
+        onOpenPermissions: openPermissionsPage,
+        onSplitDown: () => { setStripMenu(undefined); const path = paneActiveRef.current[stripMenu.pane]; if (path !== null) splitTab(path) },
+        permissionCount: permissionPendingCount,
+        x: stripMenu.x,
+        y: stripMenu.y,
+      }) : null,
       h(DropOverlay, { active: dropActive, onClose: () => setDropActive(false), suppressedRef: dropSuppressedRef }),
-      previewToast ? h(PreviewToast, { headerRef: previewHeaderRef, key: previewToast.seq, onDone: () => setPreviewToast(undefined), text: previewToast.text }) : null,
     ),
   )
 }
+
 
 
 

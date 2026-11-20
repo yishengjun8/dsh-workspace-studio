@@ -1,7 +1,7 @@
 import { defineStore } from '@deepseek-ai/dsh-client-store'
 import { AUTO_SYNC_MODE_AUTO, AUTO_SYNC_MODE_WATCH_ONLY, clampMountBulge, CONFLICT_FONT_SIZE_DEFAULT, CONFLICT_FONT_SIZE_MAX, CONFLICT_FONT_SIZE_MIN, cssColorToHex, DIFF_RULER_DEFAULT, DIFF_RULER_SPAN_DEFAULT, DIFF_RULER_THUMB_DEFAULT, DIFF_RULER_WIDTH_DEFAULT, DIFF_RULER_WIDTH_MAX, DIFF_RULER_WIDTH_MIN, DIFF_TINT_DEFAULT, EDIT_LINES_DEFAULT, EDIT_LINES_MAX, EDIT_LINES_MIN, EXPLORER_LAYOUT_STORE_KEY, EXPLORER_SETTINGS_STORE_KEY, FONT_SCALE_DEFAULT, stepFontPercent, MUSIC_ARRANGE_BAR_WIDTH_DEFAULT, MUSIC_ARRANGE_BAR_WIDTH_MAX, MUSIC_ARRANGE_BAR_WIDTH_MIN, MUSIC_ROLL_GRID_WIDTH_DEFAULT, MUSIC_ROLL_GRID_WIDTH_MAX, MUSIC_ROLL_GRID_WIDTH_MIN, MUSIC_ROLL_ROW_HEIGHT_DEFAULT, MUSIC_ROLL_ROW_HEIGHT_MAX, MUSIC_ROLL_ROW_HEIGHT_MIN, MUSIC_SAVE_DIR_MAX_LENGTH, MINDMAP_END_COLOR_DEFAULT, MINDMAP_HEAD_COLOR_DEFAULT, MINDMAP_HOVER_COLOR_FALLBACK, MINDMAP_HOVER_THEME_VAR, MINDMAP_MOUNT_BULGE_DEFAULT_X, MINDMAP_SELECTED_COLOR_FALLBACK, MINDMAP_SELECTED_THEME_VAR, MINDMAP_SPIN_SPEED_DEFAULT_X, MINDMAP_SPIN_SPEED_MAX_X, MINDMAP_SPIN_SPEED_MIN_X, MINDMAP_SUMMARY_DEFAULT_LENGTH, MINDMAP_SUMMARY_LENGTH_STEP, MINDMAP_SUMMARY_MAX_LENGTH, MINDMAP_SUMMARY_MIN_LENGTH, MINDMAP_SUMMARY_SESSION_DEFAULT_LENGTH, MINDMAP_SUMMARY_SESSION_LENGTH_STEP, MINDMAP_SUMMARY_SESSION_MAX_LENGTH, MINDMAP_SUMMARY_SESSION_MIN_LENGTH, mindmapEffectiveColor, PREVIEW_DEFAULT, PREVIEW_MAX, PREVIEW_MIN, PREVIEW_RIGHT_DEFAULT, PREVIEW_SESSION_STORE_KEY, ROW_HEIGHT_DEFAULT, ROW_HEIGHT_MAX, ROW_HEIGHT_MIN, SEARCH_MATCH_EXPAND_DEFAULT, SIDEBAR_DEFAULT, SIDEBAR_MAX_FALLBACK, SIDEBAR_MIN, THINK_LINES_DEFAULT, THINK_LINES_MAX, THINK_LINES_MIN, TREE_DEFAULT, TREE_MAX, TREE_MIN, VCS_HIDE_METADATA_DEFAULT, WATCH_FILES_DEFAULT } from './constants.js'
 import { clamp, diffColorDefault, fileColorDefault, highlightPresetDefaultFor, vcsStatusColorDefault } from './format.js'
-import { normalizePreviewSession, prunePreviewSessions } from './preview-tabs.js'
+import { normalizePreviewSession, prunePreviewSessions, serializePreviewSession } from './preview-tabs.js'
 import { readPersistedState } from './persisted-state.js'
 import { normalizeRelativeDir } from './paths.js'
 import { MUSIC_DEFAULT_DIR } from '../shared/music-score.js'
@@ -66,8 +66,12 @@ export function createPreviewSessionStore() {
         const normalized = normalizePreviewSession(value)
         if (normalized.tabs.length === 0 && (normalized.expanded ?? []).length === 0) delete draft.previewSessions[String(key)]
         else {
-          // Timestamp every write so stale sessions can be pruned below.
-          draft.previewSessions[String(key)] = { ...normalized, updatedAt: Date.now() }
+          // Timestamp every write so stale sessions can be pruned below. The persisted shape is
+          // owned by preview-tabs.js; the internal pane state is never written as-is.
+          draft.previewSessions[String(key)] = {
+            ...serializePreviewSession(normalized.activePath, normalized.tabs, normalized.expanded, normalized.musicPrefs, normalized),
+            updatedAt: Date.now(),
+          }
           prunePreviewSessions(draft)
         }
       },

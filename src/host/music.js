@@ -14,6 +14,7 @@ import { HttpError } from './errors.js'
 import { sessionModelOf } from './mindmap.js'
 import { hasSymlinkComponent, isInside, normalizeEntryName, normalizeRelativePath } from './paths.js'
 import { serializeWrite } from './write.js'
+import { MUSIC_EXPORT_FORMATS, MUSIC_EXPORT_MAX_BYTES, musicExportFileName } from '../shared/music-export.js'
 import {
   MUSIC_BARS_MAX,
   MUSIC_BARS_MIN,
@@ -275,7 +276,10 @@ function musicFileName(value, config, fallbackTitle) {
   return name
 }
 
-async function writeScoreFile(root, relativePath, doc) {
+/* Resolve (and create) the directory of one workspace write and report the target's
+   current state. Every write path stays inside the workspace, refuses a symlinked target
+   or directory component, and refuses to replace a directory with a file. */
+async function prepareWriteTarget(root, relativePath) {
   const dir = dirname(relativePath)
   const dirPart = dir === '.' ? '' : dir
   const dirAbs = dirPart === '' ? root : resolve(root, ...dirPart.split('/'))
@@ -294,16 +298,19 @@ async function writeScoreFile(root, relativePath, doc) {
     if (error?.code !== 'ENOENT') throw error
   }
   if (existing !== null && existing.isSymbolicLink()) throw new HttpError(403, 'symlink-write-denied', '拒绝通过符号链接写入文件')
-  const bytes = Buffer.from(JSON.stringify(doc, null, 2), 'utf8')
-  if (bytes.byteLength > MUSIC_DOC_MAX_BYTES) {
-    throw new HttpError(413, 'music-doc-too-large', `乐谱文件不能超过 ${MUSIC_DOC_MAX_BYTES} 字节`)
-  }
-  if (await hasSymlinkComponent(root, dir === '' || dir === '.' ? dirname(relativePath) : dir)) {
-    throw new HttpError(403, 'symlink-write-denied', '拒绝通过符号链接写入文件')
+  if (existing !== null && !existing.isFile()) throw new HttpError(400, 'not-a-file', '同名路径不是普通文件')
+  return { dirPart, realDir, target, existing }
+}
+
+/* Atomic byte write over one resolved target; `refuseExisting` turns a collision into the
+   409 the export dialog uses to ask for an explicit overwrite. */
+async function writeWorkspaceBytes(root, relativePath, bytes, options = {}) {
+  const { dirPart, realDir, target, existing } = await prepareWriteTarget(root, relativePath)
+  if (existing !== null && options.refuseExisting === true) {
+    throw new HttpError(409, 'music-export-exists', '同名文件已存在，请确认是否覆盖', { path: relativePath })
   }
   const temp = resolve(realDir, `.${randomBytes(12).toString('hex')}.dsh-music.tmp`)
   try {
-    const { open } = await import('node:fs/promises')
     const handle = await open(temp, 'wx', 0o644)
     try {
       await handle.writeFile(bytes)
@@ -323,6 +330,14 @@ async function writeScoreFile(root, relativePath, doc) {
   return { size: info.size, mtimeMs: info.mtimeMs }
 }
 
+async function writeScoreFile(root, relativePath, doc) {
+  const bytes = Buffer.from(JSON.stringify(doc, null, 2), 'utf8')
+  if (bytes.byteLength > MUSIC_DOC_MAX_BYTES) {
+    throw new HttpError(413, 'music-doc-too-large', `乐谱文件不能超过 ${MUSIC_DOC_MAX_BYTES} 字节`)
+  }
+  return writeWorkspaceBytes(root, relativePath, bytes)
+}
+
 /** Save (create or overwrite) one score file under the workspace music directory. */
 export async function saveMusicDoc(workspace, config, queues, payload) {
   if (!config.enableEditing) throw new HttpError(403, 'editing-disabled', '当前未启用文件编辑')
@@ -337,6 +352,61 @@ export async function saveMusicDoc(workspace, config, queues, payload) {
     const root = await realpath(workspace.path)
     const written = await writeScoreFile(root, relativePath, saved)
     return { path: relativePath, name, size: written.size, mtimeMs: written.mtimeMs, savedAt: saved.updatedAt, doc: saved }
+  })
+}
+
+/* The export dialog's file name: the shared table decides the one legal extension; the
+   Host validates the final name through the same entry-name fence as every other write. */
+function exportFileName(format, value, config) {
+  const raw = typeof value === 'string' && value.trim() !== '' ? value.trim() : '未命名作品'
+  const name = musicExportFileName(format, raw)
+  if (name === '') throw new HttpError(400, 'invalid-path', '文件名必须是工作区内的单个名称')
+  return normalizeEntryName(name, config.maxEntryNameBytes)
+}
+
+/**
+ * Write one exported file (WAV / MIDI / score JSON) into the workspace.
+ *
+ * The panel encodes the bytes; the Host only validates the format, the size and the path,
+ * and re-validates score JSON through the shared normalizer so an export can never write a
+ * document the workshop itself would refuse to open. Binary formats are written verbatim.
+ * `overwrite: false` answers 409 when the target exists, which is what turns the dialog's
+ * 「导出」 into an explicit 「覆盖导出」.
+ */
+export async function exportMusicFile(workspace, config, queues, payload) {
+  if (!config.enableEditing) throw new HttpError(403, 'editing-disabled', '当前未启用文件编辑')
+  const format = typeof payload?.format === 'string' && MUSIC_EXPORT_FORMATS.includes(payload.format) ? payload.format : ''
+  if (format === '') throw new HttpError(400, 'invalid-export-format', '不支持的导出格式')
+  const bytes = payload?.bytes
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0) {
+    throw new HttpError(400, 'invalid-export-body', '导出内容为空')
+  }
+  if (bytes.byteLength > MUSIC_EXPORT_MAX_BYTES) {
+    throw new HttpError(413, 'music-export-too-large', `导出文件不能超过 ${MUSIC_EXPORT_MAX_BYTES} 字节`)
+  }
+  let body = Buffer.from(bytes)
+  if (format === 'json') {
+    let parsed
+    try {
+      parsed = JSON.parse(body.toString('utf8'))
+    } catch {
+      throw new HttpError(422, 'invalid-music-doc', '导出的乐谱内容不是有效的 JSON')
+    }
+    const doc = normalizeMusicDoc(parsed)
+    if (doc === null) throw new HttpError(422, 'invalid-music-doc', '导出的乐谱内容无效')
+    body = Buffer.from(JSON.stringify(doc, null, 2), 'utf8')
+    if (body.byteLength > MUSIC_DOC_MAX_BYTES) {
+      throw new HttpError(413, 'music-doc-too-large', `乐谱文件不能超过 ${MUSIC_DOC_MAX_BYTES} 字节`)
+    }
+  }
+  const dirInput = typeof payload?.dir === 'string' && payload.dir.trim() !== '' ? payload.dir.trim() : MUSIC_DEFAULT_DIR
+  const dir = normalizeRelativePath(dirInput)
+  const name = exportFileName(format, payload?.name, config)
+  const relativePath = dir === '' ? name : `${dir}/${name}`
+  return serializeWrite(queues, `workspace:${String(workspace.id)}`, async () => {
+    const root = await realpath(workspace.path)
+    const written = await writeWorkspaceBytes(root, relativePath, body, { refuseExisting: payload?.overwrite !== true })
+    return { path: relativePath, name, size: written.size, mtimeMs: written.mtimeMs, format }
   })
 }
 

@@ -38,8 +38,19 @@ function tabMark(tab, onReload) {
     h('span', { 'aria-hidden': true, className: 'dsh-ws-mark-core' }))
 }
 
-/* Preview tab strip: one tab per open file with pin/close, drag reordering, and context-menu trigger; all interactions are callbacks. */
-export function PreviewTabs({ tabs, activePath, draggingPath, dropIndex, containerRef, onBlankContextMenu, onChoose, onClose, onContextMenu, onDragEnd, onDragStart, onDragLeave, onDragOver, onDrop, onMouseEnter, onMouseLeave, onPromote, onReload, onScroll, onUnpin }) {
+/* Collapse icon of the bottom pane: two stacked rows with the lower one folding away. */
+const collapsePaneIcon = h('svg', { 'aria-hidden': true, viewBox: '0 0 16 16' },
+  h('path', {
+    d: 'M3.5 4.5h9M5.2 8l2.8 2.8L10.8 8',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    strokeWidth: 1.4,
+  }))
+
+/* Preview tab strip: one tab per open file with pin/close, drag reordering, and context-menu trigger; all interactions are callbacks. `bottom` marks the optional lower pane and adds the pane-collapse control. */
+export function PreviewTabs({ tabs, activePath, bottom, draggingPath, dropIndex, containerRef, onBlankContextMenu, onChoose, onClose, onClosePane, onContextMenu, onDragEnd, onDragStart, onDragLeave, onDragOver, onDrop, onMouseEnter, onMouseLeave, onPromote, onReload, onScroll, onUnpin }) {
   /* Subscribe once to the run store: a process outlives the tab it was started in, so any open
      tab whose file is still running carries a badge — but per-tab hooks in a loop are not a thing. */
   useRunVersion()
@@ -59,6 +70,10 @@ export function PreviewTabs({ tabs, activePath, draggingPath, dropIndex, contain
       'data-temporary': isTemporaryTab(tab) || undefined,
       draggable: true,
       key: tab.path,
+      /* The whole tab is a target, not only its name: in the split layout clicking anywhere on
+         the inactive pane's tab must focus that pane and activate the tab. The name button and
+         the close button stop propagation so one click stays one activation. */
+      onClick: () => onChoose(tab),
       onContextMenu: event => { event.preventDefault(); onContextMenu(tab.path, event.clientX, event.clientY) },
       onDragEnd: () => onDragEnd(),
       onDragStart: event => onDragStart(tab.path, event),
@@ -117,7 +132,7 @@ export function PreviewTabs({ tabs, activePath, draggingPath, dropIndex, contain
         : null,
       h('button', {
         className: 'dsh-ws-preview-tab-button',
-        onClick: () => onChoose(tab),
+        onClick: event => { event.stopPropagation(); onChoose(tab) },
         onDoubleClick: () => onPromote(tab.path),
         role: 'tab',
         'aria-selected': tab.path === activePath,
@@ -154,7 +169,7 @@ export function PreviewTabs({ tabs, activePath, draggingPath, dropIndex, contain
   /* The strip owns the blank space right of the last tab: a right-click there is a strip-level
      menu (the workshop entry), while a right-click ON a tab keeps its own tab menu. */
   return h('div', {
-    'aria-label': translate('tab.list'),
+    'aria-label': translate(bottom === true ? 'preview.pane.bottom' : 'preview.pane.top'),
     className: 'dsh-ws-preview-tabs',
     onContextMenu: event => {
       if (event.target.closest('.dsh-ws-preview-tab') !== null) return
@@ -180,7 +195,16 @@ export function PreviewTabs({ tabs, activePath, draggingPath, dropIndex, contain
     },
     title: translate('tab.music.open.title'),
     type: 'button',
-  }, '＋'))
+  }, '＋'),
+  bottom === true && onClosePane !== undefined
+    ? h('button', {
+      'aria-label': translate('preview.split.close'),
+      className: 'dsh-ws-preview-pane-close',
+      onClick: onClosePane,
+      title: translate('preview.split.close.title'),
+      type: 'button',
+    }, collapsePaneIcon)
+    : null)
 }
 
 

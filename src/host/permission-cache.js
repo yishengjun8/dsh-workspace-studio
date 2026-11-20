@@ -31,10 +31,12 @@ export const AI_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000
 export const MAX_PERMISSION_TARGETS = 50
 export const DEFAULT_MAX_SCRIPT_DEPTH = 3
 export const MAX_SCRIPT_DEPTH = 5
-export const AI_PROMPT_VERSION = 1
+export const AI_PROMPT_VERSION = 2
 
 const OPERATIONS = new Set(['delete', 'modify', 'create', 'move'])
-const OUTCOMES = new Set(['allowed', 'allowed-once', 'denied', 'expired', 'blocked'])
+/* `paused` records a command that was waiting for permission and was released by pausing the
+   scope's interception; it is a history outcome only and never adds a grant. */
+const OUTCOMES = new Set(['allowed', 'allowed-once', 'denied', 'expired', 'blocked', 'paused'])
 const SCOPE_KEY_RE = /^(session|root):[^\u0000-\u001f]{1,200}$/u
 
 export function permissionCachePath() {
@@ -136,7 +138,10 @@ function normalizeScope(key, value) {
     if (row !== null) history.push(row)
     if (history.length >= MAX_PERMISSION_HISTORY) break
   }
-  if (grants.length === 0 && history.length === 0) return null
+  /* A scope with nothing but a pause still matters: dropping it would silently un-pause the scope
+     on the next load, so the record survives while `pausedAt` is set. */
+  const pausedAt = Number.isFinite(value.pausedAt) && value.pausedAt > 0 ? Math.floor(value.pausedAt) : 0
+  if (grants.length === 0 && history.length === 0 && pausedAt === 0) return null
   return {
     kind,
     sessionId,
@@ -144,6 +149,7 @@ function normalizeScope(key, value) {
     title: cleanString(value.title, 300) || null,
     grants,
     history,
+    pausedAt,
     updatedAt: Number.isFinite(value.updatedAt) && value.updatedAt > 0 ? Math.floor(value.updatedAt) : 0,
   }
 }
@@ -188,6 +194,10 @@ function normalizeAiCache(value, now) {
         promptVersion: Number.isSafeInteger(entry.promptVersion) ? entry.promptVersion : AI_PROMPT_VERSION,
         targets,
         opaque: entry.opaque === true,
+        summary: cleanString(entry.summary, 240),
+        confidence: entry.confidence === 'high' || entry.confidence === 'medium' || entry.confidence === 'low'
+          ? entry.confidence
+          : 'low',
         createdAt,
       },
     })

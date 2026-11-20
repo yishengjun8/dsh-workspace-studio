@@ -16,7 +16,27 @@ import {
   musicTrackFingerprint,
   validateRewrittenNotes,
 } from '../src/shared/music-edit.js'
-import { MUSIC_DRUM_IDS } from '../src/shared/music-score.js'
+import { readFile, mkdtemp, readdir, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { MUSIC_DRUM_IDS, composeMusicScore } from '../src/shared/music-score.js'
+import { composeMusicSequence, composeRanges } from '../src/shared/music-compose.js'
+import {
+  MUSIC_JOB_CLAIM_STALE_MS,
+  MUSIC_JOB_TTL_MS,
+  ackMusicJob,
+  cancelMusicJob,
+  createMusicJob,
+  musicJobCount,
+  pruneMusicJobs,
+  readMusicJob,
+  resetMusicJobs,
+  waitMusicJobClaim,
+  waitMusicJobResult,
+} from '../src/host/music-jobs.js'
+import { autoExportFormat, autoScoreBase, exportAttemptName, uniqueScoreBase } from '../src/client/components/music/auto.js'
+import { composeAndSave, installMusicTools } from '../src/host/music-tools.js'
+import { normalizeMusicJobParams } from '../src/host/music-jobs.js'
 import {
   ackMusicCollabPatch,
   applyMusicCollabEdit,
@@ -204,6 +224,208 @@ const realNow = Date.now
 Date.now = () => realNow() + 31 * 60 * 1000
 check(readMusicCollabOverview({ session: 's-ttl' }).result === 'workshop-closed', 'an expired registration is dropped')
 Date.now = realNow
+
+/* ---- 3. shared composition sequence ------------------------------------------------ */
+
+equal(composeRanges(20), [{ bars: 10, start: 1 }, { bars: 10, start: 11 }], '20 bars split into two balanced segments')
+equal(composeRanges(8), [{ bars: 8, start: 1 }], 'a short piece stays one segment')
+equal(composeRanges(64).length, 4, '64 bars split into four segments')
+
+const seqPlan = {
+  bars: 20,
+  bpm: 96,
+  instruments: ['piano', 'drums'],
+  keyMode: 'major',
+  keyRoot: 'C',
+  progression: Array.from({ length: 20 }, () => 'Cmaj7'),
+  seamless: true,
+  sections: [],
+  style: 'lofi',
+}
+const seqMeta = { complexity: 0.5, createdAt: 1, density: 0.5, humanize: 0.08, mood: 'lazy', prompt: '', seamless: true, style: 'lofi', swing: 0.3, title: 'seq' }
+const segmentRequest = async ({ range }) => ({
+  doc: composeMusicScore({ bars: range.bars, instruments: seqPlan.instruments, style: 'lofi' }),
+  engine: 'llm',
+})
+const sequenced = await composeMusicSequence({ fallback: () => composeMusicScore({ bars: 20, instruments: seqPlan.instruments }), meta: seqMeta, plan: seqPlan, request: segmentRequest })
+equal(sequenced.engine, 'llm', 'a complete set of model segments keeps the llm engine')
+equal(sequenced.doc.bars, 20, 'merged segments keep the whole-piece bar count')
+check(sequenced.doc.tracks.every(track => track.kind === 'drums' ? track.drums.kick.length === 20 : track.notes.every(note => note.bar <= 20)), 'merged segments stay inside the piece')
+
+const fallbackSeq = await composeMusicSequence({
+  fallback: () => composeMusicScore({ bars: 20, instruments: seqPlan.instruments }),
+  meta: seqMeta,
+  plan: seqPlan,
+  request: async ({ range }) => ({ doc: composeMusicScore({ bars: range.bars, instruments: seqPlan.instruments }), engine: 'template', warning: 'no-model' }),
+})
+equal(fallbackSeq.engine, 'template', 'a non-llm segment falls back to the whole-piece template')
+equal(fallbackSeq.warning, 'no-model', 'the template warning survives')
+equal(fallbackSeq.doc.bars, 20, 'the fallback still covers the whole piece')
+
+const mismatchSeq = await composeMusicSequence({
+  fallback: () => composeMusicScore({ bars: 20, instruments: seqPlan.instruments }),
+  meta: seqMeta,
+  plan: seqPlan,
+  request: async ({ range, index }) => ({
+    doc: composeMusicScore({ bars: range.bars, instruments: index === 0 ? ['piano'] : seqPlan.instruments }),
+    engine: 'llm',
+  }),
+})
+equal(mismatchSeq.engine, 'template', 'a segment missing an instrument falls back instead of merging a half piece')
+equal(mismatchSeq.warning, 'llm-invalid', 'the merge failure is reported')
+
+const abortController = new AbortController()
+abortController.abort()
+let aborted = false
+try {
+  await composeMusicSequence({ fallback: () => null, meta: seqMeta, plan: seqPlan, request: segmentRequest, signal: abortController.signal })
+} catch (error) {
+  aborted = error?.name === 'AbortError'
+}
+check(aborted, 'an aborted composition stops before requesting a segment')
+
+/* ---- 4. auto-generation job bridge ------------------------------------------------- */
+
+resetMusicJobs()
+const created = createMusicJob('s-job', { bars: 999, export: 'wav', instruments: ['piano'], prompt: 'night', style: 'lofi' })
+check(created.ok === true, 'a job is created for its session')
+equal(createMusicJob('s-job', { bars: 8 }).reason, 'busy', 'one active job per session')
+const claimedJob = readMusicJob('s-job')
+check(claimedJob.job !== null && claimedJob.job.id === created.id, 'the page claims the pending job')
+equal(claimedJob.job.params.bars, 64, 'job parameters are clamped to the score limits')
+equal(claimedJob.job.params.instruments.join(','), 'piano', 'job instrumentation is normalized')
+equal(readMusicJob('s-job').busy, true, 'a fresh claim is not handed to a second poller')
+check(await waitMusicJobClaim('s-job', created.id, 50) === true, 'a claimed job reports the claim')
+const reClaimNow = Date.now() + MUSIC_JOB_CLAIM_STALE_MS + 1
+const reClaimed = readMusicJob('s-job', reClaimNow)
+check(reClaimed.job !== null && reClaimed.job.id === created.id, 'a stale claim can be recovered by a reloaded page')
+
+const resultWaiter = waitMusicJobResult('s-job', created.id, 500)
+await tick()
+equal(ackMusicJob({ id: created.id, result: 'bogus', session: 's-job' }), { ok: false, reason: 'invalid-result' }, 'an unknown ack result is refused')
+equal(ackMusicJob({ id: 'job-nope', result: 'done', session: 's-job' }), { ok: false, reason: 'unknown-job' }, 'an unknown job id is refused')
+equal(ackMusicJob({ data: { engine: 'llm', exportPath: 'music/a.wav', format: 'wav', path: 'music/a.music.json' }, id: created.id, result: 'done', session: 's-job' }), { ok: true }, 'a known ack lands')
+const ackResult = await resultWaiter
+equal(ackResult.result, 'done', 'the waiting tool learns the job is done')
+equal(ackResult.data.path, 'music/a.music.json', 'the saved path reaches the tool')
+equal(ackResult.data.exportPath, 'music/a.wav', 'the exported path reaches the tool')
+equal(musicJobCount(), 0, 'an acked job leaves no entry')
+
+/* Unclaimed cancellation removes the job; a claimed one is left to finish. */
+const cancelJob = createMusicJob('s-cancel', { bars: 8 })
+check(cancelMusicJob('s-cancel', cancelJob.id) === true, 'an unclaimed job can be cancelled')
+equal(musicJobCount(), 0, 'cancelled job leaves no entry')
+const claimedCancel = createMusicJob('s-cancel-claimed', { bars: 8 })
+readMusicJob('s-cancel-claimed')
+check(cancelMusicJob('s-cancel-claimed', claimedCancel.id) === false, 'a claimed job is not silently dropped')
+ackMusicJob({ id: claimedCancel.id, result: 'done', session: 's-cancel-claimed' })
+
+/* TTL settles the waiting tool instead of letting it hang. */
+const ttlJob = createMusicJob('s-ttl-job', { bars: 8 })
+readMusicJob('s-ttl-job')
+const ttlWaiter = waitMusicJobResult('s-ttl-job', ttlJob.id, 500)
+await tick()
+pruneMusicJobs(Date.now() + MUSIC_JOB_TTL_MS + 1)
+equal((await ttlWaiter).result, 'expired', 'an expired job settles the waiting tool')
+equal(musicJobCount(), 0, 'expired jobs are pruned')
+
+/* Rate limit: the fifth create inside one minute is refused (and acks do not erase the count). */
+resetMusicJobs()
+for (let index = 0; index < 4; index += 1) {
+  const job = createMusicJob('s-rate', { bars: 8 })
+  check(job.ok === true, `rate test job ${index + 1} is created`)
+  readMusicJob('s-rate')
+  ackMusicJob({ id: job.id, result: 'done', session: 's-rate' })
+}
+equal(createMusicJob('s-rate', { bars: 8 }).reason, 'too-many-jobs', 'the fifth job inside a minute is refused')
+
+/* ---- 5. automatic save/export naming ---------------------------------------------- */
+
+equal(autoScoreBase('  a/b:c.music.json '), 'a-b-c', 'a requested base is sanitised and suffix-free')
+equal(autoScoreBase('   '), '未命名作品', 'an empty base falls back to the default title')
+equal(uniqueScoreBase([{ name: 'x.music.json' }], 'x'), 'x (2)', 'an existing score pushes the automatic save to (2)')
+equal(uniqueScoreBase([], 'x'), 'x', 'a free base is used as-is')
+equal(exportAttemptName('x', 1), 'x', 'the first export attempt uses the base')
+equal(exportAttemptName('x', 3), 'x (3)', 'a repeated export attempt never overwrites')
+equal(autoExportFormat('none', { format: 'wav' }), 'none', 'an explicit none skips export')
+equal(autoExportFormat('midi', { format: 'wav' }), 'midi', 'an explicit format wins over the dialog default')
+equal(autoExportFormat(undefined, { format: 'midi' }), 'midi', 'omitted format follows the dialog default')
+equal(autoExportFormat(undefined, undefined), 'wav', 'no format and no prefs means WAV')
+
+/* ---- 6. Host fallback: compose + save without a workshop page ---------------------- */
+
+const probeRoot = await mkdtemp(join(tmpdir(), 'ws-music-auto-'))
+try {
+  const probeWorkspace = { id: 'w-probe', path: probeRoot, sessionIds: ['s-probe'] }
+  const probeCtx = {
+    get(name) {
+      if (name === 'llm') return null
+      return undefined
+    },
+    sessions: { get: id => (id === 's-probe' ? { header: { cwd: probeRoot } } : undefined) },
+    workspaceRegistry: {
+      get: id => (id === 'w-probe' ? probeWorkspace : undefined),
+      list: () => [probeWorkspace],
+      resolveByPath: async path => (path === probeRoot ? probeWorkspace : undefined),
+    },
+  }
+  const probeConfig = { enableEditing: true, maxEntryNameBytes: 255, musicChatTimeoutMs: 20_000 }
+  const params = normalizeMusicJobParams({ bars: 8, export: 'json', prompt: 'probe', style: 'lofi' })
+  const saved = await composeAndSave(probeCtx, probeWorkspace, probeConfig, new Map(), 's-probe', params, {
+    agent: { id: 's-probe', requestHeader: () => ({ config: { model: 'm', provider: 'p' } }) },
+    signal: new AbortController().signal,
+  })
+  check(saved.path.startsWith('music/') && saved.path.endsWith('.music.json'), 'the fallback saves a score project under music/')
+  equal(saved.engine, 'template', 'with no llm service the fallback uses the deterministic template')
+  const names = await readdir(join(probeRoot, 'music'))
+  check(names.includes(saved.path.slice('music/'.length)), 'the saved project exists on disk')
+  const written = JSON.parse(await readFile(join(probeRoot, saved.path), 'utf8'))
+  equal(written.bars, 8, 'the saved fallback keeps the requested length')
+  check(Array.isArray(written.tracks) && written.tracks.length > 0, 'the saved fallback has instrument tracks')
+} finally {
+  await rm(probeRoot, { recursive: true, force: true })
+}
+
+/* ---- 7. music_compose tool: page claim -> ack ------------------------------------- */
+
+const toolRegistrations = []
+const toolWorkspace = { id: 'w-tool', path: '/tmp/not-used', sessionIds: ['s-tool'] }
+const toolCtx = {
+  get: name => (name === 'llm' ? null : undefined),
+  sessions: { get: id => (id === 's-tool' ? { header: { cwd: '/tmp/not-used' } } : undefined) },
+  workspaceRegistry: {
+    get: id => (id === 'w-tool' ? toolWorkspace : undefined),
+    list: () => [toolWorkspace],
+    resolveByPath: async path => (path === '/tmp/not-used' ? toolWorkspace : undefined),
+  },
+}
+installMusicTools({ tools: { register: definition => { toolRegistrations.push(definition); return () => {} } } }, {
+  config: { enableEditing: true, maxEntryNameBytes: 255, musicChatTimeoutMs: 20_000 },
+  ctx: toolCtx,
+  enableCompose: true,
+  writeQueues: new Map(),
+})
+const composeTool = toolRegistrations.find(tool => tool.name === 'music_compose')
+check(composeTool !== undefined, 'music_compose is registered when enableMusicChat is on')
+const toolCall = composeTool.execute({ bars: 8, export: 'none', prompt: 'tool', style: 'lofi' }, {
+  agent: { id: 's-tool', requestHeader: () => ({ config: { model: 'm', provider: 'p' } }) },
+  signal: new AbortController().signal,
+})
+await tick()
+const toolJob = readMusicJob('s-tool')
+const toolJobId = toolJob.job?.id ?? ''
+check(toolJobId !== '', 'the page can claim the compose job')
+await tick()
+ackMusicJob({
+  data: { engine: 'llm', exportPath: 'music/tool.wav', format: 'wav', path: 'music/tool.music.json' },
+  id: toolJobId,
+  result: 'done',
+  session: 's-tool',
+})
+const toolResult = await toolCall
+equal(toolResult.result, 'done', 'the compose tool returns the page ack')
+equal(toolResult.path, 'music/tool.music.json', 'the compose tool returns the saved path')
+equal(toolResult.exportPath, 'music/tool.wav', 'the compose tool returns the exported path')
 
 if (failures > 0) {
   console.error(`check:music-collab FAILED — ${failures}/${checks} assertions`)

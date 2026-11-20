@@ -1238,7 +1238,15 @@ export function buildAiAnalysisInput({ command, cwd, scripts, maxChars = 65536 }
 /** Validate one AI answer; returns a normalized target list or null when the answer is unusable. */
 export function validateAiAnalysis(value, { workdir, platform = process.platform, maxTargets = 50 }) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
-  if (value.opaque === true) return { opaque: true, targets: [] }
+  /* The brief is presentation data, never an instruction channel: keep it plain, single-paragraph,
+     bounded, and independent of the target validation below. */
+  const summary = typeof value.summary === 'string'
+    ? value.summary.replace(/[\u0000-\u001f\u007f]+/gu, ' ').replace(/\s+/gu, ' ').trim().slice(0, 240)
+    : ''
+  const confidence = value.confidence === 'high' || value.confidence === 'medium' || value.confidence === 'low'
+    ? value.confidence
+    : 'low'
+  if (value.opaque === true) return { opaque: true, targets: [], summary, confidence }
   if (!Array.isArray(value.targets)) return null
   const pathMod = pathModule(platform)
   const targets = []
@@ -1263,5 +1271,5 @@ export function validateAiAnalysis(value, { workdir, platform = process.platform
     })
     if (targets.length >= maxTargets) break
   }
-  return { opaque: false, targets }
+  return { opaque: false, targets, summary, confidence }
 }

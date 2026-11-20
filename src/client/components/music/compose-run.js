@@ -1,83 +1,125 @@
 /* Long-form AI composition helpers.
  *
- * A 60-second piece can exceed one model answer, so the panel asks the Host for balanced
- * 12-16 bar segments and merges them here. The plan (key, tempo, chord per bar, sections)
- * is shared by every segment, which keeps independently generated chunks in one key.
+ * The workshop page and the Host's headless fallback share the segment ranges, the merge and
+ * the template-fallback policy (src/shared/music-compose.js); this module is the client half:
+ * it asks the Host's `/music/compose` once per segment and returns one whole-piece result.
  */
-import { MUSIC_AI_SEGMENT_MAX, MUSIC_AI_SINGLE_BARS, MUSIC_DOC_KIND, MUSIC_DOC_VERSION, normalizeMusicDoc } from '../../../shared/music-score.js'
+import { composeMusicRequest } from '../../api.js'
+import { buildMusicPlan, composeMusicScore, normalizeMusicInstruments } from '../../../shared/music-score.js'
+import { composeMusicSequence, composeRanges, mergeComposedSegments } from '../../../shared/music-compose.js'
 
-/** Balanced segment ranges; 17 bars becomes 9+8 rather than 16+1. */
-export function composeRanges(bars) {
-  const total = Math.max(1, Number(bars) || 1)
-  const count = Math.max(1, Math.min(MUSIC_AI_SEGMENT_MAX, Math.ceil(total / MUSIC_AI_SINGLE_BARS)))
-  const base = Math.floor(total / count)
-  const extra = total % count
-  const ranges = []
-  let start = 1
-  for (let index = 0; index < count; index += 1) {
-    const length = base + (index < extra ? 1 : 0)
-    ranges.push({ bars: length, start })
-    start += length
-  }
-  return ranges
-}
+export { composeRanges, mergeComposedSegments }
 
 /**
- * Merge segment docs into one full score. Returns null when a segment is missing an
- * instrument, so the caller can fall back to the deterministic full-length template.
+ * Compose one whole piece through the Host's compose endpoint.
+ *
+ * @param options.workspaceId - workspace the compose request is fenced to.
+ * @param options.chatSessionId - session used by the "follow the chat model" choice.
+ * @param options.model - `{ mode: 'session' }` or `{ provider, model }`.
+ * @param options.bars / bpm / keyMode / keyRoot / style / mood / prompt / density / complexity /
+ *   instruments / seamless / swing / humanize / title / createdAt - the piece framing.
+ * @param options.signal - caller abort signal.
+ * @param options.onStage - `({ index, total })` segment-progress callback (1-based index).
+ * @returns `{ doc, engine, warning }` (engine 'template' means the deterministic fallback ran).
  */
-export function mergeComposedSegments(segments, plan, meta) {
-  const tracks = []
-  for (const instrument of plan.instruments) {
-    const parts = []
-    for (const segment of segments) {
-      const track = segment.doc.tracks.find(item => item.instrument === instrument)
-      if (track === undefined) return null
-      parts.push({ range: segment.range, track })
-    }
-    const first = parts[0].track
-    if (first.kind === 'drums') {
-      const drums = {}
-      for (const lane of Object.keys(first.drums)) {
-        drums[lane] = parts.flatMap(({ range, track }) => {
-          const laneBars = Array.isArray(track.drums?.[lane]) ? track.drums[lane] : []
-          return Array.from({ length: range.bars }, (_, index) => laneBars[index] ?? {})
-        })
-      }
-      tracks.push({ ...first, drums, id: instrument, name: first.name ?? '' })
-      continue
-    }
-    const notes = parts.flatMap(({ range, track }) => (track.notes ?? []).map(note => ({
-      ...note,
-      bar: note.bar + range.start - 1,
-    })))
-    notes.sort((a, b) => (a.bar - b.bar) || (a.step - b.step) || (a.midi - b.midi))
-    tracks.push({ ...first, id: instrument, name: first.name ?? '', notes })
+export async function composePiece({
+  workspaceId,
+  chatSessionId,
+  model,
+  bars,
+  bpm,
+  keyMode,
+  keyRoot,
+  style,
+  mood,
+  prompt,
+  density,
+  complexity,
+  instruments,
+  seamless,
+  swing,
+  humanize,
+  title,
+  createdAt,
+  signal,
+  onStage,
+}) {
+  const plan = {
+    ...buildMusicPlan({
+      bars,
+      bpm: Number.isFinite(Number(bpm)) ? Number(bpm) : undefined,
+      keyMode: keyMode === 'major' || keyMode === 'minor' ? keyMode : undefined,
+      keyRoot: typeof keyRoot === 'string' && keyRoot !== '' ? keyRoot : undefined,
+      seamless,
+      style,
+    }),
+    instruments: normalizeMusicInstruments(instruments),
+  }
+  const now = Date.now()
+
+  const request = async ({ count, index, plan: current, range }) => {
+    const result = await composeMusicRequest(workspaceId, {
+      bars: range.bars,
+      bpm: current.bpm,
+      complexity,
+      density,
+      humanize,
+      instruments: current.instruments,
+      keyMode: current.keyMode,
+      keyRoot: current.keyRoot,
+      model,
+      mood,
+      prompt,
+      segmentCount: count,
+      segmentIndex: index + 1,
+      seamless: current.seamless && index === count - 1,
+      sessionId: chatSessionId,
+      startBar: range.start,
+      style,
+      swing,
+      totalBars: current.bars,
+    }, signal)
+    return { doc: result.doc, engine: result.engine, warning: result.warning }
   }
 
-  return normalizeMusicDoc({
-    bars: plan.bars,
-    bpm: plan.bpm,
-    chordProgression: plan.progression,
-    createdAt: meta.createdAt,
-    humanize: meta.humanize,
-    keyMode: plan.keyMode,
-    keyRoot: plan.keyRoot,
-    kind: MUSIC_DOC_KIND,
-    prompt: {
-      complexity: meta.complexity,
-      density: meta.density,
+  const fallback = () => {
+    const next = composeMusicScore({
+      bars: plan.bars,
+      bpm: plan.bpm,
+      complexity,
+      density,
+      humanize,
       instruments: plan.instruments,
-      mood: meta.mood,
+      keyMode: plan.keyMode,
+      keyRoot: plan.keyRoot,
+      mood,
+      now,
+      prompt,
       seamless: plan.seamless,
-      style: meta.style,
-      text: meta.prompt,
+      seed: now,
+      style,
+      swing,
+    })
+    return { ...next, createdAt, title }
+  }
+
+  return composeMusicSequence({
+    plan,
+    meta: {
+      complexity,
+      createdAt,
+      density,
+      humanize,
+      mood,
+      prompt,
+      seamless: plan.seamless,
+      style,
+      swing,
+      title,
     },
-    sections: plan.sections,
-    swing: meta.swing,
-    title: meta.title,
-    tracks,
-    updatedAt: Date.now(),
-    version: MUSIC_DOC_VERSION,
+    request,
+    fallback,
+    onStage,
+    signal,
   })
 }

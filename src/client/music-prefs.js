@@ -1,4 +1,10 @@
 import { MUSIC_ZOOM_MAX, MUSIC_ZOOM_MIN } from './constants.js'
+import {
+  MUSIC_EXPORT_FORMATS,
+  MUSIC_EXPORT_WAV_CHANNELS,
+  MUSIC_EXPORT_WAV_DEPTHS,
+  MUSIC_EXPORT_WAV_RATES,
+} from '../shared/music-export.js'
 
 /* Per-session music-page preferences.
  *
@@ -17,7 +23,44 @@ export const MUSIC_ARRANGE_ZOOM_MIN = MUSIC_ZOOM_MIN
 export const MUSIC_ARRANGE_ZOOM_MAX = MUSIC_ZOOM_MAX
 
 export function defaultMusicPrefs() {
-  return { arrangeZoom: 1, model: null, rollHeight: null, rollZoomX: 1, rollZoomY: 1 }
+  return { arrangeZoom: 1, export: defaultMusicExportPrefs(), model: null, rollHeight: null, rollZoomX: 1, rollZoomY: 1 }
+}
+
+/** The export dialog's last choices: format + its parameters. Path always follows the piece,
+ *  so it is deliberately not remembered. */
+export function defaultMusicExportPrefs() {
+  return {
+    format: 'wav',
+    json: { prompt: true },
+    midi: { drums: 'gm', swing: 'bake' },
+    wav: { channels: 2, depth: 16, rate: 44100 },
+  }
+}
+
+function pick(value, allowed, fallback) {
+  return allowed.includes(value) ? value : fallback
+}
+
+export function normalizeMusicExportPrefs(value) {
+  const defaults = defaultMusicExportPrefs()
+  if (value === null || value === undefined || typeof value !== 'object') return defaults
+  const wav = value.wav !== null && typeof value.wav === 'object' ? value.wav : {}
+  const midi = value.midi !== null && typeof value.midi === 'object' ? value.midi : {}
+  const json = value.json !== null && typeof value.json === 'object' ? value.json : {}
+  return {
+    format: pick(value.format, MUSIC_EXPORT_FORMATS, defaults.format),
+    json: { prompt: json.prompt !== false },
+    midi: {
+      drums: pick(midi.drums, ['gm', 'track'], defaults.midi.drums),
+      swing: pick(midi.swing, ['bake', 'grid'], defaults.midi.swing),
+    },
+    wav: {
+      /* Numeric settings arrive as numbers from the dialog; tolerate strings from an old snapshot. */
+      channels: pick(Number(wav.channels), MUSIC_EXPORT_WAV_CHANNELS, defaults.wav.channels),
+      depth: pick(Number(wav.depth), MUSIC_EXPORT_WAV_DEPTHS, defaults.wav.depth),
+      rate: pick(Number(wav.rate), MUSIC_EXPORT_WAV_RATES, defaults.wav.rate),
+    },
+  }
 }
 
 /**
@@ -64,6 +107,7 @@ export function normalizeMusicPrefs(value) {
   if (value === null || value === undefined || typeof value !== 'object') return defaultMusicPrefs()
   return {
     arrangeZoom: normalizeArrangeZoom(value.arrangeZoom),
+    export: normalizeMusicExportPrefs(value.export),
     model: normalizeMusicModel(value.model),
     rollHeight: normalizeRollHeight(value.rollHeight),
     rollZoomX: normalizeRollZoom(value.rollZoomX),
@@ -73,7 +117,12 @@ export function normalizeMusicPrefs(value) {
 
 /** Whether a page carries any non-default preference (worth keeping even with no open tabs). */
 export function hasMusicPrefs(prefs) {
-  return prefs.arrangeZoom !== 1 || prefs.model !== null || prefs.rollHeight !== null || prefs.rollZoomX !== 1 || prefs.rollZoomY !== 1
+  return prefs.arrangeZoom !== 1
+    || prefs.model !== null
+    || prefs.rollHeight !== null
+    || prefs.rollZoomX !== 1
+    || prefs.rollZoomY !== 1
+    || JSON.stringify(normalizeMusicExportPrefs(prefs?.export)) !== JSON.stringify(defaultMusicExportPrefs())
 }
 
 export function isFollowChatModel(model) {

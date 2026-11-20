@@ -18,8 +18,13 @@ export const ENSURE_RETRY_MAX = 20
 /* Persisted UI state carries the FORMAT version in its key: a shape change bumps the
    key and the previous key is deleted outright (see persisted-state.js), so no reader
    ever has to interpret an older shape. */
-export const PREVIEW_SESSION_STORE_KEY = 'dsh.workspace.studio.preview-sessions.v2'
+export const PREVIEW_SESSION_STORE_KEY = 'dsh.workspace.studio.preview-sessions.v3'
 export const PREVIEW_SESSION_MAX = 25
+/* The preview column can hold a second (bottom) pane: each pane carries its own tab list and active
+   tab. The ratio is the top pane's share of the available height; the bounds keep both panes usable
+   and PREVIEW_PANE_MIN_HEIGHT is the pixel floor the drag math also enforces. */
+export const PREVIEW_SPLIT_RATIO_DEFAULT = 0.5, PREVIEW_SPLIT_RATIO_MIN = 0.18, PREVIEW_SPLIT_RATIO_MAX = 0.82
+export const PREVIEW_PANE_MIN_HEIGHT = 150
 /* The input dock's two context pills (editor file context / music workshop): only the per-session
    "switched off" choice is persisted — the envelope describes a live page and never is. */
 export const CONTEXT_SWITCH_STORE_KEY = 'dsh.workspace.studio.context-switches.v1'

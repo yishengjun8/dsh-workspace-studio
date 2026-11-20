@@ -222,6 +222,22 @@ export async function revokePermission(sessionId, path) {
   return result
 }
 
+/* Pause / resume interception for ONE scope (manual, persisted by the Host, no timer). Pausing also
+   releases the scope's waiting requests on the Host, so the shared pending queue is refreshed too —
+   the global prompt must not keep showing a request that has already resolved. */
+export async function pausePermissions(sessionId) {
+  const result = await postPermissionAction({ action: 'pause', sessionId: String(sessionId ?? '') })
+  await refreshPermissionSnapshot(sessionId)
+  await pollPending()
+  return result
+}
+
+export async function resumePermissions(sessionId) {
+  const result = await postPermissionAction({ action: 'resume', sessionId: String(sessionId ?? '') })
+  await refreshPermissionSnapshot(sessionId)
+  return result
+}
+
 export async function revokeAllPermissions(sessionId) {
   const result = await postPermissionAction({ action: 'revoke-all', sessionId: String(sessionId ?? '') })
   await refreshPermissionSnapshot(sessionId)

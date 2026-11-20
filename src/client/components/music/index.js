@@ -9,7 +9,7 @@
 import { createElement as h, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { translate, useLocaleText } from '../../locale/index.js'
 import {
-  composeMusicRequest,
+  ackMusicJobRequest,
   deleteMusicCacheRequest,
   listMusicCacheRequest,
   listMusicRequest,
@@ -34,7 +34,6 @@ import {
   MUSIC_STYLE_IDS,
   MUSIC_STYLES,
   barsForSeconds,
-  buildMusicPlan,
   composeMusicScore,
   midiName,
   normalizeMusicDoc,
@@ -45,14 +44,17 @@ import { MUSIC_ARRANGE_BAR_WIDTH_DEFAULT, MUSIC_ROLL_GRID_WIDTH_DEFAULT, MUSIC_R
 import { applyMusicOps, musicEditSummary, musicTrackFingerprint, validateRewrittenNotes } from '../../../shared/music-edit.js'
 import { useMindmapSummaryModels } from '../../hooks/mindmap-summary-models.js'
 import { useChatModel } from '../../chat-model.js'
-import { isFollowChatModel, musicModelKey } from '../../music-prefs.js'
+import { isFollowChatModel, musicModelKey, normalizeMusicExportPrefs } from '../../music-prefs.js'
 import { MusicDiscardDialog, MusicDurationDialog, MusicOpenDialog, MusicSaveDialog } from './dialogs.js'
+import { MusicExportDialog } from './export-dialog.js'
 import { MusicCachePopover } from './cache-popover.js'
 import { notifyMusicCacheChanged, subscribeMusicCacheChanged } from './cache-events.js'
 import { MusicCollabBar, MusicCollabRow, NOTES_BUDGET, scopeBarOf, useMusicCollab } from './collab.js'
 import { ComposeChoicePopover } from './compose-choice.js'
 import { ComposeInstrumentsPopover } from './compose-instruments.js'
-import { composeRanges, mergeComposedSegments } from './compose-run.js'
+import { composePiece } from './compose-run.js'
+import { autoExportFormat, autoScoreBase, exportAttemptName, uniqueScoreBase } from './auto.js'
+import { isMusicExportExists, runMusicExport } from './export-run.js'
 import { Arrangement } from './arrangement.js'
 import { DrumMachine } from './drums.js'
 import { InstrumentPicker } from './picker.js'
@@ -169,6 +171,11 @@ export function MusicDock({
   /* The page's model choice: "follow the chat" (default) reads the same per-session model
      directory the composer seat writes, so a switch in the right column shows up here live. */
   const modelChoice = musicPrefs?.model ?? null
+  const exportPrefs = normalizeMusicExportPrefs(musicPrefs?.export)
+  /* A job handed down by the Explorer's chat poller: run once, then the tab becomes a normal
+     workshop. `autoStartedRef` survives re-renders but the job itself is not persisted. */
+  const autoJob = tab.autoJob !== null && typeof tab.autoJob === 'object' ? tab.autoJob : null
+  const autoStartedRef = useRef(null)
   const followChat = isFollowChatModel(modelChoice)
   const chatModel = useChatModel(chatSessionId)
   const chatModelLabel = chatModel === null
@@ -274,6 +281,10 @@ export function MusicDock({
   const [composeInstruments, setComposeInstruments] = useState(() => normalizeMusicInstruments(doc.prompt.instruments))
   const [instrumentsOpen, setInstrumentsOpen] = useState(false)
   const [hostReady, setHostReady] = useState(null)
+  /* Export needs the Host's /music/export route and its format handshake; a Host that predates
+     them answers the schema without `exportFormats`, so the button stays disabled with a hint. */
+  const [exportReady, setExportReady] = useState(null)
+  const [exportOpen, setExportOpen] = useState(false)
   const [collabReady, setCollabReady] = useState(null)
   const [samplesReady, setSamplesReady] = useState(false)
   const [samplesLoading, setSamplesLoading] = useState(true)
@@ -321,12 +332,14 @@ export function MusicDock({
           /* Chat collaboration needs the Host's in-memory bridge; an older Host has no such
              route and the panel must say so instead of polling a 404 forever. */
           setCollabReady(payload.collab === true)
+          setExportReady(Array.isArray(payload.exportFormats) && payload.exportFormats.includes('wav'))
         }
       })
       .catch(() => {
         if (!alive) return
         setHostReady(false)
         setCollabReady(false)
+        setExportReady(false)
       })
     return () => { alive = false }
   }, [])
@@ -773,6 +786,39 @@ export function MusicDock({
     })
   }, [stopPlayback])
 
+  /* Adopt a freshly composed piece: the auto-generation flow uses this instead of
+     applyLoadedDoc because an unsaved composition must stay dirty until it is written. */
+  const adoptComposedDoc = useCallback((next, options = {}) => {
+    stopPlayback(true)
+    pieceKeyRef.current = makePieceKey()
+    docRef.current = next
+    setDoc(next)
+    const first = next.tracks[0] ?? null
+    setSelectedTrackId(first?.id ?? null)
+    setSelectedNote(firstNoteSelection(first))
+    setActiveBar(1)
+    setCollabBar(1)
+    setCollabWhole(false)
+    setPromptText(next.prompt.text)
+    setStyle(next.prompt.style)
+    setMood(next.prompt.mood)
+    setDensity(next.prompt.density)
+    setComplexity(next.prompt.complexity)
+    setComposeInstruments(next.prompt.instruments)
+    setDurationText(String(Math.round(scoreSeconds(next))))
+    const savedPath = typeof options.savedPath === 'string' ? options.savedPath : ''
+    setSavedPath(savedPath)
+    setDirty(options.dirty !== false)
+    revRef.current += 1
+    onUpdateRef.current({
+      dirty: options.dirty !== false,
+      musicDoc: next,
+      musicRev: revRef.current,
+      name: next.title,
+      savedPath: savedPath === '' ? null : savedPath,
+    })
+  }, [stopPlayback])
+
   const deleteCacheEntry = useCallback(async (entry) => {
     if (cacheScope === null) return
     const result = await deleteMusicCacheRequest(cacheScope, entry.id)
@@ -843,97 +889,32 @@ export function MusicDock({
     setComposing(true)
     setStatus(null)
     const current = docRef.current
-    const plan = {
-      ...buildMusicPlan({
+    try {
+      const result = await composePiece({
+        workspaceId: workspace.workspaceId,
+        chatSessionId,
+        model: followChat ? { mode: 'session' } : fixedModel,
         bars: current.bars,
         bpm: current.bpm,
         keyMode: current.keyMode,
         keyRoot: current.keyRoot,
-        seamless: current.prompt.seamless !== false,
         style,
-      }),
-      instruments: composeInstruments,
-    }
-    const ranges = composeRanges(plan.bars)
-    try {
-      const segments = []
-      let fallbackWarning = null
-      for (let index = 0; index < ranges.length; index += 1) {
-        if (controller.signal.aborted) {
-          const aborted = new Error('aborted')
-          aborted.name = 'AbortError'
-          throw aborted
-        }
-        setComposeStage({ index: index + 1, total: ranges.length })
-        const range = ranges[index]
-        const result = await composeMusicRequest(workspace.workspaceId, {
-          bars: range.bars,
-          bpm: plan.bpm,
-          complexity,
-          density,
-          humanize: current.humanize,
-          instruments: composeInstruments,
-          keyMode: plan.keyMode,
-          keyRoot: plan.keyRoot,
-          model: followChat ? { mode: 'session' } : fixedModel,
-          mood,
-          prompt: promptText,
-          segmentCount: ranges.length,
-          segmentIndex: index + 1,
-          seamless: plan.seamless && index === ranges.length - 1,
-          sessionId: chatSessionId,
-          startBar: range.start,
-          style,
-          swing: current.swing,
-          totalBars: plan.bars,
-        }, controller.signal)
-        const parsed = normalizeMusicDoc(result.doc)
-        if (parsed === null) throw new Error(translate('error.invalid-response.music', { status: 200 }))
-        if (result.engine !== 'llm') {
-          fallbackWarning = result.warning ?? null
-          break
-        }
-        segments.push({ doc: parsed, range })
-      }
-
-      let next = null
-      let engine = 'llm'
-      if (segments.length === ranges.length) {
-        next = mergeComposedSegments(segments, plan, {
-          complexity,
-          createdAt: current.createdAt,
-          density,
-          humanize: current.humanize,
-          mood,
-          prompt: promptText,
-          style,
-          swing: current.swing,
-          title: current.title,
-        })
-        if (next === null) fallbackWarning = 'llm-invalid'
-      }
-      if (next === null) {
-        engine = 'template'
-        const now = Date.now()
-        next = composeMusicScore({
-          bars: plan.bars,
-          bpm: plan.bpm,
-          complexity,
-          density,
-          humanize: current.humanize,
-          instruments: composeInstruments,
-          keyMode: plan.keyMode,
-          keyRoot: plan.keyRoot,
-          mood,
-          prompt: promptText,
-          seamless: plan.seamless,
-          seed: now,
-          style,
-          swing: current.swing,
-          now,
-        })
-        next = { ...next, createdAt: current.createdAt, title: current.title }
-      }
+        mood,
+        prompt: promptText,
+        density,
+        complexity,
+        instruments: composeInstruments,
+        seamless: current.prompt.seamless !== false,
+        swing: current.swing,
+        humanize: current.humanize,
+        title: current.title,
+        createdAt: current.createdAt,
+        signal: controller.signal,
+        onStage: stage => setComposeStage(stage),
+      })
+      const next = result.doc
+      const engine = result.engine
+      const fallbackWarning = result.warning
 
       if (playingRef.current) stopPlayback(true)
       await cacheCurrent()
@@ -966,7 +947,12 @@ export function MusicDock({
     } catch (error) {
       if (composeAbortRef.current !== controller) return
       if (error?.name === 'AbortError') setStatus({ text: translate('music.compose.aborted') })
-      else setStatus({ error: true, text: error instanceof Error ? error.message : String(error) })
+      else {
+        const message = error?.message === 'invalid-music-doc'
+          ? translate('error.invalid-response.music', { status: 200 })
+          : error instanceof Error ? error.message : String(error)
+        setStatus({ error: true, text: message })
+      }
     } finally {
       if (composeAbortRef.current === controller) {
         composeAbortRef.current = null
@@ -1108,6 +1094,169 @@ export function MusicDock({
     setOpenError(null)
     void refreshOpen(dir)
   }
+
+  /* ── export ──────────────────────────────────────────────────────────────── */
+  const showExport = () => {
+    if (hostReady !== true) { setStatus({ error: true, text: translate('music.hostRestart') }); return }
+    if (exportReady !== true) { setStatus({ error: true, text: translate('music.export.hostRestart') }); return }
+    setExportOpen(true)
+  }
+
+  const finishExport = (result) => {
+    setExportOpen(false)
+    if (typeof result?.path === 'string' && result.path !== '') {
+      /* Same tree refresh as a save: the exported file becomes visible without a manual reload. */
+      onSaved?.(result.path)
+      setStatus({ text: translate('music.export.done', { path: result.path }) })
+    }
+  }
+
+  /* ── chat auto-generation job ───────────────────────────────────────────── */
+  /* The Explorer's poller claimed a job and opened this tab with it: compose through the same
+     segment pipeline as the manual button, save under a never-colliding name, export, then ack
+     so the waiting chat tool can report the paths. The flow is deliberately outside React state
+     for its network half: unmounting the tab mid-run still writes the files and acks. */
+  const runAutoJob = async (job) => {
+    const params = job.params !== null && typeof job.params === 'object' ? job.params : {}
+    const reply = (result, data) => {
+      if (typeof chatSessionId !== 'string' || chatSessionId === '') return
+      void ackMusicJobRequest({ session: chatSessionId, id: job.id, result, data }).catch(() => {})
+    }
+    /* The creating tool resolved a workspace from the session; a job must never write into a
+       different workspace just because another pane is open. */
+    const jobWorkspace = typeof params.workspaceId === 'string' ? params.workspaceId : ''
+    if (jobWorkspace !== '' && jobWorkspace !== String(workspace.workspaceId)) {
+      setStatus({ error: true, text: translate('music.auto.workspaceMismatch') })
+      reply('failed', { error: 'workspace-mismatch' })
+      onUpdateRef.current({ autoJob: null })
+      return
+    }
+    const controller = new AbortController()
+    composeAbortRef.current = controller
+    setComposing(true)
+    setStatus({ text: translate('music.compose.running') })
+    setStyle(params.style)
+    setMood(params.mood)
+    setPromptText(typeof params.prompt === 'string' ? params.prompt : '')
+    setDensity(params.density)
+    setComplexity(params.complexity)
+    setComposeInstruments(normalizeMusicInstruments(params.instruments))
+    const current = docRef.current
+    let savedPathForAck = ''
+    try {
+      const composed = await composePiece({
+        workspaceId: workspace.workspaceId,
+        chatSessionId,
+        model: followChat ? { mode: 'session' } : fixedModel,
+        bars: params.bars ?? current.bars,
+        bpm: params.bpm ?? undefined,
+        keyMode: params.keyMode ?? undefined,
+        keyRoot: params.keyRoot ?? undefined,
+        style: params.style,
+        mood: params.mood,
+        prompt: typeof params.prompt === 'string' ? params.prompt : '',
+        density: params.density,
+        complexity: params.complexity,
+        instruments: normalizeMusicInstruments(params.instruments),
+        seamless: params.seamless !== false,
+        swing: params.swing,
+        humanize: params.humanize,
+        title: typeof params.name === 'string' && params.name !== '' ? params.name : current.title,
+        createdAt: current.createdAt,
+        signal: controller.signal,
+        onStage: stage => setComposeStage(stage),
+      })
+      adoptComposedDoc(composed.doc)
+
+      const dir = defaultSaveDir
+      const listed = await listMusicRequest(workspace.workspaceId, dir).catch(() => null)
+      const base = uniqueScoreBase(listed?.files, autoScoreBase(params.name || composed.doc.title))
+      const saved = await saveMusicRequest(workspace.workspaceId, { dir, doc: composed.doc, name: base })
+      const savedDoc = normalizeMusicDoc(saved.doc) ?? composed.doc
+      savedPathForAck = saved.path
+      docRef.current = savedDoc
+      setDoc(savedDoc)
+      setSavedPath(saved.path)
+      setDirty(false)
+      revRef.current += 1
+      onUpdateRef.current({
+        dirty: false,
+        musicDoc: savedDoc,
+        musicRev: revRef.current,
+        name: savedDoc.title,
+        savedPath: saved.path,
+      })
+      onSaved?.(saved.path)
+
+      const format = autoExportFormat(params.export?.format, exportPrefs)
+      let exportPath = ''
+      if (format !== 'none') {
+        if (format === 'json') {
+          exportPath = saved.path
+        } else {
+          const parsed = parseSavedPath(saved.path)
+          const exportBase = stripMusicSuffix(parsed.name)
+          const settings = { ...exportPrefs, format }
+          for (let attempt = 1; attempt <= 20; attempt += 1) {
+            try {
+              const exported = await runMusicExport({
+                dir: parsed.dir,
+                doc: savedDoc,
+                name: exportAttemptName(exportBase, attempt),
+                overwrite: false,
+                settings,
+                signal: controller.signal,
+                workspaceId: workspace.workspaceId,
+              })
+              exportPath = exported.path
+              break
+            } catch (error) {
+              if (!isMusicExportExists(error) || attempt === 20) throw error
+            }
+          }
+        }
+        onSaved?.(exportPath)
+        setStatus({ text: translate('music.export.done', { path: exportPath }) })
+      } else {
+        setStatus({ text: translate('music.saved', { path: saved.path }) })
+      }
+      reply('done', {
+        bars: savedDoc.bars,
+        engine: composed.engine,
+        exportPath: exportPath === '' ? undefined : exportPath,
+        format,
+        path: saved.path,
+        title: savedDoc.title,
+        warning: composed.warning ?? undefined,
+      })
+    } catch (error) {
+      const raw = error instanceof Error ? error.message : String(error)
+      const message = error?.message === 'invalid-music-doc'
+        ? translate('error.invalid-response.music', { status: 200 })
+        : raw
+      const aborted = error?.name === 'AbortError' || controller.signal.aborted
+      if (aborted) setStatus({ text: translate('music.compose.aborted') })
+      else setStatus({ error: true, text: message })
+      reply(aborted ? 'aborted' : 'failed', aborted ? {} : { error: message, path: savedPathForAck === '' ? undefined : savedPathForAck })
+    } finally {
+      if (composeAbortRef.current === controller) {
+        composeAbortRef.current = null
+        if (mountedRef.current) {
+          setComposing(false)
+          setComposeStage(null)
+        }
+      }
+      onUpdateRef.current({ autoJob: null })
+    }
+  }
+
+  useEffect(() => {
+    if (autoJob === null) return
+    if (autoStartedRef.current === autoJob.id) return
+    autoStartedRef.current = autoJob.id
+    void runAutoJob(autoJob)
+    /* Deliberately keyed on the job only: runAutoJob closes over the render that received it. */
+  }, [autoJob])
 
   const loadPath = async (path) => {
     try {
@@ -1448,6 +1597,13 @@ export function MusicDock({
     h('b', null, String(cacheEntries.length + 1)),
     h('span', { 'aria-hidden': true, className: 'dsh-ws-music-cache-caret' }, '▾')),
     h('button', { className: 'dsh-ws-text-button', disabled: hostReady !== true, onClick: saveNow, title: translate('music.save.shortcutTitle'), type: 'button' }, translate('music.save')),
+    h('button', {
+      className: 'dsh-ws-text-button',
+      disabled: hostReady !== true || exportReady !== true,
+      onClick: showExport,
+      title: exportReady === false ? translate('music.export.hostRestart') : undefined,
+      type: 'button',
+    }, translate('music.export')),
     h('button', { className: 'dsh-ws-text-button', disabled: hostReady !== true, onClick: showOpen, type: 'button' }, translate('music.open'))),
 
   h('div', { className: 'dsh-ws-music-transport' },
@@ -1950,6 +2106,21 @@ export function MusicDock({
   pickerOpen ? h(InstrumentPicker, {
     onAdd: addTrack,
     onCancel: () => setPickerOpen(false),
+  }) : null,
+
+  exportOpen ? h(MusicExportDialog, {
+    /* Prefill the same place the save dialog would: the piece's remembered folder and name,
+       else the configured default folder and the score title. */
+    defaultDir: savedPathRef.current === '' ? defaultSaveDir : parseSavedPath(savedPathRef.current).dir,
+    defaultName: savedPathRef.current === ''
+      ? safeFileName(doc.title)
+      : stripMusicSuffix(parseSavedPath(savedPathRef.current).name),
+    doc: docRef.current,
+    onCancel: () => setExportOpen(false),
+    onDone: finishExport,
+    onPrefs: next => onMusicPrefs?.({ export: next }),
+    prefs: exportPrefs,
+    workspaceId: workspace.workspaceId,
   }) : null,
 
   saveOpen ? h(MusicSaveDialog, {

@@ -19,3 +19,26 @@ export function workspaceFor(ctx, workspaceId) {
   if (workspace === undefined) throw new HttpError(404, 'workspace-not-found', '当前工作区不存在')
   return workspace
 }
+
+/**
+ * The workspace a chat session belongs to, for model-facing tools (no model-supplied id).
+ * The registry's session list is authoritative; the session cwd is the fallback for a
+ * workspace whose own sessionIds were not loaded yet. Null when none matches.
+ */
+export async function workspaceForSession(ctx, sessionId) {
+  if (typeof sessionId !== 'string' || sessionId === '') return null
+  const session = ctx.sessions.get(sessionId)
+  const cwd = session?.header?.cwd
+  if (typeof cwd === 'string' && cwd !== '') {
+    try {
+      const resolved = await ctx.workspaceRegistry.resolveByPath(cwd)
+      if (resolved !== undefined && resolved !== null && await workspaceOwnsSession(ctx, resolved, sessionId)) return resolved
+    } catch {
+      /* resolveByPath is best-effort: the list below is the authoritative fallback. */
+    }
+  }
+  for (const workspace of ctx.workspaceRegistry.list()) {
+    if (await workspaceOwnsSession(ctx, workspace, sessionId)) return workspace
+  }
+  return null
+}

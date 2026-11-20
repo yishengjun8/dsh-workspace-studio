@@ -1,6 +1,25 @@
-import { clampFontPercent, PREVIEW_SESSION_MAX } from './constants.js'
+import { clampFontPercent, PREVIEW_SESSION_MAX, PREVIEW_SPLIT_RATIO_DEFAULT, PREVIEW_SPLIT_RATIO_MAX, PREVIEW_SPLIT_RATIO_MIN } from './constants.js'
 import { isAbsoluteWorkspacePath, rewriteRelativePath } from './paths.js'
 import { normalizeMusicPrefs } from './music-prefs.js'
+
+/* ---- Pane layout ---------------------------------------------------------
+ * A tab belongs to one of at most two panes: 'a' is the top pane (always present), 'b' is the
+ * optional bottom pane. The flat tab array stays the single runtime source; `pane` on each tab
+ * is the only extra bit of layout state, and the persisted snapshot groups the tabs by pane. */
+export const PREVIEW_PANE_TOP = 'a'
+export const PREVIEW_PANE_BOTTOM = 'b'
+export function paneOfTab(tab) {
+  return tab !== null && tab !== undefined && tab.pane === PREVIEW_PANE_BOTTOM ? PREVIEW_PANE_BOTTOM : PREVIEW_PANE_TOP
+}
+export function tabsOfPane(tabs, pane) {
+  const wanted = pane === PREVIEW_PANE_BOTTOM ? PREVIEW_PANE_BOTTOM : PREVIEW_PANE_TOP
+  return (Array.isArray(tabs) ? tabs : []).filter(tab => paneOfTab(tab) === wanted)
+}
+export function clampSplitRatio(value) {
+  return Number.isFinite(value)
+    ? Math.min(PREVIEW_SPLIT_RATIO_MAX, Math.max(PREVIEW_SPLIT_RATIO_MIN, value))
+    : PREVIEW_SPLIT_RATIO_DEFAULT
+}
 
 export function entryFromPreviewTab(tab) { return { kind: 'file', name: tab.name, path: tab.path, symlink: Boolean(tab.symlink) } }
 /* Synthetic tab path of a docked mind map (root session id): unique per map and never collides with a real workspace path. */
@@ -82,6 +101,9 @@ export function clonePreviewTab(tab) {
     savedPath: typeof tab.savedPath === 'string' && tab.savedPath !== '' ? tab.savedPath : null,
     lineEnding: typeof tab.lineEnding === 'string' ? tab.lineEnding : 'none',
     name: typeof tab.name === 'string' && tab.name !== '' ? tab.name : tab.path.slice(tab.path.lastIndexOf('/') + 1),
+    /* Which pane owns this tab. A runtime layout field: it is never written inside a tab object,
+       the snapshot groups the lists instead. */
+    pane: paneOfTab(tab),
     path: tab.path,
     pinned: Boolean(tab.pinned),
     revision: tab.revision === undefined ? null : tab.revision,
@@ -185,7 +207,10 @@ export function openPermanentTab(tabs, tab) {
 export function openPreviewTab(tabs, tab) {
   const current = Array.isArray(tabs) ? tabs : []
   if (current.some(item => item.path === tab.path)) return { tabs: current, replacedPath: null }
-  const index = current.findIndex(isTemporaryTab)
+  /* A temporary slot is per pane: a single click in the top pane must never displace the
+     preview tab the bottom pane is showing. */
+  const pane = paneOfTab(tab)
+  const index = current.findIndex(item => isTemporaryTab(item) && paneOfTab(item) === pane)
   if (index < 0) return { tabs: [...current, tab], replacedPath: null }
   const displaced = current[index]
   if (displaced.dirty === true || displaced.saving === true) {
@@ -205,74 +230,193 @@ export function orderPinnedFirst(tabs) {
   for (const tab of tabs) (tab.pinned ? pinned : unpinned).push(tab)
   return [...pinned, ...unpinned]
 }
+/* The persisted snapshot groups tabs by pane: one top pane, optionally one bottom pane. `pane` is
+   never stored inside a tab — the containing pane is the assignment — so the shape stays readable
+   and a pane can be dropped without rewriting the other pane's tabs. */
+function snapshotPanes(value) {
+  return Array.isArray(value?.panes) ? value.panes : []
+}
+function snapshotTabs(value) {
+  const tabs = []
+  for (const pane of snapshotPanes(value)) {
+    if (Array.isArray(pane?.tabs)) tabs.push(...pane.tabs)
+  }
+  return tabs
+}
+/* Where a snapshot keeps its permission tab: the tab itself, the pane owning it and its index in
+   that pane. The position is part of what the user arranged (a pin sends it to the front, a drag
+   anywhere else), so restore must re-insert the tab there instead of appending it to the strip. */
+function permissionPlacement(value) {
+  const panes = snapshotPanes(value)
+  for (let index = 0; index < Math.min(panes.length, 2); index += 1) {
+    const tabs = Array.isArray(panes[index]?.tabs) ? panes[index].tabs : []
+    const at = tabs.findIndex(isPermissionTab)
+    if (at >= 0) return { index: at, pane: index === 0 ? PREVIEW_PANE_TOP : PREVIEW_PANE_BOTTOM, tab: tabs[at] }
+  }
+  return undefined
+}
+/* Put the permission tab back at its recorded pane/index (clamped: the page it merges into may hold
+   fewer tabs), keeping the flat list grouped by pane exactly like normalizePreviewSession returns
+   it. The recorded pane wins while it still owns tabs; otherwise the caller's preferred pane does.
+   `permissionPath === null` keeps the recorded synthetic address (the family-less mount cannot
+   rewrite it yet). Returns the rebuilt list plus the pane that took the tab. */
+function insertPermissionTab(tabs, placement, permissionPath, preferredPane) {
+  const paneTabs = { a: tabsOfPane(tabs, PREVIEW_PANE_TOP), b: tabsOfPane(tabs, PREVIEW_PANE_BOTTOM) }
+  const targetPane = paneTabs[placement.pane].length > 0
+    ? placement.pane
+    : (preferredPane === PREVIEW_PANE_BOTTOM && paneTabs.b.length > 0 ? PREVIEW_PANE_BOTTOM : PREVIEW_PANE_TOP)
+  const paneList = paneTabs[targetPane]
+  const insertAt = Math.min(Math.max(0, placement.index), paneList.length)
+  const permissionTab = { ...placement.tab, pane: targetPane }
+  if (permissionPath !== null) permissionTab.path = permissionPath
+  const restored = [...paneList.slice(0, insertAt), permissionTab, ...paneList.slice(insertAt)]
+  return {
+    tabs: targetPane === PREVIEW_PANE_BOTTOM ? [...paneTabs.a, ...restored] : [...restored, ...paneTabs.b],
+    targetPane,
+  }
+}
+function pickPaneActive(pane, wanted) {
+  return typeof wanted === 'string' && pane.some(tab => tab?.path === wanted) ? wanted : (pane[0]?.path ?? null)
+}
+
 export function normalizePreviewSession(value, familyKey) {
   /* A docked mind-map tab must name the persistence family it was docked on: without that stamp
      (or with another session's) it would mount a foreign map in this strip, so such a tab is dropped.
      The stamp is part of the format — a snapshot lacking it is not interpreted, it is cleaned (persisted-state.js). */
   const family = familyKey === undefined || familyKey === null ? null : String(familyKey)
   const seen = new Set()
-  const tabs = Array.isArray(value?.tabs)
-    ? value.tabs.map(clonePreviewTab).filter((tab) => {
-        if (tab === null || seen.has(tab.path) || tab.external === true) return false
-        /* A FILE tab's path is a workspace-relative tree path: an absolute path is not a tree path
-           (the Host refuses it with 400 invalid-path), so restoring one would only fire a doomed read on every load. */
-        if (tab.kind === 'file' && isAbsoluteWorkspacePath(tab.path)) return false
-        if (tab.kind === 'mindmap' && (tab.dockedAt === null || tab.sessionId === null)) return false
-        /* A music tab's synthetic path is the only address it has: anything else would be a
-           file read with a fabricated path, so a malformed one is dropped on restore. */
-        if (tab.kind === 'music' && (typeof tab.path !== 'string' || !tab.path.startsWith('music:'))) return false
-        /* A permission tab's synthetic path is its only address; a malformed one would mount the
-           page without a scope. Its path is rewritten to the current family when selected. */
-        if (tab.kind === 'permissions' && (typeof tab.path !== 'string' || !tab.path.startsWith('permissions:'))) return false
-        if (family !== null && tab.kind === 'mindmap' && tab.dockedAt !== family) return false
-        seen.add(tab.path)
-        return true
-      })
-    : []
-  const activePath = typeof value?.activePath === 'string' && tabs.some(tab => tab.path === value.activePath)
-    ? value.activePath
-    : (tabs[0]?.path ?? null)
+  const panes = []
+  const rawPanes = snapshotPanes(value)
+  for (let index = 0; index < Math.min(rawPanes.length, 2); index += 1) {
+    const raw = rawPanes[index]
+    const paneId = index === 0 ? PREVIEW_PANE_TOP : PREVIEW_PANE_BOTTOM
+    const tabs = Array.isArray(raw?.tabs)
+      ? raw.tabs.map(clonePreviewTab).filter((tab) => {
+          if (tab === null || seen.has(tab.path) || tab.external === true) return false
+          /* A FILE tab's path is a workspace-relative tree path: an absolute path is not a tree path
+             (the Host refuses it with 400 invalid-path), so restoring one would only fire a doomed read on every load. */
+          if (tab.kind === 'file' && isAbsoluteWorkspacePath(tab.path)) return false
+          if (tab.kind === 'mindmap' && (tab.dockedAt === null || tab.sessionId === null)) return false
+          /* A music tab's synthetic path is the only address it has: anything else would be a
+             file read with a fabricated path, so a malformed one is dropped on restore. */
+          if (tab.kind === 'music' && (typeof tab.path !== 'string' || !tab.path.startsWith('music:'))) return false
+          /* A permission tab's synthetic path is its only address; a malformed one would mount the
+             page without a scope. Its path is rewritten to the current family when selected. */
+          if (tab.kind === 'permissions' && (typeof tab.path !== 'string' || !tab.path.startsWith('permissions:'))) return false
+          if (family !== null && tab.kind === 'mindmap' && tab.dockedAt !== family) return false
+          tab.pane = paneId
+          seen.add(tab.path)
+          return true
+        })
+      : []
+    panes.push({
+      activePath: typeof raw?.activePath === 'string' && tabs.some(tab => tab.path === raw.activePath)
+        ? raw.activePath
+        : (tabs[0]?.path ?? null),
+      id: paneId,
+      tabs,
+    })
+  }
+  /* No empty pane is ever restored: a pane whose last tab is gone collapses (see the explorer), and
+     the bottom pane exists only while it owns at least one tab. */
+  while (panes.length > 0 && panes[panes.length - 1].tabs.length === 0) panes.pop()
+  if (panes.length === 2 && panes[0].tabs.length === 0) panes.shift()
+  for (let index = 0; index < panes.length; index += 1) {
+    panes[index].id = index === 0 ? PREVIEW_PANE_TOP : PREVIEW_PANE_BOTTOM
+    for (const tab of panes[index].tabs) tab.pane = panes[index].id
+  }
+  if (panes.length === 0) panes.push({ activePath: null, id: PREVIEW_PANE_TOP, tabs: [] })
+  const tabs = panes.flatMap(pane => pane.tabs)
+  const focusedPane = panes.length === 2 && value?.focusedPane === PREVIEW_PANE_BOTTOM && panes[1].tabs.length > 0
+    ? PREVIEW_PANE_BOTTOM
+    : PREVIEW_PANE_TOP
+  const paneActive = { a: panes[0]?.activePath ?? null, b: panes[1]?.activePath ?? null }
   const expanded = Array.isArray(value?.expanded)
     /* A directory list holds the same workspace-relative tree paths as the tabs, so an absolute
        entry can never become valid and is dropped here rather than re-firing a refused read on every load. */
     ? [...new Set(value.expanded.filter(path => typeof path === 'string' && path !== '' && !isAbsoluteWorkspacePath(path)))]
     : []
-  return { activePath, tabs, expanded, musicPrefs: normalizeMusicPrefs(value?.musicPrefs) }
+  return {
+    activePath: paneActive[focusedPane],
+    focusedPane,
+    paneActive,
+    splitRatio: clampSplitRatio(value?.splitRatio),
+    tabs,
+    expanded,
+    musicPrefs: normalizeMusicPrefs(value?.musicPrefs),
+  }
 }
 /* The permission page is a WORKSPACE-LEVEL tab: it is written into the workspace anchor snapshot and
    merged into whichever session page is currently mounted. Session snapshots may contain a copy (the
    explorer persists one value under every anchor), but that copy is stripped here so closing the tab
-   in one session cannot resurrect it from another session's old snapshot. */
+   in one session cannot resurrect it from another session's old snapshot. The merge runs on the
+   normalized internal shape and serializes back, so pane assignment/active paths stay consistent.
+   The tab's pane and index travel with the snapshot that supplied it (the workspace anchor, i.e. the
+   last arrangement), so a refresh puts it back where the user left it rather than at the end. */
 function mergeWorkspacePermission(selection, workspaceValue, workspaceKey, familyKey) {
-  const value = selection.value
   const family = familyKey === undefined || familyKey === null ? null : String(familyKey)
-  const sourceTabs = Array.isArray(value?.tabs) ? value.tabs : []
-  const workspacePermission = (workspaceValue?.tabs ?? []).find(isPermissionTab)
+  const value = selection.value
+  const hasValue = value !== undefined && value !== null
+  const sourcePlacement = hasValue ? permissionPlacement(value) : undefined
+  const workspacePlacement = permissionPlacement(workspaceValue)
   const isWorkspaceSelection = workspaceKey !== null && String(selection.key) === workspaceKey
-  const permission = isWorkspaceSelection ? ((sourceTabs.find(isPermissionTab)) ?? workspacePermission) : workspacePermission
-  const hadPermission = sourceTabs.some(isPermissionTab)
-  if (permission === undefined && !hadPermission) return selection
-  const baseTabs = sourceTabs.filter(tab => !isPermissionTab(tab))
+  const placement = isWorkspaceSelection ? (sourcePlacement ?? workspacePlacement) : workspacePlacement
+  if (sourcePlacement === undefined && placement === undefined) return selection
+  if (!hasValue) {
+    if (placement === undefined || family === null) return selection
+    const permissionPath = permissionTabPath(family)
+    const seeded = normalizePreviewSession({
+      panes: [{ activePath: permissionPath, tabs: [{ ...placement.tab, path: permissionPath }] }],
+      splitRatio: PREVIEW_SPLIT_RATIO_DEFAULT,
+      focusedPane: PREVIEW_PANE_TOP,
+    }, family)
+    return { key: selection.key, value: serializePreviewSession(seeded.activePath, seeded.tabs, seeded.expanded, seeded.musicPrefs, seeded) }
+  }
+  const internal = normalizePreviewSession(value, family)
   if (family === null) {
-    /* No session page is mounted: a permission tab would render its no-session state, so keep it out.
-       Do not manufacture a value when none existed (an empty workspace selection must stay empty). */
-    if (value === undefined || value === null) return selection
-    const activePath = typeof value.activePath === 'string' && baseTabs.some(tab => tab.path === value.activePath)
-      ? value.activePath
-      : null
-    return { key: selection.key, value: { ...value, tabs: baseTabs, activePath } }
+    /* No session identity yet: the explorer can mount before the harness restores the current
+       session, and its first persist would otherwise write a snapshot with the workspace-level
+       permission tab stripped, erasing it from every anchor. Keep the tab for that brief window
+       (it renders its no-session state); the keyed remount that follows merges it with the family
+       and puts it back at its recorded pane/index. If the selected page lacks the tab but the
+       workspace anchor still remembers it, carry that copy along at its recorded place so the first
+       write cannot erase or reorder it either. */
+    const tabs = internal.tabs.some(isPermissionTab) || placement === undefined
+      ? internal.tabs
+      : insertPermissionTab(internal.tabs, placement, null, PREVIEW_PANE_TOP).tabs
+    return { key: selection.key, value: serializePreviewSession(internal.activePath, tabs, internal.expanded, internal.musicPrefs, {
+      focusedPane: internal.focusedPane,
+      paneActive: internal.paneActive,
+      splitRatio: internal.splitRatio,
+    }) }
   }
-  const permissionPath = permission === undefined ? null : permissionTabPath(family)
-  const tabs = permission === undefined ? baseTabs : [...baseTabs, { ...permission, path: permissionPath }]
-  const originalActive = typeof value?.activePath === 'string' ? value.activePath : null
-  const activeWasPermission = sourceTabs.some(tab => tab.path === originalActive && isPermissionTab(tab))
-  let activePath = activeWasPermission ? permissionPath : originalActive
-  if (activePath !== null && !tabs.some(tab => tab.path === activePath)) activePath = null
-  if (value === undefined || value === null) {
-    /* No snapshot at all for this session: a workspace-level permission tab is still restorable. */
-    return permission === undefined ? selection : { key: selection.key, value: { tabs, activePath: permissionPath } }
+  const activeWasPermission = [internal.paneActive.a, internal.paneActive.b]
+    .some(active => internal.tabs.some(tab => tab.path === active && isPermissionTab(tab)))
+  internal.tabs = internal.tabs.filter(tab => !isPermissionTab(tab))
+  const paneTabs = { a: tabsOfPane(internal.tabs, 'a'), b: tabsOfPane(internal.tabs, 'b') }
+  internal.paneActive = {
+    a: pickPaneActive(paneTabs.a, internal.paneActive.a),
+    b: pickPaneActive(paneTabs.b, internal.paneActive.b),
   }
-  return { key: selection.key, value: { ...value, tabs, activePath } }
+  if (placement !== undefined) {
+    const permissionPath = permissionTabPath(family)
+    const inserted = insertPermissionTab(internal.tabs, placement, permissionPath, internal.focusedPane)
+    internal.tabs = inserted.tabs
+    if (activeWasPermission) internal.paneActive[inserted.targetPane] = permissionPath
+  }
+  const finalTabs = { a: tabsOfPane(internal.tabs, 'a'), b: tabsOfPane(internal.tabs, 'b') }
+  internal.paneActive = {
+    a: pickPaneActive(finalTabs.a, internal.paneActive.a),
+    b: pickPaneActive(finalTabs.b, internal.paneActive.b),
+  }
+  const focusedPane = internal.focusedPane === PREVIEW_PANE_BOTTOM && finalTabs.b.length > 0
+    ? PREVIEW_PANE_BOTTOM
+    : PREVIEW_PANE_TOP
+  return { key: selection.key, value: serializePreviewSession(internal.paneActive[focusedPane], internal.tabs, internal.expanded, internal.musicPrefs, {
+    focusedPane,
+    paneActive: internal.paneActive,
+    splitRatio: internal.splitRatio,
+  }) }
 }
 
 export function selectStoredPreviewSession(previewSessions, workspace, currentSession, workspaceId) {
@@ -280,12 +424,9 @@ export function selectStoredPreviewSession(previewSessions, workspace, currentSe
   const has = key => (previewSessions !== null && previewSessions !== undefined)
     && Object.prototype.hasOwnProperty.call(previewSessions, key)
   /* A borrowed template must carry real tabs, or it would restore an empty explorer and shadow a later non-empty snapshot. */
-  const restorable = key => {
-    const value = previewSessions[key]
-    return Array.isArray(value?.tabs) && value.tabs.length > 0
-  }
+  const restorable = key => snapshotTabs(previewSessions[key]).length > 0
   /* Skip borrowed templates carrying a mind-map tab the current session does not belong to, or a foreign map would mount in the strip. */
-  const foreignMapTab = value => (value?.tabs ?? []).some(tab => tab?.kind === 'mindmap'
+  const foreignMapTab = value => snapshotTabs(value).some(tab => tab?.kind === 'mindmap'
     && typeof tab?.sessionId === 'string' && tab.sessionId !== ''
     && tab.sessionId !== String(currentSession))
   /* A malformed workspace object (missing sessionIds) must degrade like every other bad input here. */
@@ -320,7 +461,7 @@ export function selectStoredPreviewSession(previewSessions, workspace, currentSe
   }
   return finish({ key: undefined, value: undefined })
 }
-export function serializePreviewSession(activePath, tabs, expanded, musicPrefs) {
+export function serializePreviewSession(activePath, tabs, expanded, musicPrefs, layout = {}) {
   const seen = new Set()
   const normalized = []
   for (const tab of tabs) {
@@ -328,31 +469,52 @@ export function serializePreviewSession(activePath, tabs, expanded, musicPrefs) 
     seen.add(tab.path)
     const serialized = serializePreviewTab(tab)
     if (serialized === null) continue
-    normalized.push(serialized)
+    normalized.push({ ...serialized, pane: paneOfTab(tab) })
   }
+  const paneActive = layout.paneActive === undefined || layout.paneActive === null
+    ? { a: activePath, b: null }
+    : layout.paneActive
+  const top = normalized.filter(tab => tab.pane === PREVIEW_PANE_TOP)
+  const bottom = normalized.filter(tab => tab.pane === PREVIEW_PANE_BOTTOM)
+  const withoutPane = tab => {
+    const copy = { ...tab }
+    delete copy.pane
+    return copy
+  }
+  const panes = []
+  if (top.length > 0) panes.push({ activePath: pickPaneActive(top, paneActive.a), tabs: top.map(withoutPane) })
+  if (bottom.length > 0) panes.push({ activePath: pickPaneActive(bottom, paneActive.b), tabs: bottom.map(withoutPane) })
   // Root ('') is expanded by default and never stored.
   const expandedList = expanded === undefined || expanded === null
     ? []
     : [...expanded].filter(path => typeof path === 'string' && path !== '').sort()
   return {
-    activePath: activePath !== null && normalized.some(tab => tab.path === activePath) ? activePath : (normalized[0]?.path ?? null),
-    tabs: normalized,
+    focusedPane: panes.length === 2 && layout.focusedPane === PREVIEW_PANE_BOTTOM ? PREVIEW_PANE_BOTTOM : PREVIEW_PANE_TOP,
+    panes,
+    splitRatio: clampSplitRatio(layout.splitRatio),
     expanded: expandedList,
     /* Per-session page settings ride the same snapshot: the preview page (not a global key)
        owns the model choice and the roll height, so each session keeps its own. */
     musicPrefs: normalizeMusicPrefs(musicPrefs),
   }
 }
-/* Structural identity for persistence dedup: what restore actually depends on (active path, tab paths + dirty flags, expanded dirs). Volatile fields must not participate, or the store would rewrite every render. */
+/* Structural identity for persistence dedup: what restore actually depends on (pane assignment,
+   active path per pane, tab paths + dirty flags, expanded dirs, split ratio and focus). Volatile
+   fields must not participate, or the store would rewrite every render. */
 export function previewSnapshotFingerprint(value) {
-  const tabs = Array.isArray(value?.tabs) ? value.tabs : []
+  const panes = snapshotPanes(value)
   // Restored state (encoding, per-tab text size) participates, or the decode / size would revert after a refresh and changing only it would never reach localStorage.
   // JSON.stringify (not ','/':' joins): file names may contain commas and colons, which could otherwise collide into the same fingerprint.
-  const tabPart = JSON.stringify(tabs.map(tab =>
-    [tab.path, tab.kind === 'mindmap' ? 'm' : tab.kind === 'music' ? 'u' : 'f', tab.kind === 'mindmap' ? (tab.sessionId ?? '') : '', tab.kind === 'mindmap' ? (tab.dockedAt ?? '') : '', tab.name, tab.dirty ? 1 : 0, tab.pinned ? 1 : 0, tab.encoding ?? '', tab.editing ? 1 : 0, tab.lineEnding ?? '', tab.bom ? 1 : 0, tab.baseRevision ?? '', tab.fontPercent ?? '', tab.kind === 'music' ? (tab.savedPath ?? '') : '', tab.kind === 'music' ? (tab.musicRev ?? 0) : '']))
+  const tabPart = JSON.stringify(panes.map((pane, index) => [
+    index,
+    pane?.activePath ?? '',
+    (Array.isArray(pane?.tabs) ? pane.tabs : []).map(tab =>
+      [tab.path, tab.kind === 'mindmap' ? 'm' : tab.kind === 'music' ? 'u' : 'f', tab.kind === 'mindmap' ? (tab.sessionId ?? '') : '', tab.kind === 'mindmap' ? (tab.dockedAt ?? '') : '', tab.name, tab.dirty ? 1 : 0, tab.pinned ? 1 : 0, tab.encoding ?? '', tab.editing ? 1 : 0, tab.lineEnding ?? '', tab.bom ? 1 : 0, tab.baseRevision ?? '', tab.fontPercent ?? '', tab.kind === 'music' ? (tab.savedPath ?? '') : '', tab.kind === 'music' ? (tab.musicRev ?? 0) : '']),
+  ]))
   const expandedPart = JSON.stringify(Array.isArray(value?.expanded) ? [...value.expanded].sort() : [])
   const prefsPart = JSON.stringify(normalizeMusicPrefs(value?.musicPrefs))
-  return `${value?.activePath ?? ''}|${tabPart}|${expandedPart}|${prefsPart}`
+  const layoutPart = JSON.stringify([value?.splitRatio, value?.focusedPane ?? PREVIEW_PANE_TOP])
+  return `${tabPart}|${layoutPart}|${expandedPart}|${prefsPart}`
 }
 export function dropIndexFromEvent(event) {
   const tabNodes = event.currentTarget.querySelectorAll('.dsh-ws-preview-tab')

@@ -22,12 +22,15 @@ import { MUSIC_DEFAULT_DIR } from '../../shared/music-score.js'
    live in a per-card 说明 block that is collapsed by default.
    ===================================================================================== */
 
-/* Cards and their jump-chip labels, in page order. */
+/* Cards and their jump-chip labels, in page order. This list is the single source of the jump bar,
+   the scroll spy AND the filter's own card order — a card rendered below but missing here would be
+   unreachable from the bar (and would break the spy's "last card at the bottom" rule). */
 const CARDS = Object.freeze([
   { id: 'maint', chip: 'settings.chip.maint' },
   { id: 'browse', chip: 'settings.chip.browse' },
   { id: 'palette', chip: 'settings.chip.palette' },
   { id: 'vcs', chip: 'settings.chip.vcs' },
+  { id: 'permissions', chip: 'settings.chip.permissions' },
   { id: 'mindmap', chip: 'settings.chip.mindmap' },
   { id: 'dialog', chip: 'settings.chip.dialog' },
   { id: 'interp', chip: 'settings.chip.interp' },
@@ -89,8 +92,40 @@ function applySettingsFilter(root, query) {
 }
 
 /* The sticky bar: jump chips for every card, the match count, and the search box. */
+/* Keep one chip inside the strip without moving the page: scrollIntoView would scroll the settings
+   pane as well, so only the strip's own scrollLeft is nudged. */
+function revealChip(chips, id) {
+  if (chips === null) return
+  const chip = chips.querySelector(`[data-chip="${id}"]`)
+  if (chip === null) return
+  const box = chips.getBoundingClientRect()
+  const rect = chip.getBoundingClientRect()
+  if (rect.left < box.left + 8) chips.scrollLeft -= (box.left + 8) - rect.left
+  else if (rect.right > box.right - 8) chips.scrollLeft += rect.right - (box.right - 8)
+}
+
 function SettingsBar({ query, onQuery, matches }) {
   const chipsRef = useRef(null)
+  /* The strip is the only way to reach chips that do not fit (the English labels overflow at every
+     panel width), so a wheel over it scrolls it sideways; at either end the gesture is passed
+     through so the page keeps scrolling as usual. */
+  useEffect(() => {
+    const chips = chipsRef.current
+    if (chips === null) return undefined
+    const onWheel = (event) => {
+      if (event.ctrlKey === true) return
+      const max = chips.scrollWidth - chips.clientWidth
+      if (max <= 0) return
+      const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX
+      if (delta === 0) return
+      const next = Math.max(0, Math.min(max, chips.scrollLeft + delta))
+      if (next === chips.scrollLeft) return
+      event.preventDefault()
+      chips.scrollLeft = next
+    }
+    chips.addEventListener('wheel', onWheel, { passive: false })
+    return () => { chips.removeEventListener('wheel', onWheel) }
+  }, [])
   /* The clicked chip stays lit while its smooth scroll runs: the scroll spy would otherwise report
      whatever ends up under the threshold (at the page bottom, always the LAST card — clicking 对话
      would light 解释器). The pin is released by the user's next interaction (wheel, scrollbar drag,
@@ -101,6 +136,11 @@ function SettingsBar({ query, onQuery, matches }) {
     if (chips === null) return undefined
     const root = chips.closest('.dsh-ws-settings')
     if (root === null) return undefined
+    /* A card counts as current once its head has reached the sticky bar (two rows tall); the 20px
+       slack keeps the chip from flickering back to the previous card at the exact boundary. Read
+       from the bar itself so the row heights can change without a stale literal here. */
+    const bar = chips.closest('.dsh-ws-settings-bar')
+    const stickyTop = (bar === null ? 56 : bar.offsetHeight) + 20
     /* The scroll container belongs to the harness settings shell: walk up to the first scrollable ancestor. */
     let scroller = root.parentElement
     while (scroller !== null && scroller !== document.body) {
@@ -118,13 +158,14 @@ function SettingsBar({ query, onQuery, matches }) {
         const atBottom = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 4
         if (atBottom) activeId = idOf(list[list.length - 1])
         else {
-          const top = scroller.getBoundingClientRect().top + 56
+          const top = scroller.getBoundingClientRect().top + stickyTop
           for (const card of list) if (card.getBoundingClientRect().top <= top) activeId = idOf(card)
         }
       }
       for (const button of chips.querySelectorAll('[data-chip]')) {
         button.setAttribute('aria-current', String(button.getAttribute('data-chip') === activeId))
       }
+      revealChip(chips, activeId)
     }
     /* Any interaction outside the bar means the user took over the scroll. */
     const releasePin = (event) => {
@@ -168,25 +209,29 @@ function SettingsBar({ query, onQuery, matches }) {
         'data-chip': card.id,
         key: card.id,
         onClick: () => jumpTo(card.id),
+        onFocus: () => revealChip(chipsRef.current, card.id),
         type: 'button',
       }, translate(card.chip)))),
-    query.trim() === '' ? null : h('span', { className: 'dsh-ws-settings-match' }, translate('settings.search.match', { count: String(matches) })),
-    h('label', { className: 'dsh-ws-settings-search' },
-      h(IconSearch),
-      h('input', {
-        'aria-label': translate('settings.search'),
-        onChange: event => onQuery(event.target.value),
-        placeholder: translate('settings.search.placeholder'),
-        type: 'search',
-        value: query,
-      }),
-      query === '' ? null : h('button', {
-        'aria-label': translate('settings.search.clear'),
-        className: 'dsh-ws-settings-search-clear',
-        onClick: () => onQuery(''),
-        title: translate('settings.search.clear'),
-        type: 'button',
-      }, '×')))
+    /* Second row: the search field sits at the END of the bar, with the match count just before it.
+       The chips get the whole first row, so the two never fight over the same 564px. */
+    h('div', { className: 'dsh-ws-settings-tools' },
+      query.trim() === '' ? null : h('span', { className: 'dsh-ws-settings-match' }, translate('settings.search.match', { count: String(matches) })),
+      h('label', { className: 'dsh-ws-settings-search' },
+        h(IconSearch),
+        h('input', {
+          'aria-label': translate('settings.search'),
+          onChange: event => onQuery(event.target.value),
+          placeholder: translate('settings.search.placeholder'),
+          type: 'search',
+          value: query,
+        }),
+        query === '' ? null : h('button', {
+          'aria-label': translate('settings.search.clear'),
+          className: 'dsh-ws-settings-search-clear',
+          onClick: () => onQuery(''),
+          title: translate('settings.search.clear'),
+          type: 'button',
+        }, '×'))))
 }
 
 /* =====================================================================================
@@ -584,6 +629,9 @@ function VcsCard({ settings, settingsStore, vcsHostEnabled }) {
           custom: settings.diffColors?.[group] !== undefined,
         })
       })),
+    /* 行底色 tints the same marks the palette above colors, so it belongs to that section: after the
+       palette it had no title of its own, and the search filter (and the eye) filed it under whatever
+       came before it. */
     h(SwitchRow, {
       label: translate('settings.diffLineTint'),
       checked: settings.diffLineTint !== false,
@@ -593,45 +641,46 @@ function VcsCard({ settings, settingsStore, vcsHostEnabled }) {
       onReset: () => settingsStore.actions.setDiffLineTint(true),
       custom: settings.diffLineTint === false,
     })),
-    /* Scrollbar change ruler: the widened track plus its three geometry choices. Everything is display-only, so the sub-rows simply grey out while the feature itself is off. */
-    h(SwitchRow, {
-      label: translate('settings.diffRuler'),
-      checked: settings.diffRuler !== false,
-      disabled: masterOff,
-      onChange: value => settingsStore.actions.setDiffRuler(value),
-      resetTitle: translate('settings.resetDefault'),
-      onReset: () => settingsStore.actions.setDiffRuler(true),
-      custom: rulerOff,
-    }),
-    h(Sub, { off: rulerOff || masterOff },
-      h(SliderRow, {
-        label: translate('settings.diffRulerWidth'),
-        min: DIFF_RULER_WIDTH_MIN, max: DIFF_RULER_WIDTH_MAX, step: 2,
-        value: diffRulerWidth, unit: `${diffRulerWidth}px`,
-        disabled: rulerOff,
-        onChange: value => settingsStore.actions.setDiffRulerWidth(value),
-        resetTitle: translate('settings.diffRulerWidth.reset.title'),
-        onReset: () => settingsStore.actions.setDiffRulerWidth(DIFF_RULER_WIDTH_DEFAULT),
-        custom: diffRulerWidth !== DIFF_RULER_WIDTH_DEFAULT,
-      }),
+    /* Scrollbar change ruler: the widened track plus its three geometry choices. Everything is display-only, so the sub-rows simply grey out while the feature itself is off. Its own titled section is what gives the switch a visible owner (the row label is a plain 「启用」 under it). */
+    h(Section, { label: translate('settings.diffRuler') },
       h(SwitchRow, {
-        label: translate('settings.diffRulerSpan'),
-        checked: settings.diffRulerSpan === 'full',
-        disabled: rulerOff,
-        onChange: value => settingsStore.actions.setDiffRulerSpan(value ? 'full' : 'inset'),
+        label: translate('settings.diffRuler.enable'),
+        checked: settings.diffRuler !== false,
+        disabled: masterOff,
+        onChange: value => settingsStore.actions.setDiffRuler(value),
         resetTitle: translate('settings.resetDefault'),
-        onReset: () => settingsStore.actions.setDiffRulerSpan('inset'),
-        custom: settings.diffRulerSpan === 'full',
+        onReset: () => settingsStore.actions.setDiffRuler(true),
+        custom: rulerOff,
       }),
-      h(SwitchRow, {
-        label: translate('settings.diffRulerThumb'),
-        checked: settings.diffRulerThumb === 'full',
-        disabled: rulerOff,
-        onChange: value => settingsStore.actions.setDiffRulerThumb(value ? 'full' : 'slim'),
-        resetTitle: translate('settings.resetDefault'),
-        onReset: () => settingsStore.actions.setDiffRulerThumb('slim'),
-        custom: settings.diffRulerThumb === 'full',
-      })))
+      h(Sub, { off: rulerOff || masterOff },
+        h(SliderRow, {
+          label: translate('settings.diffRulerWidth'),
+          min: DIFF_RULER_WIDTH_MIN, max: DIFF_RULER_WIDTH_MAX, step: 2,
+          value: diffRulerWidth, unit: `${diffRulerWidth}px`,
+          disabled: rulerOff,
+          onChange: value => settingsStore.actions.setDiffRulerWidth(value),
+          resetTitle: translate('settings.diffRulerWidth.reset.title'),
+          onReset: () => settingsStore.actions.setDiffRulerWidth(DIFF_RULER_WIDTH_DEFAULT),
+          custom: diffRulerWidth !== DIFF_RULER_WIDTH_DEFAULT,
+        }),
+        h(SwitchRow, {
+          label: translate('settings.diffRulerSpan'),
+          checked: settings.diffRulerSpan === 'full',
+          disabled: rulerOff,
+          onChange: value => settingsStore.actions.setDiffRulerSpan(value ? 'full' : 'inset'),
+          resetTitle: translate('settings.resetDefault'),
+          onReset: () => settingsStore.actions.setDiffRulerSpan('inset'),
+          custom: settings.diffRulerSpan === 'full',
+        }),
+        h(SwitchRow, {
+          label: translate('settings.diffRulerThumb'),
+          checked: settings.diffRulerThumb === 'full',
+          disabled: rulerOff,
+          onChange: value => settingsStore.actions.setDiffRulerThumb(value ? 'full' : 'slim'),
+          resetTitle: translate('settings.resetDefault'),
+          onReset: () => settingsStore.actions.setDiffRulerThumb('slim'),
+          custom: settings.diffRulerThumb === 'full',
+        }))))
 }
 
 /* =====================================================================================

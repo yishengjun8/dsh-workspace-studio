@@ -13,3 +13,9 @@ export function IconSessionList(){return h('svg',{'aria-hidden':true,fill:'none'
 export function IconVcsBranch(){return h('svg',{'aria-hidden':true,fill:'none',stroke:'currentColor',strokeLinecap:'round',strokeLinejoin:'round',strokeWidth:1.3,viewBox:'0 0 16 16'},h('circle',{cx:4.6,cy:3.6,r:1.7}),h('circle',{cx:4.6,cy:12.4,r:1.7}),h('circle',{cx:11.4,cy:6.4,r:1.7}),h('path',{d:'M4.6 5.3v5.4'}),h('path',{d:'M11.4 8.1c0 2.2-1.5 3.4-3.5 3.4H6.3'}))}
 /* Degraded status chip (no executable / failed read). */
 export function IconVcsWarning(){return h('svg',{'aria-hidden':true,fill:'none',stroke:'currentColor',strokeLinecap:'round',strokeLinejoin:'round',strokeWidth:1.3,viewBox:'0 0 16 16'},h('path',{d:'M8 2.3 14.2 13H1.8z'}),h('path',{d:'M8 6.3v3.2'}),h('circle',{cx:8,cy:11.3,fill:'currentColor',r:0.75,stroke:'none'}))}
+
+/* Think-card copy control: hooks/think-card.js appends that button into harness-owned DOM, where no React
+   tree of ours can render, so the two glyphs ship as markup strings with the same 16px box and 1.3 stroke
+   as the components above. They are static literals — no caller ever substitutes text into them. */
+export const COPY_ICON_MARKUP = '<svg aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.3" viewBox="0 0 16 16"><rect height="8.2" rx="1.6" width="8.2" x="5.4" y="5.4"/><path d="M10.6 5.4V3.9a1.5 1.5 0 0 0-1.5-1.5H3.9a1.5 1.5 0 0 0-1.5 1.5v5.2a1.5 1.5 0 0 0 1.5 1.5h1.5"/></svg>'
+export const CHECK_ICON_MARKUP = '<svg aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" viewBox="0 0 16 16"><path d="M3.4 8.5 6.4 11.5 12.6 4.9"/></svg>'
